@@ -1,0 +1,930 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="MySQL,Index,log,事务,">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
+<meta name="keywords" content="MySQL,Index,log,事务">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL知识体系的三驾马车">
+<meta property="og:url" content="http://yoursite.com/2019/05/26/MySQL知识体系的三驾马车/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d1c817af83ba09c6ee6da2eca87af6d3.png">
+<meta property="og:updated_time" content="2021-03-04T06:33:41.638Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="MySQL知识体系的三驾马车">
+<meta name="twitter:description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
+<meta name="twitter:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://yoursite.com/2019/05/26/MySQL知识体系的三驾马车/">
+
+
+
+
+
+  <title>MySQL知识体系的三驾马车 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/26/MySQL知识体系的三驾马车/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">MySQL知识体系的三驾马车</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-26T17:30:03+08:00">
+                2019-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/05/26/MySQL知识体系的三驾马车/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/05/26/MySQL知识体系的三驾马车/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="MySQL知识体系的三驾马车"><a href="#MySQL知识体系的三驾马车" class="headerlink" title="MySQL知识体系的三驾马车"></a>MySQL知识体系的三驾马车</h1><p>在我看来要掌握好MySQL的话要理解好这三个东西：</p>
+<ul>
+<li>索引（B+树）</li>
+<li>日志（WAL）</li>
+<li>事务(可见性)</li>
+</ul>
+<p>索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了；</p>
+<p>而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写；</p>
+<p>事务则是数据库的皇冠。</p>
+<h2 id="索引"><a href="#索引" class="headerlink" title="索引"></a>索引</h2><p>索引主要是解决查询性能的问题，数据一般都是写少查多，而且要满足各种查，所以使用数据库过程中最常见的问题就是索引的优化。</p>
+<p>MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索引，能使得索引保持比较小，更容易加载到内存中；数据全部放在B+树的叶节点上，整个叶节点又是个有序双向链表，这样非常合适区间查找。</p>
+<p>如果用平衡二叉树当索引，想象一下一棵 100 万节点的平衡二叉树，树高 20。一次查询可能需要访问 20 个数据块。在机械硬盘时代，从磁盘随机读一个数据块需要 10 ms 左右的寻址时间。也就是说，对于一个 100 万行的表，如果使用二叉树来存储，单独访问一个行可能需要 20 个 10 ms 的时间，这个查询可真够慢的</p>
+<p>对比一下 InnoDB 的一个整数字段B+数索引为例，B+树的杈数一般是 1200。这棵树高是 4 的时候，就可以存 1200 的 3 次方个值，这已经 17 亿了。考虑到树根的数据块总是在内存中的，一个 10 亿行的表上一个整数字段的索引，查找一个值最多只需要访问 3 次磁盘。其实，树的第二层也有很大概率在内存中，那么访问磁盘的平均次数就更少了。</p>
+<p>明确以下几点：</p>
+<ul>
+<li>B+树是N叉树，以一个整数字段索引来看，N基本等于1200。数据库里的树高一般在2-4层。</li>
+<li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
+<li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
+</ul>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
+<p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
+<p>MySQL一个查询只能用一个索引。</p>
+<h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
+<p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>select * from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<strong>回表</strong>导致非常慢。</p>
+<p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
+<p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
+<p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
+<h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
+<p>写数据除了记录redo-log之外在内存中还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</span><br></pre></td></tr></table></figure>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
+<h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
+<p>这是数据库优化的关键。</p>
+<h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
+<h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
+<p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
+<p>redo-log和bin-log的比较：</p>
+<ul>
+<li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。redo-log保证了crash-safe的问题，binlog只能用于归档，保证不了safe。</li>
+<li>redo log 是物理日志，记录的是“在某个数据页上做了什么修改”；binlog 是逻辑日志，记录的是这个语句的原始逻辑，比如“给 ID=2 这一行的 c 字段加 1 ”。</li>
+<li>redo log 是循环写的，空间固定会用完；binlog 是可以追加写入的。“追加写”是指 binlog 文件写到一定大小后会切换到下一个，并不会覆盖以前的日志。</li>
+</ul>
+<p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘</p>
+<p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到磁盘上。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
+<ol>
+<li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
+<li>如果redo-log里面事务只有完整的prepare，则去检查事务对应的binlog是否完整<ol>
+<li>如果binlog完整则提交事务</li>
+<li>如果不完整则回滚事务</li>
+</ol>
+</li>
+<li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
+</ol>
+<h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
+<ul>
+<li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。</li>
+<li>系统内存不够，也需要将内存中的脏页释放，释放前需要先刷入到表空间。</li>
+<li>系统空闲的时候也会趁机刷脏</li>
+</ul>
+<p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
+<p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
+<p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
+<p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
+<p>如果两次读过程中，有一个别的事务修改了数据并提交了，第二次读到的还是别的事务修改前的数据，也就是这个修改后的数据不可见，因为别的事务在本事务之后。</p>
+<p>如果一个在本事务启动之后的事务已经提交了，本事务会读到最新的数据，但是因为隔离级别的设置，会要求MySQL判断这个数据不可见，这样只能按照undo-log去反推修改前的数据，如果有很多这样的已经提交的事务，那么需要反推很多次，也会造成卡顿。</p>
+<p>总结下，可见性的关键在于两个事务开始的先后关系：</p>
+<ul>
+<li>如果是可重复读RR（Repeatable Read），后开始的事务提交的结果对前面的事务<strong>不</strong>可见</li>
+<li>如果是读已提交RC（Read Committed），后开始的事务提交的结果对前面的事务可见</li>
+</ul>
+<h3 id="当前读"><a href="#当前读" class="headerlink" title="当前读"></a>当前读</h3><p>更新数据都是先读后写的，而这个读，只能读当前的值，称为“当前读”（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。</p>
+<p>事务的可重复读的能力是怎么实现的？</p>
+<p>可重复读的核心就是一致性读（consistent read）；而事务更新数据的时候，只能用当前读。如果<br>当前的记录的行锁被其他事务占用的话，就需要进入锁等待。</p>
+<p>而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：</p>
+<ul>
+<li>在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共<br>用这个一致性视图；</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
+<p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
+<p>事务则是数据库皇冠。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/" target="_blank" rel="noopener">https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/</a> 回表</p>
+<p><a href="https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause" target="_blank" rel="noopener">https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+          
+            <a href="/tags/Index/" rel="tag"># Index</a>
+          
+            <a href="/tags/log/" rel="tag"># log</a>
+          
+            <a href="/tags/事务/" rel="tag"># 事务</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2019/05/24/网络包的流转/" rel="next" title="Linux Network Stack">
+                <i class="fa fa-chevron-left"></i> Linux Network Stack
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2019/06/02/史上最全 SSH 暗黑技巧详解--收藏保平安/" rel="prev" title="史上最全 SSH 暗黑技巧详解--收藏保平安">
+                史上最全 SSH 暗黑技巧详解--收藏保平安 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+      <div id="disqus_thread">
+        <noscript>
+          Please enable JavaScript to view the
+          <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+        </noscript>
+      </div>
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="weibo @plantegg">
+          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL知识体系的三驾马车"><span class="nav-number">1.</span> <span class="nav-text">MySQL知识体系的三驾马车</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#索引"><span class="nav-number">1.1.</span> <span class="nav-text">索引</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#联合索引"><span class="nav-number">1.1.1.</span> <span class="nav-text">联合索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引下推-index-condition-pushdown"><span class="nav-number">1.1.2.</span> <span class="nav-text">索引下推(index condition pushdown )</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#覆盖索引"><span class="nav-number">1.1.3.</span> <span class="nav-text">覆盖索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#回表"><span class="nav-number">1.1.4.</span> <span class="nav-text">回表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引的一些其它知识点"><span class="nav-number">1.1.5.</span> <span class="nav-text">索引的一些其它知识点</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#日志"><span class="nav-number">1.2.</span> <span class="nav-text">日志</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Write-Ahead-logging（WAL）"><span class="nav-number">1.2.1.</span> <span class="nav-text">Write-Ahead logging（WAL）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#bin-log"><span class="nav-number">1.2.2.</span> <span class="nav-text">bin-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#redo-log"><span class="nav-number">1.2.3.</span> <span class="nav-text">redo-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#binlog和redo-log一致性的保证"><span class="nav-number">1.2.4.</span> <span class="nav-text">binlog和redo-log一致性的保证</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#刷脏"><span class="nav-number">1.2.5.</span> <span class="nav-text">刷脏</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#事务"><span class="nav-number">1.3.</span> <span class="nav-text">事务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#可见性"><span class="nav-number">1.3.1.</span> <span class="nav-text">可见性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#可重复读"><span class="nav-number">1.3.2.</span> <span class="nav-text">可重复读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#当前读"><span class="nav-number">1.3.3.</span> <span class="nav-text">当前读</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+    
+      <script id="dsq-count-scr" src="https://.disqus.com/count.js" async></script>
+    
+
+    
+      <script type="text/javascript">
+        var disqus_config = function () {
+          this.page.url = 'http://yoursite.com/2019/05/26/MySQL知识体系的三驾马车/';
+          this.page.identifier = '2019/05/26/MySQL知识体系的三驾马车/';
+          this.page.title = 'MySQL知识体系的三驾马车';
+        };
+        var d = document, s = d.createElement('script');
+        s.src = 'https://.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', '' + +new Date());
+        (d.head || d.body).appendChild(s);
+      </script>
+    
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
