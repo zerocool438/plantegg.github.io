@@ -108,7 +108,7 @@
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cf58f10a523e1e4f0db443be3f54fc04.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8bbb5c886dc06196546daec46712ff71.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8e15e91d4dcc61bbd329e7283c7c7500.png">
-<meta property="og:updated_time" content="2021-03-04T06:33:41.635Z">
+<meta property="og:updated_time" content="2021-03-04T07:33:56.302Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux内存--碎片">
 <meta name="twitter:description" content="Linux内存–碎片/proc/buddyinfo/proc/buddyinfo记录了内存的详细碎片情况。 1234#cat /proc/buddyinfo Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 Node 0, zone    DMA32">
@@ -456,9 +456,21 @@
 <p>或者购买新的ECS机型（比如第6代之后ECS）能避免这个问题。</p>
 <p>ECS内部没法查看到这个碎片，只能在宿主机上通过命令查看大页情况：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">第二台有问题NC</span><br><span class="line">$cat /proc/buddyinfo</span><br><span class="line">Node 0, zone      DMA      1      1      0      0      2      1      1      0      1      1      3</span><br><span class="line">Node 0, zone    DMA32     23     23     17     15     13      9      8      8      4      3    367</span><br><span class="line">Node 0, zone   Normal 295291 298652 286048 266597 218191 156837  93156  45930  25856      0      0</span><br><span class="line"></span><br><span class="line">最新建的vm，大页不多</span><br><span class="line">$sudo cat /proc/9550/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">210944</span><br><span class="line">------------------------</span><br><span class="line">第一台正常ECS所在的NC</span><br><span class="line">$cat /proc/buddyinfo</span><br><span class="line">Node 0, zone      DMA      1      1      0      0      2      1      1      0      1      1      3</span><br><span class="line">Node 0, zone    DMA32      7      5      5      9      8      4      6     10      5      5    366</span><br><span class="line">Node 0, zone   Normal 203242 217888 184465 176280 148612 102122  55787  26642  24824      0      0</span><br><span class="line"></span><br><span class="line">早期的vm，大页充足</span><br><span class="line">$sudo cat /proc/87369/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">8275968</span><br><span class="line"></span><br><span class="line">近期的vm，大页不够</span><br><span class="line">$sudo cat /proc/22081/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">251904</span><br><span class="line"></span><br><span class="line">$sudo cat /proc/44073/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">10240</span><br></pre></td></tr></table></figure>
+<h2 id="内存使用分析"><a href="#内存使用分析" class="headerlink" title="内存使用分析"></a>内存使用分析</h2><h3 id="pmap"><a href="#pmap" class="headerlink" title="pmap"></a>pmap</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">pmap -x 24282 | less</span><br><span class="line">24282:   /usr/sbin/rsyslogd -n</span><br><span class="line">Address           Kbytes     RSS   Dirty Mode  Mapping</span><br><span class="line">000055ce1a99f000     596     580       0 r-x-- rsyslogd</span><br><span class="line">000055ce1ac34000      12      12      12 r---- rsyslogd</span><br><span class="line">000055ce1ac37000      28      28      28 rw--- rsyslogd</span><br><span class="line">000055ce1ac3e000       4       4       4 rw---   [ anon ]</span><br><span class="line">000055ce1c1f1000     364     204     204 rw---   [ anon ]</span><br><span class="line">00007fff8b5a4000     132      20      20 rw---   [ stack ]</span><br><span class="line">00007fff8b5e6000      12       0       0 r----   [ anon ]</span><br><span class="line">00007fff8b5e9000       8       4       0 r-x--   [ anon ]</span><br><span class="line">---------------- ------- ------- -------</span><br><span class="line">total kB          620060   17252    3304</span><br></pre></td></tr></table></figure>
+<ul>
+<li>Address：占用内存的文件的内存起始地址。</li>
+<li>Kbytes：占用内存的字节数。</li>
+<li>RSS：实际占用内存大小。</li>
+<li>Dirty：脏页大小。</li>
+<li>Mapping：占用内存的文件，[anon] 为已分配的内存，[stack] 为程序堆栈</li>
+</ul>
+<h3 id="proc-pid"><a href="#proc-pid" class="headerlink" title="/proc/pid/"></a>/proc/pid/</h3><p><code>/proc/[pid]/</code> 下面与进程内存相关的文件主要有<code>maps , smaps, status</code>。<br>maps： 文件可以查看某个进程的代码段、栈区、堆区、动态库、内核区对应的虚拟地址<br>smaps: 显示每个分区更详细的内存占用数据<br>status: 包含了所有CPU活跃的信息，该文件中的所有值都是从系统启动开始累计到当前时刻</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
 <p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
 <p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+<p><a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="noopener">rsyslog占用内存高</a></p>
+<p><a href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html" target="_blank" rel="noopener">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
+<p><a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html" target="_blank" rel="noopener">鸟哥 journald 介绍</a></p>
 
       
     </div>
@@ -507,8 +519,8 @@
         <div class="post-nav">
           <div class="post-nav-next post-nav-item">
             
-              <a href="/2020/11/15/Linux内存--零拷贝/" rel="next" title="Linux内存--零拷贝">
-                <i class="fa fa-chevron-left"></i> Linux内存--零拷贝
+              <a href="/2020/11/15/Linux内存--HugePage/" rel="next" title="Linux内存--HugePage">
+                <i class="fa fa-chevron-left"></i> Linux内存--HugePage
               </a>
             
           </div>
@@ -517,8 +529,8 @@
 
           <div class="post-nav-prev post-nav-item">
             
-              <a href="/2020/11/15/Linux内存--HugePage/" rel="prev" title="Linux内存--HugePage">
-                Linux内存--HugePage <i class="fa fa-chevron-right"></i>
+              <a href="/2020/11/15/Linux内存--pagecache/" rel="prev" title="Linux内存--PageCache">
+                Linux内存--PageCache <i class="fa fa-chevron-right"></i>
               </a>
             
           </div>
@@ -596,7 +608,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -607,7 +619,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">20</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -618,7 +630,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-count">209</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -660,7 +672,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux内存–碎片"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–碎片</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#proc-buddyinfo"><span class="nav-number">1.1.</span> <span class="nav-text">/proc/buddyinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存分配"><span class="nav-number">1.2.</span> <span class="nav-text">内存分配</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#系统中脏页过多引起-load-飙高"><span class="nav-number">1.2.1.</span> <span class="nav-text">系统中脏页过多引起 load 飙高</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#碎片化"><span class="nav-number">1.3.</span> <span class="nav-text">碎片化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存碎片化导致rt升高的诊断"><span class="nav-number">1.4.</span> <span class="nav-text">内存碎片化导致rt升高的诊断</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一个阿里云ECS-因为宿主机碎片导致性能衰退的案例"><span class="nav-number">1.5.</span> <span class="nav-text">一个阿里云ECS 因为宿主机碎片导致性能衰退的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.6.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux内存–碎片"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–碎片</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#proc-buddyinfo"><span class="nav-number">1.1.</span> <span class="nav-text">/proc/buddyinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存分配"><span class="nav-number">1.2.</span> <span class="nav-text">内存分配</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#系统中脏页过多引起-load-飙高"><span class="nav-number">1.2.1.</span> <span class="nav-text">系统中脏页过多引起 load 飙高</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#碎片化"><span class="nav-number">1.3.</span> <span class="nav-text">碎片化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存碎片化导致rt升高的诊断"><span class="nav-number">1.4.</span> <span class="nav-text">内存碎片化导致rt升高的诊断</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一个阿里云ECS-因为宿主机碎片导致性能衰退的案例"><span class="nav-number">1.5.</span> <span class="nav-text">一个阿里云ECS 因为宿主机碎片导致性能衰退的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存使用分析"><span class="nav-number">1.6.</span> <span class="nav-text">内存使用分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pmap"><span class="nav-number">1.6.1.</span> <span class="nav-text">pmap</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#proc-pid"><span class="nav-number">1.6.2.</span> <span class="nav-text">/proc/pid/</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.7.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

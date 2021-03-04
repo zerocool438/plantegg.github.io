@@ -110,7 +110,9 @@
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ed8c624b704b0c94da2ca76a37b39916.png">
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/b288a740f9f10007485e37fd339051f8.png">
 <meta property="og:image" content="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png">
-<meta property="og:updated_time" content="2021-03-04T06:33:41.660Z">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/89f584899a5e5e00ba5c2b16707ed24a.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec1f04befe56823668b4d1f831bd3ea4.png">
+<meta property="og:updated_time" content="2021-03-04T07:33:56.347Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底是谁reset了你的连接">
 <meta name="twitter:description" content="到底是谁reset了你的连接背景用户经常连不上服务，经过抓包发现是链路上连接被reset了，需要定位到是哪个设备发起的reset 比如：  用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错） 某家居客户通过专线访问云上drds，总是被reset( 内网ip地址重复–都是192.168.*， 导致连接被reset)  抓包在 Navicat 机">
@@ -443,6 +445,16 @@
 <p>如果不是下一跳可以通过 traceroute/mtr 来找到这个设备的ip</p>
 <h3 id="某家居的reset"><a href="#某家居的reset" class="headerlink" title="某家居的reset"></a>某家居的reset</h3><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png" alt="undefined"> </p>
 <p>从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。</p>
+<h2 id="常亮ISV-vpn环境reset"><a href="#常亮ISV-vpn环境reset" class="headerlink" title="常亮ISV vpn环境reset"></a>常亮ISV vpn环境reset</h2><p>client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select <em> from table1 ; 就一定reset，但是select </em> from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询这个表的大小比较相关。</p>
+<p>于是在server和client上同时抓到了一次完整的reset</p>
+<p>如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/89f584899a5e5e00ba5c2b16707ed24a.png" alt="image.png"></p>
+<p>下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec1f04befe56823668b4d1f831bd3ea4.png" alt></p>
+<p>最终排查后client端</p>
+<blockquote>
+<p>公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在是可以正常测试了</p>
+</blockquote>
 <h2 id="slb主动reset的话"><a href="#slb主动reset的话" class="headerlink" title="slb主动reset的话"></a>slb主动reset的话</h2><p>ttl是102, identification是31415。<br>探活reset是正常的reset，ttl和id都没做特殊处理。</p>
 
       
@@ -581,7 +593,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -592,7 +604,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">20</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -603,7 +615,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-count">209</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -645,7 +657,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底是谁reset了你的连接"><span class="nav-number">1.</span> <span class="nav-text">到底是谁reset了你的连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#背景"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#抓包"><span class="nav-number">1.2.</span> <span class="nav-text">抓包</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#DRDS-Server上抓包"><span class="nav-number">1.3.</span> <span class="nav-text">DRDS Server上抓包</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#如果连接已经断开"><span class="nav-number">1.3.1.</span> <span class="nav-text">如果连接已经断开</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Identification-和-TTL"><span class="nav-number">1.4.</span> <span class="nav-text">Identification 和 TTL</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#线索一-Identification"><span class="nav-number">1.4.1.</span> <span class="nav-text">线索一 Identification</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#TTL"><span class="nav-number">1.4.2.</span> <span class="nav-text">TTL</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#某家居的reset"><span class="nav-number">1.4.3.</span> <span class="nav-text">某家居的reset</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#slb主动reset的话"><span class="nav-number">1.5.</span> <span class="nav-text">slb主动reset的话</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底是谁reset了你的连接"><span class="nav-number">1.</span> <span class="nav-text">到底是谁reset了你的连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#背景"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#抓包"><span class="nav-number">1.2.</span> <span class="nav-text">抓包</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#DRDS-Server上抓包"><span class="nav-number">1.3.</span> <span class="nav-text">DRDS Server上抓包</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#如果连接已经断开"><span class="nav-number">1.3.1.</span> <span class="nav-text">如果连接已经断开</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Identification-和-TTL"><span class="nav-number">1.4.</span> <span class="nav-text">Identification 和 TTL</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#线索一-Identification"><span class="nav-number">1.4.1.</span> <span class="nav-text">线索一 Identification</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#TTL"><span class="nav-number">1.4.2.</span> <span class="nav-text">TTL</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#某家居的reset"><span class="nav-number">1.4.3.</span> <span class="nav-text">某家居的reset</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#常亮ISV-vpn环境reset"><span class="nav-number">1.5.</span> <span class="nav-text">常亮ISV vpn环境reset</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#slb主动reset的话"><span class="nav-number">1.6.</span> <span class="nav-text">slb主动reset的话</span></a></li></ol></li></ol></div>
             
 
           </div>

@@ -95,14 +95,15 @@
 
 
 
-<meta name="description" content="Linux内存–PageCachePage Cache 是在应用程序读写文件的过程中产生的，  手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为： echo 1 &amp;gt; /proc/sys/vm/drop_caches:表示清除pagecache。 echo 2 &amp;gt; /proc/sys/vm/drop_caches:表示清除回收slab分配器中">
+<meta name="description" content="Linux内存–PageCacheread(2)/write(2) 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 Kernel buffer cache 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：Page Cache 和 Buffer Cache，这两个其实是一体两面">
 <meta name="keywords" content="Linux,free,Memory,PageCache">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Linux内存--PageCache">
 <meta property="og:url" content="http://yoursite.com/2020/11/15/Linux内存--pagecache/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="Linux内存–PageCachePage Cache 是在应用程序读写文件的过程中产生的，  手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为： echo 1 &amp;gt; /proc/sys/vm/drop_caches:表示清除pagecache。 echo 2 &amp;gt; /proc/sys/vm/drop_caches:表示清除回收slab分配器中">
+<meta property="og:description" content="Linux内存–PageCacheread(2)/write(2) 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 Kernel buffer cache 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：Page Cache 和 Buffer Cache，这两个其实是一体两面">
 <meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cd1b3a9bebaf1e7219904fd537191cde.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/51bf36aa14dc01e7ad309c1bb9d252e9.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d62ea00662f8342b7df3aab6b28e4cbb.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0a5cdeb75b7dee2068254cd4b7fe254d.png">
@@ -114,11 +115,11 @@
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f16438b744a248d7671d5ac7317b0a98.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cf58f10a523e1e4f0db443be3f54fc04.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d5446b656e8d91a9fb72200a7b97e723.png">
-<meta property="og:updated_time" content="2021-03-04T06:33:41.635Z">
+<meta property="og:updated_time" content="2021-03-04T07:33:56.301Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux内存--PageCache">
-<meta name="twitter:description" content="Linux内存–PageCachePage Cache 是在应用程序读写文件的过程中产生的，  手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为： echo 1 &amp;gt; /proc/sys/vm/drop_caches:表示清除pagecache。 echo 2 &amp;gt; /proc/sys/vm/drop_caches:表示清除回收slab分配器中">
-<meta name="twitter:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/51bf36aa14dc01e7ad309c1bb9d252e9.png">
+<meta name="twitter:description" content="Linux内存–PageCacheread(2)/write(2) 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 Kernel buffer cache 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：Page Cache 和 Buffer Cache，这两个其实是一体两面">
+<meta name="twitter:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cd1b3a9bebaf1e7219904fd537191cde.png">
 
 
 
@@ -395,7 +396,16 @@
       
 
       
-        <h1 id="Linux内存–PageCache"><a href="#Linux内存–PageCache" class="headerlink" title="Linux内存–PageCache"></a>Linux内存–PageCache</h1><p>Page Cache 是在应用程序读写文件的过程中产生的， </p>
+        <h1 id="Linux内存–PageCache"><a href="#Linux内存–PageCache" class="headerlink" title="Linux内存–PageCache"></a>Linux内存–PageCache</h1><p><code>read(2)/write(2)</code> 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 <code>Kernel buffer cache</code> 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：<code>Page Cache</code> 和 <code>Buffer Cache</code>，这两个其实是一体两面，共同组成了 Linux 的内核缓冲区（Kernel Buffer Cache），Page Cache 是在应用程序读写文件的过程中产生的：</p>
+<ul>
+<li><strong>读磁盘</strong>：内核会先检查 <code>Page Cache</code> 里是不是已经缓存了这个数据，若是，直接从这个内存缓冲区里读取返回，若否，则穿透到磁盘去读取，然后再缓存在 <code>Page Cache</code> 里，以备下次缓存命中；</li>
+<li><p><strong>写磁盘</strong>：内核直接把数据写入 <code>Page Cache</code>，并把对应的页标记为 dirty，添加到 dirty list 里，然后就直接返回，内核会定期把 dirty list 的页缓存 flush 到磁盘，保证页缓存和磁盘的最终一致性。</p>
+<p>在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 <code>Buffer Cache</code> 是基于操作系统读写磁盘的最小单位 – 块（block）来进行的，所有的磁盘块操作都是通过 <code>Buffer Cache</code> 来加速，<strong>Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位</strong>，因此也引入了 <code>Page Cache</code> 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 <code>read()/write()</code> 操作，另外也包括了通过 <code>mmap()</code> 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 <code>Buffer Cache</code> 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。</p>
+</li>
+</ul>
+<p>在 Linux 2.4 版本之后，kernel 就将两者进行了统一，<code>Buffer Cache</code> 不再以独立的形式存在，而是以融合的方式存在于 <code>Page Cache</code> 中</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cd1b3a9bebaf1e7219904fd537191cde.png" alt></p>
+<p>融合之后就可以统一操作 <code>Page Cache</code> 和 <code>Buffer Cache</code>：处理文件 I/O 缓存交给 <code>Page Cache</code>，而当底层 RAW device 刷新数据时以 <code>Buffer Cache</code> 的块单位来实际处理。</p>
 <p>手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：</p>
 <p><strong>echo 1 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache。</p>
 <p><strong>echo 2 &gt; /proc/sys/vm/drop_caches</strong>:表示清除回收slab分配器中的对象（包括目录项缓存和inode缓存）。slab分配器是内核中管理内存的一种机制，其中很多缓存数据实现都是用的pagecache。</p>
@@ -516,8 +526,8 @@
         <div class="post-nav">
           <div class="post-nav-next post-nav-item">
             
-              <a href="/2020/11/15/Linux内存--HugePage/" rel="next" title="Linux内存--HugePage">
-                <i class="fa fa-chevron-left"></i> Linux内存--HugePage
+              <a href="/2020/11/15/Linux内存--碎片/" rel="next" title="Linux内存--碎片">
+                <i class="fa fa-chevron-left"></i> Linux内存--碎片
               </a>
             
           </div>
@@ -605,7 +615,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -616,7 +626,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">20</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -627,7 +637,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-count">209</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

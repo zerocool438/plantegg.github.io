@@ -105,7 +105,7 @@
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/159a331ff8cdd4b8994dfe6a209d035f.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png">
-<meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d5947bd339c58c631217100f80ee7078.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/bcf463efeb677d5749d8d7571274ee79.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c0849615ae52531887ce6b0313d7d2d1.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec25ccb6cce8f554b7ef6927f05bd530.png">
@@ -115,7 +115,7 @@
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a5616904df3a505572d99d557b534db2.png">
 <meta property="og:image" content="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0c6bbb5d4a10f40c8b3c4ba6cab82292.png">
-<meta property="og:updated_time" content="2021-03-04T06:33:41.668Z">
+<meta property="og:updated_time" content="2021-03-04T07:33:56.365Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="就是要你懂TCP--半连接队列和全连接队列">
 <meta name="twitter:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚: 1)  这两个队列是干什么用的； 2）怎么设置和观察他们的最大值； 3）怎么查看这两个队列当前使用到了多少； 4）一旦">
@@ -431,12 +431,12 @@
 <p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
 </blockquote>
 <h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"><br><!--（图片来源：http://www.cnxct.com/something-about-phpfpm-s-backlog/）--></p>
-<p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d5947bd339c58c631217100f80ee7078.png" alt="image.png"></p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
 <p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
 <p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
 <pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
-</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，否则按tcp_abort_on_overflow指示的执行。</p>
-<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据可以断开，而实际server上连接还没建立好（还没能力）。</p>
+</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
 <p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
 <pre><code>net.ipv4.tcp_synack_retries = 2
 </code></pre><h2 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
@@ -581,8 +581,7 @@ server5
 <p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
 <p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
 <hr>
-<p>参考文章：</p>
-<p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="noopener">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="noopener">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
 <p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="noopener">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
 <p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="noopener">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
 <p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
@@ -658,8 +657,8 @@ server5
 
           <div class="post-nav-prev post-nav-item">
             
-              <a href="/2017/06/14/high_load/" rel="prev" title="High Load and Low CPU usage">
-                High Load and Low CPU usage <i class="fa fa-chevron-right"></i>
+              <a href="/2017/07/24/Linux crond的问题总结/" rel="prev" title="Linux crond的问题总结">
+                Linux crond的问题总结 <i class="fa fa-chevron-right"></i>
               </a>
             
           </div>
@@ -737,7 +736,7 @@ server5
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -748,7 +747,7 @@ server5
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">20</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -759,7 +758,7 @@ server5
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-count">209</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -801,7 +800,7 @@ server5
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#关于TCP-半连接队列和全连接队列"><span class="nav-number">1.</span> <span class="nav-text">关于TCP 半连接队列和全连接队列</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#问题描述"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#分析问题"><span class="nav-number">1.2.</span> <span class="nav-text">分析问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#正常TCP建连接三次握手过程："><span class="nav-number">1.2.1.</span> <span class="nav-text">正常TCP建连接三次握手过程：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#深入理解TCP握手过程中建连接的流程和队列"><span class="nav-number">1.3.</span> <span class="nav-text">深入理解TCP握手过程中建连接的流程和队列</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#如果TCP连接队列溢出，有哪些指标可以看呢？"><span class="nav-number">1.4.</span> <span class="nav-text">如果TCP连接队列溢出，有哪些指标可以看呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#netstat-s"><span class="nav-number">1.4.1.</span> <span class="nav-text">netstat -s</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ss-命令"><span class="nav-number">1.4.2.</span> <span class="nav-text">ss 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat-命令"><span class="nav-number">1.4.2.1.</span> <span class="nav-text">netstat 命令</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat看到的listen状态的Recv-Q-Send-Q"><span class="nav-number">1.4.2.2.</span> <span class="nav-text">netstat看到的listen状态的Recv-Q/Send-Q</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？"><span class="nav-number">1.5.</span> <span class="nav-text">案列：如果TCP连接队列溢出，抓包是什么现象呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#通过ss和netstat所观察到的状态"><span class="nav-number">1.5.1.</span> <span class="nav-text">通过ss和netstat所观察到的状态</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#实践验证一下上面的理解"><span class="nav-number">1.6.</span> <span class="nav-text">实践验证一下上面的理解</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Tomcat和Nginx中的Accept队列参数"><span class="nav-number">1.6.1.</span> <span class="nav-text">Tomcat和Nginx中的Accept队列参数</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#进一步思考"><span class="nav-number">1.7.</span> <span class="nav-text">进一步思考</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#过程中发现的一个奇怪问题"><span class="nav-number">1.8.</span> <span class="nav-text">过程中发现的一个奇怪问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#那么全连接队列满了会影响半连接队列吗？"><span class="nav-number">1.9.</span> <span class="nav-text">那么全连接队列满了会影响半连接队列吗？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.10.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#关于TCP-半连接队列和全连接队列"><span class="nav-number">1.</span> <span class="nav-text">关于TCP 半连接队列和全连接队列</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#问题描述"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#分析问题"><span class="nav-number">1.2.</span> <span class="nav-text">分析问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#正常TCP建连接三次握手过程："><span class="nav-number">1.2.1.</span> <span class="nav-text">正常TCP建连接三次握手过程：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#深入理解TCP握手过程中建连接的流程和队列"><span class="nav-number">1.3.</span> <span class="nav-text">深入理解TCP握手过程中建连接的流程和队列</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#如果TCP连接队列溢出，有哪些指标可以看呢？"><span class="nav-number">1.4.</span> <span class="nav-text">如果TCP连接队列溢出，有哪些指标可以看呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#netstat-s"><span class="nav-number">1.4.1.</span> <span class="nav-text">netstat -s</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ss-命令"><span class="nav-number">1.4.2.</span> <span class="nav-text">ss 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat-命令"><span class="nav-number">1.4.2.1.</span> <span class="nav-text">netstat 命令</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat看到的listen状态的Recv-Q-Send-Q"><span class="nav-number">1.4.2.2.</span> <span class="nav-text">netstat看到的listen状态的Recv-Q/Send-Q</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？"><span class="nav-number">1.5.</span> <span class="nav-text">案列：如果TCP连接队列溢出，抓包是什么现象呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#通过ss和netstat所观察到的状态"><span class="nav-number">1.5.1.</span> <span class="nav-text">通过ss和netstat所观察到的状态</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#实践验证一下上面的理解"><span class="nav-number">1.6.</span> <span class="nav-text">实践验证一下上面的理解</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Tomcat和Nginx中的Accept队列参数"><span class="nav-number">1.6.1.</span> <span class="nav-text">Tomcat和Nginx中的Accept队列参数</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#进一步思考"><span class="nav-number">1.7.</span> <span class="nav-text">进一步思考</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#过程中发现的一个奇怪问题"><span class="nav-number">1.8.</span> <span class="nav-text">过程中发现的一个奇怪问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#那么全连接队列满了会影响半连接队列吗？"><span class="nav-number">1.9.</span> <span class="nav-text">那么全连接队列满了会影响半连接队列吗？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.10.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章"><span class="nav-number">1.11.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
             
 
           </div>

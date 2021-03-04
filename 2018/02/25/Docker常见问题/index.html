@@ -105,7 +105,7 @@
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2ba8bc014d93ad4b6e77c889a024772f.png">
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dbc4dac5a9a0289b58952375c5759b15.gif">
-<meta property="og:updated_time" content="2021-03-04T06:33:41.631Z">
+<meta property="og:updated_time" content="2021-03-04T07:33:56.290Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Docker 常见问题">
 <meta name="twitter:description" content="Docker 常见问题启动docker daemon启动的时候如果报 socket错误，是因为daemon启动参数配置了： -H fd://  ，但是 docker.socket是disable状态，启动daemon依赖socket，但是systemctl又拉不起来docker.socket，因为被disable了，先  sudo systemctl enable docker.socket 就可">
@@ -398,8 +398,9 @@
 <p><a href="https://access.redhat.com/solutions/2876431" target="_blank" rel="noopener">https://access.redhat.com/solutions/2876431</a>  <a href="https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system" target="_blank" rel="noopener">https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system</a></p>
 <p>yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)</p>
 <h3 id="Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network"><a href="#Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network" class="headerlink" title="Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network"></a><a href="http://blog.joylau.cn/2019/04/08/Docker-Start-Error/" target="_blank" rel="noopener">Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network</a></h3><p>这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link add docker0 type bridge</span><br><span class="line">ip addr add dev docker0 172.30.0.0/16</span><br></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link add docker0 type bridge</span><br><span class="line">ip addr add dev docker0 172.30.0.0/24</span><br></pre></td></tr></table></figure>
 <p>启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#systemctl status docker -l</span><br><span class="line">● docker.service - Docker Application Container Engine</span><br><span class="line">   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)</span><br><span class="line">   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago</span><br><span class="line">     Docs: http://docs.docker.io</span><br><span class="line">  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)</span><br><span class="line">  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)</span><br><span class="line"> Main PID: 68317 (code=exited, status=1/FAILURE)</span><br><span class="line"></span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991179104+08:00&quot; level=warning msg=&quot;failed to load plugin io.containerd.snapshotter.v1.aufs&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991371956+08:00&quot; level=warning msg=&quot;could not use snapshotter btrfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991381620+08:00&quot; level=warning msg=&quot;could not use snapshotter aufs in metadata plugin&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991388991+08:00&quot; level=warning msg=&quot;could not use snapshotter zfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin&quot;</span><br><span class="line">Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.</span><br></pre></td></tr></table></figure>
 <p>参考：<a href="https://github.com/docker/for-linux/issues/123" target="_blank" rel="noopener">https://github.com/docker/for-linux/issues/123</a>  </p>
 <p>或者这样解决：<a href="https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller" target="_blank" rel="noopener">https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller</a></p>
 <p>This was related to the machine having several network cards (can also happen in machines with VPN)</p>
@@ -407,6 +408,7 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/usr/bin/docker daemon --debug --bip=192.168.y.x/24</span><br></pre></td></tr></table></figure>
 <p>where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The –debug is not really needed, but might help if something else fails.</p>
 <p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
+<p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
 <h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
 <p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
 <p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
@@ -419,8 +421,10 @@
 <p>[Service]<br>Type=notify<br>Environment=PATH=/opt/kube/bin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/opt/satools:/root/bin</p>
 </blockquote>
 <h2 id="容器没有systemctl"><a href="#容器没有systemctl" class="headerlink" title="容器没有systemctl"></a>容器没有systemctl</h2><p><strong>Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候</strong> </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要</span><br></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd</span><br></pre></td></tr></table></figure>
 <p>1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：<a href="https://github.com/gdraheim/docker-systemctl-replacement" target="_blank" rel="noopener">https://github.com/gdraheim/docker-systemctl-replacement</a></p>
+<p>systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。</p>
+<p><strong>新版本init link向了systemd</strong></p>
 <h2 id="busybox-Alpine-Scratch"><a href="#busybox-Alpine-Scratch" class="headerlink" title="busybox/Alpine/Scratch"></a>busybox/Alpine/Scratch</h2><p>busybox集成了常用的linux工具(nc/telnet/cat……），保持精细，方便一张软盘能装下。</p>
 <p>Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而不是glibc</p>
 <p>scratch一个空的框架，什么也没有</p>
@@ -564,7 +568,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">113</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -575,7 +579,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">20</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -586,7 +590,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">205</span>
+                <span class="site-state-item-count">209</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
