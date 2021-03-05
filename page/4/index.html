@@ -282,6 +282,349 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/24/网络包的流转/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/24/网络包的流转/" itemprop="url">Linux Network Stack</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-24T17:30:03+08:00">
+                2019-05-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/05/24/网络包的流转/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/05/24/网络包的流转/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-Network-Stack"><a href="#Linux-Network-Stack" class="headerlink" title="Linux Network Stack"></a>Linux Network Stack</h1><p>从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，怎么调整他们。</p>
+<h2 id="接收流程"><a href="#接收流程" class="headerlink" title="接收流程"></a>接收流程</h2><ol>
+<li>网络包进到网卡，网卡驱动校验MAC，看是否扔掉，取决是否是混杂 promiscuous mode</li>
+<li>网卡在启动时会申请一个接收ring buffer，其条目都会指向一个skb的内存。</li>
+<li>DMA完成数据报文从网卡硬件到内存到拷贝</li>
+<li>网卡发送一个中断通知CPU。</li>
+<li>CPU执行网卡驱动注册的中断处理函数，中断处理函数只做一些必要的工作，如读取硬件状态等，并把当前该网卡挂在NAPI的链表中;</li>
+<li><strong>Driver “触发” soft IRQ(NET_RX_SOFTIRQ (其实就是设置对应软中断的标志位)</strong> </li>
+<li>CPU中断处理函数返回后，会检查是否有软中断需要执行。因第6步设置了NET_RX_SOFTIRQ，则执行报文接收软中断。</li>
+<li>在NET_RX_SOFTIRQ软中断中，执行NAPI操作，回调第5步挂载的驱动poll函数。</li>
+<li>驱动会对interface进行poll操作，检查网卡是否有接收完毕的数据报文。</li>
+<li>将网卡中已经接收完毕的数据报文取出，继续在软中断进行后续处理。注：驱动对interface执行poll操作时，会尝试循环检查网卡是否有接收完毕的报文，直到系统设置的<strong>net.core.netdev_budget</strong>上限(默认300)，或者已经就绪报文。</li>
+<li><strong>net_rx_action</strong></li>
+<li>内核分配 sk_buff 内存</li>
+<li>内核填充 metadata: 协议等，移除 ethernet 包头信息</li>
+<li><strong>将skb 传送给内核协议栈 netif_receive_skb</strong></li>
+<li><code>__netif_receive_skb_core</code>：将数据送到抓包点（tap）或协议层(i.e. tcpdump)</li>
+<li>进入到由 netdev_max_backlog 控制的qdisc</li>
+<li>开始 <strong>ip_rcv</strong> 处理流程，主要处理ip协议包头相关信息</li>
+<li><strong>调用内核 netfilter 框架(iptables PREROUTING)</strong></li>
+<li>进入L4 protocol <strong>tcp_v4_rcv</strong></li>
+<li>找到对应的socket</li>
+<li>根据 tcp_rmem 进入接收缓冲队列</li>
+<li>内核将数据送给接收的应用</li>
+</ol>
+<blockquote>
+<p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
+</blockquote>
+<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
+<h3 id="DMA驱动部分流程图"><a href="#DMA驱动部分流程图" class="headerlink" title="DMA驱动部分流程图"></a>DMA驱动部分流程图</h3><p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="noopener">DMA是一个硬件逻辑</a>，数据传输到系统物理内存的过程中，全程不需要CPU的干预，除了占用总线之外(期间CPU不能使用总线)，没有任何额外开销。</p>
+<p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
+<ol>
+<li>驱动在内存中分配一片缓冲区用来接收数据包，叫做sk_buffer;</li>
+<li>将上述缓冲区的地址和大小（即接收描述符），加入到rx ring buffer。描述符中的缓冲区地址是DMA使用的物理地址;</li>
+<li>驱动通知网卡有一个新的描述符;</li>
+<li>网卡从rx ring buffer中取出描述符，从而获知缓冲区的地址和大小;</li>
+<li>网卡收到新的数据包;</li>
+<li>网卡将新数据包通过DMA直接写到sk_buffer中。</li>
+</ol>
+<h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
+<li>应用调 sendmsg</li>
+<li>TCP 分片 skb_buff</li>
+<li>根据 tcp_wmem 缓存需要发送的包</li>
+<li>构造TCP包头(src/dst port)</li>
+<li>ipv4 调用 tcp_write_xmit 和 tcp_transmit_skb</li>
+<li>ip_queue_xmit, 构建 ip 包头(获取目标ip和port)</li>
+<li>进入 netfilter 流程 nf_hook()</li>
+<li>路由流程 POST_ROUTING</li>
+<li>ip_output 分片</li>
+<li>进入L2 dev_queue_xmit</li>
+<li>填入 txqueuelen 队列</li>
+<li>进入发送 Ring Buffer tx</li>
+<li>驱动触发软中断 soft IRQ (NET_TX_SOFTIRQ)</li>
+</ol>
+<h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
+<p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
+<h2 id="内核相关参数"><a href="#内核相关参数" class="headerlink" title="内核相关参数"></a>内核相关参数</h2><h3 id="Ring-Buffer"><a href="#Ring-Buffer" class="headerlink" title="Ring Buffer"></a>Ring Buffer</h3><p>Ring Buffer位于NIC和IP层之间，是一个典型的FIFO（先进先出）环形队列。Ring Buffer没有包含数据本身，而是包含了指向sk_buff（socket kernel buffers）的描述符。<br>可以使用ethtool -g eth0查看当前Ring Buffer的设置：</p>
+<pre><code>$sudo ethtool -g eth0
+Ring parameters for eth0:
+Pre-set maximums:
+RX:        256
+RX Mini:    0
+RX Jumbo:    0
+TX:        256
+Current hardware settings:
+RX:        256
+RX Mini:    0
+RX Jumbo:    0
+TX:        256
+</code></pre><p>上面的例子是一个小规格的ECS，接收队列、传输队列都为256。</p>
+<pre><code>$sudo ethtool -g eth0
+Ring parameters for eth0:
+Pre-set maximums:
+RX:        4096
+RX Mini:    0
+RX Jumbo:    0
+TX:        4096
+Current hardware settings:
+RX:        4096
+RX Mini:    0
+RX Jumbo:    0
+TX:        512
+</code></pre><p>这是一台物理机，接收队列为4096，传输队列为512。接收队列已经调到了最大，传输队列还可以调大。<strong>队列越大丢包的可能越小，但数据延迟会增加</strong></p>
+<h4 id="调整-Ring-Buffer-队列数量"><a href="#调整-Ring-Buffer-队列数量" class="headerlink" title="调整 Ring Buffer 队列数量"></a>调整 Ring Buffer 队列数量</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">ethtool -l eth0</span><br><span class="line">Channel parameters for eth0:</span><br><span class="line">Pre-set maximums:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line">Current hardware settings:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line"></span><br><span class="line">sudo ethtool -L eth0 combined 8</span><br><span class="line">sudo ethtool -L eth0 rx 8</span><br></pre></td></tr></table></figure>
+<p>网卡多队列就是指的有多个RingBuffer，每个RingBufffer可以由一个core来处理</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
+<h4 id="网卡各种统计数据查看"><a href="#网卡各种统计数据查看" class="headerlink" title="网卡各种统计数据查看"></a>网卡各种统计数据查看</h4><pre><code>ethtool -S eth0 | grep errors
+
+ethtool -S eth0 | grep rx_ | grep errors //查看网卡是否丢包，一般是ring buffer太小
+
+//监控
+ethtool -S eth0 | grep -e &quot;err&quot; -e &quot;drop&quot; -e &quot;over&quot; -e &quot;miss&quot; -e &quot;timeout&quot; -e &quot;reset&quot; -e &quot;restar&quot; -e &quot;collis&quot; -e &quot;over&quot; | grep -v &quot;\: 0&quot;
+</code></pre><h4 id="网卡进出队列大小调整"><a href="#网卡进出队列大小调整" class="headerlink" title="网卡进出队列大小调整"></a>网卡进出队列大小调整</h4><pre><code>//查看目前的进出队列大小
+ethtool -g eth0
+//修改进出队列
+ ethtool -G eth0 rx 8192 tx 8192
+</code></pre><p>要注意如果设置的值超过了允许的最大值，用默认的最大值，一些ECS之类的虚拟机、容器就不允许修改这个值。</p>
+<h3 id="txqueuelen"><a href="#txqueuelen" class="headerlink" title="txqueuelen"></a>txqueuelen</h3><p>ifconfig 看到的 txqueuelen 跟Ring Buffer是两个东西，IP协议下面就是 txqueuelen，txqueuelen下面才到Ring Buffer. </p>
+<p>常用的tc qdisc、netfilter就是在txqueuelen这一环节。 qdisc 的队列长度是我们用 ifconfig 来看到的 txqueuelen</p>
+<p>发送队列就是指的这个txqueuelen，和网卡关联着。 而每个Core接收队列由内核参数： net.core.netdev_max_backlog来设置<br>        //当前值通过ifconfig可以查看到，修改：<br>        ifconfig eth0 txqueuelen 2000<br>        //监控<br>        ip -s link</p>
+<p>如果txqueuelen 太小导致数据包被丢弃的情况，这类问题可以通过下面这个命令来观察：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$ ip -s -s link ls dev eth0</span><br><span class="line">2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000</span><br><span class="line">    link/ether 00:16:3e:12:9b:c0 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    RX: bytes  packets  errors  dropped overrun mcast</span><br><span class="line">    13189414480980 22529315912 0       0       0       0</span><br><span class="line">    RX errors: length   crc     frame   fifo    missed</span><br><span class="line">               0        0       0       0       0</span><br><span class="line">    TX: bytes  packets  errors  dropped carrier collsns</span><br><span class="line">    15487121408466 12925733540 0       0       0       0</span><br><span class="line">    TX errors: aborted  fifo   window heartbeat transns</span><br><span class="line">               0        0       0       0       2</span><br></pre></td></tr></table></figure>
+<p>如果观察到 dropped 这一项不为 0，那就有可能是 txqueuelen 太小导致的。当遇到这种情况时，你就需要增大该值了，比如增加 eth0 这个网络接口的 txqueuelen：</p>
+<blockquote>
+<p> $ ifconfig eth0 txqueuelen 2000</p>
+</blockquote>
+<h3 id="Interrupt-Coalescence-IC-rx-usecs-tx-usecs-rx-frames-tx-frames-hardware-IRQ"><a href="#Interrupt-Coalescence-IC-rx-usecs-tx-usecs-rx-frames-tx-frames-hardware-IRQ" class="headerlink" title="Interrupt Coalescence (IC) - rx-usecs, tx-usecs, rx-frames, tx-frames (hardware IRQ)"></a>Interrupt Coalescence (IC) - rx-usecs, tx-usecs, rx-frames, tx-frames (hardware IRQ)</h3><p>这块目前没碰到过瓶颈</p>
+<pre><code>//检查
+ethtool -c eth0
+//修改, 
+ethtool -C eth0 rx-usecs value tx-usecs value
+//监控
+cat /proc/interrupts
+</code></pre><h3 id="ifconfig-监控指标"><a href="#ifconfig-监控指标" class="headerlink" title="ifconfig 监控指标"></a>ifconfig 监控指标</h3><ul>
+<li>RX overruns: overruns意味着数据包没到Ring Buffer就被网卡物理层给丢弃了，而CPU无法及时的处理中断是造成Ring Buffer满的原因之一，例如中断分配的不均匀。或者Ring Buffer太小导致的（很少见），overruns数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</li>
+<li>RX dropped: 表示数据包已经进入了Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。如下四种情况导致dropped：Softnet backlog full（pfmemalloc &amp;&amp; !skb_pfmemalloc_protocol(skb)–分配内存失败）；Bad / Unintended VLAN tags；Unknown / Unregistered protocols；IPv6 frames</li>
+<li>RX errors：表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
+</ul>
+<h4 id="overruns"><a href="#overruns" class="headerlink" title="overruns"></a>overruns</h4><p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
+<h3 id="监控指标-proc-net-softnet-stat"><a href="#监控指标-proc-net-softnet-stat" class="headerlink" title="监控指标 /proc/net/softnet_stat"></a>监控指标 /proc/net/softnet_stat</h3><h4 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sysctl net.core.netdev_budget //默认300， The default value of the budget is 300. This will cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU</span><br></pre></td></tr></table></figure>
+<p>如果 /proc/net/softnet_stat <strong>第三列</strong>一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值，<strong>当这个值太大的话有可能导致包到了内核但是应用（userspace）抢不到时间片来读取这些packet。</strong></p>
+<p>增大和查看 net.core.netdev_budget<br>        sysctl -a | grep net.core.netdev_budget<br>        sysctl -w net.core.netdev_budget=400 //临时性增大</p>
+<p>每处理一个包软中断、上下文切换代价太大，需要改进性能</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
+<p><a href="https://github.blog/2019-11-21-debugging-network-stalls-on-kubernetes/" target="_blank" rel="noopener">来源</a> This is much faster, but brings up another problem. What happens if we have so many packets to process that we spend all our time processing packets from the NIC, but we never have time to let the userspace processes actually drain those queues (read from TCP connections, etc.)? Eventually the queues would fill up, and we’d start dropping packets. To try and make this fair, the kernel limits the amount of packets processed in a given softirq context to a certain budget. Once this budget is exceeded, it wakes up a separate thread called <code>ksoftirqd</code> (you’ll see one of these in <code>ps</code> for each core) which processes these softirqs outside of the normal syscall/interrupt path. This thread is scheduled using the standard process scheduler, which already tries to be fair.</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
+<p>一旦出现slow syscall（如上图黄色部分慢）就会导致packet处理被延迟</p>
+<h4 id="netdev-max-backlog"><a href="#netdev-max-backlog" class="headerlink" title="netdev_max_backlog"></a>netdev_max_backlog</h4><p>The netdev_max_backlog is a queue within the Linux kernel where traffic is stored after reception from the NIC, but before processing by the protocol stacks (IP, TCP, etc). There is one backlog queue per CPU core. </p>
+<p>如果 /proc/net/softnet_stat 第二列一直在增加的话表示netdev backlog queue overflows. 需要增大 netdev_max_backlog</p>
+<p>增大和查看 netdev_max_backlog：</p>
+<pre><code>sysctl -a |grep netdev_max_backlog
+sysctl -w net.core.netdev_max_backlog=1024 //临时性增大
+</code></pre><p>netdev_max_backlog(接收)和txqueuelen(发送)相对应 </p>
+<h4 id="softnet-stat"><a href="#softnet-stat" class="headerlink" title="softnet_stat"></a>softnet_stat</h4><p>关于<code>/proc/net/softnet_stat</code> 的重要细节:</p>
+<ol>
+<li>每一行代表一个 <code>struct softnet_data</code> 变量。因为每个 CPU 只有一个该变量，所以每行 其实代表一个 CPU</li>
+<li>每列用空格隔开，数值用 16 进制表示</li>
+<li>第一列 <code>sd-&gt;processed</code>，是处理的网络帧的数量。如果你使用了 ethernet bonding， 那这个值会大于总的网络帧的数量，因为 ethernet bonding 驱动有时会触发网络数据被 重新处理（re-processed）</li>
+<li>第二列，<code>sd-&gt;dropped</code>，是因为处理不过来而 drop 的网络帧数量。后面会展开这一话题</li>
+<li>第三列，<code>sd-&gt;time_squeeze</code>，前面介绍过了，由于 budget 或 time limit 用完而退出 <code>net_rx_action</code> 循环的次数</li>
+<li>接下来的 5 列全是 0</li>
+<li>第九列，<code>sd-&gt;cpu_collision</code>，是为了发送包而获取锁的时候有冲突的次数</li>
+<li>第十列，<code>sd-&gt;received_rps</code>，是这个 CPU 被其他 CPU 唤醒去收包的次数</li>
+<li>最后一列，<code>flow_limit_count</code>，是达到 flow limit 的次数。flow limit 是 RPS 的特性， 后面会稍微介绍一下</li>
+</ol>
+<h3 id="TCP协议栈Buffer"><a href="#TCP协议栈Buffer" class="headerlink" title="TCP协议栈Buffer"></a>TCP协议栈Buffer</h3><pre><code>    sysctl -a | grep net.ipv4.tcp_rmem   // receive
+    sysctl -a | grep net.ipv4.tcp_wmem   // send
+    //监控
+    cat /proc/net/sockstat
+
+参考：[TCP性能优化大全](https://www.atatech.org/articles/140017)    
+</code></pre><h4 id="接收Buffer"><a href="#接收Buffer" class="headerlink" title="接收Buffer"></a>接收Buffer</h4><pre><code>$netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
+17671 packets pruned from receive queue because of socket buffer overrun
+18671 packets pruned from receive queue because of socket buffer overrun
+</code></pre><p>如果 “pruning” 一直在增加很有可能是程序中调用了 setsockopt(SO_RCVBUF) 导致内核关闭了动态调整功能，或者压力大，缓存不够了。具体Case：<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a></p>
+<p>nstat也可以看到比较多的数据</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$nstat -z |grep -i drop</span><br><span class="line">TcpExtLockDroppedIcmps          0                  0.0</span><br><span class="line">TcpExtListenDrops               0                  0.0</span><br><span class="line">TcpExtTCPBacklogDrop            0                  0.0</span><br><span class="line">TcpExtPFMemallocDrop            0                  0.0</span><br><span class="line">TcpExtTCPMinTTLDrop             0                  0.0</span><br><span class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</span><br><span class="line">TcpExtTCPReqQFullDrop           0                  0.0</span><br><span class="line">TcpExtTCPOFODrop                0                  0.0</span><br><span class="line">TcpExtTCPZeroWindowDrop         0                  0.0</span><br><span class="line">TcpExtTCPRcvQDrop               0                  0.0</span><br></pre></td></tr></table></figure>
+<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="http://img3.tbcdn.cn/L1/461/1/73d01c4c8164ae8642ff09d5d3fe0548d4162874" alt></p>
+<p>带参数版收包流程：</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
+<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
+<p>带参数版发包流程：</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
+<ol>
+<li>snat 就是要把 192.168.1.10和192.168.1.11的两个连接替换成宿主机的ip:port</li>
+<li>主要是在宿主机找可用port分别给这两个连接用</li>
+<li>找可用port分两步<ul>
+<li>找到可用port</li>
+<li>将可用port写到数据库，后面做连接追踪用(conntrack)</li>
+</ul>
+</li>
+<li>上述两步不是事务，可能两个连接同时找到一个相同的可用port，但是只有第一个能写入成功，第二个fail，fail后这个包被扔掉</li>
+<li>1秒钟后被扔掉的包重传，后续正常</li>
+</ol>
+<p>症状：</p>
+<ul>
+<li>问题发生概率不高，跟压力没有关系，跟容器也没有关系，只要有snat/dnat和并发就会发生，只发生在创建连接的第一个syn包</li>
+<li>可以通过conntrack工具来检查fail的数量</li>
+<li>实际影响只是请求偶尔被拉长了1秒或者3秒</li>
+<li>snat规则创建的时候增加参数：NF_NAT_RANGE_PROTO_RANDOM_FULLY 来将冲突降低几个数量级—-可以认为修复了这个问题</li>
+</ul>
+<pre><code>sudo conntrack -L -d ip-addr
+</code></pre><p>来自：<a href="https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02" target="_blank" rel="noopener">https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02</a></p>
+<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
+<p>这个案例主要是讲述回包的逻辑，如果是tcp，那么用dest ip当自己的source ip，如果是UDP，无连接状态信息，那么会根据route来选择一块网卡(上面的IP) 来当source ip</p>
+<p>来自：<a href="http://cizixs.com/2017/08/21/docker-udp-issue" target="_blank" rel="noopener">http://cizixs.com/2017/08/21/docker-udp-issue</a><br>     <a href="https://github.com/moby/moby/issues/15127" target="_blank" rel="noopener">https://github.com/moby/moby/issues/15127</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener">The Missing Man Page for ifconfig–关于ifconfig的种种解释</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1400834?s=original-sharing" target="_blank" rel="noopener">Linux数据报文的来龙去脉</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="noopener">Linux TCP队列相关参数的总结–锋寒</a></p>
+<p><a href="https://github.com/leandromoreira/linux-network-performance-parameters" target="_blank" rel="noopener">linux-network-performance-parameters</a></p>
+<p><a href="https://www.cnblogs.com/fczjuever/archive/2013/04/17/3026694.html" target="_blank" rel="noopener">Linux之TCPIP内核参数优化</a></p>
+<p><a href="https://access.redhat.com/sites/default/files/attachments/20150325_network_performance_tuning.pdf" target="_blank" rel="noopener">https://access.redhat.com/sites/default/files/attachments/20150325_network_performance_tuning.pdf</a></p>
+<p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="noopener">Linux 网络协议栈收消息过程-Ring Buffer</a> : 支持 RSS 的网卡内部会有多个 Ring Buffer，NIC 收到 Frame 的时候能通过 Hash Function 来决定 Frame 该放在哪个 Ring Buffer 上，触发的 IRQ 也可以通过操作系统或者手动配置 IRQ affinity 将 IRQ 分配到多个 CPU 上。这样 IRQ 能被不同的 CPU 处理，从而做到 Ring Buffer 上的数据也能被不同的 CPU 处理，从而提高数据的并行处理能力。</p>
+<p><a href="http://arthurchiao.art/blog/tuning-stack-tx-zh/" target="_blank" rel="noopener">Linux 网络栈监控和调优：发送数据</a></p>
+<p><a href="http://arthurchiao.art/blog/tuning-stack-rx-zh/" target="_blank" rel="noopener">Linux 网络栈监控和调优：接收数据（2016）</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/16/网络通不通是个大问题--半夜鸡叫/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4249,159 +4592,6 @@ nameserver 10.0.0.3
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/24/性能优化，从老中医到科学理论指导/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/24/性能优化，从老中医到科学理论指导/" itemprop="url">性能优化，从老中医到科学理论指导</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-24T16:30:03+08:00">
-                2018-08-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/performance/" itemprop="url" rel="index">
-                    <span itemprop="name">performance</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/24/性能优化，从老中医到科学理论指导/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/24/性能优化，从老中医到科学理论指导/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><p>最佳线程数量</p>
-<p>单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
-<p>最佳线程数量 rt(total)/rt(cpu)</p>
-<p>维持住rt</p>
-<h2 id="思路严谨"><a href="#思路严谨" class="headerlink" title="思路严谨"></a>思路严谨</h2><p>最难讲清楚</p>
-<h2 id="老中医经验不可缺少"><a href="#老中医经验不可缺少" class="headerlink" title="老中医经验不可缺少"></a>老中医经验不可缺少</h2><p>量变到质变</p>
-<h2 id="找瓶颈，先干掉瓶颈才能优化其它"><a href="#找瓶颈，先干掉瓶颈才能优化其它" class="headerlink" title="找瓶颈，先干掉瓶颈才能优化其它"></a>找瓶颈，先干掉瓶颈才能优化其它</h2><p>没有找到瓶颈，所做的其它优化会看不出效果，误入歧途，瞎蒙</p>
-<h2 id="全栈能力，一文钱难倒英雄好汉"><a href="#全栈能力，一文钱难倒英雄好汉" class="headerlink" title="全栈能力，一文钱难倒英雄好汉"></a>全栈能力，一文钱难倒英雄好汉</h2><p>因为关键是找瓶颈，作为java程序员如果只能看jstack、jstat可能发现的不是瓶颈</p>
-<h2 id="案列"><a href="#案列" class="headerlink" title="案列"></a>案列</h2><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">https://www.atatech.org/articles/73174</a></p>
-<p>cpu utilization<br><img src="http://www.brendangregg.com/blog/images/2017/cpubusystalledidle.png" alt></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4449,7 +4639,7 @@ nameserver 10.0.0.3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">117</span>
+                <span class="site-state-item-count">118</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
