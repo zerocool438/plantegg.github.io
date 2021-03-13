@@ -282,6 +282,247 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/26/MySQL知识体系的三驾马车/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/26/MySQL知识体系的三驾马车/" itemprop="url">MySQL知识体系的三驾马车</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-26T17:30:03+08:00">
+                2019-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/05/26/MySQL知识体系的三驾马车/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/05/26/MySQL知识体系的三驾马车/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL知识体系的三驾马车"><a href="#MySQL知识体系的三驾马车" class="headerlink" title="MySQL知识体系的三驾马车"></a>MySQL知识体系的三驾马车</h1><p>在我看来要掌握好MySQL的话要理解好这三个东西：</p>
+<ul>
+<li>索引（B+树）</li>
+<li>日志（WAL）</li>
+<li>事务(可见性)</li>
+</ul>
+<p>索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了；</p>
+<p>而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写；</p>
+<p>事务则是数据库的皇冠。</p>
+<h2 id="索引"><a href="#索引" class="headerlink" title="索引"></a>索引</h2><p>索引主要是解决查询性能的问题，数据一般都是写少查多，而且要满足各种查，所以使用数据库过程中最常见的问题就是索引的优化。</p>
+<p>MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索引，能使得索引保持比较小，更容易加载到内存中；数据全部放在B+树的叶节点上，整个叶节点又是个有序双向链表，这样非常合适区间查找。</p>
+<p>如果用平衡二叉树当索引，想象一下一棵 100 万节点的平衡二叉树，树高 20。一次查询可能需要访问 20 个数据块。在机械硬盘时代，从磁盘随机读一个数据块需要 10 ms 左右的寻址时间。也就是说，对于一个 100 万行的表，如果使用二叉树来存储，单独访问一个行可能需要 20 个 10 ms 的时间，这个查询可真够慢的</p>
+<p>对比一下 InnoDB 的一个整数字段B+数索引为例，B+树的杈数一般是 1200。这棵树高是 4 的时候，就可以存 1200 的 3 次方个值，这已经 17 亿了。考虑到树根的数据块总是在内存中的，一个 10 亿行的表上一个整数字段的索引，查找一个值最多只需要访问 3 次磁盘。其实，树的第二层也有很大概率在内存中，那么访问磁盘的平均次数就更少了。</p>
+<p>明确以下几点：</p>
+<ul>
+<li>B+树是N叉树，以一个整数字段索引来看，N基本等于1200。数据库里的树高一般在2-4层。</li>
+<li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
+<li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
+</ul>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
+<p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
+<p>MySQL一个查询只能用一个索引。</p>
+<h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
+<p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>select * from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<strong>回表</strong>导致非常慢。</p>
+<p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
+<p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
+<p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
+<h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
+<p>写数据除了记录redo-log之外在内存中还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</span><br></pre></td></tr></table></figure>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
+<h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
+<p>这是数据库优化的关键。</p>
+<h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
+<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性</p>
+<h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
+<p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
+<p>redo-log和bin-log的比较：</p>
+<ul>
+<li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。redo-log保证了crash-safe的问题，binlog只能用于归档，保证不了safe。</li>
+<li>redo log 是物理日志，记录的是“在某个数据页上做了什么修改”；binlog 是逻辑日志，记录的是这个语句的原始逻辑，比如“给 ID=2 这一行的 c 字段加 1 ”。</li>
+<li>redo log 是循环写的，空间固定会用完；binlog 是可以追加写入的。“追加写”是指 binlog 文件写到一定大小后会切换到下一个，并不会覆盖以前的日志。</li>
+</ul>
+<p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
+<p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
+<p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
+<ol>
+<li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
+<li>如果redo-log里面事务只有完整的prepare，则去检查事务对应的binlog是否完整<ol>
+<li>如果binlog完整则提交事务</li>
+<li>如果不完整则回滚事务</li>
+</ol>
+</li>
+<li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
+</ol>
+<h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
+<ul>
+<li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。<strong>这时写性能跌0，这个场景对性能影响最大</strong>。</li>
+<li>系统内存不够，也需要将内存中的脏页释放，释放前需要先刷入到表空间。</li>
+<li>系统内存不够，但是redo-log空间够，也会刷脏，也就是刷脏不只是脏页写到redo-log，还要考虑读取情况。刷脏页后redo-log位点也一定会向前推荐</li>
+<li>系统空闲的时候也会趁机刷脏</li>
+<li>刷脏的时候默认还会连带刷邻居脏页（innodb_flush_neighbors)</li>
+</ul>
+<p>当然如果一次性要淘汰的脏页太多，也会导致查询卡顿严重，可以通过设置innodb_io_capacity（一般设置成磁盘的iops），这个值越小的话一次刷脏页的数量越小，如果刷脏页速度还跟不上脏页生成速度就会造成脏页堆积，影响查询、更新性能。</p>
+<p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
+<p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
+<p>表空间会刷进去没有提交的事务（比如大事务change buffer和redo-log都不够的时候），这个修改虽然在表空间中，但是通过可见性来控制是否可见。</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
+<p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
+<p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
+<p>如果两次读过程中，有一个别的事务修改了数据并提交了，第二次读到的还是别的事务修改前的数据，也就是这个修改后的数据不可见，因为别的事务在本事务之后。</p>
+<p>如果一个在本事务启动之后的事务已经提交了，本事务会读到最新的数据，但是因为隔离级别的设置，会要求MySQL判断这个数据不可见，这样只能按照undo-log去反推修改前的数据，如果有很多这样的已经提交的事务，那么需要反推很多次，也会造成卡顿。</p>
+<p>总结下，可见性的关键在于两个事务开始的先后关系：</p>
+<ul>
+<li>如果是可重复读RR（Repeatable Read），后开始的事务提交的结果对前面的事务<strong>不</strong>可见</li>
+<li>如果是读已提交RC（Read Committed），后开始的事务提交的结果对前面的事务可见</li>
+</ul>
+<h3 id="当前读"><a href="#当前读" class="headerlink" title="当前读"></a>当前读</h3><p>更新数据都是先读后写的，而这个读，只能读当前的值，称为“当前读”（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。</p>
+<p>事务的可重复读的能力是怎么实现的？</p>
+<p>可重复读的核心就是一致性读（consistent read）；而事务更新数据的时候，只能用当前读。如果<br>当前的记录的行锁被其他事务占用的话，就需要进入锁等待。</p>
+<p>而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：</p>
+<ul>
+<li>在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共<br>用这个一致性视图；</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
+<p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
+<p>事务则是数据库皇冠。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/" target="_blank" rel="noopener">https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/</a> 回表</p>
+<p><a href="https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause" target="_blank" rel="noopener">https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/24/网络包的流转/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -383,6 +624,24 @@
         
           
             <h1 id="Linux-Network-Stack"><a href="#Linux-Network-Stack" class="headerlink" title="Linux Network Stack"></a>Linux Network Stack</h1><p>从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，怎么调整他们。</p>
+<h2 id="接收流程大纲"><a href="#接收流程大纲" class="headerlink" title="接收流程大纲"></a>接收流程大纲</h2><p>在开始收包之前，Linux要做许多的准备工作：</p>
+<ol>
+<li>创建ksoftirqd线程，为它设置好它自己的线程函数，后面指望着它来处理软中断呢</li>
+<li>协议栈注册，linux要实现许多协议，比如arp，icmp，ip，udp，tcp，每一个协议都会将自己的处理函数注册一下，方便包来了迅速找到对应的处理函数</li>
+<li>网卡驱动初始化，每个驱动都有一个初始化函数，内核会让驱动也初始化一下。在这个初始化过程中，把自己的DMA准备好，把NAPI的poll函数地址告诉内核</li>
+<li>启动网卡，分配RX，TX队列，注册中断对应的处理函数</li>
+</ol>
+<p>以上是内核准备收包之前的重要工作，当上面都ready之后，就可以打开硬中断，等待数据包的到来了。</p>
+<p>当数据到来了以后，第一个迎接它的是网卡：</p>
+<ol>
+<li>网卡将数据帧DMA到内存的RingBuffer中，然后向CPU发起中断通知</li>
+<li>CPU响应中断请求，调用网卡启动时注册的中断处理函数</li>
+<li>中断处理函数几乎没干啥，就发起了软中断请求</li>
+<li>内核线程ksoftirqd线程发现有软中断请求到来，先关闭硬中断</li>
+<li>ksoftirqd线程开始调用驱动的poll函数收包</li>
+<li>poll函数将收到的包送到协议栈注册的ip_rcv函数中</li>
+<li>ip_rcv函数再讲包送到udp_rcv函数中（对于tcp包就送到tcp_rcv）</li>
+</ol>
 <h2 id="接收流程"><a href="#接收流程" class="headerlink" title="接收流程"></a>接收流程</h2><ol>
 <li>网络包进到网卡，网卡驱动校验MAC，看是否扔掉，取决是否是混杂 promiscuous mode</li>
 <li>网卡在启动时会申请一个接收ring buffer，其条目都会指向一个skb的内存。</li>
@@ -422,7 +681,14 @@
 <li>网卡收到新的数据包;</li>
 <li>网卡将新数据包通过DMA直接写到sk_buffer中。</li>
 </ol>
-<h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p>软中断NET_TX_SOFTIRQ的处理函数为net_tx_action，NET_RX_SOFTIRQ的为net_rx_action</p>
+<p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<p>在网络子系统初始化中为NET_RX_SOFTIRQ注册了处理函数net_rx_action。所以<code>net_rx_action</code>函数就会被执行到了。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
+<p>这里需要注意一个细节，硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
+<p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。接着走，如果是 ESTABLISH 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
+<p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt></p>
+<p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
 <h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
 <li>应用调 sendmsg</li>
 <li>TCP 分片 skb_buff</li>
@@ -442,6 +708,8 @@
 <h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
 <p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
 <p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
+<p>粗略汇总一下进出堆栈：</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
 <h2 id="内核相关参数"><a href="#内核相关参数" class="headerlink" title="内核相关参数"></a>内核相关参数</h2><h3 id="Ring-Buffer"><a href="#Ring-Buffer" class="headerlink" title="Ring Buffer"></a>Ring Buffer</h3><p>Ring Buffer位于NIC和IP层之间，是一个典型的FIFO（先进先出）环形队列。Ring Buffer没有包含数据本身，而是包含了指向sk_buff（socket kernel buffers）的描述符。<br>可以使用ethtool -g eth0查看当前Ring Buffer的设置：</p>
 <pre><code>$sudo ethtool -g eth0
 Ring parameters for eth0:
@@ -481,7 +749,7 @@ ethtool -S eth0 | grep -e &quot;err&quot; -e &quot;drop&quot; -e &quot;over&quot
 </code></pre><h4 id="网卡进出队列大小调整"><a href="#网卡进出队列大小调整" class="headerlink" title="网卡进出队列大小调整"></a>网卡进出队列大小调整</h4><pre><code>//查看目前的进出队列大小
 ethtool -g eth0
 //修改进出队列
- ethtool -G eth0 rx 8192 tx 8192
+ethtool -G eth0 rx 8192 tx 8192
 </code></pre><p>要注意如果设置的值超过了允许的最大值，用默认的最大值，一些ECS之类的虚拟机、容器就不允许修改这个值。</p>
 <h3 id="txqueuelen"><a href="#txqueuelen" class="headerlink" title="txqueuelen"></a>txqueuelen</h3><p>ifconfig 看到的 txqueuelen 跟Ring Buffer是两个东西，IP协议下面就是 txqueuelen，txqueuelen下面才到Ring Buffer. </p>
 <p>常用的tc qdisc、netfilter就是在txqueuelen这一环节。 qdisc 的队列长度是我们用 ifconfig 来看到的 txqueuelen</p>
@@ -582,6 +850,8 @@ sysctl -w net.core.netdev_max_backlog=1024 //临时性增大
 <p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="noopener">Linux 网络协议栈收消息过程-Ring Buffer</a> : 支持 RSS 的网卡内部会有多个 Ring Buffer，NIC 收到 Frame 的时候能通过 Hash Function 来决定 Frame 该放在哪个 Ring Buffer 上，触发的 IRQ 也可以通过操作系统或者手动配置 IRQ affinity 将 IRQ 分配到多个 CPU 上。这样 IRQ 能被不同的 CPU 处理，从而做到 Ring Buffer 上的数据也能被不同的 CPU 处理，从而提高数据的并行处理能力。</p>
 <p><a href="http://arthurchiao.art/blog/tuning-stack-tx-zh/" target="_blank" rel="noopener">Linux 网络栈监控和调优：发送数据</a></p>
 <p><a href="http://arthurchiao.art/blog/tuning-stack-rx-zh/" target="_blank" rel="noopener">Linux 网络栈监控和调优：接收数据（2016）</a></p>
+<p>收到包后内核层面的处理：<a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247484058&amp;idx=1&amp;sn=a2621bc27c74b313528eefbc81ee8c0f&amp;scene=21#wechat_redirect" target="_blank" rel="noopener">从网卡注册软中断处理函数到收包逻辑</a></p>
+<p>收到包后应用和协议层面的处理：图解 | 深入理解高性能网络开发路上的绊脚石 - 同步阻塞网络 IO<a href="https://mp.weixin.qq.com/s/cIcw0S-Q8pBl1-WYN0UwnA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/cIcw0S-Q8pBl1-WYN0UwnA</a> 当软中断上收到数据包时会通过调用 sk_data_ready 函数指针（实际被设置成了 sock_def_readable()） 来唤醒在 sock 上等待的进程</p>
 
           
         
@@ -4391,207 +4661,6 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/25/如何徒手撕Bug/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/25/如何徒手撕Bug/" itemprop="url">如何徒手撕Bug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-25T16:30:03+08:00">
-                2018-08-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/25/如何徒手撕Bug/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/25/如何徒手撕Bug/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何徒手撕Bug"><a href="#如何徒手撕Bug" class="headerlink" title="如何徒手撕Bug"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
-<p>所以不到万不得已不要碰复杂的源代码</p>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
-<p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
-<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
-<pre><code>$sudo fuser /run/xtables.lock 
-/run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
-</code></pre><p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
-<h2 id="跟踪具体拿到锁的进程"><a href="#跟踪具体拿到锁的进程" class="headerlink" title="跟踪具体拿到锁的进程"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
-iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
-</code></pre><p>通过strace这个拿到锁的进程可以看到：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
-<p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
-<p>看看物理机上的dns服务器配置：</p>
-<pre><code>$cat /etc/resolv.conf   
-options timeout:2 attempts:2   
-nameserver 10.0.0.1  
-nameserver 10.0.0.2
-nameserver 10.0.0.3
-</code></pre><p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
-<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
-<p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
-<h2 id="strace工作原理"><a href="#strace工作原理" class="headerlink" title="strace工作原理"></a>strace工作原理</h2><blockquote>
-<p>strace -T -tt -ff -p pid -o strace.out</p>
-<p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
-</blockquote>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
-<p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
-<p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
-<p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
-<p>两个术语：</p>
-<ol>
-<li>tracer：跟踪（其他程序的）程序</li>
-<li>tracee：被跟踪程序</li>
-</ol>
-<p>tracer 跟踪 tracee 的过程：</p>
-<p>首先，<strong>attach 到 tracee 进程</strong>：调用 <code>ptrace</code>，带 <code>PTRACE_ATTACH</code> 及 tracee 进程 ID 作为参数。</p>
-<p>之后当 <strong>tracee 运行到系统调用函数时就会被内核暂停</strong>；对 tracer 来说，就像 tracee 收到了 <code>SIGTRAP</code> 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。</p>
-<p>然后，<strong>恢复 tracee 执行</strong>：再次调用 <code>ptrace</code>，带 <code>PTRACE_SYSCALL</code> 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。</p>
-<p>以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。</p>
-<h3 id="strace-常用用法"><a href="#strace-常用用法" class="headerlink" title="strace 常用用法"></a>strace 常用用法</h3><p>1) sudo strace -tt -e poll,select,connect,recvfrom,sendto nc <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a> 80 //网络连接不上，卡在哪里</p>
-<p>2) 如何确认一个程序为什么卡住和停止在什么地方?</p>
-<p>有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。</p>
-<p>$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX</p>
-<p>这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?</p>
-<p>$ readlink /proc/22067/fd/3 /tmp/foobar.lock</p>
-<p>aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?</p>
-<p>$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock</p>
-<p>原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。</p>
-<p> strace -cp  // strace  可以按操作汇总时间</p>
-<h2 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h2><p>docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。</p>
-<p>这应该是docker daemon实现上的小bug，也就是改iptables这里没加锁，如果修改dns的时候同时收到了dns查询，要是让查询等锁的话就不至于出现这种恶性循环</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>其实这个问题还是挺容易出现的，daemon重启，上面有很多容器，容器里面的任务启动的时候都要做dns解析，这个时候daemon还在修改dns，冲进来很多dns查询的话会导致修改进程变慢</p>
-<p>这也跟物理机的 /etc/resolv.conf 配置有关</p>
-<p>暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。</p>
-<p>解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/how-does-strace-work-zh/" target="_blank" rel="noopener">strace 是如何工作的（2016）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4639,7 +4708,7 @@ nameserver 10.0.0.3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">118</span>
+                <span class="site-state-item-count">119</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4661,7 +4730,7 @@ nameserver 10.0.0.3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">209</span>
+                <span class="site-state-item-count">211</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
