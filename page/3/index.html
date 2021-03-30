@@ -1275,6 +1275,9 @@ while (1) {
 <li>用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错）</li>
 <li>某家居客户通过专线访问云上drds，总是被reset( 内网ip地址重复–都是192.168.*， 导致连接被reset)</li>
 </ol>
+<blockquote>
+<p><strong>进程被kill、异常退出时，针对它打开的连接，内核就会发送 RST 报文来关闭</strong>。RST 的全称是 Reset 复位的意思，它可以不走四次挥手强制关闭连接，但当报文延迟或者重复传输时，这种方式会导致数据错乱，所以这是不得已而为之的关闭连接方案。当然还有其它场景也会触发reset</p>
+</blockquote>
 <h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>在 Navicat 机器上抓包如下：</p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/83b07725d92b9e4d3eb4a504cf83cc09.png" alt="image.png"></p>
 <p>从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。</p>
@@ -1975,7 +1978,9 @@ Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
         
           
             <h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
-<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>非IO复用的惊群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但同时带来了不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好滴解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
+<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
+<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好滴解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
 <h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
 <p>惊群的本质在于多个线程处理同一个事件。</p>
 <p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
@@ -2003,7 +2008,8 @@ list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)
 <p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
 <p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
 <p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
-<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是其它网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
 <pre><code>//主进程中：
 ngx_init_cycle
 ngx_open_listening_sockets
@@ -2019,7 +2025,7 @@ ngx_prcocess_events_and_timers
 ngx_epoll_process_events
     epoll_wait
     rev-&gt;handler(rev) // 对于listening socket，handler是ngx_event_accept
-</code></pre><p>和标准的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
+</code></pre><p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
 <pre><code>epoll_wait
 ep_poll
     /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
@@ -2039,7 +2045,8 @@ __wake_up_common
         !--nr_exclusive)
         break;
 </code></pre><p>那么这种情况下内核如何来解决惊群呢？ </p>
-<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
+<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
+<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
 <p>linux man文档中一段文字描述其作用：</p>
 <blockquote>
 <p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
@@ -2049,7 +2056,7 @@ __wake_up_common
 <li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
 <li>每一个线程拥有自己的服务器套接字</li>
 <li>在服务器套接字上没有了锁的竞争</li>
-<li>内核层面实现负载均衡</li>
+<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
 <li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
 </ul>
 <p>其核心的实现主要有三点：</p>
@@ -2058,27 +2065,32 @@ __wake_up_common
 <li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
 <li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
 </ul>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/64ae30f3d1937d913f2a440d5ae3c920.png" alt="image.png"></p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
 <ul>
 <li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
 <li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
-<li>内核的reuseport中相当于所有listen同一个端口的进程是一个组合，内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</li>
+<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
 </ul>
 <p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，根据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
 <p><img src="https://mmbiz.qpic.cn/mmbiz_png/yiaiaFLiaflYRTRy6F9YcnuFfYn7ESbWldtibYIVFRL84nRwtZuOgWYdOTI4BuRodRdR7LvWLlDXZl5cZ23l3AUgOQ/640?wx_fmt=png&amp;tp=webp&amp;wxfrom=5&amp;wx_lazy=1&amp;wx_co=1" alt></p>
-<h4 id="SO-REUSEPORT-带来的小问题"><a href="#SO-REUSEPORT-带来的小问题" class="headerlink" title="SO_REUSEPORT 带来的小问题"></a>SO_REUSEPORT 带来的小问题</h4><p>SO_REUSEPORT打开后，再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个cpu一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">因为Nginx是ET模式，epoll要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。</a></p>
-<p>如果不开启SO_REUSEPORT模式，那么即使有一个进程在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。</p>
-<p><strong>单worker同时是会处理多个连接上的所有请求</strong>，accept_mutex 只是控制连接创建的时候哪个worker来accept，避免建连接惊群。连接建立好后这个连接的所有请求就一直会在这个worker上（当然还有其它连接的请求也在这个worker上）。SO_REUSEPORT只是不让worker去抢accept了，改成内核无差别轮询派发。如果这个时候某个连接一直是很耗CPU的请求（比如gzip），会导致这个worker比价卡顿，如果这个gzip能切走也还是可以照顾到别的连接的请求的。</p>
+<p>对于Established socket的读写事件一般是只有一个worker在监听对应的epoll事件。</p>
+<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到别的socket上的read/write或者accept</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
+<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
+<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个cpu一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
+<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">因为Nginx是ET模式，epoll要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
+<p>如果不开启SO_REUSEPORT模式，那么即使有一个进程在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
+<p><strong>单worker同时会处理多个连接上的所有请求</strong>，accept_mutex 只是控制连接创建的时候哪个worker来accept，避免建连接惊群。连接建立好后这个连接的所有请求就一直会在这个worker上（当然还有其它连接的请求也在这个worker上）。SO_REUSEPORT只是不让worker去抢accept了，改成内核无差别轮询派发。如果这个时候某个连接一直是很耗CPU的请求（比如gzip），会导致这个worker比价卡顿，如果这个gzip能切走也还是可以照顾到别的连接的请求的。</p>
 <p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
-<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="https://plantegg.github.io/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" target="_blank" rel="noopener">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
+<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="https://plantegg.github.io/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" target="_blank" rel="noopener">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
 <p>用图形展示大概如下：</p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
 <p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲</p>
 <h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="noopener">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="noopener">comment</a></p>
 <p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
 <h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
-<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。</p>
+<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
 <pre><code>epoll_ctl
 ep_insert
 ep_ptable_queue_proc
@@ -3989,7 +4001,8 @@ public BufferedOutputStream(OutputStream out) {
 <h3 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h3><p>用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间</p>
 <p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
 <p><strong>阻塞和非阻塞指的是发起IO操作后是等待还是返回，同步和异步指的是应用程序与内核通信时数据从内核空间拷贝到用户空间的操作是内核主动触发（异步）还是应用程序触发（同步）</strong></p>
-<h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
+<h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>一个进程虽然任一时刻只能处理一个请求，但是处理每个请求的事件时，耗时控制在 1 毫秒以内，这样 1 秒内就可以处理上千个请求，把时间拉长来看，多个请求复用了一个进程，这就是多路复用，这种思想很类似一个 CPU 并发多个进程，所以也叫做时分多路复用。</p>
+<p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
 <p>用户线程读取分成两步，用户线程先发起select调用（确认内核是否准备好数据），准备好后才调用read，将数据从内核空间读取到用户空间（read这里还是阻塞）。主要是一个select线程可以向内核查多个数据通道的状态</p>
@@ -3997,6 +4010,9 @@ public BufferedOutputStream(OutputStream out) {
 <p><strong>IO多路复用和同步阻塞、非阻塞的区别主要是用户线程发起read的时机不一样，IO多路复用是等数据在内核空间准备好了再通过同步read去读取；而阻塞和非阻塞因为没法预先知道数据是否在内核空间准备好，所以早早触发了read然后等待，只是阻塞会一直等，而非阻塞是指触发read后不用等，反复read直到read到数据。</strong></p>
 <p>Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中的Selector，可以理解成通过Selector跳过了前面的阻塞和非阻塞，实际用户线程在数据Ready前没有触发read操作，数据到了才出发read操作。</p>
 <p>阻塞IO和NIO的主要区别是：NIO面对的是Buffer，可以做到读取完毕后再一次性处理；而阻塞IO面对的是流，只能边读取边处理</p>
+<blockquote>
+<p><strong>多路复用 API 返回的事件并不一定可读写的</strong>，如果使用阻塞 I/O， 那么在调用 read/write 时则会发生程序阻塞，因此最好搭配非阻塞 I/O，以便应对极少数的特殊情况</p>
+</blockquote>
 <h4 id="epoll-JStack-堆栈"><a href="#epoll-JStack-堆栈" class="headerlink" title="epoll JStack 堆栈"></a>epoll JStack 堆栈</h4><p>完整的NIO中Acceptor逻辑JStack:</p>
 <pre><code>//3306 acceptor端口
 &quot;TDDLServer&quot; #32 prio=5 os_prio=0 tid=0x00007fb76cde6000 nid=0x4620 runnable [0x00007fb6db5f6000]
@@ -4093,9 +4109,11 @@ public BufferedOutputStream(OutputStream out) {
 109             logger.info(getName(), e);
 110         }
 111     }
-</code></pre><p>或者这种代码：</p>
+</code></pre><p>NIOAcceptor(一般只有一个，可以有多个)只负责处理新建连接（建立新连接会设置这个Socket的Options，比如buffer size、keepalived等），将新建连接绑定到一个NIOProcessor（NIOProcessor数量一般和CPU Core数量一致，一个NIOProcessor对应一个NIOReactor），连接上的收发包由NIOReactor来处理。也就是一个连接（Socket）创建后就绑定到了一个固定的Thread(NIOReactor)来处理。</p>
+<p>也就是只有Acceptor阶段会有惊群（但是上面的代码只有一个Acceptor，所以也没有惊群了），收发数据阶段因为Socket已经绑定到了一个固定的Thread，所以不会有惊群了，但是可能会存在某个Thread有慢处理导致新进来的请求长时间得不到响应。</p>
+<p>或者这种代码, 同时处理accept、read、write：</p>
 <p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
-<p>Select 触发 read/write 逻辑： </p>
+<p>Select 触发 read/write 堆栈： </p>
 <pre><code>&quot;Processor2-R&quot; #26 prio=5 os_prio=0 tid=0x00007fb76cc9a000 nid=0x4611 runnable [0x00007fb6dbdfc000]
    java.lang.Thread.State: RUNNABLE
         at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
@@ -4170,7 +4188,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>Executor是线程池，主要处理具体业务逻辑，Poller主要处理读取Socket数据逻辑。Executor主要负责执行 SocketProcessor对象中的run方法，SocketProcessor对象的run方法用 Http11Processor来读取和解析请求数据。</li>
 <li>Http11Processor是应用层协议的封装，他会调用容器获得请求（ServletRequest），再将响应通过Channel写出给请求</li>
 </ul>
-<p><strong>因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在JavaAPI中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法</strong></p>
+<p><strong>因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在Java API中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法</strong></p>
 <h4 id="Acceptor"><a href="#Acceptor" class="headerlink" title="Acceptor"></a>Acceptor</h4><p>Acceptor实现了Runnable接口，可以跑在单线程里，一个Listen Port只能对应一个ServerSocketChannel，因此这个ServerSocketChannel是在多个Acceptor线程之间共享</p>
 <pre><code>serverSock = ServerSocketChannel.open();
 serverSock.socket().bind(addr,getAcceptCount());
@@ -6232,7 +6250,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">211</span>
+                <span class="site-state-item-count">212</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

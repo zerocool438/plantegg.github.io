@@ -120,7 +120,7 @@
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/9a90497373211d65186a2a256212e3bf.png">
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/0d997ee52fd79d752d1af9636ac6c858.png">
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/7ece6c553c78927c7886f70c09d7e15b.png">
-<meta property="og:updated_time" content="2021-03-04T07:33:56.308Z">
+<meta property="og:updated_time" content="2021-03-26T01:49:35.036Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="NIO和epoll">
 <meta name="twitter:description" content="NIO、EPOLL和协程从IO说起用户线程发起IO操作后（比如读），网络数据读取过程分两步：  用户线程等待内核将数据从网卡拷贝到内核空间 内核将数据从内核空间拷贝到用户空间  零拷贝零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），">
@@ -421,7 +421,8 @@
 <h3 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h3><p>用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间</p>
 <p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
 <p><strong>阻塞和非阻塞指的是发起IO操作后是等待还是返回，同步和异步指的是应用程序与内核通信时数据从内核空间拷贝到用户空间的操作是内核主动触发（异步）还是应用程序触发（同步）</strong></p>
-<h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
+<h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>一个进程虽然任一时刻只能处理一个请求，但是处理每个请求的事件时，耗时控制在 1 毫秒以内，这样 1 秒内就可以处理上千个请求，把时间拉长来看，多个请求复用了一个进程，这就是多路复用，这种思想很类似一个 CPU 并发多个进程，所以也叫做时分多路复用。</p>
+<p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
 <p>用户线程读取分成两步，用户线程先发起select调用（确认内核是否准备好数据），准备好后才调用read，将数据从内核空间读取到用户空间（read这里还是阻塞）。主要是一个select线程可以向内核查多个数据通道的状态</p>
@@ -429,6 +430,9 @@
 <p><strong>IO多路复用和同步阻塞、非阻塞的区别主要是用户线程发起read的时机不一样，IO多路复用是等数据在内核空间准备好了再通过同步read去读取；而阻塞和非阻塞因为没法预先知道数据是否在内核空间准备好，所以早早触发了read然后等待，只是阻塞会一直等，而非阻塞是指触发read后不用等，反复read直到read到数据。</strong></p>
 <p>Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中的Selector，可以理解成通过Selector跳过了前面的阻塞和非阻塞，实际用户线程在数据Ready前没有触发read操作，数据到了才出发read操作。</p>
 <p>阻塞IO和NIO的主要区别是：NIO面对的是Buffer，可以做到读取完毕后再一次性处理；而阻塞IO面对的是流，只能边读取边处理</p>
+<blockquote>
+<p><strong>多路复用 API 返回的事件并不一定可读写的</strong>，如果使用阻塞 I/O， 那么在调用 read/write 时则会发生程序阻塞，因此最好搭配非阻塞 I/O，以便应对极少数的特殊情况</p>
+</blockquote>
 <h4 id="epoll-JStack-堆栈"><a href="#epoll-JStack-堆栈" class="headerlink" title="epoll JStack 堆栈"></a>epoll JStack 堆栈</h4><p>完整的NIO中Acceptor逻辑JStack:</p>
 <pre><code>//3306 acceptor端口
 &quot;TDDLServer&quot; #32 prio=5 os_prio=0 tid=0x00007fb76cde6000 nid=0x4620 runnable [0x00007fb6db5f6000]
@@ -525,9 +529,11 @@
 109             logger.info(getName(), e);
 110         }
 111     }
-</code></pre><p>或者这种代码：</p>
+</code></pre><p>NIOAcceptor(一般只有一个，可以有多个)只负责处理新建连接（建立新连接会设置这个Socket的Options，比如buffer size、keepalived等），将新建连接绑定到一个NIOProcessor（NIOProcessor数量一般和CPU Core数量一致，一个NIOProcessor对应一个NIOReactor），连接上的收发包由NIOReactor来处理。也就是一个连接（Socket）创建后就绑定到了一个固定的Thread(NIOReactor)来处理。</p>
+<p>也就是只有Acceptor阶段会有惊群（但是上面的代码只有一个Acceptor，所以也没有惊群了），收发数据阶段因为Socket已经绑定到了一个固定的Thread，所以不会有惊群了，但是可能会存在某个Thread有慢处理导致新进来的请求长时间得不到响应。</p>
+<p>或者这种代码, 同时处理accept、read、write：</p>
 <p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
-<p>Select 触发 read/write 逻辑： </p>
+<p>Select 触发 read/write 堆栈： </p>
 <pre><code>&quot;Processor2-R&quot; #26 prio=5 os_prio=0 tid=0x00007fb76cc9a000 nid=0x4611 runnable [0x00007fb6dbdfc000]
    java.lang.Thread.State: RUNNABLE
         at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
@@ -602,7 +608,7 @@
 <li>Executor是线程池，主要处理具体业务逻辑，Poller主要处理读取Socket数据逻辑。Executor主要负责执行 SocketProcessor对象中的run方法，SocketProcessor对象的run方法用 Http11Processor来读取和解析请求数据。</li>
 <li>Http11Processor是应用层协议的封装，他会调用容器获得请求（ServletRequest），再将响应通过Channel写出给请求</li>
 </ul>
-<p><strong>因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在JavaAPI中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法</strong></p>
+<p><strong>因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在Java API中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法</strong></p>
 <h4 id="Acceptor"><a href="#Acceptor" class="headerlink" title="Acceptor"></a>Acceptor</h4><p>Acceptor实现了Runnable接口，可以跑在单线程里，一个Listen Port只能对应一个ServerSocketChannel，因此这个ServerSocketChannel是在多个Acceptor线程之间共享</p>
 <pre><code>serverSock = ServerSocketChannel.open();
 serverSock.socket().bind(addr,getAcceptCount());
@@ -838,7 +844,7 @@ serverSock.configureBlocking(true);
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">211</span>
+                <span class="site-state-item-count">212</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

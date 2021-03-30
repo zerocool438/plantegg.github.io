@@ -121,7 +121,7 @@
 <meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/955fc732d8620561a9ebce992b0129b1.png">
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d42ccdb0b8f6270d8b559145c0b89c86.png">
 <meta property="og:image" content="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a067b484c593aa3a4b6a525d1f93506e.png">
-<meta property="og:updated_time" content="2021-03-13T01:44:10.455Z">
+<meta property="og:updated_time" content="2021-03-26T01:49:35.045Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux Network Stack">
 <meta name="twitter:description" content="Linux Network Stack从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，怎么调整他们。 接收流程大纲在开始收包之前，Linux要做许多的准备工作：  创建ksoftirqd线程，为它设置好它自己的线程函数，后面指望着它来处理软中断呢 协议栈注册，linux要实现许多协议，比如arp，icmp，ip，udp，tcp，">
@@ -464,10 +464,10 @@
 <p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
 <p>在网络子系统初始化中为NET_RX_SOFTIRQ注册了处理函数net_rx_action。所以<code>net_rx_action</code>函数就会被执行到了。</p>
 <p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
-<p>这里需要注意一个细节，硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
-<p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。接着走，如果是 ESTABLISH 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
+<p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
+<p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
 <p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt></p>
-<p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
+<p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。<strong>收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段</strong>。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
 <h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
 <li>应用调 sendmsg</li>
 <li>TCP 分片 skb_buff</li>
@@ -788,7 +788,7 @@ sysctl -w net.core.netdev_max_backlog=1024 //临时性增大
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">211</span>
+                <span class="site-state-item-count">212</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
