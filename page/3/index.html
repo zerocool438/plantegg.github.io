@@ -785,7 +785,7 @@ c5/g5/sn1ne/sn2ne:      Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
 <h3 id="通过perf-top直接看Java函数的CPU消耗"><a href="#通过perf-top直接看Java函数的CPU消耗" class="headerlink" title="通过perf top直接看Java函数的CPU消耗"></a>通过perf top直接看Java函数的CPU消耗</h3><p>这个大家都比较了解，不多说，主要是top的时候能够把java函数给关联上，直接看截图：</p>
 <pre><code>sh ~/tools/perf-map-agent/bin/create-java-perf-map.sh pid
 sudo perf top
-</code></pre><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/gif/33359/1568775788220-32745082-5155-4ecd-832a-e814a682c0df.gif" alt></p>
+</code></pre><p><img src="/images/oss/1568775788220-32745082-5155-4ecd-832a-e814a682c0df.gif" alt></p>
 <h3 id="快速定位Java中的锁等待"><a href="#快速定位Java中的锁等待" class="headerlink" title="快速定位Java中的锁等待"></a>快速定位Java中的锁等待</h3><p>如果CPU跑不起来，可能会存在锁瓶颈，需要快速找到它们</p>
 <p>如下测试中上面的11万tps是解决掉锁后得到的，下面的4万tps是没解决锁等待前的tps：</p>
 <pre><code>#[ 210s] threads: 400, tps: 0.00, reads/s: 115845.43, writes/s: 0.00, response time: 7.57ms (95%)
@@ -3407,7 +3407,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>内核将数据从内核空间拷贝到用户空间</li>
 </ul>
 <h3 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h3><p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
+<p><img src="/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
 <p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：</p>
 <p><img src="/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
 <p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
@@ -3621,9 +3621,9 @@ serverSock.configureBlocking(true);
 <p>Select和epoll本质是为了IO多路复用（多个连接共用一个线程–监听是否连接有数据到达）。有报文进来的时候触发Select，Select轮询所有连接确认是哪个连接有报文进来了。连接过多放大了这种无用轮询。<br>epoll通过一颗红黑树维护所有连接，同时将有数据进来的连接通过回调更新到一个队列中，那么epoll每次检查的时候只需要检查队列而不是整个红黑树，效率大大提高了。</p>
 <p>事件驱动适合于I/O密集型服务，多进程或线程适合于CPU密集型服务<br>多路复用有很多种实现，在linux上，2.4内核前主要是select和poll，现在主流是epoll<br>select解决了一个线程监听多个socket的问题，但是因为依靠fd_set结构体记录所监控的socket，带来了能监听的socket数量有限（不超过1024）<br>poll在select的基础上解决了1024个的问题，但是还是要依次轮询这1024个socket，效率太低<br>epoll 异步非阻塞多路复用</p>
 <p>闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
+<p><img src="/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
 <h3 id="MySQL-Thread-Pool-带来的问题"><a href="#MySQL-Thread-Pool-带来的问题" class="headerlink" title="MySQL Thread Pool 带来的问题"></a>MySQL Thread Pool 带来的问题</h3><p>MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲–类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
+<p><img src="/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
 <p>连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。</p>
 <p><strong>MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
@@ -4162,11 +4162,11 @@ avg: 0.005937
 </blockquote>
 <p>tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</p>
 <p>下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d99665729dbc0ccbcbebd5176900ce6c.png" alt="image.png"></p>
+<p><img src="/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png" alt="image.png"></p>
 <p><strong> 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 </strong></p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
-<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
-<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
+<p><img src="/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
 <h2 id="其它工具-packetdrill"><a href="#其它工具-packetdrill" class="headerlink" title="其它工具 packetdrill"></a>其它工具 packetdrill</h2><p><a href="https://github.com/google/packetdrill" target="_blank" rel="noopener">https://github.com/google/packetdrill</a></p>
 <p><a href="https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw</a></p>
 <p><a href="http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html" target="_blank" rel="noopener">http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html</a></p>
@@ -4386,15 +4386,15 @@ sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
 <li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
 <li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
 </ul>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
 <p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
 <p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
 <h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
 <li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
 <li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
 </ul>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
 <ul>
 <li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
 <li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
@@ -4403,7 +4403,7 @@ sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
 <li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
 <li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
 </ul>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
 <p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
 <h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
 <p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
@@ -4928,7 +4928,7 @@ dip： destination
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 &quot;vmstat 10&quot; 2&gt;&amp;1 &gt;/dev/null &amp;</span><br></pre></td></tr></table></figure>
 <p>上面的 1.1.1.1 是你在境外的一台服务器，已经做好了免密登陆（免密见后面，要不你每次还得输一下密码），这句话的意思就是在本地启动一个38080的端口，上面收到的任何东西都会转发给 1.1.1.1:22（做了ssh加密），1.1.1.1:22 会解密收到的东西，然后把他们转发给google之类的网站（比如你要访问的是google），结果依然通过原路返回</p>
 <p>127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
+<p><img src="/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
 <p>原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：<br><img src="/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png" alt="undefined"> </p>
 <h3 id="科学上网之http特殊代理"><a href="#科学上网之http特殊代理" class="headerlink" title="科学上网之http特殊代理"></a>科学上网之http特殊代理</h3><p>前面所说的代理是socks5代理，一般浏览器都有插件支持，但是比如你的docker（或者其他程序）需要通过http去拉取镜像就会出现如下错误：</p>
 <pre><code>Sending build context to Docker daemon 8.704 kB
@@ -4964,7 +4964,7 @@ UserKnownHostsFile /dev/null
 <p>加了如上参数后的登录过程就有这样的东东(默认没有，这是debug信息)：   </p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">debug1: setting up multiplex master socket</span><br><span class="line">debug3: muxserver_listen: temporary control path   /home/ren/tmp/ssh_mux_10.16.*.*_22_corp.86g3C34vy36tvCtn</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug1: channel 0: new [/home/ren/tmp/ssh_mux_10.16.*.*_22_corp]</span><br><span class="line">debug3: muxserver_listen: mux listener channel 0 fd 3</span><br><span class="line">debug1: control_persist_detach: backgrounding master process</span><br><span class="line">debug2: control_persist_detach: background process is 15154</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug1: forking to background</span><br><span class="line">debug1: Entering interactive session.</span><br><span class="line">debug2: set_control_persist_exit_time: schedule exit in 259200 seconds</span><br><span class="line">debug1: multiplexing control connection</span><br></pre></td></tr></table></figure>
 <p> /home/ren/tmp/ssh_mux_10.16.<em>.</em>_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时</p>
-<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
+<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
 <h2 id="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"><a href="#我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？" class="headerlink" title="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"></a>我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？</h2><p>比如有一批客户机房的机器IP都是192.168.<em>.</em>, 然后需要走跳板机100.10.1.2才能访问到，那么我希望以后<strong>在笔记本上直接 ssh 192.168.1.5 就能直接连上</strong></p>
 <pre><code>$ cat /etc/ssh/ssh_config
 
@@ -4996,7 +4996,7 @@ debug1: Control socket &quot;/home/ren/tmp/ssh_mux_10.16.1.*_22_corp&quot; does 
 debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.16.1.* 22
 </code></pre><p>本来我的笔记本跟 10.16.1.<em> 是不通的(ping 不通），但是ssh可以直接连上，实际ssh登录过程中自动走跳板机139.</em>.<em>.</em> 就连上了</p>
 <p>-vvv 参数是debug，把ssh登录过程的日志全部打印出来。 </p>
-<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
+<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
 <h3 id="实现过程："><a href="#实现过程：" class="headerlink" title="实现过程："></a>实现过程：</h3><ol>
 <li>先ssh到线上跳板机：login1.cm10.<em>**</em></li>
 <li>复制 ~/.ssh/id_dsa.pub 和 ~/.ssh/id_dsa到你的笔记本的~/.ssh/ 下</li>
@@ -5007,7 +5007,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </ol>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Host 11.239.*.*</span><br><span class="line">ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p</span><br></pre></td></tr></table></figure>
 <p><strong>第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号</strong><br>这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
+<p><img src="/images/oss/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
 <h2 id="将隔离环境中的web端口映射到本地"><a href="#将隔离环境中的web端口映射到本地" class="headerlink" title="将隔离环境中的web端口映射到本地"></a>将隔离环境中的web端口映射到本地</h2><p>远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.149.1.132:8083， ssh账号是：aliyun</p>
@@ -5713,7 +5713,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
           
             <h1 id="就是要你懂网络–一个网络包的旅程"><a href="#就是要你懂网络–一个网络包的旅程" class="headerlink" title="就是要你懂网络–一个网络包的旅程"></a>就是要你懂网络–一个网络包的旅程</h1><hr>
 <h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>我相信你脑子里关于网络的概念都在下面这张图上，但是乱成一团麻，这就是因为知识没有贯通、没有实践、没有组织</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
+<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
 <p>上面的概念在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>中讲的无比的通熟易懂了，但是抱歉，当时你也许看懂了，但是一个月后又忘记了，或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
 <p><strong>所以这篇文章希望解决书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
 <h2 id="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"><a href="#最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下" class="headerlink" title="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"></a>最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下</h2><p>当时的网络链路是（大概是这样，略有简化）：</p>
@@ -5806,7 +5806,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 </code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
 <h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关就行转发，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
 <p>从本机10.125.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走10.125.15.254这个网关，如下截图：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
+<p><img src="/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
 <p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关10.125.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到10.125.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
 <p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
 <pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
@@ -5821,7 +5821,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 <h3 id="目标收到这个icmp包后的回复过程一样，略过。"><a href="#目标收到这个icmp包后的回复过程一样，略过。" class="headerlink" title="目标收到这个icmp包后的回复过程一样，略过。"></a>目标收到这个icmp包后的回复过程一样，略过。</h3><h3 id="arp广播风暴和arp欺骗"><a href="#arp广播风暴和arp欺骗" class="headerlink" title="arp广播风暴和arp欺骗"></a>arp广播风暴和arp欺骗</h3><p>广播风暴：如果一个子网非常大，机器非常多，每次arp查询都是广播的话，也容易因为N*N的问题导致广播风暴。</p>
 <p>arp欺骗：同样如果一个子网中的某台机器冒充网关或者其他机器，当收到arp查询的时候总是把自己的mac冒充目标机器的mac发给你，然后你的包先走到他，为了不被发现达到自己的目的后再转发给真正的网关或者机器，所以在里面都点什么手脚，看看你发送的内容都还是很容易的</p>
 <h2 id="讲完基础再来看开篇问题的答案"><a href="#讲完基础再来看开篇问题的答案" class="headerlink" title="讲完基础再来看开篇问题的答案"></a>讲完基础再来看开篇问题的答案</h2><h3 id="分别在两个物理机上抓包"><a href="#分别在两个物理机上抓包" class="headerlink" title="分别在两个物理机上抓包"></a>分别在两个物理机上抓包</h3><p>在物理机2上抓包：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
+<p><img src="/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
 <pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
 f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
 10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
@@ -5830,7 +5830,7 @@ f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102:
 </code></pre><p>这个抓包能看到核心证据，ping包有到达物理机2，同时物理机2也正确回复了（mac、ip都对）</p>
 <p>同时在物理机1上抓包只能看到ping包出去，回包没有到物理机1（所以回包肯定不会到容器里了）</p>
 <p><strong>所以问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
-<p>同时观察到的不正常延时：<br><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
+<p>同时观察到的不正常延时：<br><img src="/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
 <h3 id="过程中的其它测试："><a href="#过程中的其它测试：" class="headerlink" title="过程中的其它测试："></a>过程中的其它测试：</h3><ol>
 <li>新拿出一台物理机配置上不通的容器的IP，这是通的，所以客户坚持是容器网络的配置；</li>
 <li>怀疑不通的IP所使用的mac地址冲突，在交换机上清理了交换机的arp缓存，没有帮助，还是不通</li>
@@ -5874,11 +5874,11 @@ telnet: connect to address 11.239.161.60: Connection refused
 <li>有几台物理机io偶然情况下会飙升到80多。需要定位解决。</li>
 </ol>
 <p>其实当时看到tsar监控retran比较高，我也觉得网络有问题，但是我去看的时候网络又非常好，于是我看了一下出问题时间段的网卡的流量信息也非常正常：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
+<p><img src="/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
 <p>上图是通过sar监控到的9号 10.16.11.138（v24d9e0f23d40） 这个网卡的流量，看起来也是正常，流量没有出现明显的波动（10.16.11.138  出问题容器对应的网卡名：v24d9e0f23d40）</p>
 <p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求，基本认识告诉我们如果网络丢包、卡顿，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常。</p>
 <p>实际监控来看，应用出异常的时候我的http服务是正常的（写了脚本判断日志的连续性，没问题）：</p>
-<p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
+<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
 <p>这也强有力地证明了网络没问题，所以大家集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
 <h2 id="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"><a href="#TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。" class="headerlink" title="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"></a>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</h2><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
 <ul>
@@ -6042,7 +6042,7 @@ tcp0 28 server:22    client-1:51708  ESTABLISHED
 tcp0  0 server:2376  client-1:60269 ESTABLISHED
 </code></pre><p> **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
 <h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Recv-Q</span><br><span class="line">Established: The count of bytes not copied by the user program connected to this socket.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</span><br><span class="line"></span><br><span class="line">Send-Q</span><br><span class="line">Established: The count of bytes not acknowledged by the remote host.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog.</span><br></pre></td></tr></table></figure>
-<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
 <h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><p><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
 <p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
 <p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
