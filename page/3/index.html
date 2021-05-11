@@ -282,6 +282,855 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
+                2019-12-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"><a href="#Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的" class="headerlink" title="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"></a>Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</h1><p>本文记录专有云场景下Tomcat+MySQL集群的一次全表扫描性能优化过程</p>
+<p>经验总结，长链路下性能瓶颈发现规则（最容易互相扯皮、协调难度大）：</p>
+<blockquote>
+<p>从一个压测线程开始压，记录tps、rt；然后增加线程数量，到tps明显不再增加，分析此时各个环节的rt，看哪个环节rt增加最明显，瓶颈就在哪个环节</p>
+<p>如果监控没法得到各个环节的rt数据(太现实和普遍了)，抓包分析请求相应的rt</p>
+</blockquote>
+<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>client -&gt; Tomcat -&gt; slb -&gt; MySQL（32实例，每个实例8Core）</p>
+<h2 id="场景描述："><a href="#场景描述：" class="headerlink" title="场景描述："></a>场景描述：</h2><p>通过client压 Tomcat和MySQL，MySQL是32个实例，业务逻辑是不带拆分键的全表扫描，也就是一个client SQL经过Tomcat后会拆分成256个SQL发送给32个MySQL（每个MySQL上有8个分库）</p>
+<p>业务SQL是一个简单的select sum求和，这个SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM uebmi_clct_det_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
+</code></pre><h2 id="说明："><a href="#说明：" class="headerlink" title="说明："></a>说明：</h2><ul>
+<li>后述或者截图中的逻辑rt/QPS是指client看到的Tomcat的rt和QPS； </li>
+<li>物理rt/QPS是指Tomcat看到的MySQL rt和QPS（这里的rt是指到达Tomcat节点网卡的rt，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL rt是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL rt是0.6ms，到这里基本都是正常的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL rt是0.8ms，这就严重不符合预期了。</p>
+<p><img src="/images/oss/28610e403282d493e2ce18fbecc69421.png" alt="image.png"></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来是后端有瓶颈。</strong></p>
+<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，发现MySQL CPU基本能跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑</p>
+<h2 id="slb和网络的嫌疑"><a href="#slb和网络的嫌疑" class="headerlink" title="slb和网络的嫌疑"></a>slb和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了xgw、slb的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
+<p>在xgw可以看到pps大概是100万：<br><img src="/images/oss/87a6b32986859828dc3b5f2de3d4f430.png" alt="image.png"></p>
+<p>另外检查lvs，也没看到有进出丢包的问题：<br><img src="/images/oss/3754ba7ac526423eba8e20f7d2953ae1.png" alt="image.png"></p>
+<p>所以网络因素被排除，另外做压测的时候反复从Tomcat上ping 后面的MySQL，rt跟没有压力的时候一样，也说明了网络没有问题。</p>
+<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开慢查询，并将慢查询阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均rt0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的rt进行统计分析：</p>
+<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
+<p>这是Tomcat上抓到的每个sql的物理rt 平均值，上面是QPS 430的时候，rt 0.6ms，下面是3个server，QPS为700，但是rt上升到了0.9ms，基本跟Tomcat监控记录到的物理rt一致。如果MySQL上也有类似抓包计算rt时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的rt数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为slb模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态（Tomcat的监控还是很给力的)：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>另外像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="MySQL部署awr"><a href="#MySQL部署awr" class="headerlink" title="MySQL部署awr"></a>MySQL部署awr</h2><p>步骤：</p>
+<ol>
+<li>打开performance_schema；设置参数performance_schema=on</li>
+<li>压测前后调用调用 call awr_snapshot(‘memo’);  memo 是你希望给这次测试设置的标签</li>
+<li>查看的时候，先call awr_list_snapshot(); 找到你对应的那次测试，再运行call awr_report(1,2); 1/2对应你测试的开始、结束snapshot ID</li>
+</ol>
+<p>通过awr将performance_schema打开，并采集一些MySQL数据(SQL/CPU/Lock/Mutex等等)进行统计分析</p>
+<p>可以清楚地看到一些锁等待：</p>
+<p><img src="/images/oss/481d7bef3dc0a1fbe20ab9cf01978a7c.png" alt="image.png"><br>从上图可以看到主要是select wait比较多，符合业务场景（都是 select sum语句），这里wait是98%，QPS为38000的时候wait才88%。</p>
+<p><img src="/images/oss/745790bf9b7562cc60bf311c7963c983.png" alt="image.png"></p>
+<p>从这里可以看到fil_system_mutex锁等待比较多，但是还是不清楚这个锁是怎么产生的，得怎么优化掉。QPS为38000的时候这个等待才 10%</p>
+<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接上 perf ，发现ut_delay高得不符合逻辑：</p>
+<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
+<p>跟直接在MySQL命令行中通过 show processlist看到的基本一致：</p>
+<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
+<p>主要是优化器在做statistics的时候需要对索引进行统计，统计的时候要加锁，thread running抖动时对应的通过show processlist看到很多thread处于 statistics 状态。</p>
+<p>这里ut_delay 消耗了28%的CPU肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加Tomcat节点，QPS也可以线性增加。</p>
+<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用ut_delay做空循环实现的，会消耗比较高的CPU。也就是通过高CPU消耗尽量来避免等锁的时候上下文切换。</p>
+<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整到MySQL官方默认配置innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理rt：0.7，逻辑rt：19.6，cpu：90%，这个时候只需要继续扩容Tomcat节点的数量就可以增加QPS<br>19.6，cpu：90%<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理rt：2.6ms 逻辑rt：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
+<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
+<h2 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h2><p>innodb通过大量的自旋锁来用高CPU消耗避免CS，这是自旋锁的正确使用方式，但是在多个核的情况下，多核一起自旋抢同一个锁，容易造成cache ping-pong，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="noopener">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong. </p>
+<p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，生产级的自旋锁在“忙等待”时，会与 CPU 紧密配合 ，它通过 CPU 提供的 PAUSE 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<blockquote>
+<p>比如：Java中的Random.getInt() 随机数生成的时候如果多线程共用一个Random，会造成CAS总是失败，导致CPU很高，效率很低</p>
+</blockquote>
+<p>CPU专为自旋锁设计了pause指令，一旦自旋抢锁失败先pause一下，只是这个pause对于innodb来说pause的还不够久，所以需要 innodb_spin_wait_delay 来将pause放大一些。</p>
+<p>在我们的这个场景下对每个SQL的rt抖动非常敏感（放大256倍），所以过高的delay会导致部分SQL rt变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************//**
+Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+
+        UT_LOW_PRIORITY_CPU();
+
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //cpu Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+
+        return(j);
+}
+
+// kernel 自旋锁部分代码
+while (true) {
+  //因为判断lock变量的值比CAS操作更快，所以先判断lock再调用CAS效率更高
+  if (lock == 0 &amp;&amp;  CAS(lock, 0, pid) == 1) return;
+
+  if (CPU_count &gt; 1 ) { //如果是多核CPU，“忙等待”才有意义
+      for (n = 1; n &lt; 2048; n &lt;&lt;= 1) {//pause的时间，应当越来越长
+        for (i = 0; i &lt; n; i++) pause();//CPU专为自旋锁设计了pause指令
+        if (lock == 0 &amp;&amp; CAS(lock, 0, pid)) return;//pause后再尝试获取锁
+      }
+  }
+  sched_yield();//单核CPU，或者长时间不能获取到锁，应主动休眠，让出CPU
+}
+
+//MySQL 8.0 针对PAUSE，源码中新增了spin_wait_pause_multiplier参数，来替换之前写死的循环次数。
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p>spinlock(自旋锁)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠 <a href="http://linuxperf.com/?p=138" target="_blank" rel="noopener">http://linuxperf.com/?p=138</a></p>
+<h3 id="pause-和-cpu-relax"><a href="#pause-和-cpu-relax" class="headerlink" title="pause 和 cpu_relax"></a>pause 和 cpu_relax</h3><p>内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：</p>
+<ul>
+<li>主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；</li>
+<li>释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；</li>
+</ul>
+<p>对于顺序锁而言，cpu_relax 尤为关键：</p>
+<ul>
+<li>锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。</li>
+<li>cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。</li>
+</ul>
+<p>由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。</p>
+<h3 id="Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>cpu_relax/UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，<strong>在pause期间，同一个core上的HT可以执行其他指令</strong>。</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：<br>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<blockquote>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="noopener">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="noopener"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+</blockquote>
+<p><strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles提升到140 cycles。</strong></p>
+<p><img src="/images/oss/f712640a787655ad1bcddec4c65215e5.png" alt="image.png"></p>
+<p>可以看到V52的CPU绝大部分时间消耗在ut_delay函数上。（注：V42和V52表示两种不同的机型，他们使用的CPU型号不一样）</p>
+<p>使用pqos观测CPU的IPC指标：<br>在128并发写入场景下，V42 CPU的IPC为0.35左右，而V52 CPU的IPC只有0.18</p>
+<blockquote>
+<p>说明：IPC是单位时钟周期的指令数，反映当前场景下，CPU的执行效率</p>
+</blockquote>
+<p>MySQL使用innodb_spin_wait_delay控制spin lock等待时间，等待时间时间从0*50个pause到innodb_spin_wait_delay*50个pause。<br>线上innodb_spin_wait_delay默认配置30，对于V42 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算V52 CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/oss/9377127947c23dd166f6aa399b6a89b9.png" alt="image.png"></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/oss/d567449fe52725a9d0b9d4ec9baa372c.png" alt="image.png"></p>
+<p>因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。</p>
+<p><img src="/images/oss/d0b0687ab72cfb785441bfb343b9f948.png" alt="image.png"></p>
+<h4 id="不同的架构下的参数"><a href="#不同的架构下的参数" class="headerlink" title="不同的架构下的参数"></a>不同的架构下的参数</h4><p><img src="/images/oss/e4a2fb522be7aa65158778b7ea825207.png" alt="image.png"></p>
+<h3 id="cache-一致性"><a href="#cache-一致性" class="headerlink" title="cache 一致性"></a>cache 一致性</h3><p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。<br>这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
+<p>处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了<a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="noopener"> MESI 协议</a>，以及 MESIF 协议。</p>
+<p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，<br>还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。<br>随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
+<p>cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。</p>
+<h4 id="查看cache-line"><a href="#查看cache-line" class="headerlink" title="查看cache line"></a>查看cache line</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">#飞腾(FT2500), ARMv8架构，主频2.1G，服务器两路，每路64个物理core，没有超线程，总共16个numa，每个numa 8个core</span><br><span class="line">#getconf -a | grep CACHE</span><br><span class="line">LEVEL1_ICACHE_SIZE                 0</span><br><span class="line">LEVEL1_ICACHE_ASSOC                0</span><br><span class="line">LEVEL1_ICACHE_LINESIZE             64  //64 字节</span><br><span class="line">LEVEL1_DCACHE_SIZE                 0</span><br><span class="line">LEVEL1_DCACHE_ASSOC                0</span><br><span class="line">LEVEL1_DCACHE_LINESIZE             64</span><br><span class="line">LEVEL2_CACHE_SIZE                  0</span><br><span class="line">LEVEL2_CACHE_ASSOC                 0</span><br><span class="line">LEVEL2_CACHE_LINESIZE              0</span><br><span class="line">LEVEL3_CACHE_SIZE                  0</span><br><span class="line">LEVEL3_CACHE_ASSOC                 0</span><br><span class="line">LEVEL3_CACHE_LINESIZE              0</span><br><span class="line">LEVEL4_CACHE_SIZE                  0</span><br><span class="line">LEVEL4_CACHE_ASSOC                 0</span><br><span class="line">LEVEL4_CACHE_LINESIZE              0</span><br><span class="line"></span><br><span class="line">#intel Xeon Platinum 8269</span><br><span class="line"># getconf -a | grep CACHE</span><br><span class="line">LEVEL1_ICACHE_SIZE                 32768</span><br><span class="line">LEVEL1_ICACHE_ASSOC                8</span><br><span class="line">LEVEL1_ICACHE_LINESIZE             64</span><br><span class="line">LEVEL1_DCACHE_SIZE                 32768</span><br><span class="line">LEVEL1_DCACHE_ASSOC                8</span><br><span class="line">LEVEL1_DCACHE_LINESIZE             64</span><br><span class="line">LEVEL2_CACHE_SIZE                  1048576</span><br><span class="line">LEVEL2_CACHE_ASSOC                 16</span><br><span class="line">LEVEL2_CACHE_LINESIZE              64</span><br><span class="line">LEVEL3_CACHE_SIZE                  37486592</span><br><span class="line">LEVEL3_CACHE_ASSOC                 11</span><br><span class="line">LEVEL3_CACHE_LINESIZE              64</span><br><span class="line">LEVEL4_CACHE_SIZE                  0</span><br><span class="line">LEVEL4_CACHE_ASSOC                 0</span><br><span class="line">LEVEL4_CACHE_LINESIZE              0</span><br></pre></td></tr></table></figure>
+<h4 id="Cache-Line-伪共享"><a href="#Cache-Line-伪共享" class="headerlink" title="Cache Line 伪共享"></a>Cache Line 伪共享</h4><p>Cache Line 伪共享问题，就是由多个 CPU 上的多个线程同时修改自己的变量引发的。这些变量表面上是不同的变量，但是实际上却存储在同一条 Cache Line 里（Cache Line 失效的最小单位是整个Line，而不是一个变量）。<br>在这种情况下，由于 Cache 一致性协议，两个处理器都存储有相同的 Cache Line 拷贝的前提下，本地 CPU 变量的修改会导致本地 Cache Line 变成 Modified 状态，然后在其它共享此 Cache Line 的 CPU 上，<br>引发 Cache Line 的 Invaidate 操作，导致 Cache Line 变为 Invalidate 状态，从而使 Cache Line 再次被访问时，发生本地 Cache Miss，从而伤害到应用的性能。<br>在此场景下，多个线程在不同的 CPU 上高频反复访问这种 Cache Line 伪共享的变量，则会因 Cache 颠簸引发严重的性能问题。</p>
+<h4 id="MESI-protocol"><a href="#MESI-protocol" class="headerlink" title="MESI protocol"></a><a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="noopener">MESI protocol</a></h4><p>MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这个读取应该不是一个 Shared读，猜测是一个Exclusive读（加锁成功肯定会Modified），意味着读取就会让其他 cache line失效。</p>
+<p><img src="/images/oss/2a5245c81a37d166c7e0b2ace45b9e4b.png" alt="image.png"></p>
+<p>我们举个具体的例子来看看这四个状态的转换：</p>
+<ol>
+<li>当 A 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 A 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；</li>
+<li>然后 B 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 A 号 CPU 核心已经缓存了该数据，所以会把数据返回给 B 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；</li>
+<li>当 A 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，<strong>然后 A 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了</strong>。</li>
+<li>如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。</li>
+<li>如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。</li>
+</ol>
+<p>可以发现当 Cache Line 状态是「已修改」或者「独占」状态时，修改更新其数据不需要发送广播给其他 CPU 核心，这在一定程度上减少了总线带宽压力。 </p>
+<p><img src="/images/oss/29c4ae48501984787dfc232e4673b86d.png" alt="image.png"></p>
+<p>如果内存中的数据已经在 CPU Cache 中了，那 CPU 访问一个内存地址的时候，会经历这 4 个步骤：</p>
+<ol>
+<li>根据内存地址中索引信息，计算在 CPU Cache 中的索引，也就是找出对应的 CPU Line 的地址；</li>
+<li>找到对应 CPU Line 后，判断 CPU Line 中的有效位，确认 CPU Line 中数据是否是有效的，如果是无效的，CPU 就会直接访问内存，并重新加载数据，如果数据有效，则往下执行；</li>
+<li>对比内存地址中组标记和 CPU Line 中的组标记，确认 CPU Line 中的数据是我们要访问的内存数据，如果不是的话，CPU 就会直接访问内存，并重新加载数据，如果是的话，则往下执行；</li>
+<li>根据内存地址中偏移量信息，从 CPU Line 的数据块中，读取对应的字。</li>
+</ol>
+<p>（题外话：<strong>除了提高cache line命中率外还得考虑分支预测准确性，这两对提升cpu运算性能有非常大的帮助</strong>）</p>
+<p>在NUMA架构中，多个处理器中的同一个缓存页面必定在其中一个处理器中属于 F 状态(可以修改的状态)，这个页面在这个处理器中没有理由不可以多核心共享(可以多核心共享就意味着这个能进入修改状态的页面的多个有效位被设置为一)。MESIF协议应该是工作在核心(L1+L2)层面而不是处理器(L3)层面，这样同一处理器里多个核心共享的页面，只有其中一个是出于 F 状态(可以修改的状态)。见后面对 NUMA 和 MESIF 的解析。(L1/L2/L3 的同步应该是不需要 MESIF 的同步机制)</p>
+<h2 id="分析源代码"><a href="#分析源代码" class="headerlink" title="分析源代码"></a>分析源代码</h2><p>另外分析了MySQL源代码后，在select中通过使用force index来绕过优化器是可以达到相同的效果（不再走statistics流程，也就不会有这个锁争抢了）</p>
+<p>从下面的源代码中可以看到perf top中fil_space_get，在这个函数里面确实会对fil_system_mutex加锁（跟awr监控对应上了）</p>
+<pre><code>/** Look up a tablespace.
+The caller should hold an InnoDB table lock or a MDL that prevents
+the tablespace from being dropped during the operation,
+or the caller should be in single-threaded crash recovery mode
+(no user connections that could drop tablespaces).
+If this is not the case, fil_space_acquire() and fil_space_release()
+should be used instead.
+@param[in]      id      tablespace ID
+@return tablespace, or NULL if not found */
+fil_space_t*
+fil_space_get(
+        ulint   id)
+{
+        mutex_enter(&amp;fil_system-&gt;mutex);
+        fil_space_t*    space = fil_space_get_by_id(id);
+        mutex_exit(&amp;fil_system-&gt;mutex);
+        ut_ad(space == NULL || space-&gt;purpose != FIL_TYPE_LOG);
+        return(space);
+}
+</code></pre><p>btr_estimate_n_rows_in_range_low会调用btr_estimate_n_rows_in_range_on_level, btr_estimate_n_rows_in_range_on_level中调用 fil_space_get</p>
+<p>const fil_space_t*      space = fil_space_get(index-&gt;space);</p>
+<pre><code>/** Estimates the number of rows in a given index range.
+@param[in]      index           index
+@param[in]      tuple1          range start, may also be empty tuple
+@param[in]      mode1           search mode for range start
+@param[in]      tuple2          range end, may also be empty tuple
+@param[in]      mode2           search mode for range end
+@param[in]      nth_attempt     if the tree gets modified too much while
+we are trying to analyze it, then we will retry (this function will call
+itself, incrementing this parameter)
+@return estimated number of rows; if after rows_in_range_max_retries
+retries the tree keeps changing, then we will just return
+rows_in_range_arbitrary_ret_val as a result (if
+nth_attempt &gt;= rows_in_range_max_retries and the tree is modified between
+the two dives). */
+static
+int64_t
+btr_estimate_n_rows_in_range_low(
+        dict_index_t*   index,
+        const dtuple_t* tuple1,
+        page_cur_mode_t mode1,
+        const dtuple_t* tuple2,
+        page_cur_mode_t mode2,
+        unsigned        nth_attempt)
+
+/*******************************************************************//**
+Estimate the number of rows between slot1 and slot2 for any level on a
+B-tree. This function starts from slot1-&gt;page and reads a few pages to
+the right, counting their records. If we reach slot2-&gt;page quickly then
+we know exactly how many records there are between slot1 and slot2 and
+we set is_n_rows_exact to TRUE. If we cannot reach slot2-&gt;page quickly
+then we calculate the average number of records in the pages scanned
+so far and assume that all pages that we did not scan up to slot2-&gt;page
+contain the same number of records, then we multiply that average to
+the number of pages between slot1-&gt;page and slot2-&gt;page (which is
+n_rows_on_prev_level). In this case we set is_n_rows_exact to FALSE.
+@return number of rows, not including the borders (exact or estimated) */
+static
+int64_t
+btr_estimate_n_rows_in_range_on_level(
+/*==================================*/
+        dict_index_t*   index,                  /*!&lt; in: index */
+        btr_path_t*     slot1,                  /*!&lt; in: left border */
+        btr_path_t*     slot2,                  /*!&lt; in: right border */
+        int64_t         n_rows_on_prev_level,   /*!&lt; in: number of rows
+                                                on the previous level for the
+                                                same descend paths; used to
+                                                determine the number of pages
+                                                on this level */
+        ibool*          is_n_rows_exact)        /*!&lt; out: TRUE if the returned
+                                                value is exact i.e. not an
+                                                estimation */
+</code></pre><p>JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得扫描行数数量，计算各访问路径的代价，确定哪个访问路径更好。在 MySQL 社区版，支持索引下探 (records_in_range) 和索引 key ndv (records_in_key) 来估计行数，但默认是索引下探（文中 perf 调用栈）。本文的查询是简单查询，而 force index 固定了访问路径，所以可以忽略行数估计，跳过下探逻辑。</p>
+<p>顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。我们也在开发执行计划的锁定和演进功能，相信这类场景后面都可以系统化地解决掉。</p>
+<h2 id="perf-top-和-pause-的案例"><a href="#perf-top-和-pause-的案例" class="headerlink" title="perf top 和 pause 的案例"></a>perf top 和 pause 的案例</h2><p>案例：</p>
+<p><img src="/images/oss/864427c491497acb02d37c02cb35eeb2.png" alt="image.png"></p>
+<p>对如上两个pause指令以及一个 count++（addq），进行perf top：</p>
+<p><img src="/images/oss/40945b005eb9f716e429fd30be55b6d1.png" alt="image.png"></p>
+<p>可以看到第一个pasue在perf top中cycles为0，第二个为46.85%，另外一个addq也有48.83%，基本可以猜测perf top在这里数据都往后挪了一个。</p>
+<p><strong>问题总结：</strong><br> 我们知道perf top是通过读取PMU的PC寄存器来获取当前执行的指令进而根据汇编的symbol信息获得是执行的哪条指令。所以看起来CPU在执行pause指令的时候，从PMU中看到的PC值指向到了下一条指令，进而导致我们看到的这个现象。通过查阅《Intel® 64 and IA-32 Architectures Optimization Reference Manual》目前还无法得知这是CPU的一个设计缺陷还是PMU的一个bug(需要对pause指令做特殊处理)。<strong>不管怎样，这个实验证明了我们统计spin lock的CPU占比还是准确的，不会因为pause指令导致PMU采样出错导致统计信息的整体失真。只是对于指令级的CPU统计，我们能确定的就是它把pause的执行cycles 数统计到了下一条指令。</strong></p>
+<p><strong>补充说明：</strong></p>
+<p>​    <strong>经过测试，非skylake CPU也同样存在perf top会把pause(执行数cycles是10)的执行cycles数统计到下一条指令的问题，看来这是X86架构都存在的问题。</strong></p>
+<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>CPU 架构不同Pause 指令的需要的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在spin lock失败的时候（此时需要 pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的rt，进而Tomcat Server上并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，这里大量的时间都花在了client、slb、Tomcat节点等等有没有问题，就是因为MySQL有32个节点，他们的CPU都不高，让大家很快排除了他的嫌疑。</p>
+<p>在一开始排除MySQL嫌疑(主要是这种场景下对抖动太敏感了)后花了大量的工作在简化链路上，实际因为他们都不是瓶颈，所以没有任何效果。</p>
+<p>在极端环境下（比如没有网络、工具不健全）排查问题太困难了，比如这个问题MySQL早装perf可能很快就发现了问题。</p>
+<p>这种一个查询分成多个查询的业务逻辑受短板影响明显，短板进而受抖动影响明显（比如这里的随机delay）。</p>
+<p>应用的Tomcat横向扩展是非常可靠的，应用Tomcat统计出来的物理rt是绝对可信的，经过这次案例后续大家应该会更加相信应用的监控。</p>
+<p>增加并发压力的时候MySQL rt增加很明显是最关键的证据（即使MySQL CPU很闲，但是总的MySQL平均rt也才0.9ms让我们一开始有点疏忽了），所以这种场景下还要多看长尾。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、rt，然后一直增加压力到压不上去了，再看QPS、rt变化，然后确认瓶颈点。</p>
+<p>关于这个抖动对整体rt的影响计算：</p>
+<p><img src="/images/oss/c47d2bd0e4d9d0f005d0e1132b385eab.png" alt="image.png"></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="noopener">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="noopener">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="noopener">intel spec</a></p>
+<p><a href="https://coolshell.cn/articles/20793.html" target="_blank" rel="noopener">与程序员相关的CPU缓存知识</a> </p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="noopener">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://www.atatech.org/articles/85549" target="_blank" rel="noopener">https://www.atatech.org/articles/85549</a></p>
+<p><a href="http://cenalulu.github.io/linux/all-about-cpu-cache/" target="_blank" rel="noopener">关于CPU Cache – 程序猿需要知道的那些事</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="noopener">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替pause，yield 指令的实现退化为 nop 指令，执行时间非常非常锻，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/12/09/epoll的LT和ET/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/09/epoll的LT和ET/" itemprop="url">epoll的LT和ET</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-09T12:30:03+08:00">
+                2019-12-09
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/12/09/epoll的LT和ET/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/12/09/epoll的LT和ET/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="epoll的LT和ET"><a href="#epoll的LT和ET" class="headerlink" title="epoll的LT和ET"></a>epoll的LT和ET</h1><ul>
+<li><p>LT水平触发(翻译为 条件触发 更合适） </p>
+<blockquote>
+<p>   如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如事件来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
+</blockquote>
+</li>
+<li><p>ET边沿触发 </p>
+<blockquote>
+<p>  如果事件来了，不管来了几个，你若不处理或者没有处理完，除非下一个事件到来，否则epoll将不会再通知你。 比如事件来了，打印一行通知，但是不去处理事件，那么不再通知，除非下个事件来了</p>
+</blockquote>
+</li>
+</ul>
+<p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
+<h3 id="水平触发的问题：不必要的唤醒"><a href="#水平触发的问题：不必要的唤醒" class="headerlink" title="水平触发的问题：不必要的唤醒"></a>水平触发的问题：不必要的唤醒</h3><ol>
+<li>内核：收到一个新建连接的请求</li>
+<li>内核：由于 “惊群效应” ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程B：epoll_wait() 返回</li>
+<li>线程A：执行 accept() 并且成功</li>
+<li>线程B：执行 accept() 失败，accept() 返回 EAGAIN</li>
+</ol>
+<h3 id="边缘触发的问题：不必要的唤醒以及饥饿"><a href="#边缘触发的问题：不必要的唤醒以及饥饿" class="headerlink" title="边缘触发的问题：不必要的唤醒以及饥饿"></a>边缘触发的问题：不必要的唤醒以及饥饿</h3><p>不必要的唤醒：</p>
+<ol>
+<li>内核：收到第一个连接请求。线程 A 和 线程 B 两个线程都在 epoll_wait() 上等待。由于采用边缘触发模式，所以只有一个线程会收到通知。这里假定线程 A 收到通知</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：此时 accept queue 为空，所以将边缘触发的 socket 的状态从可读置成不可读</li>
+<li>内核：收到第二个建连请求</li>
+<li>内核：此时，由于线程 A 还在执行 accept() 处理，只剩下线程 B 在等待 epoll_wait()，于是唤醒线程 B</li>
+<li>线程A：继续执行 accept() 直到返回 EAGAIN</li>
+<li>线程B：执行 accept()，并返回 EAGAIN，此时线程 B 可能有点困惑(“明明通知我有事件，结果却返回 EAGAIN”)</li>
+<li>线程A：再次执行 accept()，这次终于返回 EAGAIN</li>
+</ol>
+<p>饥饿：</p>
+<ol>
+<li>内核：接收到两个建连请求。线程 A 和 线程 B 两个线程都在等在 epoll_wait()。由于采用边缘触发模式，只有一个线程会被唤醒，我们这里假定线程 A 先被唤醒</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：收到第三个建连请求。由于线程 A 还没有处理完(没有返回 EAGAIN)，当前 socket 还处于可读的状态，由于是边缘触发模式，所有不会产生新的事件</li>
+<li>线程A：继续执行 accept() 希望返回 EAGAIN 再进入 epoll_wait() 等待，然而它又 accept() 成功并处理了一个新连接</li>
+<li>内核：又收到了第四个建连请求</li>
+<li>线程A：又继续执行 accept()，结果又返回成功</li>
+</ol>
+<p>ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：</p>
+<pre><code>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip .....
+</code></pre><p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
+<p>这样就会造成nginx的这个worker假死了一样。如果上传速度慢，这个循环无法持续存在，也就是一旦读完nginx切走（再有数据进来等待下次触发），不会造成假死。</p>
+<p>JDK中的NIO是条件触发（level-triggered），不支持ET。netty，nginx和redis默认是边缘触发（edge-triggered），netty因为JDK不支持ET，所以自己实现了Netty-native的抽象，不依赖JDK来提供ET。</p>
+<p>边缘触发会比条件触发更高效一些，因为边缘触发不会让同一个文件描述符多次被处理,比如有些文件描述符已经不需要再读写了,但是在条件触发下每次都会返回,而边缘触发只会返回一次。</p>
+<p>如果设置边缘触发,则必须将对应的文件描述符设置为非阻塞模式并且循环读取数据。否则会导致程序的效率大大下降或丢消息。</p>
+<p>poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘触发。条件触发同时支持block和non-block，使用更简单一些。</p>
+<h3 id="epoll-LT惊群的发生"><a href="#epoll-LT惊群的发生" class="headerlink" title="epoll LT惊群的发生"></a>epoll LT惊群的发生</h3><pre><code>// 否则会阻塞在IO系统调用，导致没有机会再epoll
+set_socket_nonblocking(sd);
+epfd = epoll_create(64);
+event.data.fd = sd;
+epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &amp;event);
+while (1) {
+    epoll_wait(epfd, events, 64, xx);
+    ... // 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
+    // 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
+    // 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
+    // 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
+    csd = accept(sd, &amp;in_addr, &amp;in_len); 
+    ...
+}
+</code></pre><p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
+<p>保证1：在LT模式下，“就绪链表”上取出的epi上报完事件后会重新加回“就绪链表”；<br>保证2：如果“就绪链表”不为空，且此时有进程阻塞在同一个epoll句柄的睡眠队列上，则唤醒它。</p>
+<p>epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而为之的，内核肯定是知道这件事的，这个并不像之前accept惊群那样算是内核的一个缺陷。epoll LT模式只是提供了一种模式，误用这种模式将会造成类似惊群那样的效应。但是不管怎么说，为了讨论上的方便，后面我们姑且将这种效应称作epoll LT惊群吧。</p>
+<h3 id="epoll-ET模式可以解决上面的问题，但是带来了新的麻烦"><a href="#epoll-ET模式可以解决上面的问题，但是带来了新的麻烦" class="headerlink" title="epoll ET模式可以解决上面的问题，但是带来了新的麻烦"></a>epoll ET模式可以解决上面的问题，但是带来了新的麻烦</h3><p>由于epi entry的callback即ep_poll_callback所做的事情仅仅是将该epi自身加入到epoll句柄的“就绪链表”，同时唤醒在epoll句柄睡眠队列上的task，所以这里并不对事件的细节进行计数，比如说，<strong>如果ep_poll_callback在将一个epi加入“就绪链表”之前发现它已经在“就绪链表”了，那么就不会再次添加，因此可以说，一个epi可能pending了多个事件，注意到这点非常重要！</strong></p>
+<p>一个epi上pending多个事件，这个在LT模式下没有任何问题，因为获取事件的epi总是会被重新添加回“就绪链表”，那么如果还有事件，在下次check的时候总会取到。然而对于ET模式，仅仅将epi从“就绪链表”删除并将事件本身上报后就返回了，因此如果该epi里还有事件，则只能等待再次发生事件，进而调用ep_poll_callback时将该epi加入“就绪队列”。这意味着什么？</p>
+<p>这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/157349" target="_blank" rel="noopener">Epoll is fundamentally broken</a> </p>
+<p><a href="https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12" target="_blank" rel="noopener">Epoll is fundamentally broken 1/2</a> </p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/11/24/到底是谁reset了你的连接/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/11/24/到底是谁reset了你的连接/" itemprop="url">到底是谁reset了你的连接</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-24T17:30:03+08:00">
+                2019-11-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+                  ， 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+                  ， 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/TCP/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/11/24/到底是谁reset了你的连接/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/11/24/到底是谁reset了你的连接/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="到底是谁reset了你的连接"><a href="#到底是谁reset了你的连接" class="headerlink" title="到底是谁reset了你的连接"></a>到底是谁reset了你的连接</h1><p>通过一个案例展示TCP连接是如何被reset的，以及identification、ttl都可以帮我们干点啥。</p>
+<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>用户经常连不上服务，经过抓包发现是链路上连接被reset了，需要定位到是哪个设备发起的reset</p>
+<p>比如：</p>
+<ol>
+<li>用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错）</li>
+<li>某家居客户通过专线访问云上drds，总是被reset( 内网ip地址重复–都是192.168.*， 导致连接被reset)</li>
+</ol>
+<blockquote>
+<p><strong>进程被kill、异常退出时，针对它打开的连接，内核就会发送 RST 报文来关闭</strong>。RST 的全称是 Reset 复位的意思，它可以不走四次挥手强制关闭连接，但当报文延迟或者重复传输时，这种方式会导致数据错乱，所以这是不得已而为之的关闭连接方案。当然还有其它场景也会触发reset</p>
+</blockquote>
+<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>在 Navicat 机器上抓包如下：</p>
+<p><img src="/images/oss/83b07725d92b9e4d3eb4a504cf83cc09.png" alt="image.png"></p>
+<p>从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。</p>
+<p><img src="/images/oss/53b5dc8e0a90ed9ad641caf38399141b.png" alt="image.png"></p>
+<h2 id="DRDS-Server上抓包"><a href="#DRDS-Server上抓包" class="headerlink" title="DRDS Server上抓包"></a>DRDS Server上抓包</h2><p>特别说明下，MySQL上抓到的不是跟Navicat上抓到的同一次报错，所以报错的端口等会不一样</p>
+<p><img src="/images/oss/70287488290b38cd4753d9fce0bee945.png" alt="image.png"></p>
+<p>从这个图中可以清楚看到reset是从 Navicat 客户端发过来的，并且 Use Database被拦截了，没有发到MySQL上。</p>
+<p>从这里基本可以判断是客户的防火墙之类的中间设备监控到了关键字之类的触发了防火墙向两边发送了reset，导致了 Navicat 报错。</p>
+<h3 id="如果连接已经断开"><a href="#如果连接已经断开" class="headerlink" title="如果连接已经断开"></a>如果连接已经断开</h3><p>如果连接已经断开后还收到Client的请求包，因为连接在Server上是不存在的，这个时候Server收到这个包后也会发一个reset回去，这个reset的特点是identification是0.</p>
+<h2 id="到底是谁动了这个连接呢？"><a href="#到底是谁动了这个连接呢？" class="headerlink" title="到底是谁动了这个连接呢？"></a>到底是谁动了这个连接呢？</h2><h3 id="得帮客户解决问题"><a href="#得帮客户解决问题" class="headerlink" title="得帮客户解决问题"></a>得帮客户解决问题</h3><p>虽然原因很清楚，但是客户说连本地 MySQL就没这个问题，连你的云上MySQL就这样，你让我们怎么用？你们得帮我们找到是哪个设备。</p>
+<p>这不废话么，连本地没经过这么多防火墙、网关当然没事了。但是客户第一，不能这么说，得找到问题所在。</p>
+<h2 id="Identification-和-TTL"><a href="#Identification-和-TTL" class="headerlink" title="Identification 和 TTL"></a>Identification 和 TTL</h2><h3 id="线索一-Identification"><a href="#线索一-Identification" class="headerlink" title="线索一 Identification"></a>线索一 Identification</h3><p>还记得第一个截图中的两个相同的identification 13052吧，让我们来看看基础知识：</p>
+<p><img src="/images/oss/eed9ba1f9ba492ed8954ae7f39e72803.png" alt="image.png"></p>
+<p>（摘自 TCP卷一），简单来说这个 identification 用来标识一个连接中的每个包，这个序号按包的个数依次递增，通信双方是两个不同的序列。<strong>主要是用于ip packet的reassemble</strong>。</p>
+<p>所以如果这个reset是DRDS发出来的话，因为DRDS发出的前一个包的 identification 是23403，所以这个必须是23404，实际上居然是13502（而且还和Navicat发出的 Use Database包是同一个 identification），这是非常不对的。</p>
+<p>所以可以大胆猜测，这里有个中间设备收到 Use Database后触发了不放行的逻辑，于是冒充 Navicat给 DRDS Server发了reset包，src ip/src port/seq等都直接用Navicat的，identification也用Navicat的，所以 DRDS Server收到的 Reset看起来很正常（啥都是对的，没留下一点冒充的痕迹）。</p>
+<p>但是这个中间设备还要冒充DRDS Server给 Navicat 也发个reset，有点难为中间设备了，这个时候中间设备手里只有 Navicat 发出来的包， src ip/src port/seq 都比较好反过来，但是 identification 就不好糊弄了，手里只有 Navicat的，因为 Navicat和MySQL Server是两个序列的 identification，这下中间设备搞不出来MySQL Server的identification，怎么办？ 只能糊弄了，就随手用 Navicat 自己的 identification填回去了（所以看到这么个奇怪的 identification）</p>
+<p><strong>identification不对不影响实际连接被reset，也就是验证包的时候不会判断identification的正确性。</strong></p>
+<h3 id="TTL"><a href="#TTL" class="headerlink" title="TTL"></a>TTL</h3><p>identification基本撇清了DRDS的嫌疑，还得进一步找到是哪个机器，我们先来看一个基础知识 TTL(Time-to-Live):</p>
+<p><img src="/images/oss/ed8c624b704b0c94da2ca76a37b39916.png" alt="image.png"></p>
+<p>然后我们再看看 Navicat收到的这个reset包的ttl是63，而正常的MySQL Server回过来的包是47，而发出的第一个包初始ttl是64，所以这里可以很清楚地看到在Navicat 下一跳发出的这个reset</p>
+<p><img src="/images/oss/b288a740f9f10007485e37fd339051f8.png" alt="image.png"></p>
+<p>既然是下一跳干的直接拿这个包的src mac地址，然后到内网中找这个内网设备就可以了，最终找到是一个锐捷的防火墙。</p>
+<p>如果不是下一跳可以通过 traceroute/mtr 来找到这个设备的ip</p>
+<h2 id="某家居的reset"><a href="#某家居的reset" class="headerlink" title="某家居的reset"></a>某家居的reset</h2><p><img src="/images/oss/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png" alt="undefined"> </p>
+<p>从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。</p>
+<h2 id="常亮ISV-vpn环境reset"><a href="#常亮ISV-vpn环境reset" class="headerlink" title="常亮ISV vpn环境reset"></a>常亮ISV vpn环境reset</h2><p>client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select <em> from table1 ; 就一定reset，但是select </em> from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询结果的大小比较相关。</p>
+<p>于是在server和client上同时抓到了一次完整的reset</p>
+<p>如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）</p>
+<p><img src="/images/oss/89f584899a5e5e00ba5c2b16707ed24a.png" alt="image.png"></p>
+<p>下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset</p>
+<p><img src="/images/oss/ec1f04befe56823668b4d1f831bd3ea4.png" alt></p>
+<p>最终排查后client端</p>
+<blockquote>
+<p>公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在运行正常了</p>
+</blockquote>
+<h3 id="扩展一下"><a href="#扩展一下" class="headerlink" title="扩展一下"></a>扩展一下</h3><p>假如这里不是下一跳，而是隔了几跳发过来的reset，那么这个src mac地址就不是发reset设备的mac了，那该怎么办呢？</p>
+<p>可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip</p>
+<h2 id="被忽略的reset"><a href="#被忽略的reset" class="headerlink" title="被忽略的reset"></a>被忽略的reset</h2><p>不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。</p>
+<h2 id="SLB主动reset的话"><a href="#SLB主动reset的话" class="headerlink" title="SLB主动reset的话"></a>SLB主动reset的话</h2><p>ttl是102, identification是31415，探活reset不是这样的。</p>
+<p>如下图就是SLB发出来的reset packet</p>
+<p><img src="/images/oss/9de70216-188c-4ca4-898f-0fa88e853c18.png" alt="img"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>基础知识很重要，但是知道ttl、identification到会用ttl、identification是两个不同的层次。只是看书的话未必会有很深的印象，实际也不一定会灵活使用。</p>
+<p>平时不要看那么多书，会用才是关键。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">TCP中并不是所有的RST都有效</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/11/05/该死的virtualbox/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4109,13 +4958,13 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
 <p> 硬中断发生在哪一个核上，它发出的软中断就由哪个核来处理。可以通过加大网卡队列数，这样硬中断工作、软中断工作都会有更多的核心参与进来。</p>
 </blockquote>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/f2d5399f-4fba-4159-9ce4-aefa78132a43.png" alt="img"></p>
-<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
-<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
+<p><img src="/images/oss/f2d5399f-4fba-4159-9ce4-aefa78132a43.png" alt="img"></p>
+<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="/images/oss/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="/images/oss/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
 <h3 id="DMA驱动部分流程图"><a href="#DMA驱动部分流程图" class="headerlink" title="DMA驱动部分流程图"></a>DMA驱动部分流程图</h3><p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="noopener">DMA是一个硬件逻辑</a>，数据传输到系统物理内存的过程中，全程不需要CPU的干预，除了占用总线之外(期间CPU不能使用总线)，没有任何额外开销。</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/8edd2edf-5ae9-4f96-83fb-cef367697661.png" alt="img"></p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/308138af-b3a6-4404-93eb-82dce612ba5b.png" alt="img"></p>
-<p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
+<p><img src="/images/oss/8edd2edf-5ae9-4f96-83fb-cef367697661.png" alt="img"></p>
+<p><img src="/images/oss/308138af-b3a6-4404-93eb-82dce612ba5b.png" alt="img"></p>
+<p><img src="/images/oss/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
 <ol>
 <li>驱动在内存中分配一片缓冲区用来接收数据包，叫做sk_buffer;</li>
 <li>将上述缓冲区的地址和大小（即接收描述符），加入到rx ring buffer。描述符中的缓冲区地址是DMA使用的物理地址;</li>
@@ -4125,11 +4974,11 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>网卡将新数据包通过DMA直接写到sk_buffer中。</li>
 </ol>
 <h3 id="buffer和流控"><a href="#buffer和流控" class="headerlink" title="buffer和流控"></a>buffer和流控</h3><p>影响发送的速度的几个buffer和queue，接收基本一样</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/79e46270-de0d-48d5-99d8-90ced2964154.png" alt="img"></p>
+<p><img src="/images/oss/79e46270-de0d-48d5-99d8-90ced2964154.png" alt="img"></p>
 <h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p>软中断NET_TX_SOFTIRQ的处理函数为net_tx_action，NET_RX_SOFTIRQ的为net_rx_action</p>
-<p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<p><img src="/images/oss/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
 <p>在网络子系统初始化中为NET_RX_SOFTIRQ注册了处理函数net_rx_action。所以<code>net_rx_action</code>函数就会被执行到了。</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
+<p><img src="/images/oss/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
 <p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
 <p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
 <p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt></p>
@@ -4149,14 +4998,14 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>进入发送 Ring Buffer tx</li>
 <li>驱动触发软中断 soft IRQ (NET_TX_SOFTIRQ)</li>
 </ol>
-<h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
-<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="/images/oss/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="/images/oss/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
 <p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
 <p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
 <p>粗略汇总一下进出堆栈：</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
+<p><img src="/images/oss/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
 <p><a href="http://docshare02.docshare.tips/files/21804/218043783.pdf" target="_blank" rel="noopener">http://docshare02.docshare.tips/files/21804/218043783.pdf</a> 中也有描述：</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/e26ce9ed-4075-4837-8064-ea4d4aef09b8.png" alt="img"></p>
+<p><img src="/images/oss/e26ce9ed-4075-4837-8064-ea4d4aef09b8.png" alt="img"></p>
 <h2 id="内核相关参数"><a href="#内核相关参数" class="headerlink" title="内核相关参数"></a>内核相关参数</h2><h3 id="Ring-Buffer"><a href="#Ring-Buffer" class="headerlink" title="Ring Buffer"></a>Ring Buffer</h3><p>Ring Buffer位于NIC和IP层之间，是一个典型的FIFO（先进先出）环形队列。Ring Buffer没有包含数据本身，而是包含了指向sk_buff（socket kernel buffers）的描述符。<br>可以使用ethtool -g eth0查看当前Ring Buffer的设置：</p>
 <pre><code>$sudo ethtool -g eth0
 Ring parameters for eth0:
@@ -4186,7 +5035,7 @@ TX:        512
 </code></pre><p>这是一台物理机，接收队列为4096，传输队列为512。接收队列已经调到了最大，传输队列还可以调大。<strong>队列越大丢包的可能越小，但数据延迟会增加</strong></p>
 <h4 id="调整-Ring-Buffer-队列数量"><a href="#调整-Ring-Buffer-队列数量" class="headerlink" title="调整 Ring Buffer 队列数量"></a>调整 Ring Buffer 队列数量</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">ethtool -l eth0</span><br><span class="line">Channel parameters for eth0:</span><br><span class="line">Pre-set maximums:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line">Current hardware settings:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line"></span><br><span class="line">sudo ethtool -L eth0 combined 8</span><br><span class="line">sudo ethtool -L eth0 rx 8</span><br></pre></td></tr></table></figure>
 <p>网卡多队列就是指的有多个RingBuffer，每个RingBufffer可以由一个core来处理</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
+<p><img src="/images/oss/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
 <h4 id="网卡各种统计数据查看"><a href="#网卡各种统计数据查看" class="headerlink" title="网卡各种统计数据查看"></a>网卡各种统计数据查看</h4><pre><code>ethtool -S eth0 | grep errors
 
 ethtool -S eth0 | grep rx_ | grep errors //查看网卡是否丢包，一般是ring buffer太小
@@ -4266,10 +5115,10 @@ tx-frame-high: 0
 <p>sysctl -a | grep net.core.netdev_budget<br>sysctl -w net.core.netdev_budget=400 //临时性增大</p>
 </blockquote>
 <p>早期的时候网卡一般是10Mb的，现在基本都是10Gb的了，还是每一次软中断、上下文切换只处理一个包的话代价太大，需要改进性能。于是引入的NAPI，一次软中断会poll很多packet</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
+<p><img src="/images/oss/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
 <p><a href="https://github.blog/2019-11-21-debugging-network-stalls-on-kubernetes/" target="_blank" rel="noopener">来源</a> This is much faster, but brings up another problem. What happens if we have so many packets to process that we spend all our time processing packets from the NIC, but we never have time to let the userspace processes actually drain those queues (read from TCP connections, etc.)? Eventually the queues would fill up, and we’d start dropping packets. To try and make this fair, the kernel limits the amount of packets processed in a given softirq context to a certain budget. Once this budget is exceeded, it wakes up a separate thread called <code>ksoftirqd</code> (you’ll see one of these in <code>ps</code> for each core) which processes these softirqs outside of the normal syscall/interrupt path. This thread is scheduled using the standard process scheduler, which already tries to be fair.</p>
 <p>于是在Poll很多packet的时候有可能网卡队列一直都有包，那么导致这个Poll动作无法结束，造成应用一直在卡住状态，于是可以通过netdev_max_backlog来设置Poll多少Packet后停止Poll以响应用户请求。</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
+<p><img src="/images/oss/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
 <p>一旦出现slow syscall（如上图黄色部分慢）就会导致packet处理被延迟</p>
 <h4 id="netdev-max-backlog"><a href="#netdev-max-backlog" class="headerlink" title="netdev_max_backlog"></a>netdev_max_backlog</h4><p>The netdev_max_backlog is a queue within the Linux kernel where traffic is stored after reception from the NIC, but before processing by the protocol stacks (IP, TCP, etc). There is one backlog queue per CPU core. </p>
 <p>如果 /proc/net/softnet_stat 第二列一直在增加的话表示netdev backlog queue overflows. 需要增大 netdev_max_backlog</p>
@@ -4299,13 +5148,13 @@ tx-frame-high: 0
 </code></pre><p>如果 “pruning” 一直在增加很有可能是程序中调用了 setsockopt(SO_RCVBUF) 导致内核关闭了动态调整功能，或者压力大，缓存不够了。具体Case：<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a></p>
 <p>nstat也可以看到比较多的数据</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$nstat -z |grep -i drop</span><br><span class="line">TcpExtLockDroppedIcmps          0                  0.0</span><br><span class="line">TcpExtListenDrops               0                  0.0</span><br><span class="line">TcpExtTCPBacklogDrop            0                  0.0</span><br><span class="line">TcpExtPFMemallocDrop            0                  0.0</span><br><span class="line">TcpExtTCPMinTTLDrop             0                  0.0</span><br><span class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</span><br><span class="line">TcpExtTCPReqQFullDrop           0                  0.0</span><br><span class="line">TcpExtTCPOFODrop                0                  0.0</span><br><span class="line">TcpExtTCPZeroWindowDrop         0                  0.0</span><br><span class="line">TcpExtTCPRcvQDrop               0                  0.0</span><br></pre></td></tr></table></figure>
-<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="/Users/ren/src/blog/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
+<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
 <p>带参数版收包流程：</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
-<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
+<p><img src="/images/oss/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
+<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="/images/oss/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
 <p>带参数版发包流程：</p>
-<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
+<p><img src="/images/oss/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="/images/oss/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
 <ol>
 <li>snat 就是要把 192.168.1.10和192.168.1.11的两个连接替换成宿主机的ip:port</li>
 <li>主要是在宿主机找可用port分别给这两个连接用</li>
@@ -4327,7 +5176,7 @@ tx-frame-high: 0
 </ul>
 <pre><code>sudo conntrack -L -d ip-addr
 </code></pre><p>来自：<a href="https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02" target="_blank" rel="noopener">https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02</a></p>
-<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
+<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="/images/oss/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
 <p>这个案例主要是讲述回包的逻辑，如果是tcp，那么用dest ip当自己的source ip，如果是UDP，无连接状态信息，那么会根据route来选择一块网卡(上面的IP) 来当source ip</p>
 <p>来自：<a href="http://cizixs.com/2017/08/21/docker-udp-issue" target="_blank" rel="noopener">http://cizixs.com/2017/08/21/docker-udp-issue</a><br>     <a href="https://github.com/moby/moby/issues/15127" target="_blank" rel="noopener">https://github.com/moby/moby/issues/15127</a></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener">The Missing Man Page for ifconfig–关于ifconfig的种种解释</a></p>
@@ -5306,673 +6155,6 @@ void test_stub1(void)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="url">中间件的vipclient服务在centos7上域名解析失败</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-13T10:30:03+08:00">
-                2019-01-13
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="中间件的vipclient服务在centos7上域名解析失败"><a href="#中间件的vipclient服务在centos7上域名解析失败" class="headerlink" title="中间件的vipclient服务在centos7上域名解析失败"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
-<p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
-</blockquote>
-<h2 id="抓包分析"><a href="#抓包分析" class="headerlink" title="抓包分析"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
-<p><img src="/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png" alt="image.png"></p>
-<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
-<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="noopener">这里</a>： </p>
-<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
-<h2 id="通过-dig-命令来查看dns解析过程"><a href="#通过-dig-命令来查看dns解析过程" class="headerlink" title="通过 dig 命令来查看dns解析过程"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com </p>
-<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
-<h2 id="分析vipclient域名解析返回的包内容"><a href="#分析vipclient域名解析返回的包内容" class="headerlink" title="分析vipclient域名解析返回的包内容"></a>分析vipclient域名解析返回的包内容</h2><p><img src="/images/oss/0882e4815fb1acfa80f813db4bb7265b.png" alt="image.png"></p>
-<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns<br>通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP<br>但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/12/Docker中的DNS解析过程/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/12/Docker中的DNS解析过程/" itemprop="url">Docker中的DNS解析过程</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-12T10:30:03+08:00">
-                2019-01-12
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/12/Docker中的DNS解析过程/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/12/Docker中的DNS解析过程/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Docker中的DNS解析过程"><a href="#Docker中的DNS解析过程" class="headerlink" title="Docker中的DNS解析过程"></a>Docker中的DNS解析过程</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
-<p>同一个Docker集群中两个容器中通过 nslookup 同一个域名，这个域名是容器启动的时候通过net alias指定的，但是返回来的IP不一样</p>
-</blockquote>
-<p>如图所示：</p>
-<p><img src="/images/oss/892a98b53c7f9e65da79d1d6d890c3b0.png" alt="image.png"></p>
-<p>图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。</p>
-<p>要想解决这个问题抓包就没用了，因为Docker 中的net alias 域名是 Docker Daemon自己来解析的，也就是在容器中做域名解析（nslookup、ping）的时候，Docker Daemon先看这个域名是不是net alias的，是的话返回对应的ip，如果不是（比如 <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a>) ，那么Docker Daemon再把这个域名丢到宿主机上去解析，在宿主机上的解析过程就是标准的DNS，可以抓包分析。但是Docker Daemon内部的解析过程没有走DNS协议，不好分析，所以得先了解一下 Docker Daemon的域名解析原理</p>
-<p>具体参考文章： <a href="http://www.jianshu.com/p/4433f4c70cf0" target="_blank" rel="noopener">http://www.jianshu.com/p/4433f4c70cf0</a> <a href="http://www.bijishequ.com/detail/261401?p=70-67" target="_blank" rel="noopener">http://www.bijishequ.com/detail/261401?p=70-67</a></p>
-<h2 id="继续分析所有容器对这个域名的解析"><a href="#继续分析所有容器对这个域名的解析" class="headerlink" title="继续分析所有容器对这个域名的解析"></a>继续分析所有容器对这个域名的解析</h2><p>继续分析所有容器对这个域名的解析发现只有某一台宿主机上的有这个问题，而且这台宿主机上所有容器都有这个问题，结合上面的文章，那么这个问题比较明朗了，这台有问题的宿主机的Docker Daemon中残留了一个net alias，你可以理解成cache中有脏数据没有清理。</p>
-<p>进而跟业务的同学们沟通，确实155这个IP的容器做过升级，改动过配置，可能升级前这个155也绑定过这个域名，但是升级后绑到146这个容器上去了，但是Docker Daemon中还残留这条记录。</p>
-<h2 id="重启Docker-Daemon后问题解决（容器不需要重启）"><a href="#重启Docker-Daemon后问题解决（容器不需要重启）" class="headerlink" title="重启Docker Daemon后问题解决（容器不需要重启）"></a>重启Docker Daemon后问题解决（容器不需要重启）</h2><p>重启Docker Daemon的时候容器还在正常运行，只是这段时间的域名解析会不正常，其它业务长连接都能正常运行，在Docker Daemon重启的时候它会去检查所有容器的endpoint、重建sandbox、清理network等等各种事情，所以就把这个脏数据修复掉了。</p>
-<p>在Docker Daemon重启过程中，会给每个容器构建DNS Resovler（setup-resolver），如果构建DNS Resovler这个过程中容器发送了大量域名查询过来同时这些域名又查询不到的话Docker Daemon在重启过程中需要等待这个查询超时，然后才能继续往下走重启流程，所以导致启动流程拉长<a href="https://www.atatech.org/articles/87339" target="_blank" rel="noopener">问题严重的时候导致Docker Daemon长时间无法启动</a></p>
-<p>Docker的域名解析为什么要这么做，是因为容器中有两种域名解析需求：</p>
-<ol>
-<li>容器启动时通过 net alias 命名的域名</li>
-<li>容器中正常对外网各种域名的解析（比如 baidu.com/api.taobao.com)</li>
-</ol>
-<p>对于第一种只能由docker daemon来解析了，所以容器中碰到的任何域名解析都会丢给 docker daemon(127.0.0.11), 如果 docker daemon 发现这个域名不认识，也就是不是net alias命名的域名，那么docker就会把这个域名解析丢给宿主机配置的 nameserver 来解析【非常非常像 dns-f/vipclient 的解析原理】</p>
-<h2 id="容器中的域名解析"><a href="#容器中的域名解析" class="headerlink" title="容器中的域名解析"></a>容器中的域名解析</h2><p>容器启动的时候读取宿主机的 /etc/resolv.conf (去掉127.0.0.1/16 的nameserver）然后当成容器的 /etc/resolv.conf, 但是实际在容器中看到的 /etc/resolve.conf 中的nameserver只有一个：127.0.0.11，因为如上描述nameserver都被代理掉了</p>
-<p>容器 -&gt; docker daemon(127.0.0.11) -&gt; 宿主机中的/etc/resolv.conf 中的nameserver</p>
-<p>如果宿主机中的/etc/resolv.conf 中的nameserver没有，那么daemon默认会用8.8.8.8/8.8.4.4来做下一级dns server，如果在一些隔离网络中（跟外部不通），那么域名解析就会超时，因为一直无法连接到 8.8.8.8/8.8.4.4 ，进而导致故障。</p>
-<p>比如 vipserver 中需要解析 armory的域名，如果这个时候在私有云环境，宿主机又没有配置 nameserver, 那么这个域名解析会发送给 8.8.8.8/8.8.4.4 ，长时间没有响应，超时后 vipserver 会关闭自己的探活功能，从而导致 vipserver 基本不可用一样。</p>
-<p>修改 宿主机的/etc/resolv.conf后 重新启动、创建的容器才会load新的nameserver</p>
-<h2 id="如果容器中需要解析vipserver中的域名"><a href="#如果容器中需要解析vipserver中的域名" class="headerlink" title="如果容器中需要解析vipserver中的域名"></a>如果容器中需要解析vipserver中的域名</h2><ol>
-<li>容器中安装vipclient，同时容器的 /etc/resolv.conf 配置 nameserver 127.0.0.1 </li>
-<li>要保证vipclient起来之后才能启动业务</li>
-</ol>
-<h2 id="kubernetes中dns解析偶尔5秒钟超时"><a href="#kubernetes中dns解析偶尔5秒钟超时" class="headerlink" title="kubernetes中dns解析偶尔5秒钟超时"></a>kubernetes中dns解析偶尔5秒钟超时</h2><p>dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒</p>
-<p><img src="/images/oss/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png" alt="img"></p>
-<p>（高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）</p>
-<p>解析异常的strace栈：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">不正常解析的strace日志</span><br><span class="line">1596601737.655724 socket(PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 5</span><br><span class="line">1596601737.655784 connect(5, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, 16) = 0</span><br><span class="line">1596601737.655869 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601737.655968 sendmmsg(5, &#123;&#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_TRUNC|MSG_EOR|MSG_FIN|MSG_RST|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_MORE|MSG_WAITFORONE|MSG_FASTOPEN|0x1e340010&#125;, 48&#125;, &#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_WAITALL|MSG_FIN|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_FASTOPEN|MSG_CMSG_CLOEXEC|0x156c0000&#125;, 48&#125;&#125;, 2, MSG_NOSIGNAL) = 2</span><br><span class="line">1596601737.656113 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601737.659251 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601737.659330 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\10\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">=========</span><br><span class="line">1596601737.659421 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 0 (Timeout) 这里就是问题所在</span><br><span class="line">=========</span><br><span class="line">1596601742.657639 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.657735 sendto(5, &quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.657837 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.660929 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.661038 recvfrom(5, &quot;\20\v\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.661129 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.661204 sendto(5, &quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.661313 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.664443 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.664519 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 65536, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.664600 close(5)              = 0</span><br></pre></td></tr></table></figure>
-<h3 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h3><p>DNS client (glibc 或 musl libc) 会并发请求 A 和 AAAA 记录，跟 DNS Server 通信自然会先 connect (建立fd)，后面请求报文使用这个 fd 来发送，由于 UDP 是无状态协议， connect 时并不会发包，也就不会创建 conntrack 表项, 而并发请求的 A 和 AAAA 记录默认使用同一个 fd 发包，send 时各自发的包它们源 Port 相同(因为用的同一个socket发送)，当并发发包时，两个包都还没有被插入 conntrack 表项，所以 netfilter 会为它们分别创建 conntrack 表项，而集群内请求 kube-dns 或 coredns 都是访问的CLUSTER-IP，报文最终会被 DNAT 成一个 endpoint 的 POD IP，当两个包恰好又被 DNAT 成同一个 POD IP时，它们的五元组就相同了，在最终插入的时候后面那个包就会被丢掉，而single-request-reopen的选项设置为俩请求被丢了一个，会等待超时再重发 ，这个就解释了为什么还存在调整成2s就是2s的异常比较多 ，因此这种场景下调整成single-request是比较好的方式，同时k8s那边给的dns缓存方案是 nodelocaldns组件可以考虑用一下</p>
-<p>关于recolv的选项</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">single-request (since glibc 2.10) 串行解析，</span><br><span class="line">                     Sets RES_SNGLKUP in _res.options.  By default, glibc</span><br><span class="line">                     performs IPv4 and IPv6 lookups in parallel since</span><br><span class="line">                     version 2.9.  Some appliance DNS servers cannot handle</span><br><span class="line">                     these queries properly and make the requests time out.</span><br><span class="line">                     This option disables the behavior and makes glibc</span><br><span class="line">                     perform the IPv6 and IPv4 requests sequentially (at the</span><br><span class="line">                     cost of some slowdown of the resolving process).</span><br><span class="line">single-request-reopen (since glibc 2.9) 并行解析，少收到一个解析回复后，再开一个socket重新发起解析，因此看到了前面调整timeout是1s后，还是有挺多1s的解析</span><br><span class="line">                     Sets RES_SNGLKUPREOP in _res.options.  The resolver</span><br><span class="line">                     uses the same socket for the A and AAAA requests.  Some</span><br><span class="line">                     hardware mistakenly sends back only one reply.  When</span><br><span class="line">                     that happens the client system will sit and wait for</span><br><span class="line">                     the second reply.  Turning this option on changes this</span><br><span class="line">                     behavior so that if two requests from the same port are</span><br><span class="line">                     not handled correctly it will close the socket and open</span><br><span class="line">                     a new one before sending the second request.</span><br></pre></td></tr></table></figure>
-<h3 id="getaddrinfo-关闭ipv6的解析"><a href="#getaddrinfo-关闭ipv6的解析" class="headerlink" title="getaddrinfo 关闭ipv6的解析"></a>getaddrinfo 关闭ipv6的解析</h3><p>基本上所有测试下来，网上那些通过修改配置的<a href="https://serverfault.com/questions/632665/how-to-disable-aaaa-lookups" target="_blank" rel="noopener">基本都不能关闭ipv6的解析</a>，只有通过在代码中指定</p>
-<blockquote>
-<p>hints.ai_family = AF_INET;    /<em> or AF_INET6 for ipv6 addresses </em>/</p>
-</blockquote>
-<p>来只做ipv4的解析</p>
-<p><a href="https://askubuntu.com/questions/32298/prefer-a-ipv4-dns-lookups-before-aaaaipv6-lookups" target="_blank" rel="noopener">Prefer A (IPv4) DNS lookups before AAAA(IPv6) lookups</a></p>
-<p><a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html" target="_blank" rel="noopener">https://man7.org/linux/man-pages/man3/getaddrinfo.3.html</a>: </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4</span><br><span class="line">       addresses are returned in the list pointed to by res only if the</span><br><span class="line">       local system has at least one IPv4 address configured, and IPv6</span><br><span class="line">       addresses are returned only if the local system has at least one</span><br><span class="line">       IPv6 address configured.  The loopback address is not considered</span><br><span class="line">       for this case as valid as a configured address.  This flag is</span><br><span class="line">       useful on, for example, IPv4-only systems, to ensure that</span><br><span class="line">       getaddrinfo() does not return IPv6 socket addresses that would</span><br><span class="line">       always fail in connect(2) or bind(2).</span><br></pre></td></tr></table></figure>
-<p><a href="https://unix.stackexchange.com/questions/45598/force-getaddrinfo-to-use-ipv4" target="_blank" rel="noopener">c code demo</a>:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct addrinfo hints, *result;</span><br><span class="line">int s;</span><br><span class="line"></span><br><span class="line">memset(&amp;hints, 0, sizeof(hints));</span><br><span class="line">hints.ai_family = AF_INET;        /* or AF_INET6 for ipv6 addresses */</span><br><span class="line">s = getaddrinfo(NULL, &quot;ftp&quot;, &amp;hints, &amp;result);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-<p>or</p>
-<p>In the <a href="https://www.cloudshark.org/captures/7e14dcc1d443" target="_blank" rel="noopener">Wireshark capture</a>, 172.25.50.3 is the local DNS resolver; the capture was taken there, so you also see its outgoing queries and responses. Note that <em>only</em> an A record was requested. No AAAA lookup was ever done.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;sys/socket.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;netdb.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line"></span><br><span class="line">int main(void) &#123;</span><br><span class="line">    struct addrinfo hints;</span><br><span class="line">    struct addrinfo *result, *rp;</span><br><span class="line">    int s;</span><br><span class="line">    char host[256];</span><br><span class="line"></span><br><span class="line">    memset(&amp;hints, 0, sizeof(struct addrinfo));</span><br><span class="line">    hints.ai_family = AF_INET;</span><br><span class="line">    hints.ai_socktype = SOCK_STREAM;</span><br><span class="line">    hints.ai_protocol = 0;</span><br><span class="line"></span><br><span class="line">    s = getaddrinfo(&quot;www.facebook.com&quot;, NULL, &amp;hints, &amp;result);</span><br><span class="line">    if (s != 0) &#123;</span><br><span class="line">        fprintf(stderr, &quot;getaddrinfo: %s\n&quot;, gai_strerror(s));</span><br><span class="line">        exit(EXIT_FAILURE);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    for (rp = result; rp != NULL; rp = rp-&gt;ai_next) &#123;</span><br><span class="line">        getnameinfo(rp-&gt;ai_addr, rp-&gt;ai_addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST);</span><br><span class="line">        printf(&quot;%s\n&quot;, host);</span><br><span class="line">    &#125;</span><br><span class="line">    freeaddrinfo(result);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p> or：<a href="https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method" target="_blank" rel="noopener">https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method</a></p>
-<p>/etc/gai.conf <a href="https://linux.die.net/man/5/gai.conf" target="_blank" rel="noopener">getaddrinfo的配置文件</a></p>
-<table>
-<thead>
-<tr>
-<th style="text-align:center">Prefix</th>
-<th style="text-align:center">Precedence</th>
-<th style="text-align:center">Label</th>
-<th style="text-align:center">Usage</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:center">::1/128</td>
-<td style="text-align:center">50</td>
-<td style="text-align:center">0</td>
-<td style="text-align:center">Localhost</td>
-</tr>
-<tr>
-<td style="text-align:center">::/0</td>
-<td style="text-align:center">40</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">Default unicast</td>
-</tr>
-<tr>
-<td style="text-align:center">::<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0/96</a></td>
-<td style="text-align:center">35</td>
-<td style="text-align:center">4</td>
-<td style="text-align:center">IPv4-mapped IPv6 address</td>
-</tr>
-<tr>
-<td style="text-align:center">2002::/16</td>
-<td style="text-align:center">30</td>
-<td style="text-align:center">2</td>
-<td style="text-align:center">6to4</td>
-</tr>
-<tr>
-<td style="text-align:center">2001::/32</td>
-<td style="text-align:center">5</td>
-<td style="text-align:center">5</td>
-<td style="text-align:center">Teredo tunneling</td>
-</tr>
-<tr>
-<td style="text-align:center">fc00::/7</td>
-<td style="text-align:center">3</td>
-<td style="text-align:center">13</td>
-<td style="text-align:center">Unique local address</td>
-</tr>
-<tr>
-<td style="text-align:center">::/96</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">3</td>
-<td style="text-align:center">IPv4-compatible addresses (deprecated)</td>
-</tr>
-<tr>
-<td style="text-align:center">fec0::/10</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">11</td>
-<td style="text-align:center">Site-local address (deprecated)</td>
-</tr>
-<tr>
-<td style="text-align:center">3ffe::/16</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">12</td>
-<td style="text-align:center">6bone (returned)</td>
-</tr>
-</tbody>
-</table>
-<p>来源于<a href="https://en.wikipedia.org/wiki/IPv6_address" target="_blank" rel="noopener">维基百科</a></p>
-<p>0:0:0:0:0:<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0/96</a> 10 4 IPv4映射地址（这个地址网络上信息较少，地址范围：:: ffff：0.0.0.0~:: ffff：255.255.255.255 地址数量<a href="https://en.wikipedia.org/wiki/Power_of_2" target="_blank" rel="noopener">2 128−96 = 2 32</a> = 4 294 967 296，用于软件，目的是IPv4映射的地址。 ）</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">Kubernetes &gt;= 1.13 + kube-proxy IPVS mode 服务部署不平滑</a></p>
-<p><a href="https://blog.51cto.com/welcomeweb/2464836" target="_blank" rel="noopener">linux ipv4 ipv6双栈 （优先ipv4而不使用ipv6配置）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/" itemprop="url">windows7的wifi总是报DNS域名异常无法上网</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-10T10:30:03+08:00">
-                2019-01-10
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/10/windows7的wifi总是报DNS域名异常无法上网/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="windows7的wifi总是报DNS域名异常无法上网"><a href="#windows7的wifi总是报DNS域名异常无法上网" class="headerlink" title="windows7的wifi总是报DNS域名异常无法上网"></a>windows7的wifi总是报DNS域名异常无法上网</h1><p>Windows7笔记本+公司wifi（dhcp）环境下，用着用着dns服务不可用（无法通过域名上网，通过IP地址可以访问），这里有个一模一样的Case了：<a href="https://superuser.com/questions/629559/why-is-my-computer-suddenly-using-nbns-instead-of-dns" target="_blank" rel="noopener">https://superuser.com/questions/629559/why-is-my-computer-suddenly-using-nbns-instead-of-dns</a> 一样的环境，看来这个问题也不只是我一个人碰到了。</p>
-<p>其实之前一直有，一个月偶尔出来一两次，以为是其他原因就没管，这次换了新电脑还是这个毛病有点不能忍，于是决定彻底解决一下。</p>
-<p>这个问题出现后，通过下面三个办法都可以让DNS恢复正常：</p>
-<ol>
-<li>重启系统大法，恢复正常</li>
-<li>禁用wifi驱动再启用，恢复正常</li>
-<li>不用DHCP，而是手工填入一个DNS服务器，比如114.114.114.114【公司域名就无法解析了】</li>
-</ol>
-<p>如果只是停用一下wifi再启用问题还在。</p>
-<h2 id="找IT升级了网卡驱动不管用"><a href="#找IT升级了网卡驱动不管用" class="headerlink" title="找IT升级了网卡驱动不管用"></a>找IT升级了网卡驱动不管用</h2><h2 id="重现的时候抓包看看"><a href="#重现的时候抓包看看" class="headerlink" title="重现的时候抓包看看"></a>重现的时候抓包看看</h2><p><img src="/images/oss/c110f232829cbea9d5503166531d7f1d.png" alt="image.png"></p>
-<p>这肯定不对了，254上根本就没有跑DNS服务，可是当时没有检查 ipconfig，看看是否将网关IP动态配置到dns server里面去了，等下次重现后再确认吧。</p>
-<p>第二次重现后抓包，发现不一样了：</p>
-<p><img src="/images/oss/295797df3c311d6902d68fb16f6212d8.png" alt="image.png"></p>
-<p>出来一个 NBNS 的鬼东西，赶紧查了一下，把它禁掉，如下图所示：</p>
-<p><img src="/images/oss/9f06b680ae1f8b4cb781360f7c0ac2eb.png" alt="image.png"></p>
-<p>把NBNS服务关了就能上网了，同时也能抓到各种DNS Query包</p>
-<h2 id="事情没有这么简单"><a href="#事情没有这么简单" class="headerlink" title="事情没有这么简单"></a>事情没有这么简单</h2><p>过一段时间后还是会出现上面的症状，但是因为NBNS关闭了，所以这次 ping <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a> 的时候没有任何包了，没有DNS Query包，也没有NBNS包，这下好尴尬。</p>
-<p>尝试Enable NBNS，又恢复了正常，看来<strong>开关 NBNS 仍然只是一个workaround，他不是导致问题的根因</strong>，开关一下没有真正解决问题，只是临时相当于重启了dns修复了问题而已。</p>
-<p>继续在网络不通的时候尝试直接ping dns server ip，发现一个奇怪的现象，丢包很多，丢包的时候还总是从 192.168.0.11返回来的，这就奇怪了，我的笔记本基本IP是30开头的，dns server ip也是30开头的，route 路由表也是对的，怎么就走到 192.168.0.11 上了啊（<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">参考我的另外一篇文章，网络到底通不通</a>），赶紧 ipconfig /all | grep 192 </p>
-<p><img src="/images/oss/5212ee5e7496dafb122ce144293184e1.png" alt="image.png"></p>
-<p>发现这个IP是VirtualBox虚拟机在笔记本上虚拟出来的网卡IP，这下我倒是能理解为啥总是我碰到这个问题了，因为我的工作笔记本一拿到后第一件事情就是装VirtualBox 跑虚拟机。</p>
-<p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
-<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
-</code></pre><p>执行完上面的命令观察了3个月了，暂时没有再出现这个问题，相对于以前轻则一个月2、3次，重则一天出现5、6次，应该算是解决了，同时升级 VirtualBox 也无法解决这个问题。</p>
-<p>route 信息：</p>
-<pre><code>$route PRINT -4
-===========================================================================
-接口列表
- 23...00 ff c1 57 7f 12 ......Sangfor SSL VPN CS Support System VNIC
- 18...f6 96 34 38 76 06 ......Microsoft Virtual WiFi Miniport Adapter #2
- 17...f6 96 34 38 76 07 ......Microsoft Virtual WiFi Miniport Adapter
- 15...00 ff 1f 24 e6 6c ......Sophos SSL VPN Adapter
- 12...f4 96 34 38 76 06 ......Intel(R) Dual Band Wireless-AC 8260
- 11...54 ee 75 d4 99 ae ......Intel(R) Ethernet Connection I219-V
- 14...0a 00 27 00 00 0e ......VirtualBox Host-Only Ethernet Adapter
-  1...........................Software Loopback Interface 1
- 25...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter
- 19...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #9
- 26...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #2
- 27...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #3
- 22...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #7
- 21...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #5
- 20...00 00 00 00 00 00 00 e0 Microsoft 6to4 Adapter #2
- 16...00 00 00 00 00 00 00 e0 Teredo Tunneling Pseudo-Interface
- 24...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #8
-===========================================================================
-
-IPv4 路由表
-===========================================================================
-活动路由:
-网络目标网络掩码  网关   接口   跃点数
-  0.0.0.0  0.0.0.0192.168.0.250169.254.24.89266
-  0.0.0.0  0.0.0.030.27.115.254 30.27.112.21 20
-  30.27.112.0255.255.252.0在链路上  30.27.112.21276
- 30.27.112.21  255.255.255.255在链路上  30.27.112.21276
-30.27.115.255  255.255.255.255在链路上  30.27.112.21276
-127.0.0.0255.0.0.0在链路上 127.0.0.1306
-127.0.0.1  255.255.255.255在链路上 127.0.0.1306
-  127.255.255.255  255.255.255.255在链路上 127.0.0.1306
-  169.254.0.0  255.255.0.0在链路上 169.254.24.89266
-169.254.24.89  255.255.255.255在链路上 169.254.24.89266
-  169.254.255.255  255.255.255.255在链路上 169.254.24.89266
-224.0.0.0240.0.0.0在链路上 127.0.0.1306
-224.0.0.0240.0.0.0在链路上 169.254.24.89266
-224.0.0.0240.0.0.0在链路上  30.27.112.21276
-  255.255.255.255  255.255.255.255在链路上 127.0.0.1306
-  255.255.255.255  255.255.255.255在链路上 169.254.24.89266
-  255.255.255.255  255.255.255.255在链路上  30.27.112.21276
-===========================================================================
-永久路由:
-  网络地址  网络掩码  网关地址  跃点数
-  0.0.0.0  0.0.0.0192.168.0.250 默认
-  0.0.0.0  0.0.0.0192.168.0.250 默认
-===========================================================================
-</code></pre><h2 id="另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题"><a href="#另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题" class="headerlink" title="另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题"></a>另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题</h2><p>下面是来自微软官方的建议：</p>
-<blockquote>
-<p> One big advise – do not disable the DHCP Client service on any server, whether the machine is a DHCP client or statically configured. Somewhat of a misnomer, this service performs Dynamic DNS registration and is tied in with the client resolver service. If disabled on a DC, you’ll get a slew of errors, and no DNS queries will get resolved.</p>
-<p>No DNS Name Resolution If DHCP Client Service Is Not Running. When you try to resolve a host name using Domain Name Service (DNS), the attempt is unsuccessful. Communication by Internet Protocol (IP) address (even to …</p>
-<p><a href="http://support.microsoft.com/kb/268674" target="_blank" rel="noopener">http://support.microsoft.com/kb/268674</a></p>
-</blockquote>
-<p>from： <a href="https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4" target="_blank" rel="noopener">https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4</a></p>
-<h2 id="NBNS也许会导致nslookup-OK-but-ping-fail的问题"><a href="#NBNS也许会导致nslookup-OK-but-ping-fail的问题" class="headerlink" title="NBNS也许会导致nslookup OK but ping fail的问题"></a>NBNS也许会导致nslookup OK but ping fail的问题</h2><p><a href="https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html" target="_blank" rel="noopener">https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html</a></p>
-<p>The Windows Client Resolver（ping dns流程）</p>
-<ol>
-<li>Windows checks whether the host name is the same as the local host name.</li>
-<li>If the host name and local host name are not the same, Windows searches the DNS client resolver cache.</li>
-<li>If the host name cannot be resolved using the DNS client resolver cache, Windows sends DNS Name Query Request messages to its configured DNS servers.</li>
-<li>If the host name is a single-label name (such as server1) and cannot be resolved using the configured DNS servers, Windows converts the host name to a NetBIOS name and checks its local NetBIOS name cache.</li>
-<li>If Windows cannot find the NetBIOS name in the NetBIOS name cache, Windows contacts its configured WINS servers.</li>
-<li>If Windows cannot resolve the NetBIOS name by querying its configured WINS servers, Windows broadcasts as many as three NetBIOS Name Query Request messages on the directly attached subnet.</li>
-<li>If there is no reply to the NetBIOS Name Query Request messages, Windows searches the local Lmhosts file.<br>Ping</li>
-</ol>
-<p>windows下nslookup 流程</p>
-<ol>
-<li>Check the DNS resolver cache. This is true for records that were cached via a previous name query or records that are cached as part of a pre-load operation from updating the hosts file.</li>
-<li>Attempt NetBIOS name resolution.</li>
-<li>Append all suffixes from the suffix search list.</li>
-<li>When a Primary Domain Suffix is used, nslookup will only take devolution 3 levels.</li>
-</ol>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>碰到问题绕过去也不是长久之计，还是要从根本上了解问题的本质，这个问题在其它公司没有碰到过，我觉得跟公司的DNS、DHCP的配置也有点关系吧，但是这个我不好确认，应该还有好多用Windows本本的同学同样会碰到这个问题的，希望对你们有些帮助</p>
-<p><a href="https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order" target="_blank" rel="noopener">https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order</a></p>
-<p><a href="http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html" target="_blank" rel="noopener">http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html</a></p>
-<hr>
-<h2 id="本文附带鸡汤："><a href="#本文附带鸡汤：" class="headerlink" title="本文附带鸡汤："></a>本文附带鸡汤：</h2><p><strong>有些技能初学很难，大家水平都差不多，但是日积月累就会形成极强的优势，而且一旦突破某个临界点，它就会突飞猛进，这种技能叫指数型技能，是值得长期投资的，比如物理学就是一种指数型技能。</strong></p>
-<p>那么抓包算不算呢？​​</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6020,7 +6202,7 @@ IPv4 路由表
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">96</span>
+                <span class="site-state-item-count">99</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6042,7 +6224,7 @@ IPv4 路由表
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">213</span>
+                <span class="site-state-item-count">215</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

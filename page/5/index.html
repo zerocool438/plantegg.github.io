@@ -282,6 +282,534 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/25/Linux LVM使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Linux LVM使用/" itemprop="url">Linux LVM使用</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/25/Linux LVM使用/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/25/Linux LVM使用/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
+<p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
+<p><img src="https://www.centos.bz/wp-content/uploads/2017/07/1-1.jpg" alt="img"></p>
+<p><strong>lvreduce 缩小LV</strong></p>
+<p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ====谨慎用===</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</span><br><span class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</span><br><span class="line"></span><br><span class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</span><br><span class="line">$lsblk  -f</span><br><span class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</span><br><span class="line">sda                                                                              </span><br><span class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</span><br><span class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</span><br><span class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</span><br><span class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </span><br><span class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</span><br><span class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</span><br><span class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</span><br><span class="line">nvme0n1                                                                          </span><br><span class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</span><br><span class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </span><br><span class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </span><br><span class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</span><br></pre></td></tr></table></figure>
+<h2 id="LVM-创建、扩容"><a href="#LVM-创建、扩容" class="headerlink" title="LVM 创建、扩容"></a>LVM 创建、扩容</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1</span><br><span class="line">vgdisplay </span><br><span class="line">sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1</span><br><span class="line">sudo mkfs.ext4 /dev/vg1/u03   </span><br><span class="line">sudo mkdir /lvm</span><br><span class="line">sudo fdisk -l</span><br><span class="line">sudo umount /lvm</span><br><span class="line">sudo lvresize -L 5.8T /dev/vg1/u03 //lv 扩容</span><br><span class="line">sudo e2fsck -f /dev/vg1/u03 </span><br><span class="line">sudo resize2fs /dev/vg1/u03</span><br><span class="line">sudo mount /dev/vg1/u03 /lvm</span><br><span class="line">cd /lvm/</span><br><span class="line">lvdisplay </span><br><span class="line">sudo vgdisplay vg1</span><br><span class="line">lsblk -l</span><br><span class="line">lsblk </span><br><span class="line">sudo vgextend vg1 /dev/nvme3n1  //vg 扩容, 增加一块磁盘到vg1</span><br><span class="line">ls /u01</span><br><span class="line">sudo vgdisplay </span><br><span class="line">sudo fdisk  -l</span><br><span class="line">sudo pvdisplay </span><br><span class="line">sudo lvcreate -L 1T -n lv2 vg1  //从vg1中再分配一块1T大小的磁盘</span><br><span class="line">sudo lvdisplay </span><br><span class="line">sudo mkfs.ext4 /dev/vg1/lv2 </span><br><span class="line">mkdir /lv2</span><br><span class="line">ls /</span><br><span class="line">sudo mkdir /lv2</span><br><span class="line">sudo mount /dev/vg1/lv2 /lv2</span><br><span class="line">df -lh</span><br></pre></td></tr></table></figure>
+<h2 id="创建LVM"><a href="#创建LVM" class="headerlink" title="创建LVM"></a>创建LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">function create_polarx_lvm_V62()&#123;</span><br><span class="line">    vgremove vgpolarx</span><br><span class="line"></span><br><span class="line">    #sed -i &quot;97 a\    types = [&apos;nvme&apos;, 252]&quot; /etc/lvm/lvm.conf</span><br><span class="line">    parted -s /dev/nvme0n1 rm 1</span><br><span class="line">    parted -s /dev/nvme1n1 rm 1</span><br><span class="line">    parted -s /dev/nvme2n1 rm 1</span><br><span class="line">    parted -s /dev/nvme3n1 rm 1</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme0n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme1n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme2n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme3n1  count=10000 bs=512</span><br><span class="line"></span><br><span class="line">    #lvmdiskscan</span><br><span class="line">    vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1</span><br><span class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</span><br><span class="line">    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000</span><br><span class="line">    sed  -i  &quot;/polarx/d&quot; /etc/fstab</span><br><span class="line">    mkdir -p /polarx</span><br><span class="line">    echo &quot;LABEL=/polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0&quot; &gt;&gt; /etc/fstab</span><br><span class="line">    mount -a</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">create_polarx_lvm_V62</span><br></pre></td></tr></table></figure>
+<h2 id="复杂版创建LVM"><a href="#复杂版创建LVM" class="headerlink" title="复杂版创建LVM"></a>复杂版创建LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><span class="line">function disk_part()&#123;</span><br><span class="line">    set -e</span><br><span class="line">    if [ $# -le 1 ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;disk_part argument error&quot;</span><br><span class="line">        exit -1</span><br><span class="line">    fi</span><br><span class="line">    action=$1</span><br><span class="line">    disk_device_list=(`echo $*`)</span><br><span class="line"></span><br><span class="line">    echo $disk_device_list</span><br><span class="line">    unset disk_device_list[0]</span><br><span class="line"></span><br><span class="line">    echo $action</span><br><span class="line">    echo $&#123;disk_device_list[*]&#125;</span><br><span class="line">    len=`echo $&#123;#disk_device_list[@]&#125;`</span><br><span class="line">    echo &quot;start remove origin partition  &quot;</span><br><span class="line">    for dev in  $&#123;disk_device_list[@]&#125;</span><br><span class="line">    do</span><br><span class="line">        #echo $&#123;dev&#125;</span><br><span class="line">        `parted -s $&#123;dev&#125; rm 1` || true</span><br><span class="line">        dd if=/dev/zero of=$&#123;dev&#125;  count=100000 bs=512</span><br><span class="line">    done</span><br><span class="line">#替换98行，插入的话r改成a</span><br><span class="line">    sed -i &quot;98 r\    types = [&apos;aliflash&apos; , 252 , &apos;nvme&apos; ,252 , &apos;venice&apos;, 252 , &apos;aocblk&apos;, 252]&quot; /etc/lvm/lvm.conf</span><br><span class="line">    sed  -i  &quot;/flash/d&quot; /etc/fstab</span><br><span class="line"></span><br><span class="line">    if [ x$&#123;1&#125; == x&quot;split&quot; ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;split disk &quot;</span><br><span class="line">        #lvmdiskscan</span><br><span class="line">    echo $&#123;disk_device_list&#125;</span><br><span class="line">        vgcreate -s 32 vgpolarx $&#123;disk_device_list[*]&#125;</span><br><span class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</span><br><span class="line">        #lvcreate -A y -I 128K -l 75%VG  -i $&#123;len&#125; -n volume1 vgpolarx</span><br><span class="line">        #lvcreate -A y -I 128K -l 100%FREE  -i $&#123;len&#125; -n volume2 vgpolarx</span><br><span class="line">        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000</span><br><span class="line">        sed  -i  &quot;/polarx/d&quot; /etc/fstab</span><br><span class="line">        mkdir -p /polarx</span><br><span class="line">    opt=&quot;defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0&quot;</span><br><span class="line">        echo &quot;LABEL=/polarx /polarx     ext4        $&#123;opt&#125;    0 0&quot; &gt;&gt; /etc/fstab</span><br><span class="line">        mount -a</span><br><span class="line">    else</span><br><span class="line">        echo &quot;unkonw action &quot;</span><br><span class="line">    fi</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">function format_nvme_mysql()&#123;</span><br><span class="line"></span><br><span class="line">    if [ `df |grep flash|wc -l` -eq $1  ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;check success&quot;</span><br><span class="line">        echo &quot;start umount partition &quot;</span><br><span class="line">        parttion_list=`df |grep flash|awk -F &apos; &apos; &apos;&#123;print $1&#125;&apos;`</span><br><span class="line">        for partition in $&#123;parttion_list[@]&#125;</span><br><span class="line">        do</span><br><span class="line">            echo $partition</span><br><span class="line">            umount $partition</span><br><span class="line">        done</span><br><span class="line"></span><br><span class="line">    else</span><br><span class="line">        echo &quot;check host fail&quot;</span><br><span class="line">        exit -1</span><br><span class="line">    fi</span><br><span class="line"></span><br><span class="line">  disk_device_list=(`ls -l /dev/|grep -v ^l|awk &apos;&#123;print $NF&#125;&apos;|grep -E &quot;^nvme[0-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$&quot;`)</span><br><span class="line">  full_disk_device_list=()</span><br><span class="line">    for i in $&#123;!disk_device_list[@]&#125;</span><br><span class="line">  do</span><br><span class="line">        echo $&#123;i&#125;</span><br><span class="line">    full_disk_device_list[$&#123;i&#125;]=/dev/$&#123;disk_device_list[$&#123;i&#125;]&#125;</span><br><span class="line">  done</span><br><span class="line">    echo $&#123;full_disk_device_list[@]&#125;</span><br><span class="line">    disk_part split $&#123;full_disk_device_list[@]&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">if [ ! -d &quot;/polarx&quot; ]; then</span><br><span class="line">    umount /dev/vgpolarx/polarx</span><br><span class="line">    vgremove -f vgpolarx</span><br><span class="line">    dmsetup --force --retry --deferred remove vgpolarx-polarx</span><br><span class="line">    format_nvme_mysql $1</span><br><span class="line">else</span><br><span class="line">   echo &quot;the lvm exists.&quot;</span><br><span class="line">fi</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/25/Docker常见问题/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Docker常见问题/" itemprop="url">Docker 常见问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/25/Docker常见问题/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/25/Docker常见问题/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Docker-常见问题"><a href="#Docker-常见问题" class="headerlink" title="Docker 常见问题"></a>Docker 常见问题</h1><h2 id="启动"><a href="#启动" class="headerlink" title="启动"></a>启动</h2><p>docker daemon启动的时候如果报 socket错误，是因为daemon启动参数配置了： -H fd://  ，但是 docker.socket是disable状态，启动daemon依赖socket，但是systemctl又拉不起来docker.socket，因为被disable了，先  sudo systemctl enable docker.socket 就可以了。</p>
+<p>如果docker.socket service被mask后比disable更粗暴，mask后手工都不能拉起来了，但是disable后还可以手工拉起，然后再拉起docker service。 这是需要先 systemctl unmask </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$sudo systemctl restart docker.socket</span><br><span class="line">Failed to restart docker.socket: Unit docker.socket is masked.</span><br></pre></td></tr></table></figure>
+<p>另外 docker.socket 启动依赖环境的要有 docker group这个组，可以添加： groupadd docker</p>
+<h2 id="failed-to-start-docker-service-unit-not-found-rhel-7-7"><a href="#failed-to-start-docker-service-unit-not-found-rhel-7-7" class="headerlink" title="failed to start docker.service unit not found. rhel 7.7"></a>failed to start docker.service unit not found. rhel 7.7</h2><p>systemctl list-unit-files |grep docker.service 可以看到docker.service 是存在并enable了</p>
+<p>实际是redhat 7.7的yum仓库所带的docker启动参数变了， 如果手工启动的话也会报找不到docker-runc 手工:</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; ln -s /usr/libexec/docker/docker-runc-current /usr/bin/docker-runc</span><br><span class="line">&gt;</span><br></pre></td></tr></table></figure>
+</blockquote>
+<p><a href="https://access.redhat.com/solutions/2876431" target="_blank" rel="noopener">https://access.redhat.com/solutions/2876431</a>  <a href="https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system" target="_blank" rel="noopener">https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system</a></p>
+<p>yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)</p>
+<h3 id="Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network"><a href="#Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network" class="headerlink" title="Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network"></a><a href="http://blog.joylau.cn/2019/04/08/Docker-Start-Error/" target="_blank" rel="noopener">Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network</a></h3><p>这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link add docker0 type bridge</span><br><span class="line">ip addr add dev docker0 172.30.0.0/24</span><br></pre></td></tr></table></figure>
+<p>启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#systemctl status docker -l</span><br><span class="line">● docker.service - Docker Application Container Engine</span><br><span class="line">   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)</span><br><span class="line">   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago</span><br><span class="line">     Docs: http://docs.docker.io</span><br><span class="line">  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)</span><br><span class="line">  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)</span><br><span class="line"> Main PID: 68317 (code=exited, status=1/FAILURE)</span><br><span class="line"></span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991179104+08:00&quot; level=warning msg=&quot;failed to load plugin io.containerd.snapshotter.v1.aufs&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991371956+08:00&quot; level=warning msg=&quot;could not use snapshotter btrfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991381620+08:00&quot; level=warning msg=&quot;could not use snapshotter aufs in metadata plugin&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991388991+08:00&quot; level=warning msg=&quot;could not use snapshotter zfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin&quot;</span><br><span class="line">Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.</span><br></pre></td></tr></table></figure>
+<p>参考：<a href="https://github.com/docker/for-linux/issues/123" target="_blank" rel="noopener">https://github.com/docker/for-linux/issues/123</a>  </p>
+<p>或者这样解决：<a href="https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller" target="_blank" rel="noopener">https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller</a></p>
+<p>This was related to the machine having several network cards (can also happen in machines with VPN)</p>
+<p>The solution was to start manually docker like this:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/usr/bin/docker daemon --debug --bip=192.168.y.x/24</span><br></pre></td></tr></table></figure>
+<p>where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The –debug is not really needed, but might help if something else fails.</p>
+<p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
+<p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
+<h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
+<p><img src="/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
+<p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
+<p><img src="/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
+<p>猜测是 alios 的bug</p>
+<h2 id="systemctl-start-docker"><a href="#systemctl-start-docker" class="headerlink" title="systemctl start docker"></a>systemctl start docker</h2><p>Failed to start docker.service: Unit not found.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">UNIT LOAD PATH</span><br><span class="line">          Unit files are loaded from a set of paths determined during </span><br><span class="line">          compilation, described in the two tables below. Unit files found </span><br><span class="line">          in directories listed earlier override files with the same name </span><br><span class="line">          in directories lower in the list.</span><br><span class="line"></span><br><span class="line">           Table 1.  Load path when running in system mode (--system).</span><br><span class="line">           ┌────────────────────────┬─────────────────────────────┐</span><br><span class="line">           │Path                    │ Description                 │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/etc/systemd/system     │ Local configuration         │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/run/systemd/system     │ Runtime units               │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/usr/lib/systemd/system │ Units of installed packages │</span><br><span class="line">           └────────────────────────┴─────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p><a href="https://askubuntu.com/questions/1014480/how-do-i-add-bin-to-path-for-a-systemd-service" target="_blank" rel="noopener">systemd 设置path环境变量，可以设置</a>：</p>
+<blockquote>
+<p>[Service]<br>Type=notify<br>Environment=PATH=/opt/kube/bin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/opt/satools:/root/bin</p>
+</blockquote>
+<h2 id="容器没有systemctl"><a href="#容器没有systemctl" class="headerlink" title="容器没有systemctl"></a>容器没有systemctl</h2><p><strong>Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候</strong> </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd</span><br></pre></td></tr></table></figure>
+<p>1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：<a href="https://github.com/gdraheim/docker-systemctl-replacement" target="_blank" rel="noopener">https://github.com/gdraheim/docker-systemctl-replacement</a></p>
+<p>systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。</p>
+<p><strong>新版本init link向了systemd</strong></p>
+<h2 id="busybox-Alpine-Scratch"><a href="#busybox-Alpine-Scratch" class="headerlink" title="busybox/Alpine/Scratch"></a>busybox/Alpine/Scratch</h2><p>busybox集成了常用的linux工具(nc/telnet/cat……），保持精细，方便一张软盘能装下。</p>
+<p>Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而不是glibc</p>
+<p>scratch一个空的框架，什么也没有</p>
+<h2 id="找不到shell"><a href="#找不到shell" class="headerlink" title="找不到shell"></a>找不到shell</h2><p>Dockerfile 中(<a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：" target="_blank" rel="noopener">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">CMD ./hello OR RUN 等同于 /bin/sh -c &quot;./hello&quot;, 需要shell，</span><br><span class="line">改用：</span><br><span class="line">CMD [&quot;./hello&quot;] 等同于 ./hello 不需要shell</span><br></pre></td></tr></table></figure>
+<p>dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT</p>
+<h2 id="容器中抓包和调试-–-nsenter"><a href="#容器中抓包和调试-–-nsenter" class="headerlink" title="容器中抓包和调试 – nsenter"></a>容器中抓包和调试 – nsenter</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</span><br><span class="line"></span><br><span class="line">进入namespace：nsenter --target 17277 --net --pid –mount</span><br><span class="line"></span><br><span class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</span><br><span class="line">nsenter --target 17277 --net </span><br><span class="line"></span><br><span class="line">// ip netns 获取容器网络信息</span><br><span class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &apos;&#123;&#123;.State.Pid&#125;&#125;&apos; ab4e471edf50   //获取容器进程id</span><br><span class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</span><br><span class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</span><br><span class="line"> </span><br><span class="line">// 宿主机上查看容器ip</span><br><span class="line"> 1026  [2021-04-14 15:54:11] ip netns list</span><br><span class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</span><br></pre></td></tr></table></figure>
+<p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可</p>
+<h2 id="OS版本"><a href="#OS版本" class="headerlink" title="OS版本"></a>OS版本</h2><p><strong>搞Docker就得上el7， 6的性能太差了</strong> Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html" target="_blank" rel="noopener">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/24/Linux LVS配置/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/24/Linux LVS配置/" itemprop="url">Linux LVS 配置</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-24T17:30:03+08:00">
+                2018-02-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/24/Linux LVS配置/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/24/Linux LVS配置/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-LVS-配置"><a href="#Linux-LVS-配置" class="headerlink" title="Linux LVS 配置"></a>Linux LVS 配置</h1><h2 id="NAT"><a href="#NAT" class="headerlink" title="NAT"></a>NAT</h2><ul>
+<li><p>Enable IP forwarding. This can be done by adding the following to</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">net.ipv4.ip_forward = 1</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<p>then</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -A -t 172.26.137.117:9376 -s rr //创建了一个rr lvs</span><br><span class="line">// -m 表示nat模式，不加的话默认是route模式</span><br><span class="line">ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加一个RS</span><br><span class="line">ipvsadm -ln</span><br><span class="line">ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.196:9376 -m //往lvs中添加另外一个RS</span><br><span class="line">ipvsadm -ln</span><br><span class="line"></span><br><span class="line">//删除realserver</span><br><span class="line">ipvsadm -a -t 100.81.131.221:18507 -r 100.81.131.237:8507 -m</span><br><span class="line"></span><br><span class="line">//服务状态查看</span><br><span class="line">#ipvsadm -L -n --stats|--rate</span><br><span class="line">IP Virtual Server version 1.2.1 (size=4096)</span><br><span class="line">Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes</span><br><span class="line">  -&gt; RemoteAddress:Port</span><br><span class="line">TCP  11.197.140.20:18089                 5       48       48     2951     6938</span><br><span class="line">  -&gt; 11.197.140.20:28089                 3       33       33     1989     4938</span><br><span class="line">  -&gt; 11.197.141.110:28089                2       15       15      962     2000</span><br><span class="line"></span><br><span class="line">#清空统计数据</span><br><span class="line">#ipvsadm --zero</span><br><span class="line">#列出所有连接信息</span><br><span class="line">#/sbin/ipvsadm -L -n --connection</span><br><span class="line"></span><br><span class="line">#ipvsadm -L -n</span><br><span class="line">IP Virtual Server version 1.2.1 (size=4096)</span><br><span class="line">Prot LocalAddress:Port Scheduler Flags</span><br><span class="line">  -&gt; RemoteAddress:Port           Forward Weight ActiveConn InActConn</span><br><span class="line">TCP  11.197.140.20:18089 wlc</span><br><span class="line">  -&gt; 11.197.140.20:28089          Masq    1      0          0</span><br><span class="line">  -&gt; 11.197.141.110:28089         Masq    1      0          0</span><br></pre></td></tr></table></figure>
+<h2 id="ipvsadm常用参数"><a href="#ipvsadm常用参数" class="headerlink" title="ipvsadm常用参数"></a>ipvsadm常用参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">添加虚拟服务器</span><br><span class="line">    语法:ipvsadm -A [-t|u|f]  [vip_addr:port]  [-s:指定算法]</span><br><span class="line">    -A:添加</span><br><span class="line">    -t:TCP协议</span><br><span class="line">    -u:UDP协议</span><br><span class="line">    -f:防火墙标记</span><br><span class="line">    -D:删除虚拟服务器记录</span><br><span class="line">    -E:修改虚拟服务器记录</span><br><span class="line">    -C:清空所有记录</span><br><span class="line">    -L:查看</span><br><span class="line">添加后端RealServer</span><br><span class="line">    语法:ipvsadm -a [-t|u|f] [vip_addr:port] [-r ip_addr] [-g|i|m] [-w 指定权重]</span><br><span class="line">    -a:添加</span><br><span class="line">    -t:TCP协议</span><br><span class="line">    -u:UDP协议</span><br><span class="line">    -f:防火墙标记</span><br><span class="line">    -r:指定后端realserver的IP</span><br><span class="line">    -g:DR模式</span><br><span class="line">    -i:TUN模式</span><br><span class="line">    -m:NAT模式</span><br><span class="line">    -w:指定权重</span><br><span class="line">    -d:删除realserver记录</span><br><span class="line">    -e:修改realserver记录</span><br><span class="line">    -l:查看</span><br><span class="line">通用:</span><br><span class="line">    ipvsadm -ln:查看规则</span><br><span class="line">    service ipvsadm save:保存规则</span><br></pre></td></tr></table></figure>
+<h3 id="查看连接对应的RS-ip和端口"><a href="#查看连接对应的RS-ip和端口" class="headerlink" title="查看连接对应的RS ip和端口"></a>查看连接对应的RS ip和端口</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># ipvsadm -Lcn |grep &quot;10.68.128.202:1406&quot;</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1406 10.68.128.202:3306 172.20.188.72:3306</span><br><span class="line"></span><br><span class="line"># ipvsadm -Lcn | head -10</span><br><span class="line">IPVS connection entries</span><br><span class="line">pro expire state       source             virtual            destination</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1390 10.68.128.202:3306 172.20.185.132:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1222 10.68.128.202:3306 172.20.165.202:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1252 10.68.128.202:3306 172.20.222.65:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1328 10.68.128.202:3306 172.20.149.68:3306</span><br><span class="line"></span><br><span class="line">ipvsadm -Lcn</span><br><span class="line">IPVS connection entries</span><br><span class="line">pro expire state       source             virtual            destination</span><br><span class="line">TCP 00:57  NONE        110.184.96.173:0   122.225.32.142:80  122.225.32.136:80</span><br><span class="line">TCP 01:57  FIN_WAIT    110.184.96.173:54568 122.225.32.142:80  122.225.32.136:80</span><br></pre></td></tr></table></figure>
+<p>当一个client访问vip的时候，ipvs或记录一条状态为NONE的信息，expire初始值是persistence_timeout的值，然后根据时钟主键变小，在以下记录存在期间，同一client ip连接上来，都会被分配到同一个后端。</p>
+<p>FIN_WAIT的值就是tcp tcpfin udp的超时时间，当NONE的值为0时，如果FIN_WAIT还存在，那么NONE的值会从新变成60秒，再减少，直到FIN_WAIT消失以后，NONE才会消失，只要NONE存在，同一client的访问，都会分配到统一real server。</p>
+<h2 id="通过keepalived来检测RealServer的状态"><a href="#通过keepalived来检测RealServer的状态" class="headerlink" title="通过keepalived来检测RealServer的状态"></a>通过keepalived来检测RealServer的状态</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/keepalived/keepalived.conf</span><br><span class="line">global_defs &#123;</span><br><span class="line">   notification_email &#123;</span><br><span class="line">   &#125;</span><br><span class="line">   router_id LVS_DEVEL</span><br><span class="line">   vrrp_skip_check_adv_addr</span><br><span class="line">   vrrp_strict</span><br><span class="line">   vrrp_garp_interval 0</span><br><span class="line">   vrrp_gna_interval 0</span><br><span class="line">&#125;</span><br><span class="line">#添加虚拟服务器</span><br><span class="line">#相当于 ipvsadm -A -t 172.26.137.117:9376 -s wrr </span><br><span class="line">virtual_server 172.26.137.117 9376 &#123;</span><br><span class="line">    delay_loop 3             #服务健康检查周期,单位是秒</span><br><span class="line">    lb_algo wrr                 #调度算法</span><br><span class="line">    lb_kind NAT                 #模式 </span><br><span class="line">#   persistence_timeout 50   #会话保持时间,单位是秒</span><br><span class="line">    protocol TCP             #TCP协议转发</span><br><span class="line"></span><br><span class="line">#添加后端realserver</span><br><span class="line">#相当于 ipvsadm -a -t 172.26.137.117:9376 -r 172.20.56.148:9376 -w 1</span><br><span class="line">    real_server 172.20.56.148 9376 &#123;</span><br><span class="line">        weight 1</span><br><span class="line">        TCP_CHECK &#123;               # 通过TcpCheck判断RealServer的健康状态</span><br><span class="line">            connect_timeout 2     # 连接超时时间</span><br><span class="line">            nb_get_retry 3        # 重连次数</span><br><span class="line">            delay_before_retry 1  # 重连时间间隔</span><br><span class="line">            connect_port 9376     # 检测端口</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    real_server 172.20.248.147 9376 &#123;</span><br><span class="line">        weight 1</span><br><span class="line">        HTTP_GET &#123;</span><br><span class="line">            url &#123; </span><br><span class="line">              path /</span><br><span class="line">	          status_code 200</span><br><span class="line">            &#125;</span><br><span class="line">            connect_timeout 3</span><br><span class="line">            nb_get_retry 3</span><br><span class="line">            delay_before_retry 3</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>修改keepalived配置后只需要执行reload即可生效</p>
+<blockquote>
+<p>systemctl reload keepalived</p>
+</blockquote>
+<h2 id="timeout"><a href="#timeout" class="headerlink" title="timeout"></a>timeout</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@poc117 ~]# ipvsadm -L --timeout</span><br><span class="line">Timeout (tcp tcpfin udp): 900 120 300</span><br><span class="line">[root@poc117 ~]# ipvsadm --set 1 2 1</span><br><span class="line">[root@poc117 ~]# ipvsadm -L --timeout</span><br><span class="line">Timeout (tcp tcpfin udp): 1 2 1</span><br></pre></td></tr></table></figure>
+<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</span><br><span class="line"></span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">$ sudo modprobe dummy</span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">dummy                  12960  0 </span><br><span class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</span><br><span class="line"></span><br><span class="line">$ sudo ip link add eth10 type dummy</span><br></pre></td></tr></table></figure>
+<h2 id="LVS-工作原理"><a href="#LVS-工作原理" class="headerlink" title="LVS 工作原理"></a>LVS 工作原理</h2><p>1.当客户端的请求到达负载均衡器的内核空间时，首先会到达PREROUTING链。 </p>
+<p>2.当内核发现请求数据包的目的地址是本机时，将数据包送往INPUT链。 </p>
+<p>3.LVS由用户空间的ipvsadm和内核空间的IPVS组成，ipvsadm用来定义规则，IPVS利用ipvsadm定义的规则工作，IPVS工作在INPUT链上,当数据包到达INPUT链时，首先会被IPVS检查，如果数据包里面的目的地址及端口没有在规则里面，那么这条数据包将被放行至用户空间。 </p>
+<p>4.如果数据包里面的目的地址及端口在规则里面，那么这条数据报文将被修改目的地址为事先定义好的后端服务器，并送往POSTROUTING链。 </p>
+<p>5.最后经由POSTROUTING链发往后端服务器。</p>
+<p><img src="/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png" alt="image.png"></p>
+<h2 id="netfilter-原理"><a href="#netfilter-原理" class="headerlink" title="netfilter 原理"></a>netfilter 原理</h2><p>Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：<code>raw table</code>, <code>mangle table</code>, <code>nat table</code>, <code>filter table</code>。Netfilter 默认的链有：<code>INPUT</code>, <code>OUTPUT</code>, <code>FORWARD</code>, <code>PREROUTING</code>, <code>POSTROUTING</code>，根据<code>表</code>的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：</p>
+<p><img src="/images/oss/1039cdda7040f20582f36a6a560e4e2e.png" alt="image.png"></p>
+<h2 id="persistence-timeout"><a href="#persistence-timeout" class="headerlink" title="persistence_timeout"></a>persistence_timeout</h2><p>用于保证同一ip client的所有连接在timeout时间以内都发往同一个RS，比如ftp 21port listen认证、20 port传输数据，那么希望同一个client的两个连接都在同一个RS上。</p>
+<p>persistence_timeout 会导致负载不均衡，timeout时间越大负载不均衡越严重。大多场景下基本没什么意义</p>
+<p>PCC用来实现把某个用户的所有访问在超时时间内定向到同一台REALSERVER，这种方式在实际中不常用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -A -t 192.168.0.1:0 -s wlc -p 600(单位是s)     //port为0表示所有端口</span><br><span class="line">ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.2 -w 4 -g</span><br><span class="line">ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g</span><br></pre></td></tr></table></figure>
+<p>此时测试一下会发现通过HTTP访问VIP和通过SSH登录VIP的时候都被定向到了同一台REALSERVER上面了</p>
+<h2 id="OSPF-LVS"><a href="#OSPF-LVS" class="headerlink" title="OSPF + LVS"></a>OSPF + LVS</h2><p>OSPF：Open Shortest Path First 开放最短路径优先，SPF算法也被称为Dijkstra算法，这是因为最短路径优先算法SPF是由荷兰计算机科学家狄克斯特拉于1959年提出的。</p>
+<p>通过OSPF来替换keepalived，解决两个LVS节点的高可用，以及流量负载问题。keepalived两个节点只能是master-slave模式，而OSPF两个节点都是master，同时都有流量</p>
+<p><img src="https://bbsmax.ikafan.com/static/L3Byb3h5L2h0dHAvczMuNTFjdG8uY29tL3d5ZnMwMi9NMDEvMjMvRkUvd0tpb20xTktBSnpqN2JNS0FBRTRQTzI1LVh3ODY2LmpwZw==.jpg" alt="img"></p>
+<p>这个架构与LVS+keepalived 最明显的区别在于，两台Director都是Master 状态，而不是Master-Backup，如此一来，两台Director 地位就平等了。剩下的问题，就是看如何在这两台Director 间实现负载均衡了。这里会涉及路由器领域的一个概念：等价多路径</p>
+<h3 id="ECMP（等价多路径）"><a href="#ECMP（等价多路径）" class="headerlink" title="ECMP（等价多路径）"></a><strong>ECMP（等价多路径）</strong></h3><p>ECMP（Equal-CostMultipathRouting）等价多路径，存在多条不同链路到达同一目的地址的网络环境中，如果使用传统的路由技术，发往该目的地址的数据包只能利用其中的一条链路，其它链路处于备份状态或无效状态，并且在动态路由环境下相互的切换需要一定时间，而等值多路径路由协议可以在该网络环境下<strong>同时</strong>使用多条链路，不仅增加了传输带宽，并且可以无时延无丢包地备份失效链路的数据传输。</p>
+<p>ECMP最大的特点是实现了等值情况下，多路径负载均衡和链路备份的目的，在静态路由和OSPF中基本上都支持ECMP功能。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.ultramonkey.org/papers/lvs_tutorial/html/" target="_blank" rel="noopener">http://www.ultramonkey.org/papers/lvs_tutorial/html/</a></p>
+<p><a href="https://www.jianshu.com/p/d4222ce9b032" target="_blank" rel="noopener">https://www.jianshu.com/p/d4222ce9b032</a></p>
+<p><a href="https://www.cnblogs.com/zhangxingeng/p/10595058.html" target="_blank" rel="noopener">https://www.cnblogs.com/zhangxingeng/p/10595058.html</a></p>
+<p><a href="http://xstarcd.github.io/wiki/sysadmin/lvs_persistence.html" target="_blank" rel="noopener">lvs持久性工作原理和配置</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/01/23/10+倍性能提升全过程/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4079,7 +4607,7 @@ ok =&gt; 10.125.12.174 =&gt; {
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">96</span>
+                <span class="site-state-item-count">99</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4101,7 +4629,7 @@ ok =&gt; 10.125.12.174 =&gt; {
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">213</span>
+                <span class="site-state-item-count">215</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
