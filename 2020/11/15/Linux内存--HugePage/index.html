@@ -103,12 +103,12 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="Linux内存–HugePage/proc/buddyinfo/proc/buddyinfo记录了内存的详细碎片情况。 1234#cat /proc/buddyinfo Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 Node 0, zone">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:image" content="http://yoursite.com/Users/ren/src/blog/951413iMgBlog/false_sharing.png">
-<meta property="og:updated_time" content="2021-05-11T03:31:04.824Z">
+<meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/false_sharing.png">
+<meta property="og:updated_time" content="2021-05-11T05:27:37.007Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux内存--HugePage">
 <meta name="twitter:description" content="Linux内存–HugePage/proc/buddyinfo/proc/buddyinfo记录了内存的详细碎片情况。 1234#cat /proc/buddyinfo Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 Node 0, zone">
-<meta name="twitter:image" content="http://yoursite.com/Users/ren/src/blog/951413iMgBlog/false_sharing.png">
+<meta name="twitter:image" content="http://yoursite.com/images/951413iMgBlog/false_sharing.png">
 
 
 
@@ -417,7 +417,7 @@
 <p>类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。</p>
 <h4 id="连续数据需要跨CPU读取"><a href="#连续数据需要跨CPU读取" class="headerlink" title="连续数据需要跨CPU读取"></a>连续数据需要跨CPU读取</h4><p>Page太大，更容易造成Page跨Numa/CPU 分布。</p>
 <p>从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，<code>Array A</code>和<code>Array B</code>大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此<code>Array B</code>就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。</p>
-<p><img src="/Users/ren/src/blog/951413iMgBlog/false_sharing.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/false_sharing.png" alt="img"></p>
 <h3 id="Java进程开启HugePage"><a href="#Java进程开启HugePage" class="headerlink" title="Java进程开启HugePage"></a>Java进程开启HugePage</h3><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
 <h4 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h4><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes=2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
 <blockquote>
