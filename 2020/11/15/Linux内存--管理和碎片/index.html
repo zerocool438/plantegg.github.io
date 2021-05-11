@@ -1,0 +1,980 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="Linux,free,buddyinfo,碎片,">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="Linux内存–管理和碎片node-&amp;gt;zone-&amp;gt;buddy-&amp;gt;slab 内存管理和使用node、zone、buddy、slab 查看zoneThe zones are:  DMA is the low 16 MBytes of memory. At this point it exists for historical reasons; once upon what is no">
+<meta name="keywords" content="Linux,free,buddyinfo,碎片">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux内存--管理和碎片">
+<meta property="og:url" content="http://yoursite.com/2020/11/15/Linux内存--管理和碎片/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Linux内存–管理和碎片node-&amp;gt;zone-&amp;gt;buddy-&amp;gt;slab 内存管理和使用node、zone、buddy、slab 查看zoneThe zones are:  DMA is the low 16 MBytes of memory. At this point it exists for historical reasons; once upon what is no">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/2e73247c-8a10-43e6-bb0e-49ecfff14268.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/16ebe996-0e3a-4d67-810f-3121b457271e.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/5135d81f-6985-4d6a-8896-e451c0ba20f5.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/0d8a26db-3663-40af-b215-f8601ef23676.png">
+<meta property="og:image" content="http://yoursite.com/Users/ren/src/blog/951413iMgBlog/tlb_lookup.png">
+<meta property="og:image" content="http://yoursite.com/Users/ren/src/blog/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/7cedcb6daa53cbcfc9c68568086500b7.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f16438b744a248d7671d5ac7317b0a98.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cf58f10a523e1e4f0db443be3f54fc04.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8bbb5c886dc06196546daec46712ff71.png">
+<meta property="og:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8e15e91d4dcc61bbd329e7283c7c7500.png">
+<meta property="og:updated_time" content="2021-05-11T02:09:51.053Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Linux内存--管理和碎片">
+<meta name="twitter:description" content="Linux内存–管理和碎片node-&amp;gt;zone-&amp;gt;buddy-&amp;gt;slab 内存管理和使用node、zone、buddy、slab 查看zoneThe zones are:  DMA is the low 16 MBytes of memory. At this point it exists for historical reasons; once upon what is no">
+<meta name="twitter:image" content="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://yoursite.com/2020/11/15/Linux内存--管理和碎片/">
+
+
+
+
+
+  <title>Linux内存--管理和碎片 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/15/Linux内存--管理和碎片/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">Linux内存--管理和碎片</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
+                2020-11-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/15/Linux内存--管理和碎片/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/15/Linux内存--管理和碎片/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="Linux内存–管理和碎片"><a href="#Linux内存–管理和碎片" class="headerlink" title="Linux内存–管理和碎片"></a>Linux内存–管理和碎片</h1><p>node-&gt;zone-&gt;buddy-&gt;slab</p>
+<h2 id="内存管理和使用"><a href="#内存管理和使用" class="headerlink" title="内存管理和使用"></a>内存管理和使用</h2><h3 id="node、zone、buddy、slab"><a href="#node、zone、buddy、slab" class="headerlink" title="node、zone、buddy、slab"></a>node、zone、buddy、slab</h3><p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png" alt="img"></p>
+<h3 id="查看zone"><a href="#查看zone" class="headerlink" title="查看zone"></a>查看zone</h3><p><a href="https://utcc.utoronto.ca/~cks/space/blog/linux/KernelMemoryZones" target="_blank" rel="noopener">The zones are</a>:</p>
+<ul>
+<li><code>DMA</code> is the low 16 MBytes of memory. At this point it exists for historical reasons; once upon what is now a long time ago, there was hardware that could only do DMA into this area of physical memory.</li>
+<li><code>DMA32</code> exists only in 64-bit Linux; it is the low 4 GBytes of memory, more or less. It exists because the transition to large memory 64-bit machines has created a class of hardware that can only do DMA to the low 4 GBytes of memory.(This is where people mutter about everything old being new again.)</li>
+<li><strong><code>Normal</code></strong> is different on 32-bit and 64-bit machines. On 64-bit machines, it is all RAM from 4GB or so on upwards. On 32-bit machines it is all RAM from 16 MB to 896 MB for complex and somewhat historical reasons. Note that this implies that machines with a 64-bit kernel can have very small amounts of Normal memory unless they have significantly more than 4GB of RAM. For example, a 2 GB machine running a 64-bit kernel will have no Normal memory at all while a 4 GB machine will have only a tiny amount of it.</li>
+<li><code>HighMem</code> exists only on 32-bit Linux; it is all RAM above 896 MB, including RAM above 4 GB on sufficiently large machines.</li>
+</ul>
+<p>每个zone下很多pages(大小为4K)，buddy就是这些Pages的组织管理者</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/zoneinfo |grep Node -A10</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">  pages free     3972</span><br><span class="line">        min      0</span><br><span class="line">        low      0</span><br><span class="line">        high     0</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  4095</span><br><span class="line">        present  3993</span><br><span class="line">        managed  3972</span><br><span class="line">    nr_free_pages 3972</span><br><span class="line">    nr_alloc_batch 0</span><br><span class="line">--</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">  pages free     361132</span><br><span class="line">        min      30</span><br><span class="line">        low      37</span><br><span class="line">        high     45</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  1044480</span><br><span class="line">        present  430773</span><br><span class="line">        managed  361133</span><br><span class="line">    nr_free_pages 361132</span><br><span class="line">    nr_alloc_batch 8</span><br><span class="line">--</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">  pages free     96017308</span><br><span class="line">        min      16864</span><br><span class="line">        low      21080</span><br><span class="line">        high     25296</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  200736768</span><br><span class="line">        present  200736768</span><br><span class="line">        managed  197571780</span><br><span class="line">    nr_free_pages 96017308</span><br><span class="line">    nr_alloc_batch 3807</span><br><span class="line">    </span><br><span class="line"># free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            755         150         367           3         236         589</span><br><span class="line">Swap:             0           0           0</span><br></pre></td></tr></table></figure>
+<p>每个页面大小是4K，很容易可以计算出每个 zone 的大小。比如对于上面 Node0 的 Normal， 197571780 <em> 4K/(1024</em>1024) = 753 GB。</p>
+<p>dmidecode 可以查看到服务器上插着的所有内存条，也可以看到它是和哪个CPU直接连接的。每一个CPU以及和他直连的内存条组成了一个 <strong>node（节点）</strong></p>
+<h3 id="proc-buddyinfo"><a href="#proc-buddyinfo" class="headerlink" title="/proc/buddyinfo"></a>/proc/buddyinfo</h3><p>/proc/buddyinfo记录了可用内存的情况。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/buddyinfo </span><br><span class="line">Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 </span><br><span class="line">Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 </span><br><span class="line">Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854</span><br></pre></td></tr></table></figure>
+<p>Normal那行之后的第二列表示：  643847*2^1*Page_Size(4K) ;  第三列表示：  357451*2^2*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。</p>
+<p>应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上–2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。</p>
+<h3 id="proc-pagetypeinfo"><a href="#proc-pagetypeinfo" class="headerlink" title="/proc/pagetypeinfo"></a>/proc/pagetypeinfo</h3><p><code>cat /proc/pagetypeinfo</code>, 你可以看到当前系统里伙伴系统里各个尺寸的可用连续内存块数量。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/2e73247c-8a10-43e6-bb0e-49ecfff14268.png" alt="img"></p>
+<p><strong>当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重</strong></p>
+<p>alloc_pages分配内存的时候就到上面对应大小的free_area的链表上寻找可用连续页面。<code>alloc_pages</code>是怎么工作的呢？我们举个简单的小例子。假如要申请8K-连续两个页框的内存。为了描述方便，我们先暂时忽略UNMOVEABLE、RELCLAIMABLE等不同类型</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/16ebe996-0e3a-4d67-810f-3121b457271e.png" alt="img"></p>
+<p>基于伙伴系统的内存分配中，有可能需要将大块内存拆分成两个小伙伴。在释放中，可能会将两个小伙伴合并再次组成更大块的连续内存。</p>
+<blockquote>
+<p>伙伴系统中的伙伴指的是两个内存块，大小相同，地址连续，同属于一个大块区域。</p>
+</blockquote>
+<p>对于应用来说基本分配单位是4K(开启大页后一般是2M)，对于内核来说4K有点浪费。所以内核又专门给自己定制了一个更精细的内存管理系统slab。</p>
+<h3 id="slab"><a href="#slab" class="headerlink" title="slab"></a>slab</h3><p>对于内核运行中实际使用的对象来说，多大的对象都有。有的对象有1K多，但有的对象只有几百、甚至几十个字节。如果都直接分配一个 4K的页面 来存储的话也太浪费了，所以伙伴系统并不能直接使用。</p>
+<p>在伙伴系统之上，<strong>内核又给自己搞了一个专用的内存分配器， 叫slab</strong>。</p>
+<p>这个分配器最大的特点就是，一个slab内只分配特定大小、甚至是特定的对象。这样当一个对象释放内存后，另一个同类对象可以直接使用这块内存。通过这种办法极大地降低了碎片发生的几率。</p>
+<p>通过查看 <code>/proc/slabinfo</code> 我们可以查看到所有的 kmem cache。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/5135d81f-6985-4d6a-8896-e451c0ba20f5.png" alt="img"></p>
+<p>slabtop 按占用内存从大往小进行排列。用来分析 slab 内存开销。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/0d8a26db-3663-40af-b215-f8601ef23676.png" alt="0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)"></p>
+<p>无论是 <code>/proc/slabinfo</code>，还是 slabtop 命令的输出。里面都包含了每个 cache 中 slab的如下几个关键属性。</p>
+<ul>
+<li>objsize：每个对象的大小</li>
+<li><p>objperslab：一个 slab 里存放的对象的数量</p>
+</li>
+<li><p>pagesperslab：一个slab 占用的页面的数量，每个页面4K，这样也就能算出每个 slab 占用的内存大小。</p>
+</li>
+</ul>
+<p>比如如下TCP slabinfo中可以看到每个slab占用8(pagesperslab)个Page(8<em>4096=32768)，每个对象的大小是1984(objsize)，每个slab存放了16(objperslab)个对象. 那么1984 </em>16=31744，现在的空间基本用完，剩下接近1K，又放不下一个1984大小的对象，算是额外开销了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/slabinfo |grep -E &quot;active_objs|TCP&quot;</span><br><span class="line"># name            &lt;active_objs&gt; &lt;num_objs&gt; &lt;objsize&gt; &lt;objperslab&gt; &lt;pagesperslab&gt; : tunables &lt;limit&gt; &lt;batchcount&gt; &lt;sharedfactor&gt; : slabdata &lt;active_slabs&gt; &lt;num_slabs&gt; &lt;sharedavail&gt;</span><br><span class="line">tw_sock_TCP         5372   5728    256   32    2 : tunables    0    0    0 : slabdata    179    179      0</span><br><span class="line">TCP                 6090   6144   1984   16    8 : tunables    0    0    0 : slabdata    384    384      0</span><br></pre></td></tr></table></figure>
+<h3 id="tlab-miss"><a href="#tlab-miss" class="headerlink" title="tlab miss"></a>tlab miss</h3><p>TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/tlb_lookup.png" alt="img"></p>
+<p>以intel x86为例，一个cpu也就32到64个tlb, 超出这个范畴，就得去查页表。 每个型号的cpu都不一样，需要查看<a href="https://en.wikichip.org/wiki/WikiChip" target="_blank" rel="noopener">spec</a></p>
+<p>进程分配到的不是内存的实际物理地址，而是一个经过映射后的虚拟地址，这么做的原因是为了用更少的内存消耗来管理庞大的内存，Linux通过四级表项来做虚拟地址到物理地址的映射，这样4Kb就能管理256T内存。</p>
+<p><a href="https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA" target="_blank" rel="noopener">虚拟内存的核心原理</a>是：为每个程序设置一段”连续”的虚拟地址空间，把这个地址空间分割成多个具有连续地址范围的页 (page)，并把这些页和物理内存做映射，在程序运行期间动态映射到物理内存。当程序引用到一段在物理内存的地址空间时，由硬件立刻执行必要的映射；而当程序引用到一段不在物理内存中的地址空间时，由操作系统负责将缺失的部分装入物理内存并重新执行失败的指令：</p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png" alt="img"></p>
+<p>在 <strong>内存管理单元（Memory Management Unit，MMU）</strong>进行地址转换时，如果页表项的 “在/不在” 位是 0，则表示该页面并没有映射到真实的物理页框，则会引发一个<strong>缺页中断</strong>，CPU 陷入操作系统内核，接着操作系统就会通过页面置换算法选择一个页面将其换出 (swap)，以便为即将调入的新页面腾出位置，如果要换出的页面的页表项里的修改位已经被设置过，也就是被更新过，则这是一个脏页 (dirty page)，需要写回磁盘更新改页面在磁盘上的副本，如果该页面是”干净”的，也就是没有被修改过，则直接用调入的新页面覆盖掉被换出的旧页面即可。</p>
+<p>还需要了解的一个概念是<strong>转换检测缓冲器（Translation Lookaside Buffer，TLB）</strong>，也叫快表，是用来加速虚拟地址映射的，因为虚拟内存的分页机制，页表一般是保存内存中的一块固定的存储区，导致进程通过 MMU 访问内存比直接访问内存多了一次内存访问，性能至少下降一半，因此需要引入加速机制，即 TLB 快表，TLB 可以简单地理解成页表的高速缓存，保存了最高频被访问的页表项，由于一般是硬件实现的，因此速度极快，MMU 收到虚拟地址时一般会先通过硬件 TLB 查询对应的页表号，若命中且该页表项的访问操作合法，则直接从 TLB 取出对应的物理页框号返回，若不命中则穿透到内存页表里查询，并且会用这个从内存页表里查询到最新页表项替换到现有 TLB 里的其中一个，以备下次缓存命中。</p>
+<p>如果没有TLB那么每一次内存映射都需要查表四次然后才是一次真正的内存访问，代价比较高。</p>
+<p>有了TLB之后，CPU访问某个虚拟内存地址的过程如下</p>
+<ul>
+<li>1.CPU产生一个虚拟地址</li>
+<li>2.MMU从TLB中获取页表，翻译成物理地址</li>
+<li>3.MMU把物理地址发送给L1/L2/L3/内存</li>
+<li>4.L1/L2/L3/内存将地址对应数据返回给CPU</li>
+</ul>
+<p>由于第2步是类似于寄存器的访问速度，所以<strong>如果TLB能命中，则虚拟地址到物理地址的时间开销几乎可以忽</strong>略。tlab miss比较高的话开启内存大页对性能是有提升的，但是会有一定的内存浪费。</p>
+<h2 id="cache回收"><a href="#cache回收" class="headerlink" title="cache回收"></a>cache回收</h2><blockquote>
+<p>echo 1/2/3 &gt;/proc/sys/vm/drop_cached</p>
+</blockquote>
+<p>查看回收后：</p>
+<pre><code>cat /proc/meminfo
+</code></pre><p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:33%;"></p>
+<p>当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉</p>
+<p>在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 &gt; /proc/sys/vm/drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。</p>
+<p>查看 drop_caches 是否执行过释放：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">$ grep drop /proc/vmstat</span><br><span class="line">drop_pagecache 1</span><br><span class="line">drop_slab 0</span><br><span class="line"></span><br><span class="line"> $ grep inodesteal /proc/vmstat </span><br><span class="line"> pginodesteal 114341</span><br><span class="line"> kswapd_inodesteal 1291853</span><br></pre></td></tr></table></figure>
+<p>在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal /proc/vmstat 观察到</p>
+<blockquote>
+<p>kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;</p>
+</blockquote>
+<h2 id="内存分配和延迟"><a href="#内存分配和延迟" class="headerlink" title="内存分配和延迟"></a>内存分配和延迟</h2><p>内存不够、脏页太多、碎片太多，都会导致分配失败，从而触发回收，导致卡顿。</p>
+<h3 id="系统中脏页过多引起-load-飙高"><a href="#系统中脏页过多引起-load-飙高" class="headerlink" title="系统中脏页过多引起 load 飙高"></a>系统中脏页过多引起 load 飙高</h3><p>直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;"></p>
+<p>可以通过 sar -r 来观察系统中的脏页个数：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ sar -r 1</span><br><span class="line">07:30:01 PM kbmemfree kbmemused  %memused kbbuffers  kbcached  kbcommit   %commit  kbactive   kbinact   kbdirty</span><br><span class="line">09:20:01 PM   5681588   2137312     27.34         0   1807432    193016      2.47    534416   1310876         4</span><br><span class="line">09:30:01 PM   5677564   2141336     27.39         0   1807500    204084      2.61    539192   1310884        20</span><br><span class="line">09:40:01 PM   5679516   2139384     27.36         0   1807508    196696      2.52    536528   1310888        20</span><br><span class="line">09:50:01 PM   5679548   2139352     27.36         0   1807516    196624      2.51    536152   1310892        24</span><br></pre></td></tr></table></figure>
+<p>kbdirty 就是系统中的脏页大小，它同样也是对 /proc/vmstat 中 nr_dirty 的解析。你可以通过调小如下设置来将系统脏页个数控制在一个合理范围:</p>
+<blockquote>
+<p>vm.dirty_background_bytes = 0</p>
+<p>vm.dirty_background_ratio = 10</p>
+<p>vm.dirty_bytes = 0</p>
+<p>vm.dirty_expire_centisecs = 3000</p>
+<p>vm.dirty_ratio = 20</p>
+</blockquote>
+<p>至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果你可以通过 /proc/vmstat 来查看：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#grep &quot;nr_dirty_&quot; /proc/vmstat</span><br><span class="line">nr_dirty_threshold 3071708</span><br><span class="line">nr_dirty_background_threshold 1023902</span><br></pre></td></tr></table></figure>
+<p>在4.20的内核并且sar 的版本为12.3.3可以看到PSI（Pressure-Stall Information）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">some avg10=45.49 avg60=10.23 avg300=5.41 total=76464318</span><br><span class="line">full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082</span><br></pre></td></tr></table></figure>
+<p>你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cf58f10a523e1e4f0db443be3f54fc04.png" alt="image.png"></p>
+<h2 id="碎片化"><a href="#碎片化" class="headerlink" title="碎片化"></a>碎片化</h2><p>内存碎片严重的话会导致系统hang很久(回收、压缩内存）</p>
+<p>尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G/8G), 线上机器直接修改vm.min_free_kbytes<strong>会触发回收，导致系统hang住</strong> <a href="https://www.atatech.org/articles/163233" target="_blank" rel="noopener">https://www.atatech.org/articles/163233</a> <a href="https://www.atatech.org/articles/97130" target="_blank" rel="noopener">https://www.atatech.org/articles/97130</a></p>
+<p>每个zone都有自己的min low high,如下，但是单位是page, 计算案例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/zoneinfo  |grep &quot;Node&quot;</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">Node 1, zone   Normal</span><br><span class="line"></span><br><span class="line">#cat /proc/zoneinfo  |grep &quot;Node 0, zone&quot; -A10</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">  pages free     3975</span><br><span class="line">        min      20</span><br><span class="line">        low      25</span><br><span class="line">        high     30</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  4095</span><br><span class="line">        present  3996</span><br><span class="line">        managed  3975</span><br><span class="line">    nr_free_pages 3975</span><br><span class="line">    nr_alloc_batch 5</span><br><span class="line">--</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">  pages free     382873</span><br><span class="line">        min      2335</span><br><span class="line">        low      2918</span><br><span class="line">        high     3502</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  1044480</span><br><span class="line">        present  513024</span><br><span class="line">        managed  450639</span><br><span class="line">    nr_free_pages 382873</span><br><span class="line">    nr_alloc_batch 584</span><br><span class="line">--</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">  pages free     11105097</span><br><span class="line">        min      61463</span><br><span class="line">        low      76828</span><br><span class="line">        high     92194</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  12058624</span><br><span class="line">        present  12058624</span><br><span class="line">        managed  11859912</span><br><span class="line">    nr_free_pages 11105097</span><br><span class="line">    nr_alloc_batch 12344</span><br><span class="line">    </span><br><span class="line">    low = 5/4 * min</span><br><span class="line">high = 3/2 * min</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">#T=min;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=499 MB</span><br><span class="line"></span><br><span class="line">#T=low;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=624 MB</span><br><span class="line"></span><br><span class="line">#T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=802 MB</span><br></pre></td></tr></table></figure>
+<h2 id="内存碎片化导致rt升高的诊断"><a href="#内存碎片化导致rt升高的诊断" class="headerlink" title="内存碎片化导致rt升高的诊断"></a>内存碎片化导致rt升高的诊断</h2><p>判定方法如下：</p>
+<ol>
+<li>运行 sar -B 观察 pgscand/s，其含义为每秒发生的直接内存回收次数，当在一段时间内持续大于 0 时，则应继续执行后续步骤进行排查；</li>
+<li>运行 <code>cat /sys/kernel/debug/extfrag/extfrag_index</code> 观察内存碎片指数，重点关注 order &gt;= 3 的碎片指数，当接近 1.000 时，表示碎片化严重，当接近 0 时表示内存不足；</li>
+<li>运行 <code>cat /proc/buddyinfo, cat /proc/pagetypeinfo</code> 查看内存碎片情况， 指标含义<a href="https://man7.org/linux/man-pages/man5/proc.5.html" target="_blank" rel="noopener">参考</a> ，同样关注 order &gt;= 3 的剩余页面数量，pagetypeinfo 相比 buddyinfo 展示的信息更详细一些，根据迁移类型 （伙伴系统通过迁移类型实现反碎片化）进行分组，需要注意的是，<strong>当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重</strong>，我们需要结合其他工具来排查具体原因，在本文就不做过多介绍了；</li>
+<li>对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 <a href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt" target="_blank" rel="noopener">drsnoop</a>，<a href="https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt" target="_blank" rel="noopener">compactsnoop</a> 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；</li>
+<li>(Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。</li>
+</ol>
+<h2 id="一个阿里云ECS-因为宿主机碎片导致性能衰退的案例"><a href="#一个阿里云ECS-因为宿主机碎片导致性能衰退的案例" class="headerlink" title="一个阿里云ECS 因为宿主机碎片导致性能衰退的案例"></a>一个阿里云ECS 因为宿主机碎片导致性能衰退的案例</h2><p>LVS后面三个RS在同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8bbb5c886dc06196546daec46712ff71.png" alt="image.png"></p>
+<p>原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在ECS中大页场景下会慢很多</p>
+<p>通过 <strong>openssl speed aes-256-ige 能稳定重现</strong> 在大块的加密上慢很多</p>
+<p><img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8e15e91d4dcc61bbd329e7283c7c7500.png" alt="image.png"></p>
+<p>小块上性能一致，这也就是为什么算Prime性能没问题。导致慢只涉及到大块内存分配的场景，这里需要映射到宿主机，但是碎片多分配慢导致了问题。</p>
+<p>如果reboot ECS的话实际只是就地重启ECS，仍然使用的reboot前分配好的宿主机内存，不会解决问题。重启ECS中的进程也不会解决问题，只有将ECS迁移到别的物理机（也就是通过控制台重启，会重新选择物理机）才有可能解决这个问题。</p>
+<p>或者购买新的ECS机型（比如第6代之后ECS）能避免这个问题。</p>
+<p>ECS内部没法查看到这个碎片，只能在宿主机上通过命令查看大页情况：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">有问题NC上buddyinfo信息</span><br><span class="line">$cat /proc/buddyinfo</span><br><span class="line">Node 0, zone      DMA      1      1      0      0      2      1      1      0      1      1      3</span><br><span class="line">Node 0, zone    DMA32     23     23     17     15     13      9      8      8      4      3    367</span><br><span class="line">Node 0, zone   Normal 295291 298652 286048 266597 218191 156837  93156  45930  25856      0      0</span><br><span class="line"></span><br><span class="line">最新建的vm，大页不多</span><br><span class="line">$sudo cat /proc/9550/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">210944</span><br><span class="line">------------------------</span><br><span class="line">第一台正常ECS所在的NC</span><br><span class="line">$cat /proc/buddyinfo</span><br><span class="line">Node 0, zone      DMA      1      1      0      0      2      1      1      0      1      1      3</span><br><span class="line">Node 0, zone    DMA32      7      5      5      9      8      4      6     10      5      5    366</span><br><span class="line">Node 0, zone   Normal 203242 217888 184465 176280 148612 102122  55787  26642  24824      0      0</span><br><span class="line"></span><br><span class="line">早期的vm，大页充足</span><br><span class="line">$sudo cat /proc/87369/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">8275968</span><br><span class="line"></span><br><span class="line">近期的vm，大页不够</span><br><span class="line">$sudo cat /proc/22081/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">251904</span><br><span class="line"></span><br><span class="line">$sudo cat /proc/44073/smaps |grep AnonHuge |awk &apos;&#123;sum+=$2&#125;END&#123;print sum&#125;&apos;</span><br><span class="line">10240</span><br></pre></td></tr></table></figure>
+<h2 id="内存使用分析"><a href="#内存使用分析" class="headerlink" title="内存使用分析"></a>内存使用分析</h2><h3 id="pmap"><a href="#pmap" class="headerlink" title="pmap"></a>pmap</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">pmap -x 24282 | less</span><br><span class="line">24282:   /usr/sbin/rsyslogd -n</span><br><span class="line">Address           Kbytes     RSS   Dirty Mode  Mapping</span><br><span class="line">000055ce1a99f000     596     580       0 r-x-- rsyslogd</span><br><span class="line">000055ce1ac34000      12      12      12 r---- rsyslogd</span><br><span class="line">000055ce1ac37000      28      28      28 rw--- rsyslogd</span><br><span class="line">000055ce1ac3e000       4       4       4 rw---   [ anon ]</span><br><span class="line">000055ce1c1f1000     364     204     204 rw---   [ anon ]</span><br><span class="line">00007fff8b5a4000     132      20      20 rw---   [ stack ]</span><br><span class="line">00007fff8b5e6000      12       0       0 r----   [ anon ]</span><br><span class="line">00007fff8b5e9000       8       4       0 r-x--   [ anon ]</span><br><span class="line">---------------- ------- ------- -------</span><br><span class="line">total kB          620060   17252    3304</span><br></pre></td></tr></table></figure>
+<ul>
+<li>Address：占用内存的文件的内存起始地址。</li>
+<li>Kbytes：占用内存的字节数。</li>
+<li>RSS：实际占用内存大小。</li>
+<li>Dirty：脏页大小。</li>
+<li>Mapping：占用内存的文件，[anon] 为已分配的内存，[stack] 为程序堆栈</li>
+</ul>
+<h3 id="proc-pid"><a href="#proc-pid" class="headerlink" title="/proc/pid/"></a>/proc/pid/</h3><p><code>/proc/[pid]/</code> 下面与进程内存相关的文件主要有<code>maps , smaps, status</code>。<br>maps： 文件可以查看某个进程的代码段、栈区、堆区、动态库、内核区对应的虚拟地址<br>smaps: 显示每个分区更详细的内存占用数据<br>status: 包含了所有CPU活跃的信息，该文件中的所有值都是从系统启动开始累计到当前时刻</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+<p><a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="noopener">rsyslog占用内存高</a></p>
+<p><a href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html" target="_blank" rel="noopener">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
+<p><a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html" target="_blank" rel="noopener">鸟哥 journald 介绍</a></p>
+<p><a href="https://mp.weixin.qq.com/s/OR2XB4J76haGc1THeq7WQg" target="_blank" rel="noopener">说出来你可能不信，内核这家伙在内存的使用上给自己开了个小灶！</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Linux/" rel="tag"># Linux</a>
+          
+            <a href="/tags/free/" rel="tag"># free</a>
+          
+            <a href="/tags/buddyinfo/" rel="tag"># buddyinfo</a>
+          
+            <a href="/tags/碎片/" rel="tag"># 碎片</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2020/11/15/Linux内存--零拷贝/" rel="next" title="Linux内存--零拷贝">
+                <i class="fa fa-chevron-left"></i> Linux内存--零拷贝
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2020/11/17/MySQL线程池导致的延时卡顿排查/" rel="prev" title="MySQL线程池导致的延时卡顿排查">
+                MySQL线程池导致的延时卡顿排查 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+      <div id="disqus_thread">
+        <noscript>
+          Please enable JavaScript to view the
+          <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+        </noscript>
+      </div>
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="weibo @plantegg">
+          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">117</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">20</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">213</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux内存–管理和碎片"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–管理和碎片</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#内存管理和使用"><span class="nav-number">1.1.</span> <span class="nav-text">内存管理和使用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#node、zone、buddy、slab"><span class="nav-number">1.1.1.</span> <span class="nav-text">node、zone、buddy、slab</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#查看zone"><span class="nav-number">1.1.2.</span> <span class="nav-text">查看zone</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#proc-buddyinfo"><span class="nav-number">1.1.3.</span> <span class="nav-text">/proc/buddyinfo</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#proc-pagetypeinfo"><span class="nav-number">1.1.4.</span> <span class="nav-text">/proc/pagetypeinfo</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#slab"><span class="nav-number">1.1.5.</span> <span class="nav-text">slab</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#tlab-miss"><span class="nav-number">1.1.6.</span> <span class="nav-text">tlab miss</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#cache回收"><span class="nav-number">1.2.</span> <span class="nav-text">cache回收</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存分配和延迟"><span class="nav-number">1.3.</span> <span class="nav-text">内存分配和延迟</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#系统中脏页过多引起-load-飙高"><span class="nav-number">1.3.1.</span> <span class="nav-text">系统中脏页过多引起 load 飙高</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#碎片化"><span class="nav-number">1.4.</span> <span class="nav-text">碎片化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存碎片化导致rt升高的诊断"><span class="nav-number">1.5.</span> <span class="nav-text">内存碎片化导致rt升高的诊断</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一个阿里云ECS-因为宿主机碎片导致性能衰退的案例"><span class="nav-number">1.6.</span> <span class="nav-text">一个阿里云ECS 因为宿主机碎片导致性能衰退的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存使用分析"><span class="nav-number">1.7.</span> <span class="nav-text">内存使用分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pmap"><span class="nav-number">1.7.1.</span> <span class="nav-text">pmap</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#proc-pid"><span class="nav-number">1.7.2.</span> <span class="nav-text">/proc/pid/</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+    
+      <script id="dsq-count-scr" src="https://.disqus.com/count.js" async></script>
+    
+
+    
+      <script type="text/javascript">
+        var disqus_config = function () {
+          this.page.url = 'http://yoursite.com/2020/11/15/Linux内存--管理和碎片/';
+          this.page.identifier = '2020/11/15/Linux内存--管理和碎片/';
+          this.page.title = 'Linux内存--管理和碎片';
+        };
+        var d = document, s = d.createElement('script');
+        s.src = 'https://.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', '' + +new Date());
+        (d.head || d.body).appendChild(s);
+      </script>
+    
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
