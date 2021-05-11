@@ -282,942 +282,6 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/24/Linux Module/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/24/Linux Module/" itemprop="url">Linux Module and make debug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
-                2019-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/24/Linux Module/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/24/Linux Module/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
-Makefile:4: *** missing separator.  Stop.
-</code></pre><p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
-<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
-make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
-make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
-make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&apos;, needed by `arch/x86/include/generated/asm/syscalls_32.h&apos;.  Stop.
-make[1]: *** [archheaders] Error 2
-make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
-make: *** [all] Error 2
-</code></pre><p>Makefile中的：<br>    make -C /lib/modules/$(shell uname -r)/build M=$(pwd) modules</p>
-<p>$(pwd) 需要修改成：$(shell pwd)</p>
-<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
-$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
-$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
-$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
-</code></pre><h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
-<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &apos;^# makefile&apos; | grep -v &apos;^--&apos; | awk &apos;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&apos; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
-$ cat variable.log
-# makefile (from `Makefile&apos;, line 1) ; aa := 11
-# makefile (from `Makefile&apos;, line 3) ; cc := 11
-# makefile (from `Makefile&apos;, line 4) ; bb := 9999
-# makefile (from `cfg_makefile&apos;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
-# makefile (from `cfg_makefile&apos;, line 1) ; xx := 4444
-# makefile (from `cfg_makefile&apos;, line 2) ; yy := 4444
-# makefile (from `cfg_makefile&apos;, line 3) ; zz := 4444
-# makefile (from `sub_makefile&apos;, line 1) ; MAKEFILE_LIST :=  sub_makefile
-# makefile (from `sub_makefile&apos;, line 1) ; aaaa := 222222
-# makefile (from `sub_makefile&apos;, line 2) ; bbbb := 222222
-# makefile (from `sub_makefile&apos;, line 3) ; cccc := 222222
-</code></pre><h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
-<pre><code>$(warning $(var123))
-</code></pre><p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
-<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
-<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
-<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
-<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
-<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
-<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
-<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
-</code></pre><h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
-    TCP_ESTABLISHED = 1,
-    TCP_SYN_SENT,
-    TCP_SYN_RECV,
-    TCP_FIN_WAIT1,
-    TCP_FIN_WAIT2,
-    TCP_TIME_WAIT,
-    TCP_CLOSE,
-    TCP_CLOSE_WAIT,
-    TCP_LAST_ACK,
-    TCP_LISTEN,
-    TCP_CLOSING,    /* Now a valid state */
-
-    TCP_MAX_STATES  /* Leave at the end! */
-};
-</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a>kdump</h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
-<pre><code>sudo systemctl start kdump
-</code></pre><h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
-//手动触发crash
-#echo 1 &gt; /proc/sys/kernel/sysrq
-#echo c &gt; /proc/sysrq-trigger
-//系统crash，然后重启，重启后分析：
-sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
-</code></pre><h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/oss/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
-<pre><code>static int __init hotfix_init(void)
-{
-  unsigned char e8_call[POKE_LENGTH];
-  s32 offset, i;
-
-  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
-  if (!addr) {
-    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
-    return -1;
-  }
-
-  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
-  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
-
-  stub = (void *)test_stub1;
-
-  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
-
-  e8_call[0] = 0xe8;
-  (*(s32 *)(&amp;e8_call[1])) = offset;
-  for (i = 5; i &lt; POKE_LENGTH; i++) {
-    e8_call[i] = 0x90;
-  }
-  get_online_cpus();
-  mutex_lock(_text_mutex);
-  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
-  mutex_unlock(_text_mutex);
-  put_online_cpus();
-
-  return 0;
-}
-
-void test_stub1(void)
-{
-  struct sock *sk = NULL;
-  unsigned long sk_addr = 0;
-  char buf[MAX_BUF_SIZE];
-  int size=0;
-  asm (&quot;push %rdi&quot;);
-
-  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
-  sk = (struct sock *)sk_addr;
-
-  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
-      sk-&gt;sk_state,
-      sk-&gt;sk_rcv_saddr,
-      sk-&gt;sk_daddr);
-/*
-  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
-                     get_seconds(),
-                     sk-&gt;sk_state,
-                     &amp;(inet_sk(sk)-&gt;inet_saddr),
-                     ntohs(inet_sk(sk)-&gt;inet_sport),
-                     ntohs(inet_sk(sk)-&gt;inet_dport),
-                     &amp;(inet_sk(sk)-&gt;inet_daddr));
-*/
-//  tcp_rt_log_output(buf,size,1);
-
-  asm (&quot;pop %rdi&quot;);
-}
-</code></pre><h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
-<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="url">中间件的vipclient服务在centos7上域名解析失败</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-13T10:30:03+08:00">
-                2019-01-13
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="中间件的vipclient服务在centos7上域名解析失败"><a href="#中间件的vipclient服务在centos7上域名解析失败" class="headerlink" title="中间件的vipclient服务在centos7上域名解析失败"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
-<p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
-</blockquote>
-<h2 id="抓包分析"><a href="#抓包分析" class="headerlink" title="抓包分析"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
-<p><img src="/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png" alt="image.png"></p>
-<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
-<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="noopener">这里</a>： </p>
-<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
-<h2 id="通过-dig-命令来查看dns解析过程"><a href="#通过-dig-命令来查看dns解析过程" class="headerlink" title="通过 dig 命令来查看dns解析过程"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com </p>
-<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
-<h2 id="分析vipclient域名解析返回的包内容"><a href="#分析vipclient域名解析返回的包内容" class="headerlink" title="分析vipclient域名解析返回的包内容"></a>分析vipclient域名解析返回的包内容</h2><p><img src="/images/oss/0882e4815fb1acfa80f813db4bb7265b.png" alt="image.png"></p>
-<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns<br>通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP<br>但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/12/Docker中的DNS解析过程/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/12/Docker中的DNS解析过程/" itemprop="url">Docker中的DNS解析过程</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-12T10:30:03+08:00">
-                2019-01-12
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/12/Docker中的DNS解析过程/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/12/Docker中的DNS解析过程/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Docker中的DNS解析过程"><a href="#Docker中的DNS解析过程" class="headerlink" title="Docker中的DNS解析过程"></a>Docker中的DNS解析过程</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
-<p>同一个Docker集群中两个容器中通过 nslookup 同一个域名，这个域名是容器启动的时候通过net alias指定的，但是返回来的IP不一样</p>
-</blockquote>
-<p>如图所示：</p>
-<p><img src="/images/oss/892a98b53c7f9e65da79d1d6d890c3b0.png" alt="image.png"></p>
-<p>图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。</p>
-<p>要想解决这个问题抓包就没用了，因为Docker 中的net alias 域名是 Docker Daemon自己来解析的，也就是在容器中做域名解析（nslookup、ping）的时候，Docker Daemon先看这个域名是不是net alias的，是的话返回对应的ip，如果不是（比如 <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a>) ，那么Docker Daemon再把这个域名丢到宿主机上去解析，在宿主机上的解析过程就是标准的DNS，可以抓包分析。但是Docker Daemon内部的解析过程没有走DNS协议，不好分析，所以得先了解一下 Docker Daemon的域名解析原理</p>
-<p>具体参考文章： <a href="http://www.jianshu.com/p/4433f4c70cf0" target="_blank" rel="noopener">http://www.jianshu.com/p/4433f4c70cf0</a> <a href="http://www.bijishequ.com/detail/261401?p=70-67" target="_blank" rel="noopener">http://www.bijishequ.com/detail/261401?p=70-67</a></p>
-<h2 id="继续分析所有容器对这个域名的解析"><a href="#继续分析所有容器对这个域名的解析" class="headerlink" title="继续分析所有容器对这个域名的解析"></a>继续分析所有容器对这个域名的解析</h2><p>继续分析所有容器对这个域名的解析发现只有某一台宿主机上的有这个问题，而且这台宿主机上所有容器都有这个问题，结合上面的文章，那么这个问题比较明朗了，这台有问题的宿主机的Docker Daemon中残留了一个net alias，你可以理解成cache中有脏数据没有清理。</p>
-<p>进而跟业务的同学们沟通，确实155这个IP的容器做过升级，改动过配置，可能升级前这个155也绑定过这个域名，但是升级后绑到146这个容器上去了，但是Docker Daemon中还残留这条记录。</p>
-<h2 id="重启Docker-Daemon后问题解决（容器不需要重启）"><a href="#重启Docker-Daemon后问题解决（容器不需要重启）" class="headerlink" title="重启Docker Daemon后问题解决（容器不需要重启）"></a>重启Docker Daemon后问题解决（容器不需要重启）</h2><p>重启Docker Daemon的时候容器还在正常运行，只是这段时间的域名解析会不正常，其它业务长连接都能正常运行，在Docker Daemon重启的时候它会去检查所有容器的endpoint、重建sandbox、清理network等等各种事情，所以就把这个脏数据修复掉了。</p>
-<p>在Docker Daemon重启过程中，会给每个容器构建DNS Resovler（setup-resolver），如果构建DNS Resovler这个过程中容器发送了大量域名查询过来同时这些域名又查询不到的话Docker Daemon在重启过程中需要等待这个查询超时，然后才能继续往下走重启流程，所以导致启动流程拉长<a href="https://www.atatech.org/articles/87339" target="_blank" rel="noopener">问题严重的时候导致Docker Daemon长时间无法启动</a></p>
-<p>Docker的域名解析为什么要这么做，是因为容器中有两种域名解析需求：</p>
-<ol>
-<li>容器启动时通过 net alias 命名的域名</li>
-<li>容器中正常对外网各种域名的解析（比如 baidu.com/api.taobao.com)</li>
-</ol>
-<p>对于第一种只能由docker daemon来解析了，所以容器中碰到的任何域名解析都会丢给 docker daemon(127.0.0.11), 如果 docker daemon 发现这个域名不认识，也就是不是net alias命名的域名，那么docker就会把这个域名解析丢给宿主机配置的 nameserver 来解析【非常非常像 dns-f/vipclient 的解析原理】</p>
-<h2 id="容器中的域名解析"><a href="#容器中的域名解析" class="headerlink" title="容器中的域名解析"></a>容器中的域名解析</h2><p>容器启动的时候读取宿主机的 /etc/resolv.conf (去掉127.0.0.1/16 的nameserver）然后当成容器的 /etc/resolv.conf, 但是实际在容器中看到的 /etc/resolve.conf 中的nameserver只有一个：127.0.0.11，因为如上描述nameserver都被代理掉了</p>
-<p>容器 -&gt; docker daemon(127.0.0.11) -&gt; 宿主机中的/etc/resolv.conf 中的nameserver</p>
-<p>如果宿主机中的/etc/resolv.conf 中的nameserver没有，那么daemon默认会用8.8.8.8/8.8.4.4来做下一级dns server，如果在一些隔离网络中（跟外部不通），那么域名解析就会超时，因为一直无法连接到 8.8.8.8/8.8.4.4 ，进而导致故障。</p>
-<p>比如 vipserver 中需要解析 armory的域名，如果这个时候在私有云环境，宿主机又没有配置 nameserver, 那么这个域名解析会发送给 8.8.8.8/8.8.4.4 ，长时间没有响应，超时后 vipserver 会关闭自己的探活功能，从而导致 vipserver 基本不可用一样。</p>
-<p>修改 宿主机的/etc/resolv.conf后 重新启动、创建的容器才会load新的nameserver</p>
-<h2 id="如果容器中需要解析vipserver中的域名"><a href="#如果容器中需要解析vipserver中的域名" class="headerlink" title="如果容器中需要解析vipserver中的域名"></a>如果容器中需要解析vipserver中的域名</h2><ol>
-<li>容器中安装vipclient，同时容器的 /etc/resolv.conf 配置 nameserver 127.0.0.1 </li>
-<li>要保证vipclient起来之后才能启动业务</li>
-</ol>
-<h2 id="kubernetes中dns解析偶尔5秒钟超时"><a href="#kubernetes中dns解析偶尔5秒钟超时" class="headerlink" title="kubernetes中dns解析偶尔5秒钟超时"></a>kubernetes中dns解析偶尔5秒钟超时</h2><p>dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒</p>
-<p><img src="/images/oss/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png" alt="img"></p>
-<p>（高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）</p>
-<p>解析异常的strace栈：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">不正常解析的strace日志</span><br><span class="line">1596601737.655724 socket(PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 5</span><br><span class="line">1596601737.655784 connect(5, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, 16) = 0</span><br><span class="line">1596601737.655869 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601737.655968 sendmmsg(5, &#123;&#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_TRUNC|MSG_EOR|MSG_FIN|MSG_RST|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_MORE|MSG_WAITFORONE|MSG_FASTOPEN|0x1e340010&#125;, 48&#125;, &#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_WAITALL|MSG_FIN|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_FASTOPEN|MSG_CMSG_CLOEXEC|0x156c0000&#125;, 48&#125;&#125;, 2, MSG_NOSIGNAL) = 2</span><br><span class="line">1596601737.656113 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601737.659251 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601737.659330 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\10\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">=========</span><br><span class="line">1596601737.659421 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 0 (Timeout) 这里就是问题所在</span><br><span class="line">=========</span><br><span class="line">1596601742.657639 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.657735 sendto(5, &quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.657837 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.660929 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.661038 recvfrom(5, &quot;\20\v\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.661129 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.661204 sendto(5, &quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.661313 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.664443 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.664519 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 65536, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.664600 close(5)              = 0</span><br></pre></td></tr></table></figure>
-<h3 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h3><p>DNS client (glibc 或 musl libc) 会并发请求 A 和 AAAA 记录，跟 DNS Server 通信自然会先 connect (建立fd)，后面请求报文使用这个 fd 来发送，由于 UDP 是无状态协议， connect 时并不会发包，也就不会创建 conntrack 表项, 而并发请求的 A 和 AAAA 记录默认使用同一个 fd 发包，send 时各自发的包它们源 Port 相同(因为用的同一个socket发送)，当并发发包时，两个包都还没有被插入 conntrack 表项，所以 netfilter 会为它们分别创建 conntrack 表项，而集群内请求 kube-dns 或 coredns 都是访问的CLUSTER-IP，报文最终会被 DNAT 成一个 endpoint 的 POD IP，当两个包恰好又被 DNAT 成同一个 POD IP时，它们的五元组就相同了，在最终插入的时候后面那个包就会被丢掉，而single-request-reopen的选项设置为俩请求被丢了一个，会等待超时再重发 ，这个就解释了为什么还存在调整成2s就是2s的异常比较多 ，因此这种场景下调整成single-request是比较好的方式，同时k8s那边给的dns缓存方案是 nodelocaldns组件可以考虑用一下</p>
-<p>关于recolv的选项</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">single-request (since glibc 2.10) 串行解析，</span><br><span class="line">                     Sets RES_SNGLKUP in _res.options.  By default, glibc</span><br><span class="line">                     performs IPv4 and IPv6 lookups in parallel since</span><br><span class="line">                     version 2.9.  Some appliance DNS servers cannot handle</span><br><span class="line">                     these queries properly and make the requests time out.</span><br><span class="line">                     This option disables the behavior and makes glibc</span><br><span class="line">                     perform the IPv6 and IPv4 requests sequentially (at the</span><br><span class="line">                     cost of some slowdown of the resolving process).</span><br><span class="line">single-request-reopen (since glibc 2.9) 并行解析，少收到一个解析回复后，再开一个socket重新发起解析，因此看到了前面调整timeout是1s后，还是有挺多1s的解析</span><br><span class="line">                     Sets RES_SNGLKUPREOP in _res.options.  The resolver</span><br><span class="line">                     uses the same socket for the A and AAAA requests.  Some</span><br><span class="line">                     hardware mistakenly sends back only one reply.  When</span><br><span class="line">                     that happens the client system will sit and wait for</span><br><span class="line">                     the second reply.  Turning this option on changes this</span><br><span class="line">                     behavior so that if two requests from the same port are</span><br><span class="line">                     not handled correctly it will close the socket and open</span><br><span class="line">                     a new one before sending the second request.</span><br></pre></td></tr></table></figure>
-<h3 id="getaddrinfo-关闭ipv6的解析"><a href="#getaddrinfo-关闭ipv6的解析" class="headerlink" title="getaddrinfo 关闭ipv6的解析"></a>getaddrinfo 关闭ipv6的解析</h3><p>基本上所有测试下来，网上那些通过修改配置的<a href="https://serverfault.com/questions/632665/how-to-disable-aaaa-lookups" target="_blank" rel="noopener">基本都不能关闭ipv6的解析</a>，只有通过在代码中指定</p>
-<blockquote>
-<p>hints.ai_family = AF_INET;    /<em> or AF_INET6 for ipv6 addresses </em>/</p>
-</blockquote>
-<p>来只做ipv4的解析</p>
-<p><a href="https://askubuntu.com/questions/32298/prefer-a-ipv4-dns-lookups-before-aaaaipv6-lookups" target="_blank" rel="noopener">Prefer A (IPv4) DNS lookups before AAAA(IPv6) lookups</a></p>
-<p><a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html" target="_blank" rel="noopener">https://man7.org/linux/man-pages/man3/getaddrinfo.3.html</a>: </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4</span><br><span class="line">       addresses are returned in the list pointed to by res only if the</span><br><span class="line">       local system has at least one IPv4 address configured, and IPv6</span><br><span class="line">       addresses are returned only if the local system has at least one</span><br><span class="line">       IPv6 address configured.  The loopback address is not considered</span><br><span class="line">       for this case as valid as a configured address.  This flag is</span><br><span class="line">       useful on, for example, IPv4-only systems, to ensure that</span><br><span class="line">       getaddrinfo() does not return IPv6 socket addresses that would</span><br><span class="line">       always fail in connect(2) or bind(2).</span><br></pre></td></tr></table></figure>
-<p><a href="https://unix.stackexchange.com/questions/45598/force-getaddrinfo-to-use-ipv4" target="_blank" rel="noopener">c code demo</a>:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct addrinfo hints, *result;</span><br><span class="line">int s;</span><br><span class="line"></span><br><span class="line">memset(&amp;hints, 0, sizeof(hints));</span><br><span class="line">hints.ai_family = AF_INET;        /* or AF_INET6 for ipv6 addresses */</span><br><span class="line">s = getaddrinfo(NULL, &quot;ftp&quot;, &amp;hints, &amp;result);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-<p>or</p>
-<p>In the <a href="https://www.cloudshark.org/captures/7e14dcc1d443" target="_blank" rel="noopener">Wireshark capture</a>, 172.25.50.3 is the local DNS resolver; the capture was taken there, so you also see its outgoing queries and responses. Note that <em>only</em> an A record was requested. No AAAA lookup was ever done.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;sys/socket.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;netdb.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line"></span><br><span class="line">int main(void) &#123;</span><br><span class="line">    struct addrinfo hints;</span><br><span class="line">    struct addrinfo *result, *rp;</span><br><span class="line">    int s;</span><br><span class="line">    char host[256];</span><br><span class="line"></span><br><span class="line">    memset(&amp;hints, 0, sizeof(struct addrinfo));</span><br><span class="line">    hints.ai_family = AF_INET;</span><br><span class="line">    hints.ai_socktype = SOCK_STREAM;</span><br><span class="line">    hints.ai_protocol = 0;</span><br><span class="line"></span><br><span class="line">    s = getaddrinfo(&quot;www.facebook.com&quot;, NULL, &amp;hints, &amp;result);</span><br><span class="line">    if (s != 0) &#123;</span><br><span class="line">        fprintf(stderr, &quot;getaddrinfo: %s\n&quot;, gai_strerror(s));</span><br><span class="line">        exit(EXIT_FAILURE);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    for (rp = result; rp != NULL; rp = rp-&gt;ai_next) &#123;</span><br><span class="line">        getnameinfo(rp-&gt;ai_addr, rp-&gt;ai_addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST);</span><br><span class="line">        printf(&quot;%s\n&quot;, host);</span><br><span class="line">    &#125;</span><br><span class="line">    freeaddrinfo(result);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p> or：<a href="https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method" target="_blank" rel="noopener">https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method</a></p>
-<p>/etc/gai.conf <a href="https://linux.die.net/man/5/gai.conf" target="_blank" rel="noopener">getaddrinfo的配置文件</a></p>
-<table>
-<thead>
-<tr>
-<th style="text-align:center">Prefix</th>
-<th style="text-align:center">Precedence</th>
-<th style="text-align:center">Label</th>
-<th style="text-align:center">Usage</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:center">::1/128</td>
-<td style="text-align:center">50</td>
-<td style="text-align:center">0</td>
-<td style="text-align:center">Localhost</td>
-</tr>
-<tr>
-<td style="text-align:center">::/0</td>
-<td style="text-align:center">40</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">Default unicast</td>
-</tr>
-<tr>
-<td style="text-align:center">::<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0/96</a></td>
-<td style="text-align:center">35</td>
-<td style="text-align:center">4</td>
-<td style="text-align:center">IPv4-mapped IPv6 address</td>
-</tr>
-<tr>
-<td style="text-align:center">2002::/16</td>
-<td style="text-align:center">30</td>
-<td style="text-align:center">2</td>
-<td style="text-align:center">6to4</td>
-</tr>
-<tr>
-<td style="text-align:center">2001::/32</td>
-<td style="text-align:center">5</td>
-<td style="text-align:center">5</td>
-<td style="text-align:center">Teredo tunneling</td>
-</tr>
-<tr>
-<td style="text-align:center">fc00::/7</td>
-<td style="text-align:center">3</td>
-<td style="text-align:center">13</td>
-<td style="text-align:center">Unique local address</td>
-</tr>
-<tr>
-<td style="text-align:center">::/96</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">3</td>
-<td style="text-align:center">IPv4-compatible addresses (deprecated)</td>
-</tr>
-<tr>
-<td style="text-align:center">fec0::/10</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">11</td>
-<td style="text-align:center">Site-local address (deprecated)</td>
-</tr>
-<tr>
-<td style="text-align:center">3ffe::/16</td>
-<td style="text-align:center">1</td>
-<td style="text-align:center">12</td>
-<td style="text-align:center">6bone (returned)</td>
-</tr>
-</tbody>
-</table>
-<p>来源于<a href="https://en.wikipedia.org/wiki/IPv6_address" target="_blank" rel="noopener">维基百科</a></p>
-<p>0:0:0:0:0:<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0/96</a> 10 4 IPv4映射地址（这个地址网络上信息较少，地址范围：:: ffff：0.0.0.0~:: ffff：255.255.255.255 地址数量<a href="https://en.wikipedia.org/wiki/Power_of_2" target="_blank" rel="noopener">2 128−96 = 2 32</a> = 4 294 967 296，用于软件，目的是IPv4映射的地址。 ）</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">Kubernetes &gt;= 1.13 + kube-proxy IPVS mode 服务部署不平滑</a></p>
-<p><a href="https://blog.51cto.com/welcomeweb/2464836" target="_blank" rel="noopener">linux ipv4 ipv6双栈 （优先ipv4而不使用ipv6配置）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/" itemprop="url">windows7的wifi总是报DNS域名异常无法上网</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-10T10:30:03+08:00">
-                2019-01-10
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/10/windows7的wifi总是报DNS域名异常无法上网/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="windows7的wifi总是报DNS域名异常无法上网"><a href="#windows7的wifi总是报DNS域名异常无法上网" class="headerlink" title="windows7的wifi总是报DNS域名异常无法上网"></a>windows7的wifi总是报DNS域名异常无法上网</h1><p>Windows7笔记本+公司wifi（dhcp）环境下，用着用着dns服务不可用（无法通过域名上网，通过IP地址可以访问），这里有个一模一样的Case了：<a href="https://superuser.com/questions/629559/why-is-my-computer-suddenly-using-nbns-instead-of-dns" target="_blank" rel="noopener">https://superuser.com/questions/629559/why-is-my-computer-suddenly-using-nbns-instead-of-dns</a> 一样的环境，看来这个问题也不只是我一个人碰到了。</p>
-<p>其实之前一直有，一个月偶尔出来一两次，以为是其他原因就没管，这次换了新电脑还是这个毛病有点不能忍，于是决定彻底解决一下。</p>
-<p>这个问题出现后，通过下面三个办法都可以让DNS恢复正常：</p>
-<ol>
-<li>重启系统大法，恢复正常</li>
-<li>禁用wifi驱动再启用，恢复正常</li>
-<li>不用DHCP，而是手工填入一个DNS服务器，比如114.114.114.114【公司域名就无法解析了】</li>
-</ol>
-<p>如果只是停用一下wifi再启用问题还在。</p>
-<h2 id="找IT升级了网卡驱动不管用"><a href="#找IT升级了网卡驱动不管用" class="headerlink" title="找IT升级了网卡驱动不管用"></a>找IT升级了网卡驱动不管用</h2><h2 id="重现的时候抓包看看"><a href="#重现的时候抓包看看" class="headerlink" title="重现的时候抓包看看"></a>重现的时候抓包看看</h2><p><img src="/images/oss/c110f232829cbea9d5503166531d7f1d.png" alt="image.png"></p>
-<p>这肯定不对了，254上根本就没有跑DNS服务，可是当时没有检查 ipconfig，看看是否将网关IP动态配置到dns server里面去了，等下次重现后再确认吧。</p>
-<p>第二次重现后抓包，发现不一样了：</p>
-<p><img src="/images/oss/295797df3c311d6902d68fb16f6212d8.png" alt="image.png"></p>
-<p>出来一个 NBNS 的鬼东西，赶紧查了一下，把它禁掉，如下图所示：</p>
-<p><img src="/images/oss/9f06b680ae1f8b4cb781360f7c0ac2eb.png" alt="image.png"></p>
-<p>把NBNS服务关了就能上网了，同时也能抓到各种DNS Query包</p>
-<h2 id="事情没有这么简单"><a href="#事情没有这么简单" class="headerlink" title="事情没有这么简单"></a>事情没有这么简单</h2><p>过一段时间后还是会出现上面的症状，但是因为NBNS关闭了，所以这次 ping <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a> 的时候没有任何包了，没有DNS Query包，也没有NBNS包，这下好尴尬。</p>
-<p>尝试Enable NBNS，又恢复了正常，看来<strong>开关 NBNS 仍然只是一个workaround，他不是导致问题的根因</strong>，开关一下没有真正解决问题，只是临时相当于重启了dns修复了问题而已。</p>
-<p>继续在网络不通的时候尝试直接ping dns server ip，发现一个奇怪的现象，丢包很多，丢包的时候还总是从 192.168.0.11返回来的，这就奇怪了，我的笔记本基本IP是30开头的，dns server ip也是30开头的，route 路由表也是对的，怎么就走到 192.168.0.11 上了啊（<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">参考我的另外一篇文章，网络到底通不通</a>），赶紧 ipconfig /all | grep 192 </p>
-<p><img src="/images/oss/5212ee5e7496dafb122ce144293184e1.png" alt="image.png"></p>
-<p>发现这个IP是VirtualBox虚拟机在笔记本上虚拟出来的网卡IP，这下我倒是能理解为啥总是我碰到这个问题了，因为我的工作笔记本一拿到后第一件事情就是装VirtualBox 跑虚拟机。</p>
-<p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
-<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
-</code></pre><p>执行完上面的命令观察了3个月了，暂时没有再出现这个问题，相对于以前轻则一个月2、3次，重则一天出现5、6次，应该算是解决了，同时升级 VirtualBox 也无法解决这个问题。</p>
-<p>route 信息：</p>
-<pre><code>$route PRINT -4
-===========================================================================
-接口列表
- 23...00 ff c1 57 7f 12 ......Sangfor SSL VPN CS Support System VNIC
- 18...f6 96 34 38 76 06 ......Microsoft Virtual WiFi Miniport Adapter #2
- 17...f6 96 34 38 76 07 ......Microsoft Virtual WiFi Miniport Adapter
- 15...00 ff 1f 24 e6 6c ......Sophos SSL VPN Adapter
- 12...f4 96 34 38 76 06 ......Intel(R) Dual Band Wireless-AC 8260
- 11...54 ee 75 d4 99 ae ......Intel(R) Ethernet Connection I219-V
- 14...0a 00 27 00 00 0e ......VirtualBox Host-Only Ethernet Adapter
-  1...........................Software Loopback Interface 1
- 25...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter
- 19...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #9
- 26...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #2
- 27...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #3
- 22...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #7
- 21...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #5
- 20...00 00 00 00 00 00 00 e0 Microsoft 6to4 Adapter #2
- 16...00 00 00 00 00 00 00 e0 Teredo Tunneling Pseudo-Interface
- 24...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #8
-===========================================================================
-
-IPv4 路由表
-===========================================================================
-活动路由:
-网络目标网络掩码  网关   接口   跃点数
-  0.0.0.0  0.0.0.0192.168.0.250169.254.24.89266
-  0.0.0.0  0.0.0.030.27.115.254 30.27.112.21 20
-  30.27.112.0255.255.252.0在链路上  30.27.112.21276
- 30.27.112.21  255.255.255.255在链路上  30.27.112.21276
-30.27.115.255  255.255.255.255在链路上  30.27.112.21276
-127.0.0.0255.0.0.0在链路上 127.0.0.1306
-127.0.0.1  255.255.255.255在链路上 127.0.0.1306
-  127.255.255.255  255.255.255.255在链路上 127.0.0.1306
-  169.254.0.0  255.255.0.0在链路上 169.254.24.89266
-169.254.24.89  255.255.255.255在链路上 169.254.24.89266
-  169.254.255.255  255.255.255.255在链路上 169.254.24.89266
-224.0.0.0240.0.0.0在链路上 127.0.0.1306
-224.0.0.0240.0.0.0在链路上 169.254.24.89266
-224.0.0.0240.0.0.0在链路上  30.27.112.21276
-  255.255.255.255  255.255.255.255在链路上 127.0.0.1306
-  255.255.255.255  255.255.255.255在链路上 169.254.24.89266
-  255.255.255.255  255.255.255.255在链路上  30.27.112.21276
-===========================================================================
-永久路由:
-  网络地址  网络掩码  网关地址  跃点数
-  0.0.0.0  0.0.0.0192.168.0.250 默认
-  0.0.0.0  0.0.0.0192.168.0.250 默认
-===========================================================================
-</code></pre><h2 id="另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题"><a href="#另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题" class="headerlink" title="另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题"></a>另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题</h2><p>下面是来自微软官方的建议：</p>
-<blockquote>
-<p> One big advise – do not disable the DHCP Client service on any server, whether the machine is a DHCP client or statically configured. Somewhat of a misnomer, this service performs Dynamic DNS registration and is tied in with the client resolver service. If disabled on a DC, you’ll get a slew of errors, and no DNS queries will get resolved.</p>
-<p>No DNS Name Resolution If DHCP Client Service Is Not Running. When you try to resolve a host name using Domain Name Service (DNS), the attempt is unsuccessful. Communication by Internet Protocol (IP) address (even to …</p>
-<p><a href="http://support.microsoft.com/kb/268674" target="_blank" rel="noopener">http://support.microsoft.com/kb/268674</a></p>
-</blockquote>
-<p>from： <a href="https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4" target="_blank" rel="noopener">https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4</a></p>
-<h2 id="NBNS也许会导致nslookup-OK-but-ping-fail的问题"><a href="#NBNS也许会导致nslookup-OK-but-ping-fail的问题" class="headerlink" title="NBNS也许会导致nslookup OK but ping fail的问题"></a>NBNS也许会导致nslookup OK but ping fail的问题</h2><p><a href="https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html" target="_blank" rel="noopener">https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html</a></p>
-<p>The Windows Client Resolver（ping dns流程）</p>
-<ol>
-<li>Windows checks whether the host name is the same as the local host name.</li>
-<li>If the host name and local host name are not the same, Windows searches the DNS client resolver cache.</li>
-<li>If the host name cannot be resolved using the DNS client resolver cache, Windows sends DNS Name Query Request messages to its configured DNS servers.</li>
-<li>If the host name is a single-label name (such as server1) and cannot be resolved using the configured DNS servers, Windows converts the host name to a NetBIOS name and checks its local NetBIOS name cache.</li>
-<li>If Windows cannot find the NetBIOS name in the NetBIOS name cache, Windows contacts its configured WINS servers.</li>
-<li>If Windows cannot resolve the NetBIOS name by querying its configured WINS servers, Windows broadcasts as many as three NetBIOS Name Query Request messages on the directly attached subnet.</li>
-<li>If there is no reply to the NetBIOS Name Query Request messages, Windows searches the local Lmhosts file.<br>Ping</li>
-</ol>
-<p>windows下nslookup 流程</p>
-<ol>
-<li>Check the DNS resolver cache. This is true for records that were cached via a previous name query or records that are cached as part of a pre-load operation from updating the hosts file.</li>
-<li>Attempt NetBIOS name resolution.</li>
-<li>Append all suffixes from the suffix search list.</li>
-<li>When a Primary Domain Suffix is used, nslookup will only take devolution 3 levels.</li>
-</ol>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>碰到问题绕过去也不是长久之计，还是要从根本上了解问题的本质，这个问题在其它公司没有碰到过，我觉得跟公司的DNS、DHCP的配置也有点关系吧，但是这个我不好确认，应该还有好多用Windows本本的同学同样会碰到这个问题的，希望对你们有些帮助</p>
-<p><a href="https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order" target="_blank" rel="noopener">https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order</a></p>
-<p><a href="http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html" target="_blank" rel="noopener">http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html</a></p>
-<hr>
-<h2 id="本文附带鸡汤："><a href="#本文附带鸡汤：" class="headerlink" title="本文附带鸡汤："></a>本文附带鸡汤：</h2><p><strong>有些技能初学很难，大家水平都差不多，但是日积月累就会形成极强的优势，而且一旦突破某个临界点，它就会突飞猛进，这种技能叫指数型技能，是值得长期投资的，比如物理学就是一种指数型技能。</strong></p>
-<p>那么抓包算不算呢？​​</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/09/nslookup-OK-but-ping-fail/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5110,6 +4174,708 @@ cp is /usr/bin/cp
 
 
     
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/03/14/如何设置git Proxy/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/03/14/如何设置git Proxy/" itemprop="url">Git HTTP Proxy and SSH Proxy</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-14T10:30:03+08:00">
+                2018-03-14
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/SSH/" itemprop="url" rel="index">
+                    <span itemprop="name">SSH</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/03/14/如何设置git Proxy/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/03/14/如何设置git Proxy/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何设置git-Proxy"><a href="#如何设置git-Proxy" class="headerlink" title="如何设置git Proxy"></a>如何设置git Proxy</h1><h2 id="git-http-proxy"><a href="#git-http-proxy" class="headerlink" title="git http proxy"></a>git http proxy</h2><blockquote>
+<p>首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。</p>
+<p>Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658</p>
+</blockquote>
+<p>下面的例子假设你的socks5代理是： 127.0.0.1:13658</p>
+<h3 id="配置git-http-proxy"><a href="#配置git-http-proxy" class="headerlink" title="配置git http proxy"></a>配置git http proxy</h3><pre><code>git config --global http.proxy socks5://127.0.0.1:13658
+</code></pre><p>上面的命令实际上是修改了 .gitconfig：</p>
+<pre><code>$cat ~/.gitconfig   
+[http]
+    proxy = socks5://127.0.0.1:13658
+</code></pre><p>现在git的http代理就配置好了， git clone <a href="https://github.com/torvalds/linux.git" target="_blank" rel="noopener">https://github.com/torvalds/linux.git</a> 速度会快到你流泪（取决于你的代理速度），我这里是从每秒10K到了3M 。</p>
+<p>注意：</p>
+<ul>
+<li>http.proxy就可以了，不需要配置https.proxy</li>
+<li>这个http代理仅仅针对 git clone <strong>https://</strong> 的方式生效</li>
+</ul>
+<h2 id="配置git-ssh-proxy"><a href="#配置git-ssh-proxy" class="headerlink" title="配置git ssh proxy"></a>配置git ssh proxy</h2><p>如果想要 git clone <strong>git@</strong>github.com:torvalds/linux.git 也要快起来的话 需要配置 ssh proxy</p>
+<blockquote>
+<p>这里要求你有一台海外的服务器，能ssh登陆，做好免密码，假设这台服务器的IP是：2.2.2.2</p>
+</blockquote>
+<p>修改（如果没有就创建这个文件）~/.ssh/config, 内容如下：</p>
+<pre><code>$cat ~/.ssh/config 
+host github.com
+#LogLevel DEBUG3
+ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
+</code></pre><p>然后 git clone <a href="mailto:git@github.com" target="_blank" rel="noopener">git@github.com</a>:torvalds/linux.git 也能飞起来了</p>
+<p>需要注意你的代理服务器2.2.2.2上nc有没有安装，没有的话yum装上，装上后再检查一下安装的位置，对应配置中的 /usr/bin/nc</p>
+<p>写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。</p>
+<p>整个原理还是穿墙术。 可以参考 ：<a href="https://www.atatech.org/articles/76026" target="_blank" rel="noopener">SSH 高级用法和技巧大全</a>  </p>
+<h3 id="配置git-走socks"><a href="#配置git-走socks" class="headerlink" title="配置git 走socks"></a><a href="https://superuser.com/questions/454210/how-can-i-use-ssh-with-a-socks-5-proxy" target="_blank" rel="noopener">配置git 走socks</a></h3><p>如果没有海外服务器，但是本地已经有了socks5 服务那么也可以直接走socks5来proxy所有git 流量</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">cat ~/.ssh/config</span><br><span class="line">host github.com</span><br><span class="line">ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口来转发代理流量</span><br><span class="line">#ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/25/Linux LVM使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Linux LVM使用/" itemprop="url">Linux LVM使用</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/25/Linux LVM使用/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/25/Linux LVM使用/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
+<p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
+<p><img src="https://www.centos.bz/wp-content/uploads/2017/07/1-1.jpg" alt="img"></p>
+<p><strong>lvreduce 缩小LV</strong></p>
+<p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ====谨慎用===</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</span><br><span class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</span><br><span class="line"></span><br><span class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</span><br><span class="line">$lsblk  -f</span><br><span class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</span><br><span class="line">sda                                                                              </span><br><span class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</span><br><span class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</span><br><span class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</span><br><span class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </span><br><span class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</span><br><span class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</span><br><span class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</span><br><span class="line">nvme0n1                                                                          </span><br><span class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</span><br><span class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </span><br><span class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </span><br><span class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</span><br></pre></td></tr></table></figure>
+<h2 id="LVM-创建、扩容"><a href="#LVM-创建、扩容" class="headerlink" title="LVM 创建、扩容"></a>LVM 创建、扩容</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1</span><br><span class="line">vgdisplay </span><br><span class="line">sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1</span><br><span class="line">sudo mkfs.ext4 /dev/vg1/u03   </span><br><span class="line">sudo mkdir /lvm</span><br><span class="line">sudo fdisk -l</span><br><span class="line">sudo umount /lvm</span><br><span class="line">sudo lvresize -L 5.8T /dev/vg1/u03 //lv 扩容</span><br><span class="line">sudo e2fsck -f /dev/vg1/u03 </span><br><span class="line">sudo resize2fs /dev/vg1/u03</span><br><span class="line">sudo mount /dev/vg1/u03 /lvm</span><br><span class="line">cd /lvm/</span><br><span class="line">lvdisplay </span><br><span class="line">sudo vgdisplay vg1</span><br><span class="line">lsblk -l</span><br><span class="line">lsblk </span><br><span class="line">sudo vgextend vg1 /dev/nvme3n1  //vg 扩容, 增加一块磁盘到vg1</span><br><span class="line">ls /u01</span><br><span class="line">sudo vgdisplay </span><br><span class="line">sudo fdisk  -l</span><br><span class="line">sudo pvdisplay </span><br><span class="line">sudo lvcreate -L 1T -n lv2 vg1  //从vg1中再分配一块1T大小的磁盘</span><br><span class="line">sudo lvdisplay </span><br><span class="line">sudo mkfs.ext4 /dev/vg1/lv2 </span><br><span class="line">mkdir /lv2</span><br><span class="line">ls /</span><br><span class="line">sudo mkdir /lv2</span><br><span class="line">sudo mount /dev/vg1/lv2 /lv2</span><br><span class="line">df -lh</span><br></pre></td></tr></table></figure>
+<h2 id="创建LVM"><a href="#创建LVM" class="headerlink" title="创建LVM"></a>创建LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">function create_polarx_lvm_V62()&#123;</span><br><span class="line">    vgremove vgpolarx</span><br><span class="line"></span><br><span class="line">    #sed -i &quot;97 a\    types = [&apos;nvme&apos;, 252]&quot; /etc/lvm/lvm.conf</span><br><span class="line">    parted -s /dev/nvme0n1 rm 1</span><br><span class="line">    parted -s /dev/nvme1n1 rm 1</span><br><span class="line">    parted -s /dev/nvme2n1 rm 1</span><br><span class="line">    parted -s /dev/nvme3n1 rm 1</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme0n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme1n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme2n1  count=10000 bs=512</span><br><span class="line">    dd if=/dev/zero of=/dev/nvme3n1  count=10000 bs=512</span><br><span class="line"></span><br><span class="line">    #lvmdiskscan</span><br><span class="line">    vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1</span><br><span class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</span><br><span class="line">    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000</span><br><span class="line">    sed  -i  &quot;/polarx/d&quot; /etc/fstab</span><br><span class="line">    mkdir -p /polarx</span><br><span class="line">    echo &quot;LABEL=/polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0&quot; &gt;&gt; /etc/fstab</span><br><span class="line">    mount -a</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">create_polarx_lvm_V62</span><br></pre></td></tr></table></figure>
+<h2 id="复杂版创建LVM"><a href="#复杂版创建LVM" class="headerlink" title="复杂版创建LVM"></a>复杂版创建LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><span class="line">function disk_part()&#123;</span><br><span class="line">    set -e</span><br><span class="line">    if [ $# -le 1 ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;disk_part argument error&quot;</span><br><span class="line">        exit -1</span><br><span class="line">    fi</span><br><span class="line">    action=$1</span><br><span class="line">    disk_device_list=(`echo $*`)</span><br><span class="line"></span><br><span class="line">    echo $disk_device_list</span><br><span class="line">    unset disk_device_list[0]</span><br><span class="line"></span><br><span class="line">    echo $action</span><br><span class="line">    echo $&#123;disk_device_list[*]&#125;</span><br><span class="line">    len=`echo $&#123;#disk_device_list[@]&#125;`</span><br><span class="line">    echo &quot;start remove origin partition  &quot;</span><br><span class="line">    for dev in  $&#123;disk_device_list[@]&#125;</span><br><span class="line">    do</span><br><span class="line">        #echo $&#123;dev&#125;</span><br><span class="line">        `parted -s $&#123;dev&#125; rm 1` || true</span><br><span class="line">        dd if=/dev/zero of=$&#123;dev&#125;  count=100000 bs=512</span><br><span class="line">    done</span><br><span class="line">#替换98行，插入的话r改成a</span><br><span class="line">    sed -i &quot;98 r\    types = [&apos;aliflash&apos; , 252 , &apos;nvme&apos; ,252 , &apos;venice&apos;, 252 , &apos;aocblk&apos;, 252]&quot; /etc/lvm/lvm.conf</span><br><span class="line">    sed  -i  &quot;/flash/d&quot; /etc/fstab</span><br><span class="line"></span><br><span class="line">    if [ x$&#123;1&#125; == x&quot;split&quot; ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;split disk &quot;</span><br><span class="line">        #lvmdiskscan</span><br><span class="line">    echo $&#123;disk_device_list&#125;</span><br><span class="line">        vgcreate -s 32 vgpolarx $&#123;disk_device_list[*]&#125;</span><br><span class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</span><br><span class="line">        #lvcreate -A y -I 128K -l 75%VG  -i $&#123;len&#125; -n volume1 vgpolarx</span><br><span class="line">        #lvcreate -A y -I 128K -l 100%FREE  -i $&#123;len&#125; -n volume2 vgpolarx</span><br><span class="line">        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000</span><br><span class="line">        sed  -i  &quot;/polarx/d&quot; /etc/fstab</span><br><span class="line">        mkdir -p /polarx</span><br><span class="line">    opt=&quot;defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0&quot;</span><br><span class="line">        echo &quot;LABEL=/polarx /polarx     ext4        $&#123;opt&#125;    0 0&quot; &gt;&gt; /etc/fstab</span><br><span class="line">        mount -a</span><br><span class="line">    else</span><br><span class="line">        echo &quot;unkonw action &quot;</span><br><span class="line">    fi</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">function format_nvme_mysql()&#123;</span><br><span class="line"></span><br><span class="line">    if [ `df |grep flash|wc -l` -eq $1  ]</span><br><span class="line">    then</span><br><span class="line">        echo &quot;check success&quot;</span><br><span class="line">        echo &quot;start umount partition &quot;</span><br><span class="line">        parttion_list=`df |grep flash|awk -F &apos; &apos; &apos;&#123;print $1&#125;&apos;`</span><br><span class="line">        for partition in $&#123;parttion_list[@]&#125;</span><br><span class="line">        do</span><br><span class="line">            echo $partition</span><br><span class="line">            umount $partition</span><br><span class="line">        done</span><br><span class="line"></span><br><span class="line">    else</span><br><span class="line">        echo &quot;check host fail&quot;</span><br><span class="line">        exit -1</span><br><span class="line">    fi</span><br><span class="line"></span><br><span class="line">  disk_device_list=(`ls -l /dev/|grep -v ^l|awk &apos;&#123;print $NF&#125;&apos;|grep -E &quot;^nvme[0-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$&quot;`)</span><br><span class="line">  full_disk_device_list=()</span><br><span class="line">    for i in $&#123;!disk_device_list[@]&#125;</span><br><span class="line">  do</span><br><span class="line">        echo $&#123;i&#125;</span><br><span class="line">    full_disk_device_list[$&#123;i&#125;]=/dev/$&#123;disk_device_list[$&#123;i&#125;]&#125;</span><br><span class="line">  done</span><br><span class="line">    echo $&#123;full_disk_device_list[@]&#125;</span><br><span class="line">    disk_part split $&#123;full_disk_device_list[@]&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">if [ ! -d &quot;/polarx&quot; ]; then</span><br><span class="line">    umount /dev/vgpolarx/polarx</span><br><span class="line">    vgremove -f vgpolarx</span><br><span class="line">    dmsetup --force --retry --deferred remove vgpolarx-polarx</span><br><span class="line">    format_nvme_mysql $1</span><br><span class="line">else</span><br><span class="line">   echo &quot;the lvm exists.&quot;</span><br><span class="line">fi</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/25/Docker常见问题/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Docker常见问题/" itemprop="url">Docker 常见问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/25/Docker常见问题/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/25/Docker常见问题/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Docker-常见问题"><a href="#Docker-常见问题" class="headerlink" title="Docker 常见问题"></a>Docker 常见问题</h1><h2 id="启动"><a href="#启动" class="headerlink" title="启动"></a>启动</h2><p>docker daemon启动的时候如果报 socket错误，是因为daemon启动参数配置了： -H fd://  ，但是 docker.socket是disable状态，启动daemon依赖socket，但是systemctl又拉不起来docker.socket，因为被disable了，先  sudo systemctl enable docker.socket 就可以了。</p>
+<p>如果docker.socket service被mask后比disable更粗暴，mask后手工都不能拉起来了，但是disable后还可以手工拉起，然后再拉起docker service。 这是需要先 systemctl unmask </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$sudo systemctl restart docker.socket</span><br><span class="line">Failed to restart docker.socket: Unit docker.socket is masked.</span><br></pre></td></tr></table></figure>
+<p>另外 docker.socket 启动依赖环境的要有 docker group这个组，可以添加： groupadd docker</p>
+<h2 id="failed-to-start-docker-service-unit-not-found-rhel-7-7"><a href="#failed-to-start-docker-service-unit-not-found-rhel-7-7" class="headerlink" title="failed to start docker.service unit not found. rhel 7.7"></a>failed to start docker.service unit not found. rhel 7.7</h2><p>systemctl list-unit-files |grep docker.service 可以看到docker.service 是存在并enable了</p>
+<p>实际是redhat 7.7的yum仓库所带的docker启动参数变了， 如果手工启动的话也会报找不到docker-runc 手工:</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; ln -s /usr/libexec/docker/docker-runc-current /usr/bin/docker-runc</span><br><span class="line">&gt;</span><br></pre></td></tr></table></figure>
+</blockquote>
+<p><a href="https://access.redhat.com/solutions/2876431" target="_blank" rel="noopener">https://access.redhat.com/solutions/2876431</a>  <a href="https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system" target="_blank" rel="noopener">https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system</a></p>
+<p>yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)</p>
+<h3 id="Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network"><a href="#Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network" class="headerlink" title="Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network"></a><a href="http://blog.joylau.cn/2019/04/08/Docker-Start-Error/" target="_blank" rel="noopener">Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network</a></h3><p>这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link add docker0 type bridge</span><br><span class="line">ip addr add dev docker0 172.30.0.0/24</span><br></pre></td></tr></table></figure>
+<p>启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#systemctl status docker -l</span><br><span class="line">● docker.service - Docker Application Container Engine</span><br><span class="line">   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)</span><br><span class="line">   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago</span><br><span class="line">     Docs: http://docs.docker.io</span><br><span class="line">  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)</span><br><span class="line">  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)</span><br><span class="line"> Main PID: 68317 (code=exited, status=1/FAILURE)</span><br><span class="line"></span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991179104+08:00&quot; level=warning msg=&quot;failed to load plugin io.containerd.snapshotter.v1.aufs&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991371956+08:00&quot; level=warning msg=&quot;could not use snapshotter btrfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991381620+08:00&quot; level=warning msg=&quot;could not use snapshotter aufs in metadata plugin&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</span><br><span class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991388991+08:00&quot; level=warning msg=&quot;could not use snapshotter zfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin&quot;</span><br><span class="line">Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.</span><br><span class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.</span><br></pre></td></tr></table></figure>
+<p>参考：<a href="https://github.com/docker/for-linux/issues/123" target="_blank" rel="noopener">https://github.com/docker/for-linux/issues/123</a>  </p>
+<p>或者这样解决：<a href="https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller" target="_blank" rel="noopener">https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller</a></p>
+<p>This was related to the machine having several network cards (can also happen in machines with VPN)</p>
+<p>The solution was to start manually docker like this:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/usr/bin/docker daemon --debug --bip=192.168.y.x/24</span><br></pre></td></tr></table></figure>
+<p>where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The –debug is not really needed, but might help if something else fails.</p>
+<p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
+<p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
+<h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
+<p><img src="/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
+<p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
+<p><img src="/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
+<p>猜测是 alios 的bug</p>
+<h2 id="systemctl-start-docker"><a href="#systemctl-start-docker" class="headerlink" title="systemctl start docker"></a>systemctl start docker</h2><p>Failed to start docker.service: Unit not found.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">UNIT LOAD PATH</span><br><span class="line">          Unit files are loaded from a set of paths determined during </span><br><span class="line">          compilation, described in the two tables below. Unit files found </span><br><span class="line">          in directories listed earlier override files with the same name </span><br><span class="line">          in directories lower in the list.</span><br><span class="line"></span><br><span class="line">           Table 1.  Load path when running in system mode (--system).</span><br><span class="line">           ┌────────────────────────┬─────────────────────────────┐</span><br><span class="line">           │Path                    │ Description                 │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/etc/systemd/system     │ Local configuration         │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/run/systemd/system     │ Runtime units               │</span><br><span class="line">           ├────────────────────────┼─────────────────────────────┤</span><br><span class="line">           │/usr/lib/systemd/system │ Units of installed packages │</span><br><span class="line">           └────────────────────────┴─────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p><a href="https://askubuntu.com/questions/1014480/how-do-i-add-bin-to-path-for-a-systemd-service" target="_blank" rel="noopener">systemd 设置path环境变量，可以设置</a>：</p>
+<blockquote>
+<p>[Service]<br>Type=notify<br>Environment=PATH=/opt/kube/bin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/opt/satools:/root/bin</p>
+</blockquote>
+<h2 id="容器没有systemctl"><a href="#容器没有systemctl" class="headerlink" title="容器没有systemctl"></a>容器没有systemctl</h2><p><strong>Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候</strong> </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd</span><br></pre></td></tr></table></figure>
+<p>1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：<a href="https://github.com/gdraheim/docker-systemctl-replacement" target="_blank" rel="noopener">https://github.com/gdraheim/docker-systemctl-replacement</a></p>
+<p>systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。</p>
+<p><strong>新版本init link向了systemd</strong></p>
+<h2 id="busybox-Alpine-Scratch"><a href="#busybox-Alpine-Scratch" class="headerlink" title="busybox/Alpine/Scratch"></a>busybox/Alpine/Scratch</h2><p>busybox集成了常用的linux工具(nc/telnet/cat……），保持精细，方便一张软盘能装下。</p>
+<p>Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而不是glibc</p>
+<p>scratch一个空的框架，什么也没有</p>
+<h2 id="找不到shell"><a href="#找不到shell" class="headerlink" title="找不到shell"></a>找不到shell</h2><p>Dockerfile 中(<a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：" target="_blank" rel="noopener">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">CMD ./hello OR RUN 等同于 /bin/sh -c &quot;./hello&quot;, 需要shell，</span><br><span class="line">改用：</span><br><span class="line">CMD [&quot;./hello&quot;] 等同于 ./hello 不需要shell</span><br></pre></td></tr></table></figure>
+<p>dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT</p>
+<h2 id="容器中抓包和调试-–-nsenter"><a href="#容器中抓包和调试-–-nsenter" class="headerlink" title="容器中抓包和调试 – nsenter"></a>容器中抓包和调试 – nsenter</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</span><br><span class="line"></span><br><span class="line">进入namespace：nsenter --target 17277 --net --pid –mount</span><br><span class="line"></span><br><span class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</span><br><span class="line">nsenter --target 17277 --net </span><br><span class="line"></span><br><span class="line">// ip netns 获取容器网络信息</span><br><span class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &apos;&#123;&#123;.State.Pid&#125;&#125;&apos; ab4e471edf50   //获取容器进程id</span><br><span class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</span><br><span class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</span><br><span class="line"> </span><br><span class="line">// 宿主机上查看容器ip</span><br><span class="line"> 1026  [2021-04-14 15:54:11] ip netns list</span><br><span class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</span><br></pre></td></tr></table></figure>
+<p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可</p>
+<h2 id="OS版本"><a href="#OS版本" class="headerlink" title="OS版本"></a>OS版本</h2><p><strong>搞Docker就得上el7， 6的性能太差了</strong> Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html" target="_blank" rel="noopener">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/02/24/Linux LVS配置/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/24/Linux LVS配置/" itemprop="url">Linux LVS 配置</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-24T17:30:03+08:00">
+                2018-02-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/02/24/Linux LVS配置/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/02/24/Linux LVS配置/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-LVS-配置"><a href="#Linux-LVS-配置" class="headerlink" title="Linux LVS 配置"></a>Linux LVS 配置</h1><h2 id="NAT"><a href="#NAT" class="headerlink" title="NAT"></a>NAT</h2><ul>
+<li><p>Enable IP forwarding. This can be done by adding the following to</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">net.ipv4.ip_forward = 1</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<p>then</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -A -t 172.26.137.117:9376 -s rr //创建了一个rr lvs</span><br><span class="line">// -m 表示nat模式，不加的话默认是route模式</span><br><span class="line">ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加一个RS</span><br><span class="line">ipvsadm -ln</span><br><span class="line">ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.196:9376 -m //往lvs中添加另外一个RS</span><br><span class="line">ipvsadm -ln</span><br><span class="line"></span><br><span class="line">//删除realserver</span><br><span class="line">ipvsadm -a -t 100.81.131.221:18507 -r 100.81.131.237:8507 -m</span><br><span class="line"></span><br><span class="line">//服务状态查看</span><br><span class="line">#ipvsadm -L -n --stats|--rate</span><br><span class="line">IP Virtual Server version 1.2.1 (size=4096)</span><br><span class="line">Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes</span><br><span class="line">  -&gt; RemoteAddress:Port</span><br><span class="line">TCP  11.197.140.20:18089                 5       48       48     2951     6938</span><br><span class="line">  -&gt; 11.197.140.20:28089                 3       33       33     1989     4938</span><br><span class="line">  -&gt; 11.197.141.110:28089                2       15       15      962     2000</span><br><span class="line"></span><br><span class="line">#清空统计数据</span><br><span class="line">#ipvsadm --zero</span><br><span class="line">#列出所有连接信息</span><br><span class="line">#/sbin/ipvsadm -L -n --connection</span><br><span class="line"></span><br><span class="line">#ipvsadm -L -n</span><br><span class="line">IP Virtual Server version 1.2.1 (size=4096)</span><br><span class="line">Prot LocalAddress:Port Scheduler Flags</span><br><span class="line">  -&gt; RemoteAddress:Port           Forward Weight ActiveConn InActConn</span><br><span class="line">TCP  11.197.140.20:18089 wlc</span><br><span class="line">  -&gt; 11.197.140.20:28089          Masq    1      0          0</span><br><span class="line">  -&gt; 11.197.141.110:28089         Masq    1      0          0</span><br></pre></td></tr></table></figure>
+<h2 id="ipvsadm常用参数"><a href="#ipvsadm常用参数" class="headerlink" title="ipvsadm常用参数"></a>ipvsadm常用参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">添加虚拟服务器</span><br><span class="line">    语法:ipvsadm -A [-t|u|f]  [vip_addr:port]  [-s:指定算法]</span><br><span class="line">    -A:添加</span><br><span class="line">    -t:TCP协议</span><br><span class="line">    -u:UDP协议</span><br><span class="line">    -f:防火墙标记</span><br><span class="line">    -D:删除虚拟服务器记录</span><br><span class="line">    -E:修改虚拟服务器记录</span><br><span class="line">    -C:清空所有记录</span><br><span class="line">    -L:查看</span><br><span class="line">添加后端RealServer</span><br><span class="line">    语法:ipvsadm -a [-t|u|f] [vip_addr:port] [-r ip_addr] [-g|i|m] [-w 指定权重]</span><br><span class="line">    -a:添加</span><br><span class="line">    -t:TCP协议</span><br><span class="line">    -u:UDP协议</span><br><span class="line">    -f:防火墙标记</span><br><span class="line">    -r:指定后端realserver的IP</span><br><span class="line">    -g:DR模式</span><br><span class="line">    -i:TUN模式</span><br><span class="line">    -m:NAT模式</span><br><span class="line">    -w:指定权重</span><br><span class="line">    -d:删除realserver记录</span><br><span class="line">    -e:修改realserver记录</span><br><span class="line">    -l:查看</span><br><span class="line">通用:</span><br><span class="line">    ipvsadm -ln:查看规则</span><br><span class="line">    service ipvsadm save:保存规则</span><br></pre></td></tr></table></figure>
+<h3 id="查看连接对应的RS-ip和端口"><a href="#查看连接对应的RS-ip和端口" class="headerlink" title="查看连接对应的RS ip和端口"></a>查看连接对应的RS ip和端口</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># ipvsadm -Lcn |grep &quot;10.68.128.202:1406&quot;</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1406 10.68.128.202:3306 172.20.188.72:3306</span><br><span class="line"></span><br><span class="line"># ipvsadm -Lcn | head -10</span><br><span class="line">IPVS connection entries</span><br><span class="line">pro expire state       source             virtual            destination</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1390 10.68.128.202:3306 172.20.185.132:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1222 10.68.128.202:3306 172.20.165.202:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1252 10.68.128.202:3306 172.20.222.65:3306</span><br><span class="line">TCP 15:01  ESTABLISHED 10.68.128.202:1328 10.68.128.202:3306 172.20.149.68:3306</span><br><span class="line"></span><br><span class="line">ipvsadm -Lcn</span><br><span class="line">IPVS connection entries</span><br><span class="line">pro expire state       source             virtual            destination</span><br><span class="line">TCP 00:57  NONE        110.184.96.173:0   122.225.32.142:80  122.225.32.136:80</span><br><span class="line">TCP 01:57  FIN_WAIT    110.184.96.173:54568 122.225.32.142:80  122.225.32.136:80</span><br></pre></td></tr></table></figure>
+<p>当一个client访问vip的时候，ipvs或记录一条状态为NONE的信息，expire初始值是persistence_timeout的值，然后根据时钟主键变小，在以下记录存在期间，同一client ip连接上来，都会被分配到同一个后端。</p>
+<p>FIN_WAIT的值就是tcp tcpfin udp的超时时间，当NONE的值为0时，如果FIN_WAIT还存在，那么NONE的值会从新变成60秒，再减少，直到FIN_WAIT消失以后，NONE才会消失，只要NONE存在，同一client的访问，都会分配到统一real server。</p>
+<h2 id="通过keepalived来检测RealServer的状态"><a href="#通过keepalived来检测RealServer的状态" class="headerlink" title="通过keepalived来检测RealServer的状态"></a>通过keepalived来检测RealServer的状态</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/keepalived/keepalived.conf</span><br><span class="line">global_defs &#123;</span><br><span class="line">   notification_email &#123;</span><br><span class="line">   &#125;</span><br><span class="line">   router_id LVS_DEVEL</span><br><span class="line">   vrrp_skip_check_adv_addr</span><br><span class="line">   vrrp_strict</span><br><span class="line">   vrrp_garp_interval 0</span><br><span class="line">   vrrp_gna_interval 0</span><br><span class="line">&#125;</span><br><span class="line">#添加虚拟服务器</span><br><span class="line">#相当于 ipvsadm -A -t 172.26.137.117:9376 -s wrr </span><br><span class="line">virtual_server 172.26.137.117 9376 &#123;</span><br><span class="line">    delay_loop 3             #服务健康检查周期,单位是秒</span><br><span class="line">    lb_algo wrr                 #调度算法</span><br><span class="line">    lb_kind NAT                 #模式 </span><br><span class="line">#   persistence_timeout 50   #会话保持时间,单位是秒</span><br><span class="line">    protocol TCP             #TCP协议转发</span><br><span class="line"></span><br><span class="line">#添加后端realserver</span><br><span class="line">#相当于 ipvsadm -a -t 172.26.137.117:9376 -r 172.20.56.148:9376 -w 1</span><br><span class="line">    real_server 172.20.56.148 9376 &#123;</span><br><span class="line">        weight 1</span><br><span class="line">        TCP_CHECK &#123;               # 通过TcpCheck判断RealServer的健康状态</span><br><span class="line">            connect_timeout 2     # 连接超时时间</span><br><span class="line">            nb_get_retry 3        # 重连次数</span><br><span class="line">            delay_before_retry 1  # 重连时间间隔</span><br><span class="line">            connect_port 9376     # 检测端口</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    real_server 172.20.248.147 9376 &#123;</span><br><span class="line">        weight 1</span><br><span class="line">        HTTP_GET &#123;</span><br><span class="line">            url &#123; </span><br><span class="line">              path /</span><br><span class="line">	          status_code 200</span><br><span class="line">            &#125;</span><br><span class="line">            connect_timeout 3</span><br><span class="line">            nb_get_retry 3</span><br><span class="line">            delay_before_retry 3</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>修改keepalived配置后只需要执行reload即可生效</p>
+<blockquote>
+<p>systemctl reload keepalived</p>
+</blockquote>
+<h2 id="timeout"><a href="#timeout" class="headerlink" title="timeout"></a>timeout</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@poc117 ~]# ipvsadm -L --timeout</span><br><span class="line">Timeout (tcp tcpfin udp): 900 120 300</span><br><span class="line">[root@poc117 ~]# ipvsadm --set 1 2 1</span><br><span class="line">[root@poc117 ~]# ipvsadm -L --timeout</span><br><span class="line">Timeout (tcp tcpfin udp): 1 2 1</span><br></pre></td></tr></table></figure>
+<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</span><br><span class="line"></span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">$ sudo modprobe dummy</span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">dummy                  12960  0 </span><br><span class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</span><br><span class="line"></span><br><span class="line">$ sudo ip link add eth10 type dummy</span><br></pre></td></tr></table></figure>
+<h2 id="LVS-工作原理"><a href="#LVS-工作原理" class="headerlink" title="LVS 工作原理"></a>LVS 工作原理</h2><p>1.当客户端的请求到达负载均衡器的内核空间时，首先会到达PREROUTING链。 </p>
+<p>2.当内核发现请求数据包的目的地址是本机时，将数据包送往INPUT链。 </p>
+<p>3.LVS由用户空间的ipvsadm和内核空间的IPVS组成，ipvsadm用来定义规则，IPVS利用ipvsadm定义的规则工作，IPVS工作在INPUT链上,当数据包到达INPUT链时，首先会被IPVS检查，如果数据包里面的目的地址及端口没有在规则里面，那么这条数据包将被放行至用户空间。 </p>
+<p>4.如果数据包里面的目的地址及端口在规则里面，那么这条数据报文将被修改目的地址为事先定义好的后端服务器，并送往POSTROUTING链。 </p>
+<p>5.最后经由POSTROUTING链发往后端服务器。</p>
+<p><img src="/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png" alt="image.png"></p>
+<h2 id="netfilter-原理"><a href="#netfilter-原理" class="headerlink" title="netfilter 原理"></a>netfilter 原理</h2><p>Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：<code>raw table</code>, <code>mangle table</code>, <code>nat table</code>, <code>filter table</code>。Netfilter 默认的链有：<code>INPUT</code>, <code>OUTPUT</code>, <code>FORWARD</code>, <code>PREROUTING</code>, <code>POSTROUTING</code>，根据<code>表</code>的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：</p>
+<p><img src="/images/oss/1039cdda7040f20582f36a6a560e4e2e.png" alt="image.png"></p>
+<h2 id="persistence-timeout"><a href="#persistence-timeout" class="headerlink" title="persistence_timeout"></a>persistence_timeout</h2><p>用于保证同一ip client的所有连接在timeout时间以内都发往同一个RS，比如ftp 21port listen认证、20 port传输数据，那么希望同一个client的两个连接都在同一个RS上。</p>
+<p>persistence_timeout 会导致负载不均衡，timeout时间越大负载不均衡越严重。大多场景下基本没什么意义</p>
+<p>PCC用来实现把某个用户的所有访问在超时时间内定向到同一台REALSERVER，这种方式在实际中不常用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -A -t 192.168.0.1:0 -s wlc -p 600(单位是s)     //port为0表示所有端口</span><br><span class="line">ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.2 -w 4 -g</span><br><span class="line">ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g</span><br></pre></td></tr></table></figure>
+<p>此时测试一下会发现通过HTTP访问VIP和通过SSH登录VIP的时候都被定向到了同一台REALSERVER上面了</p>
+<h2 id="OSPF-LVS"><a href="#OSPF-LVS" class="headerlink" title="OSPF + LVS"></a>OSPF + LVS</h2><p>OSPF：Open Shortest Path First 开放最短路径优先，SPF算法也被称为Dijkstra算法，这是因为最短路径优先算法SPF是由荷兰计算机科学家狄克斯特拉于1959年提出的。</p>
+<p>通过OSPF来替换keepalived，解决两个LVS节点的高可用，以及流量负载问题。keepalived两个节点只能是master-slave模式，而OSPF两个节点都是master，同时都有流量</p>
+<p><img src="https://bbsmax.ikafan.com/static/L3Byb3h5L2h0dHAvczMuNTFjdG8uY29tL3d5ZnMwMi9NMDEvMjMvRkUvd0tpb20xTktBSnpqN2JNS0FBRTRQTzI1LVh3ODY2LmpwZw==.jpg" alt="img"></p>
+<p>这个架构与LVS+keepalived 最明显的区别在于，两台Director都是Master 状态，而不是Master-Backup，如此一来，两台Director 地位就平等了。剩下的问题，就是看如何在这两台Director 间实现负载均衡了。这里会涉及路由器领域的一个概念：等价多路径</p>
+<h3 id="ECMP（等价多路径）"><a href="#ECMP（等价多路径）" class="headerlink" title="ECMP（等价多路径）"></a><strong>ECMP（等价多路径）</strong></h3><p>ECMP（Equal-CostMultipathRouting）等价多路径，存在多条不同链路到达同一目的地址的网络环境中，如果使用传统的路由技术，发往该目的地址的数据包只能利用其中的一条链路，其它链路处于备份状态或无效状态，并且在动态路由环境下相互的切换需要一定时间，而等值多路径路由协议可以在该网络环境下<strong>同时</strong>使用多条链路，不仅增加了传输带宽，并且可以无时延无丢包地备份失效链路的数据传输。</p>
+<p>ECMP最大的特点是实现了等值情况下，多路径负载均衡和链路备份的目的，在静态路由和OSPF中基本上都支持ECMP功能。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.ultramonkey.org/papers/lvs_tutorial/html/" target="_blank" rel="noopener">http://www.ultramonkey.org/papers/lvs_tutorial/html/</a></p>
+<p><a href="https://www.jianshu.com/p/d4222ce9b032" target="_blank" rel="noopener">https://www.jianshu.com/p/d4222ce9b032</a></p>
+<p><a href="https://www.cnblogs.com/zhangxingeng/p/10595058.html" target="_blank" rel="noopener">https://www.cnblogs.com/zhangxingeng/p/10595058.html</a></p>
+<p><a href="http://xstarcd.github.io/wiki/sysadmin/lvs_persistence.html" target="_blank" rel="noopener">lvs持久性工作原理和配置</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
   </section>
 
   
@@ -5157,7 +4923,7 @@ cp is /usr/bin/cp
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">100</span>
+                <span class="site-state-item-count">96</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
