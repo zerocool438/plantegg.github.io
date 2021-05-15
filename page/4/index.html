@@ -282,275 +282,6 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/24/Linux Module/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/24/Linux Module/" itemprop="url">Linux Module and make debug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
-                2019-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/01/24/Linux Module/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/24/Linux Module/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
-Makefile:4: *** missing separator.  Stop.
-</code></pre><p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
-<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
-make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
-make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
-make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&apos;, needed by `arch/x86/include/generated/asm/syscalls_32.h&apos;.  Stop.
-make[1]: *** [archheaders] Error 2
-make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
-make: *** [all] Error 2
-</code></pre><p>Makefile中的：<br>    make -C /lib/modules/$(shell uname -r)/build M=$(pwd) modules</p>
-<p>$(pwd) 需要修改成：$(shell pwd)</p>
-<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
-$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
-$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
-$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
-</code></pre><h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
-<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &apos;^# makefile&apos; | grep -v &apos;^--&apos; | awk &apos;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&apos; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
-$ cat variable.log
-# makefile (from `Makefile&apos;, line 1) ; aa := 11
-# makefile (from `Makefile&apos;, line 3) ; cc := 11
-# makefile (from `Makefile&apos;, line 4) ; bb := 9999
-# makefile (from `cfg_makefile&apos;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
-# makefile (from `cfg_makefile&apos;, line 1) ; xx := 4444
-# makefile (from `cfg_makefile&apos;, line 2) ; yy := 4444
-# makefile (from `cfg_makefile&apos;, line 3) ; zz := 4444
-# makefile (from `sub_makefile&apos;, line 1) ; MAKEFILE_LIST :=  sub_makefile
-# makefile (from `sub_makefile&apos;, line 1) ; aaaa := 222222
-# makefile (from `sub_makefile&apos;, line 2) ; bbbb := 222222
-# makefile (from `sub_makefile&apos;, line 3) ; cccc := 222222
-</code></pre><h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
-<pre><code>$(warning $(var123))
-</code></pre><p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
-<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
-<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
-<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
-<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
-<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
-<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
-<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
-</code></pre><h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
-    TCP_ESTABLISHED = 1,
-    TCP_SYN_SENT,
-    TCP_SYN_RECV,
-    TCP_FIN_WAIT1,
-    TCP_FIN_WAIT2,
-    TCP_TIME_WAIT,
-    TCP_CLOSE,
-    TCP_CLOSE_WAIT,
-    TCP_LAST_ACK,
-    TCP_LISTEN,
-    TCP_CLOSING,    /* Now a valid state */
-
-    TCP_MAX_STATES  /* Leave at the end! */
-};
-</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a>kdump</h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
-<pre><code>sudo systemctl start kdump
-</code></pre><h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
-//手动触发crash
-#echo 1 &gt; /proc/sys/kernel/sysrq
-#echo c &gt; /proc/sysrq-trigger
-//系统crash，然后重启，重启后分析：
-sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
-</code></pre><h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/oss/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
-<pre><code>static int __init hotfix_init(void)
-{
-  unsigned char e8_call[POKE_LENGTH];
-  s32 offset, i;
-
-  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
-  if (!addr) {
-    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
-    return -1;
-  }
-
-  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
-  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
-
-  stub = (void *)test_stub1;
-
-  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
-
-  e8_call[0] = 0xe8;
-  (*(s32 *)(&amp;e8_call[1])) = offset;
-  for (i = 5; i &lt; POKE_LENGTH; i++) {
-    e8_call[i] = 0x90;
-  }
-  get_online_cpus();
-  mutex_lock(_text_mutex);
-  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
-  mutex_unlock(_text_mutex);
-  put_online_cpus();
-
-  return 0;
-}
-
-void test_stub1(void)
-{
-  struct sock *sk = NULL;
-  unsigned long sk_addr = 0;
-  char buf[MAX_BUF_SIZE];
-  int size=0;
-  asm (&quot;push %rdi&quot;);
-
-  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
-  sk = (struct sock *)sk_addr;
-
-  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
-      sk-&gt;sk_state,
-      sk-&gt;sk_rcv_saddr,
-      sk-&gt;sk_daddr);
-/*
-  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
-                     get_seconds(),
-                     sk-&gt;sk_state,
-                     &amp;(inet_sk(sk)-&gt;inet_saddr),
-                     ntohs(inet_sk(sk)-&gt;inet_sport),
-                     ntohs(inet_sk(sk)-&gt;inet_dport),
-                     &amp;(inet_sk(sk)-&gt;inet_daddr));
-*/
-//  tcp_rt_log_output(buf,size,1);
-
-  asm (&quot;pop %rdi&quot;);
-}
-</code></pre><h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
-<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5110,6 +4841,180 @@ cp is /usr/bin/cp
 
 
     
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/03/14/如何设置git Proxy/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/03/14/如何设置git Proxy/" itemprop="url">Git HTTP Proxy and SSH Proxy</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-14T10:30:03+08:00">
+                2018-03-14
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/SSH/" itemprop="url" rel="index">
+                    <span itemprop="name">SSH</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2018/03/14/如何设置git Proxy/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/03/14/如何设置git Proxy/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何设置git-Proxy"><a href="#如何设置git-Proxy" class="headerlink" title="如何设置git Proxy"></a>如何设置git Proxy</h1><h2 id="git-http-proxy"><a href="#git-http-proxy" class="headerlink" title="git http proxy"></a>git http proxy</h2><blockquote>
+<p>首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。</p>
+<p>Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658</p>
+</blockquote>
+<p>下面的例子假设你的socks5代理是： 127.0.0.1:13658</p>
+<h3 id="配置git-http-proxy"><a href="#配置git-http-proxy" class="headerlink" title="配置git http proxy"></a>配置git http proxy</h3><pre><code>git config --global http.proxy socks5://127.0.0.1:13658
+</code></pre><p>上面的命令实际上是修改了 .gitconfig：</p>
+<pre><code>$cat ~/.gitconfig   
+[http]
+    proxy = socks5://127.0.0.1:13658
+</code></pre><p>现在git的http代理就配置好了， git clone <a href="https://github.com/torvalds/linux.git" target="_blank" rel="noopener">https://github.com/torvalds/linux.git</a> 速度会快到你流泪（取决于你的代理速度），我这里是从每秒10K到了3M 。</p>
+<p>注意：</p>
+<ul>
+<li>http.proxy就可以了，不需要配置https.proxy</li>
+<li>这个http代理仅仅针对 git clone <strong>https://</strong> 的方式生效</li>
+</ul>
+<h2 id="配置git-ssh-proxy"><a href="#配置git-ssh-proxy" class="headerlink" title="配置git ssh proxy"></a>配置git ssh proxy</h2><p>如果想要 git clone <strong>git@</strong>github.com:torvalds/linux.git 也要快起来的话 需要配置 ssh proxy</p>
+<blockquote>
+<p>这里要求你有一台海外的服务器，能ssh登陆，做好免密码，假设这台服务器的IP是：2.2.2.2</p>
+</blockquote>
+<p>修改（如果没有就创建这个文件）~/.ssh/config, 内容如下：</p>
+<pre><code>$cat ~/.ssh/config 
+host github.com
+#LogLevel DEBUG3
+ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
+</code></pre><p>然后 git clone <a href="mailto:git@github.com" target="_blank" rel="noopener">git@github.com</a>:torvalds/linux.git 也能飞起来了</p>
+<p>需要注意你的代理服务器2.2.2.2上nc有没有安装，没有的话yum装上，装上后再检查一下安装的位置，对应配置中的 /usr/bin/nc</p>
+<p>写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。</p>
+<p>整个原理还是穿墙术。 可以参考 ：<a href="https://www.atatech.org/articles/76026" target="_blank" rel="noopener">SSH 高级用法和技巧大全</a>  </p>
+<h3 id="配置git-走socks"><a href="#配置git-走socks" class="headerlink" title="配置git 走socks"></a><a href="https://superuser.com/questions/454210/how-can-i-use-ssh-with-a-socks-5-proxy" target="_blank" rel="noopener">配置git 走socks</a></h3><p>如果没有海外服务器，但是本地已经有了socks5 服务那么也可以直接走socks5来proxy所有git 流量</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">cat ~/.ssh/config</span><br><span class="line">host github.com</span><br><span class="line">ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口来转发代理流量</span><br><span class="line">#ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
   </section>
 
   
@@ -5157,7 +5062,7 @@ cp is /usr/bin/cp
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">100</span>
+                <span class="site-state-item-count">99</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
