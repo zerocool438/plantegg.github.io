@@ -282,6 +282,720 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/15/Linux内存--零拷贝/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/15/Linux内存--零拷贝/" itemprop="url">Linux内存--零拷贝</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
+                2020-11-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/15/Linux内存--零拷贝/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/15/Linux内存--零拷贝/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux内存–零拷贝"><a href="#Linux内存–零拷贝" class="headerlink" title="Linux内存–零拷贝"></a>Linux内存–零拷贝</h1><h2 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h2><blockquote>
+<p>“<strong>Zero-copy</strong>“ describes computer operations in which the <a href="https://en.wikipedia.org/wiki/Central_processing_unit" target="_blank" rel="noopener">CPU</a> does not perform the task of copying data from one <a href="https://en.wikipedia.org/wiki/RAM" target="_blank" rel="noopener">memory</a> area to another. This is frequently used to save CPU cycles and memory bandwidth when transmitting a file over a network.</p>
+</blockquote>
+<p>零拷贝技术是指计算机执行操作时，<a href="https://zh.wikipedia.org/wiki/中央处理器" target="_blank" rel="noopener">CPU</a>不需要先将数据从某处<a href="https://zh.wikipedia.org/wiki/随机存取存储器" target="_blank" rel="noopener">内存</a>复制到另一个特定区域。这种技术通常用于通过网络传输文件时节省 CPU 周期和<a href="https://zh.wikipedia.org/wiki/内存带宽" target="_blank" rel="noopener">内存带宽</a>。</p>
+<p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 </p>
+<p><img src="/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
+<p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：</p>
+<p><img src="/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
+<p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
+<p><img src="/images/oss/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
+<p>零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
+<p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
+<p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
+<p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB/32KB）上下文切换。</p>
+<h2 id="read-write-和零拷贝"><a href="#read-write-和零拷贝" class="headerlink" title="read+write 和零拷贝"></a>read+write 和零拷贝</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(file, tmp_buf, len);</span><br><span class="line">write(socket, tmp_buf, len);</span><br></pre></td></tr></table></figure>
+<p><img src="D:%5Cali%5Ccase%5Cimage%5Cimage-20201104175056589.png" alt="image-20201104175056589"></p>
+<h3 id="通过mmap替换read优化一下"><a href="#通过mmap替换read优化一下" class="headerlink" title="通过mmap替换read优化一下"></a>通过mmap替换read优化一下</h3><p>用 <code>mmap()</code> 替换原先的 <code>read()</code>，<code>mmap()</code> 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。</p>
+<p><img src="/images/oss/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
+<p>通过使用 <code>mmap()</code> 来代替 <code>read()</code>， 可以减少一次数据拷贝的过程。</p>
+<p>但这还不是最理想的零拷贝，因为首先仍然需要通过 CPU 把内核缓冲区的数据拷贝到 socket 缓冲区里，而且仍然需要 4 次上下文切换，因为系统调用还是 2 次；另外内存映射技术是一个开销很大的虚拟存储操作：这种操作需要修改页表以及用内核缓冲区里的文件数据汰换掉当前 TLB 里的缓存以维持虚拟内存映射的一致性。</p>
+<h3 id="sendfile"><a href="#sendfile" class="headerlink" title="sendfile"></a>sendfile</h3><p>在 Linux 内核版本 2.1 中，提供了一个专门发送文件的系统调用函数 <code>sendfile()</code>，函数形式如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/socket.h&gt;</span></span></span><br><span class="line"><span class="function"><span class="keyword">ssize_t</span> <span class="title">sendfile</span><span class="params">(<span class="keyword">int</span> out_fd, <span class="keyword">int</span> in_fd, <span class="keyword">off_t</span> *offset, <span class="keyword">size_t</span> count)</span></span>;</span><br></pre></td></tr></table></figure>
+<p>它的前两个参数分别是目的端和源端的文件描述符，后面两个参数是源端的偏移量和复制数据的长度，返回值是实际复制数据的长度。</p>
+<p>首先，它可以替代前面的 <code>read()</code> 和 <code>write()</code> 这两个系统调用，这样就可以减少一次系统调用，也就减少了 2 次上下文切换的开销。</p>
+<p>其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：</p>
+<p><img src="/images/oss/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
+<p>当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。<code>sendfile()</code> 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。</p>
+<p>然而 <code>sendfile()</code> 本身是有很大问题的，从不同的角度来看的话主要是：</p>
+<ol>
+<li>首先一个是这个接口并没有进行标准化，导致 <code>sendfile()</code> 在 Linux 上的接口实现和其他类 Unix 系统的实现并不相同；</li>
+<li>其次由于网络传输的异步性，很难在接收端实现和 <code>sendfile()</code> 对接的技术，因此接收端一直没有实现对应的这种技术；</li>
+<li>最后从性能方面考量，因为 <code>sendfile()</code> 在把磁盘文件从内核缓冲区（page cache）传输到到套接字缓冲区的过程中依然需要 CPU 参与，这就很难避免 CPU 的高速缓存被传输的数据所污染。</li>
+</ol>
+<h3 id="SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术"><a href="#SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术" class="headerlink" title="SG-DMA（The Scatter-Gather Direct Memory Access）技术"></a>SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术</h3><p>上一小节介绍的 <code>sendfile()</code> 技术已经把一次数据读写过程中的 CPU 拷贝的降低至只有 1 次了，但是人永远是贪心和不知足的，现在如果想要把这仅有的一次 CPU 拷贝也去除掉，有没有办法呢？</p>
+<p>当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter/gather – 分散/收集功能，并修改了 <code>sendfile()</code> 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：</p>
+<p><img src="/images/oss/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
+<p>如果网卡支持 SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。</p>
+<p>这就是所谓的<strong>零拷贝（Zero-copy）技术，因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。</strong> 数据传输过程就再也没有 CPU 的参与了，也因此 CPU 的高速缓存再不会被污染了，也不再需要 CPU 来计算数据校验和了，CPU 可以去执行其他的业务计算任务，同时和 DMA 的 I/O 任务并行，此举能极大地提升系统性能。</p>
+<p>零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，<strong>只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。</strong></p>
+<p>所以，总体来看，<strong>零拷贝技术可以把文件传输的性能提高至少一倍以上</strong>。</p>
+<h3 id="splice"><a href="#splice" class="headerlink" title="splice()"></a>splice()</h3><p><code>sendfile()</code> + DMA Scatter/Gather 的零拷贝方案虽然高效，但是也有两个缺点：</p>
+<ol>
+<li>这种方案需要引入新的硬件支持；</li>
+<li>虽然 <code>sendfile()</code> 的输出文件描述符在 Linux kernel 2.6.33 版本之后已经可以支持任意类型的文件描述符，但是输入文件描述符依然只能指向文件。</li>
+</ol>
+<p>这两个缺点限制了 <code>sendfile()</code> + DMA Scatter/Gather 方案的适用场景。为此，Linux 在 2.6.17 版本引入了一个新的系统调用 <code>splice()</code>，它在功能上和 <code>sendfile()</code> 非常相似，但是能够实现在任意类型的两个文件描述符时之间传输数据；而在底层实现上，<code>splice()</code>又比 <code>sendfile()</code> 少了一次 CPU 拷贝，也就是等同于 <code>sendfile()</code> + DMA Scatter/Gather，完全去除了数据传输过程中的 CPU 拷贝。</p>
+<p><code>splice()</code> 所谓的写入数据到管道其实并没有真正地拷贝数据，而是玩了个 tricky 的操作：只进行内存地址指针的拷贝而不真正去拷贝数据。所以，数据 <code>splice()</code> 在内核中并没有进行真正的数据拷贝，因此 <code>splice()</code> 系统调用也是零拷贝。</p>
+<p>还有一点需要注意，前面说过管道的容量是 16 个内存页，也就是 16 * 4KB = 64 KB，也就是说一次往管道里写数据的时候最好不要超过 64 KB，否则的话会 <code>splice()</code> 会阻塞住，除非在创建管道的时候使用的是 <code>pipe2()</code> 并通过传入 <code>O_NONBLOCK</code> 属性将管道设置为非阻塞。</p>
+<h3 id="send-with-MSG-ZEROCOPY"><a href="#send-with-MSG-ZEROCOPY" class="headerlink" title="send() with MSG_ZEROCOPY"></a>send() with MSG_ZEROCOPY</h3><p>Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem de Bruijn 在 TCP 网络报文的通用发送接口 <code>send()</code> 中实现的 zero-copy 功能 (MSG_ZEROCOPY) 的 patch，通过这个新功能，用户进程就能够把用户缓冲区的数据通过零拷贝的方式经过内核空间发送到网络套接字中去，这个新技术和前文介绍的几种零拷贝方式相比更加先进，因为前面几种零拷贝技术都是要求用户进程不能处理加工数据而是直接转发到目标文件描述符中去的。Willem de Bruijn 在他的论文里给出的压测数据是：采用 netperf 大包发送测试，性能提升 39%，而线上环境的数据发送性能则提升了 5%~8%，官方文档陈述说这个特性通常只在发送 10KB 左右大包的场景下才会有显著的性能提升。一开始这个特性只支持 TCP，到内核 v5.0 版本之后才支持 UDP。</p>
+<p>这个技术是基于 redhat 红帽在 2010 年给 Linux 内核提交的 virtio-net zero-copy 技术之上实现的，至于底层原理，简单来说就是通过 <code>send()</code> 把数据在用户缓冲区中的分段指针发送到 socket 中去，利用 page pinning 页锁定机制锁住用户缓冲区的内存页，然后利用 DMA 直接在用户缓冲区通过内存地址指针进行数据读取，实现零拷贝</p>
+<p>目前来说，这种技术的主要缺陷有：</p>
+<ol>
+<li>只适用于大文件 (10KB 左右) 的场景，小文件场景因为 page pinning 页锁定和等待缓冲区释放的通知消息这些机制，甚至可能比直接 CPU 拷贝更耗时；</li>
+<li>因为可能异步发送数据，需要额外调用 <code>poll()</code> 和 <code>recvmsg()</code> 系统调用等待 buffer 被释放的通知消息，增加代码复杂度，以及会导致多次用户态和内核态的上下文切换；</li>
+<li>MSG_ZEROCOPY 目前只支持发送端，接收端暂不支持。</li>
+</ol>
+<h3 id="零拷贝应用"><a href="#零拷贝应用" class="headerlink" title="零拷贝应用"></a>零拷贝应用</h3><p>kafaka就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一。</p>
+<p>非零拷贝代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">File.read(fileDesc, buf, len);</span><br><span class="line">Socket.send(socket, buf, len);</span><br></pre></td></tr></table></figure>
+<p>Traditional data copying approach：</p>
+<p><img src="/images/951413iMgBlog/figure1.gif" alt="Traditional data copying approach"></p>
+<p>Traditional context switches：</p>
+<p><img src="/images/951413iMgBlog/figure2.gif" alt="Traditional context switches"></p>
+<p>如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 <code>transferTo</code> 方法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Overridepublic</span> </span><br><span class="line"><span class="function"><span class="keyword">long</span> <span class="title">transferFrom</span><span class="params">(FileChannel fileChannel, <span class="keyword">long</span> position, <span class="keyword">long</span> count)</span> <span class="keyword">throws</span> IOException </span>&#123; </span><br><span class="line">    <span class="keyword">return</span> fileChannel.transferTo(position, count, socketChannel);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Data copy with transferTo()</p>
+<p><img src="/images/951413iMgBlog/figure3.gif" alt="Data copy with transferTo()"></p>
+<p>Context switching with transferTo()：</p>
+<p><img src="/images/951413iMgBlog/figure4.gif" alt="Context switching when using transferTo()"></p>
+<p>Data copies when transferTo() and gather operations are used</p>
+<p><img src="/images/951413iMgBlog/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
+<p>如果 Linux 系统支持 <code>sendfile()</code> 系统调用，那么 <code>transferTo()</code> 实际上最后就会使用到 <code>sendfile()</code> 系统调用函数。</p>
+<p>Nginx 也支持零拷贝技术，一般默认是开启零拷贝技术，这样有利于提高文件传输的效率，是否开启零拷贝技术的配置如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">...</span><br><span class="line">    sendfile on</span><br><span class="line">...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>sendfile 配置的具体意思:</p>
+<ul>
+<li>设置为 on 表示，使用零拷贝技术来传输文件：sendfile ，这样只需要 2 次上下文切换，和 2 次数据拷贝。</li>
+<li>设置为 off 表示，使用传统的文件传输技术：read + write，这时就需要 4 次上下文切换，和 4 次数据拷贝。</li>
+</ul>
+<p>如果是大文件很容易消耗非常多的PageCache，不推荐使用PageCache（或者说零拷贝），建议使用异步IO+直接IO。</p>
+<p>在 nginx 中，我们可以用如下配置，来根据文件的大小来使用不同的方式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">location /video/ &#123; </span><br><span class="line">    sendfile on; </span><br><span class="line">    aio on; </span><br><span class="line">    directio 1024m; </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当文件大小大于 <code>directio</code> 值后，使用「异步 I/O + 直接 I/O」，否则使用「零拷贝技术」。</p>
+<h4 id="零拷贝性能"><a href="#零拷贝性能" class="headerlink" title="零拷贝性能"></a>零拷贝性能</h4><p>如果用零拷贝和不用零拷贝来做一个文件服务器，来对比下他们的性能</p>
+<p><a href="https://developer.ibm.com/articles/j-zerocopy/" target="_blank" rel="noopener">Performance comparison: Traditional approach vs. zero copy</a></p>
+<table>
+<thead>
+<tr>
+<th style="text-align:left">File size</th>
+<th style="text-align:left">Normal file transfer (ms)</th>
+<th style="text-align:left">transferTo (ms)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">7MB</td>
+<td style="text-align:left">156</td>
+<td style="text-align:left">45</td>
+</tr>
+<tr>
+<td style="text-align:left">21MB</td>
+<td style="text-align:left">337</td>
+<td style="text-align:left">128</td>
+</tr>
+<tr>
+<td style="text-align:left">63MB</td>
+<td style="text-align:left">843</td>
+<td style="text-align:left">387</td>
+</tr>
+<tr>
+<td style="text-align:left">98MB</td>
+<td style="text-align:left">1320</td>
+<td style="text-align:left">617</td>
+</tr>
+<tr>
+<td style="text-align:left">200MB</td>
+<td style="text-align:left">2124</td>
+<td style="text-align:left">1150</td>
+</tr>
+<tr>
+<td style="text-align:left">350MB</td>
+<td style="text-align:left">3631</td>
+<td style="text-align:left">1762</td>
+</tr>
+<tr>
+<td style="text-align:left">700MB</td>
+<td style="text-align:left">13498</td>
+<td style="text-align:left">4422</td>
+</tr>
+<tr>
+<td style="text-align:left">1GB</td>
+<td style="text-align:left">18399</td>
+<td style="text-align:left">8537</td>
+</tr>
+</tbody>
+</table>
+<h2 id="DMA"><a href="#DMA" class="headerlink" title="DMA"></a>DMA</h2><p>什么是 DMA 技术？简单理解就是，<strong>在进行 I/O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，这样 CPU 就可以去处理别的事务</strong>。    </p>
+<p>RDMA</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA</a> 从Linux内存管理到零拷贝</p>
+<p><a href="https://developer.ibm.com/articles/j-zerocopy/" target="_blank" rel="noopener">Efficient data transfer through zero copy</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/11/如何在工作中学习--V2.0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/11/如何在工作中学习--V2.0/" itemprop="url">如何在工作中学习--V2.0</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-11T12:30:03+08:00">
+                2020-11-11
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/技巧/" itemprop="url" rel="index">
+                    <span itemprop="name">技巧</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/11/如何在工作中学习--V2.0/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/11/如何在工作中学习--V2.0/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何在工作中学习–V2-0"><a href="#如何在工作中学习–V2-0" class="headerlink" title="如何在工作中学习–V2.0"></a>如何在工作中学习–V2.0</h1><p>本文被网友翻译的<a href="https://medium.com/@cai.eason/learn-and-improve-the-right-technical-skills-7a0bc5123e1" target="_blank" rel="noopener">英文版</a> （medium 需要梯子）</p>
+<blockquote>
+<p>先说一件值得思考的事情：高考的时候大家都是一样的教科书，同一个教室，同样的老师辅导，时间精力基本差不多，可是最后别人考的是清华北大或者一本，而你的实力只能考个三本，为什么？ 当然这里主要是智商的影响，那么其他因素呢？智商解决的问题能不能后天用其他方式来补位一下？</p>
+</blockquote>
+<p>大家平时都看过很多方法论的文章，看的时候很爽觉得非常有用，但是一两周后基本还是老样子了。其中有很大一部分原因那些方法对脑力有要求、或者方法论比较空缺少落地的步骤。 下文中描述的方式方法是不需要智商也能学会的，非常具体的。</p>
+<h2 id="关键问题点"><a href="#关键问题点" class="headerlink" title="关键问题点"></a>关键问题点</h2><h3 id="为什么你的知识积累不了？"><a href="#为什么你的知识积累不了？" class="headerlink" title="为什么你的知识积累不了？"></a>为什么你的知识积累不了？</h3><p>有些知识看过就忘、忘了再看，实际碰到问题还是联系不上这个知识，这其实是知识的积累出了问题，没有深入的理解自然就不能灵活运用，也就谈不上解决问题了。这跟大家一起看相同的高考教科书但是高考结果不一样是一个原因。问题出在了理解上，每个人的理解能力不一样（智商），绝大多数人对知识的理解要靠不断地实践（做题）来巩固。</p>
+<h3 id="同样实践效果不一样？"><a href="#同样实践效果不一样？" class="headerlink" title="同样实践效果不一样？"></a>同样实践效果不一样？</h3><p>同样工作一年碰到了10个问题（或者说做了10套高考模拟试卷），但是结果不一样，那是因为在实践过程中方法不够好。或者说你对你为什么做对了、为什么做错了没有去复盘</p>
+<p>假如碰到一个问题，身边的同事解决了，而我解决不了。那么我就去想这个问题他是怎么解决的，他看到这个问题后的逻辑和思考是怎么样的，有哪些知识指导了他这么逻辑推理，这些知识哪些我也知道但是我没有想到这么去运用推理（说明我对这个知识理解的不到位导致灵活运用缺乏）；这些知识中又有哪些是我不知道的（知识缺乏，没什么好说的快去Google什么学习下–有场景案例和目的加持，学习理解起来更快）。</p>
+<p>等你把这个问题基本按照你同事掌握的知识和逻辑推理想明白后，需要再去琢磨一下他的逻辑推理解题思路中有没有不对的，有没有啰嗦的地方，有没有更直接的方式（对知识更好地运用）。</p>
+<p>我相信每个问题都这么去实践的话就不应该再抱怨灵活运用、举一反三，同时知识也积累下来了，这种场景下积累到的知识是不会那么容易忘记的。</p>
+<p>这就是向身边的牛人学习，同时很快超过他的办法。这就是为什么高考前你做了10套模拟题还不如其他人做一套的效果好</p>
+<p><strong>知识+逻辑 基本等于你的能力</strong>，知识让你知道那个东西，逻辑让你把东西和问题联系起来</p>
+<p><strong>这里的问题你可以理解成方案、架构、设计等</strong></p>
+<h3 id="系统化的知识哪里来？"><a href="#系统化的知识哪里来？" class="headerlink" title="系统化的知识哪里来？"></a>系统化的知识哪里来？</h3><p>知识之间是可以联系起来的并且像一颗大树一样自我生长，但是当你都没理解透彻，自然没法产生联系，也就不能够自我生长了。</p>
+<p>真正掌握好的知识点会慢慢生长连接最终组成一张大网</p>
+<p>但是我们最容易陷入的就是掌握的深度、系统化（工作中碎片时间过多，学校里缺少时间）不够，所以一个知识点每次碰到花半个小时学习下来觉得掌握了，但是3个月后就又没印象了。总是感觉自己在懵懵懂懂中，或者一个领域学起来总是不得要领，根本的原因还是在于：宏观整体大图了解不够（缺乏体系，每次都是盲人摸象）；关键知识点深度不够，理解不透彻，这些关键点就是这个领域的骨架、支点、抓手。缺了抓手自然不能生长，缺了宏观大图容易误入歧途。</p>
+<p>我们有时候发现自己在某个领域学起来特别快，但是换个领域就总是不得要领，问题出在了上面，即使花再多时间也是徒然。这也就是为什么学霸看两个小时的课本比你看两天效果还好，感受下来还觉得别人好聪明，是不是智商比我高啊。</p>
+<p>所以新进入一个领域的时候要去找他的大图和抓手。</p>
+<p>好的同事总是能很轻易地把这个大图交给你，再顺便给你几个抓手，你就基本入门了，这就是培训的魅力，这种情况肯定比自学效率高多了。但是目前绝大部分的培训都做不到这点</p>
+<h3 id="好的逻辑又怎么来？"><a href="#好的逻辑又怎么来？" class="headerlink" title="好的逻辑又怎么来？"></a>好的逻辑又怎么来？</h3><p>实践、复盘</p>
+<h2 id="讲个前同事的故事"><a href="#讲个前同事的故事" class="headerlink" title="讲个前同事的故事"></a>讲个前同事的故事</h2><p>有一个前同事是5Q过来的，负责技术（所有解决不了的问题都找他），这位同学从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。这位同学让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
+<h3 id="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"><a href="#应用刚启动连接到数据库的时候比较慢，但又不是慢查询" class="headerlink" title="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"></a>应用刚启动连接到数据库的时候比较慢，但又不是慢查询</h3><ol>
+<li>这位同学的解决办法是通过tcpdump来分析网络包，看网络包的时间戳和网络包的内容，然后找到了具体卡在了哪里。</li>
+<li>如果是专业的DBA可能会通过show processlist 看具体连接在做什么，比如看到这些连接状态是 <strong>authentication</strong> 状态，然后再通过Google或者对这个状态的理解知道创建连接的时候MySQL需要反查IP、域名这里比较耗时，通过配置参数 <strong>skip-name-resolve</strong> 跳过去就好了。</li>
+<li><p>如果是MySQL的老司机，一上来就知道连接慢的话跟 <strong>skip-name-resolve</strong> 关系最大。</p>
+<p> 在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的知识就把问题解决了。</p>
+</li>
+</ol>
+<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
+<h2 id="有哪些好的行为帮你更好地掌握知识"><a href="#有哪些好的行为帮你更好地掌握知识" class="headerlink" title="有哪些好的行为帮你更好地掌握知识"></a>有哪些好的行为帮你更好地掌握知识</h2><h2 id="笔记-写博客"><a href="#笔记-写博客" class="headerlink" title="笔记+写博客"></a>笔记+写博客</h2><p>看东西的时候要做笔记，要不当时看得再爽也很容易忘记，我们需要反复复习来加深印象和理解，复习的根据就是笔记（不可能再完整又看一次），笔记整理出里面的要点和你的盲点。</p>
+<p>一段时间后把相关的笔记整理成一篇体系性的博客文章，这样既加深了理解又系统化了相关知识。以后再看到跟这篇博客相关的案例、知识点时不断地更新博客（完善你的知识点）</p>
+<h2 id="场景式学习、体感的来源、面对问题学习"><a href="#场景式学习、体感的来源、面对问题学习" class="headerlink" title="场景式学习、体感的来源、面对问题学习"></a>场景式学习、体感的来源、面对问题学习</h2><p>前面提到的对知识的深入理解这有点空，如何才能做到深入理解？</p>
+<h3 id="举个学习TCP三次握手例子"><a href="#举个学习TCP三次握手例子" class="headerlink" title="举个学习TCP三次握手例子"></a>举个学习TCP三次握手例子</h3><p>经历稍微丰富点的工程师都觉得TCP三次握手看过很多次、很多篇文章了，但是文章写得再好似乎当时理解了，但是总是过几个月就忘了或者一看就懂，过一阵子被人一问就模模糊糊了，或者两个为什么就答不上了，自己都觉得自己的回答是在猜或者不确定</p>
+<p>为什么会这样呢？而学其它知识就好通畅多了，我觉得这里最主要的是我们对TCP缺乏体感，比如没有几个工程师去看过TCP握手的代码，也没法想象真正的TCP握手是如何在电脑里运作的（打电话能给你一些类似的体感，但是细节覆盖面不够）。</p>
+<p>如果这个时候你一边学习的时候一边再用wireshark抓包看看三次握手具体在干什么，比抽象的描述实在多了，你能看到具体握手的一来一回，并且看到一来一回带了哪些内容，这些内容又是用来做什么、为什么要带，这个时候你再去看别人讲解的理论顿时会觉得好理解多了，以后也很难忘记。</p>
+<p>但是这里很多人执行能力不强，想去抓包，但是觉得要下载安装wireshark，要学习wireshark就放弃了。只看不动手当然是最舒适的，但是这个最舒适给了你在学习的假象，没有结果。</p>
+<p>这是不是跟你要解决一个难题非常像，这个难题需要你去做很多事，比如下载源代码（翻不了墙，放弃）；比如要编译（还要去学习那些编译参数，放弃）；比如要搭建环境（太琐屑，放弃）。你看这中间九九八十一难你放弃了一难都取不了真经。这也是为什么同样学习、同样的问题，他能学会，他能解决，你不可以。</p>
+<h3 id="再来看一个解决问题的例子"><a href="#再来看一个解决问题的例子" class="headerlink" title="再来看一个解决问题的例子"></a>再来看一个解决问题的例子</h3><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">会员系统双11优化这个问题</a>对我来说，我是个外来者，完全不懂这里面的部署架构、业务逻辑。但是在问题的关键地方（会员认为自己没问题–压力测试正常的；淘宝API更是认为自己没问题，alimonitor监控显示正常），结果就是会员的同学说我们没有问题，淘宝API肯定有问题，然后就不去思考自己这边可能出问题的环节了。思想上已经甩包了，那么即使再去review流程、环节也就不会那么仔细，自然更是发现不了问题了。</p>
+<p>但是我的经验告诉我要有证据地甩包，或者说拿着证据优雅地甩包，这迫使我去找更多的细节证据（证据要给力哦，不能让人家拍回来）。如果我是这么说的，这个问题在淘宝API这里，你看理由是…………，我做了这些实验，看到了这些东东。那么淘宝API那边想要证明我的理由错了就会更积极地去找一些数据。</p>
+<p>事实上我就是做这些实验找证据过程中发现了会员的问题，这就是态度、执行力、知识、逻辑能力综合下来拿到的一个结果。我最不喜欢的一句话就是我的程序没问题，因为我的逻辑是这样的，不会错的。你当然不会写你知道的错误逻辑，程序之所以有错误都是在你的逻辑、意料之外的东西。有很多次一堆人电话会议中扯皮的时候，我一般把电话静音了，直接上去人肉一个个过对方的逻辑，一般来说电话会议还没有结束我就给出来对方逻辑之外的东西。</p>
+<h2 id="钉子式学习方法和系统性学习方法"><a href="#钉子式学习方法和系统性学习方法" class="headerlink" title="钉子式学习方法和系统性学习方法"></a>钉子式学习方法和系统性学习方法</h2><p>系统性学习方法就是想掌握MySQL，那么搞几本MySQL专著和MySQL 官方DOC看下来，一般课程设计的好的话还是比较容易掌握下来，绝大部分时候都是这种学习方法，可是在种学习方法的问题在于学完后当时看着似乎理解了，但是很容易忘记，一片一片地系统性的忘记，并且缺少应用能力（理解不深）。这是因为一般人对知识的理解没那么容易真正<strong>理解（掌握或者说应用）</strong>。</p>
+<p>钉子式的学习方式，就是在一大片知识中打入几个桩，反复演练将这个桩不停地夯实，夯稳，做到在这个知识点上用通俗的语言跟小白都能讲明白，然后再这几个桩中间发散像星星之火燎原一样把整个一片知识都掌握下来。这种学习方法的缺点就是很难找到一片知识点的这个点，然后没有很好整合的话知识过于零散。</p>
+<p>钉子式学习方法看着慢但是因为这样掌握的更透彻和牢固实际最终反而快。</p>
+<p>我们常说的一个人很聪明，就是指系统性的看看书就都理解了，是真的理解那种，还能灵活运用，但是大多数普通人就不是这样的，看完书似乎理解了，实际几周后基本都忘记了，真正实践需要用的时候还是用不好。</p>
+<h3 id="举个Open-SSH的例子"><a href="#举个Open-SSH的例子" class="headerlink" title="举个Open-SSH的例子"></a>举个Open-SSH的例子</h3><p>为了做通 SSH 的免密登陆，大家都需要用到 ssh-keygen/ssh-copy-id， 如果我们把这两个命令当一个小的钉子的话，会去了解ssh-keygen做了啥（生成了密钥对），或者ssh-copy-id 的时候报错了（原来是需要秘钥对），然后将 ssh-keygen 生成的pub key复制到server的~/.ssh/authorized_keys 中。</p>
+<p>然后你应该会对这个原理要有一些理解（更大的钉子），于是理解了密钥对，和ssh验证的流程，顺便学会怎么看ssh debug信息，那么接下来网络上各种ssh攻略、各种ssh卡顿的解决都是很简单的事情了。</p>
+<p>比如你通过SSH可以解决这些问题：</p>
+<ul>
+<li>免密登陆</li>
+<li>ssh卡顿</li>
+<li>怎么去掉ssh的时候需要手工多输入yes</li>
+<li>我的ssh怎么很快就断掉了</li>
+<li>我怎么样才能一次通过跳板机ssh到目标机器</li>
+<li>我怎么样通过ssh科学上网</li>
+<li>我的ansible（底层批量命令都是基于ssh）怎么这么多问题，到底是为什么</li>
+<li>我的git怎么报网络错误了</li>
+<li>X11 forward我怎么配置不好</li>
+<li>https为什么需要随机数加密，还需要签名</li>
+<li>…………</li>
+</ul>
+<p>这些问题都是一步步在扩大ssh的外延，让这个钉子变成一个巨大的桩。</p>
+<p>然后就会学习到一些<a href="https://plantegg.github.io/2018/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82SSH--SSH%E8%8A%B1%E5%BC%8F%E7%8E%A9%E6%B3%95/" target="_blank" rel="noopener">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
+<p>这基本都还是ssh的本质范围，像ansible、git在底层都是依赖ssh来通讯的，你会发现学、调试X11、ansible和git简直太容易了。</p>
+<p>另外理解了ssh的秘钥对，也就理解了非对称加密，同时也很容易理解https流程（SSL），同时知道对称和非对称加密各自的优缺点，SSL为什么需要用到这两种加密算法了。</p>
+<p>你看一个简单日常的知识我们只要沿着它用钉子精神，深挖细挖你就会发现知识之间的连接，这个小小的知识点成为你知识体系的一根结实的柱子。</p>
+<p>我见过太多的老的工程师、年轻的工程师，天天在那里ssh 密码，ssh 跳板机，ssh 目标机，一小会ssh断了，重来一遍；或者ssh后卡住了，等吧……</p>
+<p>在这个问题上表现得没有求知欲、没有探索精神、没有一次把问题搞定的魄力，所以就习惯了</p>
+<h2 id="空洞的口号"><a href="#空洞的口号" class="headerlink" title="空洞的口号"></a>空洞的口号</h2><p>很多老师和文章都会教大家：举一反三、灵活运用、活学活用、多做多练。但是只有这些口号是没法落地的，落地的基本步骤就是前面提到的，却总是被忽视了。</p>
+<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举一反三，这是知识效率，这种人非常少；</p>
+<p>大多数普通人都是看点知识然后结合实践来强化理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
+<p>肯定知识效率最牛逼，但是拥有这种技能的人毕竟非常少（天生的高智商吧）。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快的掌握一个新知识，非常气人。剩下的绝大部分只能拼时间+方法+总结等也能掌握一些知识</p>
+<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
+<p>使劲挖掘自己在知识效率型方面的能力吧，两者之间当然没有明显的界限，知识积累多了逻辑训练好了在别人看来你的智商就高了</p>
+<h2 id="知识分两种"><a href="#知识分两种" class="headerlink" title="知识分两种"></a>知识分两种</h2><p>一种是通用知识（不是说对所有人通用，而是说在一个专业领域去到哪个公司都能通用）；另外一种是跟业务公司绑定的特定知识</p>
+<p>通用知识没有任何疑问碰到后要非常饥渴地扑上去掌握他们（受益终生，这还有什么疑问吗？）。对于特定知识就要看你对业务需要掌握的深度了，肯定也是需要掌握一些的，特定知识掌握好的一般在公司里混的也会比较好。</p>
+<p>一个具体知识体系里面又有一些核心知识点（抓手、essential knowledge），也就是掌握可以快速帮你膨胀、延伸到其他相关知识的知识点。</p>
+<p>还有一些知识、工具一旦掌握就能帮你贯穿、具象、理解别的知识点，比如网络知识体系中的wireshark；理工科中的数学；知识体系中的学习方法、行为方式。我们要多去发现这些知识、工具（how？）</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/02/举三反一--从理论知识到实际问题的推导/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/02/举三反一--从理论知识到实际问题的推导/" itemprop="url">举三反一--从理论知识到实际问题的推导</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-02T10:30:03+08:00">
+                2020-11-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/02/举三反一--从理论知识到实际问题的推导/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/02/举三反一--从理论知识到实际问题的推导/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="举三反一–从理论知识到实际问题的推导"><a href="#举三反一–从理论知识到实际问题的推导" class="headerlink" title="举三反一–从理论知识到实际问题的推导"></a>举三反一–从理论知识到实际问题的推导</h1><blockquote>
+<p>怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。</p>
+</blockquote>
+<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举三反一，这是知识效率，这种人非常少；</p>
+<p>大多数普通人都是看点知识然后结合实践来强化理解理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
+<p>对于费曼（参考费曼学习法）这样的聪明人就是很容易看到一个理论知识就能理解这个理论知识背后的本质。</p>
+<p>肯定知识效率最牛逼，但是拥有这种能力的人毕竟非常少。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快地掌握一个新知识。剩下的绝大部分只能拼时间(刷题)+方法+总结等也能掌握一些知识</p>
+<p>但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
+<p>使劲挖掘自己在知识效率型方面的能力吧，即使灰色地带也行啊。</p>
+<p>接下来看看TCP状态中的CLOSE_WAIT状态的含义</p>
+<h2 id="先看TCP连接状态图"><a href="#先看TCP连接状态图" class="headerlink" title="先看TCP连接状态图"></a>先看TCP连接状态图</h2><p>这是网络、书本上凡是描述TCP状态一定会出现的状态图，理论上看这个图能解决任何TCP状态问题。</p>
+<p><img src="/images/oss/b3d075782450b0c8d2615c5d2b75d923.png" alt="image.png"></p>
+<p>反复看这个图的右下部分的CLOSE_WAIT ，从这个图里可以得到如下结论：</p>
+<p><strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong></p>
+<p>基本上这一结论要能帮助解决所有CLOSE_WAIT相关的问题，如果不能说明对这个知识点理解的不够。</p>
+<h2 id="server端大量close-wait案例"><a href="#server端大量close-wait案例" class="headerlink" title="server端大量close_wait案例"></a>server端大量close_wait案例</h2><p>用实际案例来检查自己对CLOSE_WAIT 理论（<strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong>）的掌握 – 能不能用这个结论来解决实际问题。同时也可以看看自己从知识到问题的推理能力（跟前面的知识效率呼应一下）。</p>
+<h3 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h3><blockquote>
+<p>服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）</p>
+</blockquote>
+<p>根据这个描述先不要往下看，自己推理分析下可能的原因。</p>
+<p>我的推理如下：</p>
+<p>从这里看起来，client跟server成功建立了somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这个连接，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时Server上这个连接变成了CLOSE_WAIT .</p>
+<p>也就是从开始到结束这些连接都在accept queue中，没有被应用accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。</p>
+<p>如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到server是否accept()了，只是发了数据后server的os代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。</p>
+<p>得检查server 应用为什么没有accept。</p>
+<p><img src="/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"></p>
+<p>如上是老司机的思路靠经验缺省了一些理论推理，缺省还是对理论理解不够， 这个分析抓住了 大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）但是没有抓住 CLOSE_WAIT 背后的核心原因</p>
+<h3 id="更简单的推理"><a href="#更简单的推理" class="headerlink" title="更简单的推理"></a>更简单的推理</h3><p>如果没有任何实战经验，只看上面的状态图的学霸应该是这样推理的：</p>
+<p>看到server上有大量的CLOSE_WAIT说明client主动断开了连接，server的OS收到client 发的fin，并回复了ack，这个过程不需要应用感知，进而连接从ESTABLISHED进入CLOSE_WAIT，此时在等待server上的应用调用close连关闭连接（处理完所有收发数据后才会调close()） —- 结论：server上的应用一直卡着没有调close().</p>
+<p>同时这里很奇怪的现象： 服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn，进而可以猜测是不是连接建立后很快accept队列满了（应用也没有accept() ), 导致 大量CLOSE_WAIT 个数正好 等于somaxconn —- 结论： server 上的应用不但没有调close(), 连close() 前面必须调用 accept() 都一直卡着没调 （这个结论需要有accept()队列的理论知识)</p>
+<p><strong>从上面两个结论可以清楚地看到 server的应用卡住了</strong></p>
+<h3 id="实际结论："><a href="#实际结论：" class="headerlink" title="实际结论："></a>实际结论：</h3><blockquote>
+<p>这个case的最终原因是因为<strong>OS的open files设置的是1024,达到了上限</strong>，进而导致server不能accept，但这个时候的tcp连接状态已经是ESTABLISHED了（这个状态变换是取决于内核收发包，跟应用是否accept()无关）。</p>
+<p>同时从这里可以推断 netstat 即使看到一个tcp连接状态是ESTABLISHED也不能代表占用了 open files句柄。此时client可以正常发送数据了，只是应用服务在accept之前没法receive数据和close连接。</p>
+</blockquote>
+<p>这个结论的图解如下：</p>
+<p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
+<p>假如全连接队列满了，握手第三步后对于client端来说是无法感知的，client端只需要回复ack后这个连接对于client端就是ESTABLISHED了，这时client是可以发送数据的。但是Server会扔掉收到的ack，回复syn+ack给client。</p>
+<p>如果全连接队列没满，但是fd不够，那么在Server端这个Socket也是ESTABLISHED，但是只是暂存在全连接队列中，等待应用来accept，这个时候client端同样无法感知这个连接没有被accept，client是可以发送数据的，这个数据会保存在tcp receive memory buffer中，等到accept后再给应用。</p>
+<p>如果自己无法得到上面的分析，那么再来看看如果把 CLOSE_WAIT 状态更细化地分析下(类似有老师帮你把知识点揉开跟实际案例联系下—-未必是上面的案例)，看完后再来分析下上面的案例。</p>
+<h2 id="CLOSE-WAIT-状态拆解"><a href="#CLOSE-WAIT-状态拆解" class="headerlink" title="CLOSE_WAIT 状态拆解"></a>CLOSE_WAIT 状态拆解</h2><p>通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着被动关闭的一方没有及时发出 FIN 包，一般有如下几种可能：</p>
+<ul>
+<li><strong>程序问题</strong>：如果代码层面忘记了 close 相应的 socket 连接，那么自然不会发出 FIN 包，从而导致 CLOSE_WAIT 累积；或者代码不严谨，出现死循环之类的问题，导致即便后面写了 close 也永远执行不到。</li>
+<li>响应太慢或者超时设置过小：如果连接双方不和谐，一方不耐烦直接 timeout，另一方却还在忙于耗时逻辑，就会导致 close 被延后。响应太慢是首要问题，不过换个角度看，也可能是 timeout 设置过小。</li>
+<li>BACKLOG 太大：此处的 backlog 不是 syn backlog，而是 accept 的 backlog，如果 backlog 太大的话，设想突然遭遇大访问量的话，即便响应速度不慢，也可能出现来不及消费的情况，导致多余的请求还在<a href="http://jaseywang.me/2014/07/20/tcp-queue-的一些问题/" target="_blank" rel="noopener">队列</a>里就被对方关闭了。</li>
+</ul>
+<p>如果你通过「netstat -ant」或者「ss -ant」命令发现了很多 CLOSE_WAIT 连接，请注意结果中的「Recv-Q」和「Local Address」字段，通常「Recv-Q」会不为空，它表示应用还没来得及接收数据，而「Local Address」表示哪个地址和端口有问题，我们可以通过「lsof -i:<port>」来确认端口对应运行的是什么程序以及它的进程号是多少。</port></p>
+<p>如果是我们自己写的一些程序，比如用 HttpClient 自定义的蜘蛛，那么八九不离十是程序问题，如果是一些使用广泛的程序，比如 Tomcat 之类的，那么更可能是响应速度太慢或者 timeout 设置太小或者 BACKLOG 设置过大导致的故障。</p>
+<p>看完这段 CLOSE_WAIT 更具体深入点的分析后再来分析上面的案例看看，能否推导得到正确的结论。</p>
+<h2 id="一些疑问"><a href="#一些疑问" class="headerlink" title="一些疑问"></a>一些疑问</h2><h3 id="连接都没有被accept-client端就能发送数据了？"><a href="#连接都没有被accept-client端就能发送数据了？" class="headerlink" title="连接都没有被accept(), client端就能发送数据了？"></a>连接都没有被accept(), client端就能发送数据了？</h3><p>答：是的。只要这个连接在OS看来是ESTABLISHED的了就可以，因为握手、接收数据都是由内核完成的，内核收到数据后会先将数据放在内核的tcp buffer中，然后os回复ack。另外三次握手之后client端是没法知道server端是否accept()了。</p>
+<h3 id="CLOSE-WAIT与accept-queue有关系吗？"><a href="#CLOSE-WAIT与accept-queue有关系吗？" class="headerlink" title="CLOSE_WAIT与accept queue有关系吗？"></a>CLOSE_WAIT与accept queue有关系吗？</h3><p>答：没有关系。只是本案例中因为open files不够了，影响了应用accept(), 导致accept queue满了，同时因为即使应用不accept（三次握手后，server端是否accept client端无法感知），client也能发送数据和发 fin断连接，这些响应都是os来负责，跟上层应用没关系，连接从握手到ESTABLISHED再到CLOSE_WAIT都不需要fd，也不需要应用参与。CLOSE_WAIT只跟应用不调 close() 有关系。 </p>
+<h3 id="CLOSE-WAIT与accept-queue为什么刚好一致并且联动了？"><a href="#CLOSE-WAIT与accept-queue为什么刚好一致并且联动了？" class="headerlink" title="CLOSE_WAIT与accept queue为什么刚好一致并且联动了？"></a>CLOSE_WAIT与accept queue为什么刚好一致并且联动了？</h3><p>答：这里他们的数量刚好一致是因为所有新建连接都没有accept，堵在queue中。同时client发现问题后把所有连接都fin了，也就是所有queue中的连接从来没有被accept过，但是他们都是ESTABLISHED，过一阵子之后client端发了fin所以所有accept queue中的连接又变成了 CLOSE_WAIT, 所以二者刚好一致并且联动了</p>
+<h3 id="openfiles和accept-的关系是？"><a href="#openfiles和accept-的关系是？" class="headerlink" title="openfiles和accept()的关系是？"></a>openfiles和accept()的关系是？</h3><p>答：accept()的时候才会创建文件句柄，消耗openfiles</p>
+<h3 id="一个连接如果在accept-queue中了，但是还没有被应用-accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？"><a href="#一个连接如果在accept-queue中了，但是还没有被应用-accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？" class="headerlink" title="一个连接如果在accept queue中了，但是还没有被应用 accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？"></a>一个连接如果在accept queue中了，但是还没有被应用 accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？</h3><p>答：是</p>
+<h3 id="如果server的os参数-open-files到了上限（就是os没法打开新的文件句柄了）会导致这个accept-queue中的连接一直没法被accept对吗？"><a href="#如果server的os参数-open-files到了上限（就是os没法打开新的文件句柄了）会导致这个accept-queue中的连接一直没法被accept对吗？" class="headerlink" title="如果server的os参数 open files到了上限（就是os没法打开新的文件句柄了）会导致这个accept queue中的连接一直没法被accept对吗？"></a>如果server的os参数 open files到了上限（就是os没法打开新的文件句柄了）会导致这个accept queue中的连接一直没法被accept对吗？</h3><p>答：对</p>
+<h3 id="如果通过gdb-attach-应用进程，故意让进程accept，这个时候client还能连上应用吗？"><a href="#如果通过gdb-attach-应用进程，故意让进程accept，这个时候client还能连上应用吗？" class="headerlink" title="如果通过gdb attach 应用进程，故意让进程accept，这个时候client还能连上应用吗？"></a>如果通过gdb attach 应用进程，故意让进程accept，这个时候client还能连上应用吗？</h3><p>答： 能，这个时候在client和server两边看到的连接状态都是 ESTABLISHED，只是Server上的全连接队列占用加1。连接握手并切换到ESTABLISHED状态都是由OS来负责的，应用不参与，ESTABLISHED后应用才能accept，进而收发数据。也就是能放入到全连接队列里面的连接肯定都是 ESTABLISHED 状态的了</p>
+<h3 id="接着上面的问题，如果新连接继续连接进而全连接队列满了呢？"><a href="#接着上面的问题，如果新连接继续连接进而全连接队列满了呢？" class="headerlink" title="接着上面的问题，如果新连接继续连接进而全连接队列满了呢？"></a>接着上面的问题，如果新连接继续连接进而全连接队列满了呢？</h3><p>答：那就连不上了，server端的OS因为全连接队列满了直接扔掉第一个syn握手包，这个时候连接在client端是SYN_SENT，Server端没有这个连接，这是因为syn到server端就直接被OS drop 了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">//如下图，本机测试，只有一个client端发起的syn_send, 3306的server端没有任何连接</span><br><span class="line">$netstat -antp  |grep -i 127.0.0.1:3306</span><br><span class="line">tcp     0   1 127.0.0.1:61106      127.0.0.1:3306    SYN_SENT    21352/telnet</span><br></pre></td></tr></table></figure>
+<p>能进入到accept queue中的连接都是 ESTABLISHED，不管用户态有没有accept，用户态accept后队列大小减1</p>
+<h3 id="如果一个连接握手成功进入到accept-queue但是应用accept前被对方RESET了呢？"><a href="#如果一个连接握手成功进入到accept-queue但是应用accept前被对方RESET了呢？" class="headerlink" title="如果一个连接握手成功进入到accept queue但是应用accept前被对方RESET了呢？"></a>如果一个连接握手成功进入到accept queue但是应用accept前被对方RESET了呢？</h3><p>答： 如果此时收到对方的RESET了，那么OS会释放这个连接。但是内核认为所有 listen 到的连接, 必须要 accept 走, 因为用户有权利知道有过这么一个连接存在过。所以OS不会到全连接队列拿掉这个连接，全连接队列数量也不会减1，直到应用accept这个连接，然后read/write才发现这个连接断开了，报communication failure异常</p>
+<h3 id="什么时候连接状态变成-ESTABLISHED"><a href="#什么时候连接状态变成-ESTABLISHED" class="headerlink" title="什么时候连接状态变成 ESTABLISHED"></a>什么时候连接状态变成 ESTABLISHED</h3><p>三次握手成功就变成 ESTABLISHED 了，不需要用户态来accept，如果握手第三步的时候OS发现全连接队列满了，这时OS会扔掉这个第三次握手ack，并重传握手第二步的syn+ack, 在OS端这个连接还是 SYN_RECV 状态的，但是client端是 ESTABLISHED状态的了。</p>
+<p>这是在4000（tearbase）端口上<strong>全连接队列没满，但是应用不再accept了</strong>，nc用12346端口去连4000（tearbase）端口的结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -at |grep &quot;:12346 &quot;</span><br><span class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //server</span><br><span class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 ESTABLISHED //client</span><br><span class="line">[root@dcep-blockchain-1 cfl-sm2-sm3]# ss -lt</span><br><span class="line">State       Recv-Q Send-Q      Local Address:Port         Peer Address:Port   </span><br><span class="line">LISTEN      73     1024            *:terabase                 *:*</span><br></pre></td></tr></table></figure>
+<p>这是在4000（tearbase）端口上<strong>全连接队列满掉</strong>后，nc用12346端口去连4000（tearbase）端口的结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -at |grep &quot;:12346 &quot;  </span><br><span class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 SYN_RECV    //server</span><br><span class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //client</span><br><span class="line"># ss -lt</span><br><span class="line">State       Recv-Q Send-Q      Local Address:Port       Peer Address:Port   </span><br><span class="line">LISTEN      1025   1024             *:terabase              *:*</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/09/22/kubernetes service 和 kube-proxy详解/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1698,336 +2412,6 @@
 <p>可以看到，当 TCP 重传发生时，该事件的基本信息就会被打印出来。</p>
 <p>由于 Kprobe 是通过异常（Exception）这种方式来工作的，所以它还是有一些性能开销的，在 TCP 发包快速路径上还是要避免使用 Kprobe。不过，由于重传路径是慢速路径，所以在重传路径上添加 Kprobe 也无需担心性能开销。</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/37112986" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/37112986</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/05/31/Perf IPC以及CPU利用率/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/05/31/Perf IPC以及CPU利用率/" itemprop="url">Perf IPC以及CPU利用率</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-05-31T12:30:03+08:00">
-                2020-05-31
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/05/31/Perf IPC以及CPU利用率/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/05/31/Perf IPC以及CPU利用率/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Perf-IPC以及CPU利用率"><a href="#Perf-IPC以及CPU利用率" class="headerlink" title="Perf IPC以及CPU利用率"></a>Perf IPC以及CPU利用率</h1><h2 id="CPU-流水线工作原理"><a href="#CPU-流水线工作原理" class="headerlink" title="CPU 流水线工作原理"></a>CPU 流水线工作原理</h2><p>cycles：CPU时钟周期。CPU从它的指令集(instruction set)中选择指令执行。一个指令包含以下的步骤，每个步骤由CPU的一个叫做功能单元(functional unit)的组件来进行处理，每个步骤的执行都至少需要花费一个时钟周期。</p>
-<ul>
-<li>指令读取(instruction fetch， IF)</li>
-<li>指令解码(instruction decode， ID)</li>
-<li>执行(execute， EXE)</li>
-<li>内存访问(memory access，MEM)</li>
-<li>寄存器回写(register write-back， WB)</li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20210511154816751.png" alt="image-20210511154816751"></p>
-<p>五个步骤只能串行，但是可以做成pipeline提升效率，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。<br>另外cpu可以同时有多条pipeline，这也就是理论上最大的IPC.<br>stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发生停滞的时钟周期。stalled-cycles-frontend指指令读取或解码的指令步骤，而stalled-cycles-backend则是指令执行步骤。第二列中的cycles idle其实意思跟stalled是一样的，由于指令执行停滞了，所以指令管道也就空闲了，千万不要误解为CPU的空闲率。这个数值是由stalled-cycles-frontend或stalled-cycles-backend除以上面的cycles得出的</p>
-<h3 id="Back-end-Bound"><a href="#Back-end-Bound" class="headerlink" title="Back-end Bound"></a>Back-end Bound</h3><p>Back-end Bound 分为 Memory Bound 和 Core Bound，通过在每个周期内基于执行单元的占用情况来分析 Back-end 停顿。为了达到尽可能大的 IPC，需要使得执行单元保持繁忙。例如，在一个有4个 slot 的机器中，如果在稳定状态下只能执行三个或更少的 uOps，就不能达到最佳状态，即 IPC 等于4。这些次优周期称为 Execution Stalls。</p>
-<ul>
-<li>非流水线：</li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20210511154859711.png" alt="image-20210511154859711"></p>
-<p>对于非流水计算机而言，上一条指令的 5 个子过程全部执行完毕后才能开始下一条指令，每隔 5 个时 钟周期才有一个输出结果。因此，图3中用了 15 个时钟周期才完成 3 条指令，每条指令平均用时 5 个时钟周期。 非流水线工作方式的控制比较简单，但部件的利用率较低，系统工作速度较慢。</p>
-<p>毫无疑问，非流水线效率很低下，5个单元同时只能有一个单元工作，每隔 5 个时 钟周期才有一个输出结果。每条指令用时5个时间周期。</p>
-<ul>
-<li>标量流水线, 标量（Scalar）流水计算机是<strong>只有一条指令流水线</strong>的计算机:</li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20210511155530477.png" alt="image-20210511155530477"></p>
-<p> 对标量流水计算机而言，上一条指令与下一条指令的 5 个子过程在时间上可以重叠执行，当流水线满 载时，每一个时钟周期就可以输出一个结果。因此，图中仅用了 9 个时钟周期就完成了 5 条指令，每条指令平均用时 1.8 个时钟周期。</p>
-<p>采用标量流水线工作方式，<strong>虽然每条指令的执行时间并未缩短，但 CPU 运行指令的总体速度却能成倍 提高</strong>。当然，作为速度提高的代价，需要增加部分硬件才能实现标量流水。</p>
-<ul>
-<li>超标量流水线：所谓超标量（Superscalar）流 水计算机，是指它<strong>具有两条以上的指令流水线</strong></li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20210511155708234.png" alt="image-20210511155708234"></p>
-<p>当流水线满载时，每一个时钟周期可以执行 2 条以上的指令。图中仅用了 9 个时钟周期就完成了 10 条指令，每条指令平均用时 0.9 个时钟周期。 超标量流水计算机是时间并行技术和空间并行技术的综合应用。</p>
-<p>在流水计算机中，指令的处理是重叠进行的，前一条指令还没有结束，第二、三条指令就陆续开始工 作。由于多条指令的重叠处理，当后继指令所需的操作数刚好是前一指令的运算结果时，便发生数据相关冲突。由于这两条指令的执行顺序直接影响到操作数读取的内容，必须等前一条指令执行完毕后才能执行后一条指令。</p>
-<p><strong>OoOE— Out-of-Order Execution 乱序执行也是在 Pentium Pro 开始引入的</strong>，它有些类似于多线程的概念。<strong>乱序执行是为了直接提升 ILP(Instruction Level Parallelism)指令级并行化的设计</strong>，在多个执行单元的超标量设计当中，一系列的执行单元可以<strong>同时运行</strong>一些<strong>没有数据关联性的若干指令</strong>，<strong>只有需要等待其他指令运算结果的数据会按照顺序执行</strong>，从而总体提升了运行效率。乱序执行引擎是一个很重要的部分，需要进行复杂的调度管理。</p>
-<p>每一个功能单元的流水线的长度是不同的。事实上，不同的功能单元的流水线长度本来就不一样。我们平时所说的 14 级流水线，指的通常是进行整数计算指令的流水线长度。如果是浮点数运算，实际的流水线长度则会更长一些。</p>
-<p><img src="/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg" alt="img"></p>
-<h3 id="指令缓存（Instruction-Cache）和数据缓存（Data-Cache）"><a href="#指令缓存（Instruction-Cache）和数据缓存（Data-Cache）" class="headerlink" title="指令缓存（Instruction Cache）和数据缓存（Data Cache）"></a>指令缓存（Instruction Cache）和数据缓存（Data Cache）</h3><p>在第 1 条指令执行到访存（MEM）阶段的时候，流水线里的第 4 条指令，在执行取指令（Fetch）的操作。访存和取指令，都要进行内存数据的读取。我们的内存，只有一个地址译码器的作为地址输入，那就只能在一个时钟周期里面读取一条数据，没办法同时执行第 1 条指令的读取内存数据和第 4 条指令的读取指令代码。</p>
-<p><img src="/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg" alt="img"></p>
-<p>把内存拆成两部分的解决方案，在计算机体系结构里叫作哈佛架构（Harvard Architecture），来自哈佛大学设计Mark I 型计算机时候的设计。我们今天使用的 CPU，仍然是冯·诺依曼体系结构的，并没有把内存拆成程序内存和数据内存这两部分。因为如果那样拆的话，对程序指令和数据需要的内存空间，我们就没有办法根据实际的应用去动态分配了。虽然解决了资源冲突的问题，但是也失去了灵活性。</p>
-<p><img src="/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg" alt="img"></p>
-<p>在流水线产生依赖的时候必须pipeline stall，也就是让依赖的指令执行NOP。</p>
-<h2 id="每个指令需要的cycle"><a href="#每个指令需要的cycle" class="headerlink" title="每个指令需要的cycle"></a>每个指令需要的cycle</h2><p>Intel xeon</p>
-<p><img src="/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg" alt="img"></p>
-<h2 id="perf-使用"><a href="#perf-使用" class="headerlink" title="perf 使用"></a>perf 使用</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）</span><br><span class="line">perf record -e &apos;skb:consume_skb&apos; -ag  //记录网络消耗</span><br><span class="line">perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1</span><br><span class="line">sudo perf sched record -- sleep 1 //记录cpu调度的延时</span><br><span class="line">sudo perf sched latency //查看</span><br></pre></td></tr></table></figure>
-<p>可以通过perf看到cpu的使用情况：</p>
-<pre><code>$sudo perf stat -a -- sleep 10
-
-Performance counter stats for &apos;system wide&apos;:
-
- 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)
-        45,709      context-switches          #    0.191 K/sec                    (100.00%)
-         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)
-        79,586      page-faults               #    0.332 K/sec
- 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)
- 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)
- 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)
- 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles
-                                             #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)
-   447,584,805      branches                  #    1.866 M/sec                    (83.33%)
-     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)
-</code></pre><p><img src="/images/oss/f96e50b5f3d0825b68be5b654624f839.png" alt="image.png"></p>
-<h2 id="IPC测试"><a href="#IPC测试" class="headerlink" title="IPC测试"></a>IPC测试</h2><p>实际运行的时候增加如下nop到100个以上</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">void main() &#123;</span><br><span class="line"></span><br><span class="line">    while(1) &#123;</span><br><span class="line">         __asm__ (&quot;nop\n\t&quot;</span><br><span class="line">                 &quot;nop\n\t&quot;</span><br><span class="line">                 &quot;nop&quot;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>鲲鹏920运行，ipc是指每个core的IPC，如果同时运行两个如上测试程序，每个程序的IPC都是3.99</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">#perf stat -- ./nop.out</span><br><span class="line">failed to read counter branches</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &apos;./nop.out&apos;:</span><br><span class="line"></span><br><span class="line">       8826.948260      task-clock (msec)         #    1.000 CPUs utilized</span><br><span class="line">                 8      context-switches          #    0.001 K/sec</span><br><span class="line">                 0      cpu-migrations            #    0.000 K/sec</span><br><span class="line">                37      page-faults               #    0.004 K/sec</span><br><span class="line">    22,949,862,030      cycles                    #    2.600 GHz</span><br><span class="line">         2,099,719      stalled-cycles-frontend   #    0.01% frontend cycles idle</span><br><span class="line">        18,859,839      stalled-cycles-backend    #    0.08% backend  cycles idle</span><br><span class="line">    91,465,043,922      instructions              #    3.99  insns per cycle</span><br><span class="line">                                                  #    0.00  stalled cycles per insn</span><br><span class="line">   &lt;not supported&gt;      branches</span><br><span class="line">            33,262      branch-misses             #    0.00% of all branches</span><br><span class="line"></span><br><span class="line">       8.827886000 seconds time elapsed</span><br></pre></td></tr></table></figure>
-<p>intel X86 8260</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#perf stat -- ./nop.out</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &apos;./nop.out&apos;:</span><br><span class="line"></span><br><span class="line">      65061.160345      task-clock (msec)         #    1.001 CPUs utilized</span><br><span class="line">                46      context-switches          #    0.001 K/sec</span><br><span class="line">                92      cpu-migrations            #    0.001 K/sec</span><br><span class="line">               108      page-faults               #    0.002 K/sec</span><br><span class="line">   155,659,827,263      cycles                    #    2.393 GHz</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">   603,247,401,995      instructions              #    3.88  insns per cycle</span><br><span class="line">     4,742,051,659      branches                  #   72.886 M/sec</span><br><span class="line">         1,799,428      branch-misses             #    0.04% of all branches</span><br><span class="line"></span><br><span class="line">      65.012821629 seconds time elapsed</span><br></pre></td></tr></table></figure>
-<p>这两块CPU理论IPC最大值都是4，实际x86离理论值更远一些. 增加while循环中的nop数量（从132增加到432个）IPC能提升到3.92</p>
-<h3 id="IPC和超线程的关系"><a href="#IPC和超线程的关系" class="headerlink" title="IPC和超线程的关系"></a>IPC和超线程的关系</h3><p>IPC 和一个core上运行多少个进程没有关系。实际测试将两个nop绑定到一个core上，IPC不变, 因为IPC就是从core里面取到的，不针对具体进程。但是如果是两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍</p>
-<p><img src="/images/951413iMgBlog/image-20210513123233344.png" alt="image-20210513123233344"></p>
-<p>对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%</p>
-<p><img src="/images/951413iMgBlog/image-20210513130252565.png" alt="image-20210513130252565"></p>
-<p>以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)</p>
-<h2 id="perf-和火焰图"><a href="#perf-和火焰图" class="headerlink" title="perf 和火焰图"></a>perf 和火焰图</h2><p>调用 perf record 采样几秒钟，一般需要加 -g 参数，也就是 call-graph，还需要抓取函数的调用关系。在多核的机器上，还要记得加上 -a 参数，保证获取所有 CPU Core 上的函数运行情况。至于采样数据的多少，在讲解 perf 概念的时候说过，我们可以用 -c 或者 -F 参数来控制。</p>
-<pre><code>   83  07/08/19 13:56:26 sudo perf record -ag -p 4759
-   84  07/08/19 13:56:50 ls /tmp/
-   85  07/08/19 13:57:06 history |tail -16
-   86  07/08/19 13:57:20 sudo chmod 777 perf.data
-   87  07/08/19 13:57:33 perf script &gt;out.perf
-   88  07/08/19 13:59:24 ~/tools/FlameGraph-master/./stackcollapse-perf.pl ~/out.perf &gt;out.folded
-   89  07/08/19 14:01:01 ~/tools/FlameGraph-master/flamegraph.pl out.folded &gt; kernel-perf.svg
-   90  07/08/19 14:01:07 ls -lh
-   91  07/08/19 14:03:33 history
-
-
-$ sudo perf record -F 99 -a -g -- sleep 60 //-F 99 指采样每秒钟做 99 次
-</code></pre><p>　　执行这个命令将生成一个 perf.data 文件：</p>
-<p>执行sudo perf report -n可以生成报告的预览。<br>执行sudo perf report -n –stdio可以生成一个详细的报告。<br>执行sudo perf script可以 dump 出 perf.data 的内容。</p>
-<pre><code># 折叠调用栈
-$ FlameGraph/stackcollapse-perf.pl out.perf &gt; out.folded
-# 生成火焰图
-$ FlameGraph/flamegraph.pl out.folded &gt; out.svg
-</code></pre><h2 id="ECS和perf"><a href="#ECS和perf" class="headerlink" title="ECS和perf"></a>ECS和perf</h2><p>在ECS会采集不到 cycles等，cpu-clock、page-faults都是内核中的软事件，cycles/instructions得采集cpu的PMU数据，ECS采集不到这些PMU数据。</p>
-<p><img src="/images/oss/a120388ff72d712a4fd176e7cea005cf.png" alt="image.png"></p>
-<h2 id="CPU-cache"><a href="#CPU-cache" class="headerlink" title="CPU cache"></a>CPU cache</h2><p><img src="/images/951413iMgBlog/image-20210511160107225.png" alt="image-20210511160107225"></p>
-<p><img src="/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png" alt="image.png"></p>
-<p>查看cpu cache数据</p>
-<pre><code>cat /proc/cpuinfo |grep -i cache
-</code></pre><p><img src="/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png" alt="image.png"></p>
-<p>如下 Linux getconf 命令的输出，除了 <em>_LINESIZE 指示了系统的 Cache Line 的大小是 64 字节外，还给出了 Cache 类别，大小。 其中 </em>_ASSOC 则指示了该 Cache 是几路关联 (Way Associative) 的。</p>
-<pre><code>$sudo getconf -a |grep CACHE
-LEVEL1_ICACHE_SIZE                 32768
-LEVEL1_ICACHE_ASSOC                8
-LEVEL1_ICACHE_LINESIZE             64
-LEVEL1_DCACHE_SIZE                 32768
-LEVEL1_DCACHE_ASSOC                8
-LEVEL1_DCACHE_LINESIZE             64
-LEVEL2_CACHE_SIZE                  262144
-LEVEL2_CACHE_ASSOC                 4
-LEVEL2_CACHE_LINESIZE              64
-LEVEL3_CACHE_SIZE                  3145728
-LEVEL3_CACHE_ASSOC                 12
-LEVEL3_CACHE_LINESIZE              64
-LEVEL4_CACHE_SIZE                  0
-LEVEL4_CACHE_ASSOC                 0
-LEVEL4_CACHE_LINESIZE              0
-</code></pre><h2 id="Socket、核"><a href="#Socket、核" class="headerlink" title="Socket、核"></a>Socket、核</h2><p>一个Socket理解一个CPU，一个CPU又可以是多核的</p>
-<h2 id="超线程（Hyperthreading，HT）"><a href="#超线程（Hyperthreading，HT）" class="headerlink" title="超线程（Hyperthreading，HT）"></a>超线程（Hyperthreading，HT）</h2><p>一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，有时叫做 simultaneous multi-threading（SMT）。</p>
-<p>超线程技术主要的出发点是，当处理器在运行一个线程，执行指令代码时，很多时候处理器并不会使用到全部的计算能力，部分计算能力就会处于空闲状态。而超线程技术就是通过多线程来进一步“压榨”处理器。<strong>pipeline进入stalled状态就可以切到其它超线程上</strong></p>
-<p>举个例子，如果一个线程运行过程中，必须要等到一些数据加载到缓存中以后才能继续执行，此时 CPU 就可以切换到另一个线程，去执行其他指令，而不用去处于空闲状态，等待当前线程的数据加载完毕。<strong>通常，一个传统的处理器在线程之间切换，可能需要几万个时钟周期。而一个具有 HT 超线程技术的处理器只需要 1 个时钟周期。因此就大大减小了线程之间切换的成本，从而最大限度地让处理器满负荷运转。</strong></p>
-<blockquote>
-<p>ARM芯片基本不做超线程，另外请思考为什么有了应用层的多线程切换还需要CPU层面的超线程？</p>
-</blockquote>
-<p>如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT</p>
-<p><img src="/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png" alt="image.png"></p>
-<h2 id="测试工具-toplev"><a href="#测试工具-toplev" class="headerlink" title="测试工具 toplev"></a>测试工具 toplev</h2><p><code>toplev</code>是一个基于<code>perf</code>和TMAM(Top-down Microarchitecture Analysis Method)方法的应用性能分析工具。从之前的<a href="https://decodezp.github.io/2019/01/27/quickwords13-tma/" target="_blank" rel="noopener">介绍文章 </a>中可以了解到TMAM本质上是对CPU Performance Counter的整理和加工。取得Performance Counter的读数需要<code>perf</code>来协助，对读数的计算进而明确是Frondend bound还是Backend bound等等。</p>
-<p>在最终计算之前，你大概需要做三件事：</p>
-<ul>
-<li>明确CPU型号，因为不同的CPU，对应的PMU也不一样（依赖网络）</li>
-<li>读取TMAM需要的<code>perf event</code>读数</li>
-<li>按TMAM规定的算法计算，具体算法在这个<a href="https://share.weiyun.com/5jNsb6o" target="_blank" rel="noopener">Excel表格</a>里</li>
-</ul>
-<p>这三步可以自动化地由程序来做。本质上<code>toplev</code>就是在做这件事。</p>
-<p><code>toplev</code>的<a href="https://github.com/andikleen/pmu-tools" target="_blank" rel="noopener">Github地址</a>：<a href="https://github.com/andikleen/pmu-tools" target="_blank" rel="noopener">https://github.com/andikleen/pmu-tools</a></p>
-<p>另外补充一下，TMAM作为一种<code>Top-down</code>方法，它一定是分级的。通过上一级的结果下钻，最终定位性能瓶颈。那么<code>toplev</code>在执行的时候，也一定是包含这个“等级”概念的。</p>
-<p>pmu-tools 的工具在第一次运行的时会通过 <code>event_download.py</code> 把本机环境的 PMU 映射表自动下载下来, 但是前提是你的机器能正常连接 01.day 的网络. 很抱歉我司内部的服务器都是不行的, 因此 pmu-tools 也提供了手动下载的方式.</p>
-<p>因此当我们的环境根本无法连接外部网络的时候, 我们只能通过其他机器下载实际目标环境的事件映射表下载到另一个系统上, 有点交叉编译的意思.</p>
-<h3 id="首先获取目标机器的-CPU-型号"><a href="#首先获取目标机器的-CPU-型号" class="headerlink" title="首先获取目标机器的 CPU 型号"></a><a href="https://oskernellab.com/2021/01/24/2021/0127-0001-Topdown_analysis_as_performed_on_Intel_CPU_using_pmu-tools/" target="_blank" rel="noopener">首先获取目标机器的 CPU 型号</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">printf &quot;GenuineIntel-6-%X\n&quot; $(awk &apos;/model\s+:/ &#123; print $3 ; exit &#125; &apos; /proc/cpuinfo )</span><br></pre></td></tr></table></figure>
-<blockquote>
-<p>cpu的型号信息是由 vendor_id/cpu_family/model/stepping 等几个标记的.</p>
-<p>他其实标记了当前 CPU 是哪个系列那一代的产品, 对应的就是其微架构以及版本信息.</p>
-<p>注意我们使用了 %X 按照 16 进制来打印</p>
-<p>注意上面的命令显示制定了 vendor_id 等信息, 因为当前服务器端的 CPU 前面基本默认是 GenuineIntel-6 等.</p>
-<p>不过如果我们是其他机器, 最好查看下 cpufino 信息确认.</p>
-</blockquote>
-<p>比如我这边机器的 CPU 型号为 :</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">processor       : 7</span><br><span class="line">vendor_id       : GenuineIntel`</span><br><span class="line">cpu family      : 6</span><br><span class="line">model           : 85</span><br><span class="line">model name      : Intel(R) Xeon(R) Gold 6161 CPU @ 2.20GHz</span><br><span class="line">stepping        : 4</span><br><span class="line">microcode       : 0x1</span><br></pre></td></tr></table></figure>
-<p>对应的结果就是 <code>GenuineIntel-6-55-4</code>.</p>
-<p>我们也可以直接用 <code>-v</code> 打出来 CPU 信息.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ python ./event_download.py  -v</span><br><span class="line"></span><br><span class="line">My CPU GenuineIntel-6-55-4</span><br></pre></td></tr></table></figure>
-<h3 id="TMAM-Top-down-Microarchitecture-Analysis-Method"><a href="#TMAM-Top-down-Microarchitecture-Analysis-Method" class="headerlink" title="TMAM(Top-down Microarchitecture Analysis Method)"></a>TMAM(Top-down Microarchitecture Analysis Method)</h3><p>在最近的英特尔微体系结构上，流水线的 Front-end 每个 CPU 周期（cycle）可以分配4个 uOps ，而 Back-end 可以在每个周期中退役4个 uOps。 流水线槽（pipeline slot）代表处理一个 uOp 所需的硬件资源。 TMAM 假定对于每个 CPU 核心，在每个 CPU 周期内，有4个 pipeline slot 可用，然后使用专门设计的 PMU 事件来测量这些 pipeline slot 的使用情况。在每个 CPU 周期中，pipeline slot 可以是空的或者被 uOp 填充。 如果在一个 CPU 周期内某个 pipeline slot 是空的，称之为一次停顿（stall）。如果 CPU 经常停顿，系统性能肯定是受到影响的。TMAM 的目标就是确定系统性能问题的主要瓶颈。</p>
-<p>下图展示并总结了乱序执行微体系架构中自顶向下确定性能瓶颈的分类方法。这种自顶向下的分析框架的优点是一种结构化的方法，有选择地探索可能的性能瓶颈区域。 带有权重的层次化节点，使得我们能够将分析的重点放在确实重要的问题上，同时无视那些不重要的问题。</p>
-<p><img src="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/topdown.PNG" alt="topdown.PNG"></p>
-<p>例如，如果应用程序性能受到指令提取问题的严重影响， TMAM 将它分类为 Front-end Bound 这个大类。 用户或者工具可以向下探索并仅聚焦在 Front-end Bound 这个分类上，直到找到导致应用程序性能瓶颈的直接原因或一类原因。</p>
-<h3 id="toplev实例"><a href="#toplev实例" class="headerlink" title="toplev实例"></a>toplev实例</h3><p>配置对应cpu型号的事件</p>
-<blockquote>
-<p>export EVENTMAP=/root/.cache/pmu-events/GenuineIntel-6-55-7-core.json  这样就可以了,上述资料中的两个export是可选的</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># python toplev.py --core C0 --no-desc -l1 taskset -c 0  bash -c &apos;echo &quot;7^199999&quot; | bc &gt; /dev/null&apos;</span><br><span class="line">Will measure complete system.</span><br><span class="line">Using level 1.</span><br><span class="line"># 4.2-full-perf on Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz [clx/skylake]</span><br><span class="line">S0-C0    BAD            Bad_Speculation  % Slots                   36.9  &lt;==</span><br><span class="line">S1-C0    BE             Backend_Bound    % Slots                   56.2  &lt;==</span><br><span class="line">Run toplev --describe Bad_Speculation^ Backend_Bound^ to get more information on bottlenecks</span><br><span class="line">Add --nodes &apos;!+Bad_Speculation*/2,+Backend_Bound*/2,+MUX&apos; for breakdown.</span><br></pre></td></tr></table></figure>
-<h2 id="Linux-调度策略"><a href="#Linux-调度策略" class="headerlink" title="Linux 调度策略"></a><a href="http://linuxperf.com/?p=197" target="_blank" rel="noopener">Linux 调度策略</a></h2><p>Linux kernel支持两种实时(real-time)调度策略(scheduling policy)：SCHED_FIFO和SCHED_RR</p>
-<ul>
-<li>/proc/sys/kernel/sched_rt_period_us</li>
-</ul>
-<p>缺省值是1,000,000 μs (1秒)，表示实时进程的运行粒度为1秒。（注：修改这个参数请谨慎，太大或太小都可能带来问题）。</p>
-<ul>
-<li>/proc/sys/kernel/sched_rt_runtime_us</li>
-</ul>
-<p>缺省值是 950,000 μs (0.95秒)，表示在1秒的运行周期里所有的实时进程一起最多可以占用0.95秒的CPU时间。</p>
-<p>如果sched_rt_runtime_us=-1，表示取消限制，意味着实时进程可以占用100%的CPU时间（慎用，有可能使系统失去控制）。</p>
-<p>所以，Linux kernel默认情况下保证了普通进程无论如何都可以得到5%的CPU时间，尽管系统可能会慢如蜗牛，但管理员仍然可以利用这5%的时间设法恢复系统，比如停掉失控的实时进程，或者给自己的shell进程赋予更高的实时优先级以便执行管理任务，等等。</p>
-<p>进程自愿切换(Voluntary)和强制切换(Involuntary)的次数被统计在 /proc//status 中，其中voluntary_ctxt_switches表示自愿切换的次数，nonvoluntary_ctxt_switches表示强制切换的次数，两者都是自进程启动以来的累计值。 或pidstat -w 1 来统计  <a href="http://linuxperf.com/?cat=10" target="_blank" rel="noopener">http://linuxperf.com/?cat=10</a></p>
-<ul>
-<li>自愿切换发生的时候，进程不再处于运行状态，比如由于等待IO而阻塞(TASK_UNINTERRUPTIBLE)，或者因等待资源和特定事件而休眠(TASK_INTERRUPTIBLE)，又或者被debug/trace设置为TASK_STOPPED/TASK_TRACED状态；</li>
-<li>强制切换发生的时候，进程仍然处于运行状态(TASK_RUNNING)，通常是由于被优先级更高的进程抢占(preempt)，或者进程的时间片用完了</li>
-</ul>
-<p>如果一个进程的自愿切换占多数，意味着它对CPU资源的需求不高。如果一个进程的强制切换占多数，意味着对它来说CPU资源可能是个瓶颈，这里需要排除进程频繁调用sched_yield()导致强制切换的情况</p>
-<p>spinlock(自旋锁)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠 <a href="http://linuxperf.com/?p=138" target="_blank" rel="noopener">http://linuxperf.com/?p=138</a></p>
-<p>从操作系统的角度讲，os会维护一个ready queue（就绪的线程队列）。并且在某一时刻cpu只为ready queue中位于队列头部的线程服务。</p>
-<p>sleep()使当前线程进入停滞状态，所以执行sleep()的线程在指定的时间内肯定不会执行；yield()只是使当前线程重新回到可执行状态，所以执行yield()的线程有可能在进入到可执行状态后马上又被执行。</p>
-<p>NMI(non-maskable interrupt)，就是不可屏蔽的中断. NMI通常用于通知操作系统发生了无法恢复的硬件错误，也可以用于系统调试与采样，大多数服务器还提供了人工触发NMI的接口，比如NMI按钮或者iLO命令等。</p>
-<p><a href="http://cenalulu.github.io/linux/numa/" target="_blank" rel="noopener">http://cenalulu.github.io/linux/numa/</a> numa原理和优缺点案例讲解</p>
-<p>正在运行中的用户程序被中断之后，必须等到中断处理例程完成之后才能恢复运行，在此期间即使其它CPU是空闲的也不能换个CPU继续运行，就像被中断牢牢钉在了当前的CPU上，动弹不得，中断处理需要多长时间，用户进程就被冻结多长时间。</p>
-<p><img src="/images/oss/1d20b6172d4effb7e27feedc06a820f9.png" alt="image.png"></p>
-<p>Linux kernel把中断分为两部分：hard IRQ和soft IRQ，hard IRQ只处理中断最基本的部分，保证迅速响应，尽量在最短的时间里完成，把相对耗时的工作量留给soft IRQ；soft IRQ可以被hard IRQ中断，如果soft IRQ运行时间过长，也可能会被交给内核线程ksoftirqd去继续完成。<br><a href="https://mp.weixin.qq.com/s/AzcB1DwqRCoiofOOI88T9Q" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/AzcB1DwqRCoiofOOI88T9Q</a> softirq导致一路CPU使用过高，其它CPU还是闲置，整个系统比较慢</p>
-<p>Linux的进程调度有一个不太为人熟知的特性，叫做wakeup affinity，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。<a href="https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA</a></p>
-<p><a href="http://linuxperf.com/?p=197" target="_blank" rel="noopener">http://linuxperf.com/?p=197</a></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhengheng.me/2015/11/12/perf-stat/" target="_blank" rel="noopener">perf详解</a></p>
-<p><a href="https://www.atatech.org/articles/109158" target="_blank" rel="noopener">CPU体系结构</a></p>
-<p><a href="https://mp.weixin.qq.com/s/KaDJ1EF5Y-ndjRv2iUO3cA" target="_blank" rel="noopener">震惊，用了这么多年的 CPU 利用率，其实是错的</a>cpu占用不代表在做事情，可能是stalled，也就是流水线卡顿，但是cpu占用了，实际没事情做。</p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd" target="_blank" rel="noopener">https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd</a> </p>
-<p><a href="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/" target="_blank" rel="noopener">https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/</a></p>
 
           
         
@@ -5300,526 +5684,11 @@ test.x86_64.rpm
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/01/2010到2020这10年的碎碎念念/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/01/2010到2020这10年的碎碎念念/" itemprop="url">2010到2020这10年的碎碎念念</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T00:30:03+08:00">
-                2020-01-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/others/" itemprop="url" rel="index">
-                    <span itemprop="name">others</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/01/01/2010到2020这10年的碎碎念念/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/01/2010到2020这10年的碎碎念念/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="2010到2020这10年的碎碎念念"><a href="#2010到2020这10年的碎碎念念" class="headerlink" title="2010到2020这10年的碎碎念念"></a>2010到2020这10年的碎碎念念</h1><h2 id="来自网络的一些数据"><a href="#来自网络的一些数据" class="headerlink" title="来自网络的一些数据"></a>来自网络的一些数据</h2><p>这十年，中国的人均GDP从大约3300美金干到了9800美金。这意味着：更多的中国人脱贫，更多的中国人变成了中产。这是这一轮消费升级的核心原动力，没有之一。</p>
-<p>这十年，中国的进出口的总额从2009年占GDP的44.86%，降至34.35%。</p>
-<p>互联网从美国copy开始变成创新、走在前列，因为有庞大的存量市场</p>
-<p>2010年，一个数据发生了逆势波动。那就是中国的适龄小学人口增速。在此之前从1997年后，基本呈负增长。这是因为中国80后家长开始登上历史舞台。这带动了诸多产业的蓬勃发展，比如互联网教育，当然还有学区房。</p>
-<p>10年吉利收购沃尔沃，18年吉利收购戴姆勒10%的股份。</p>
-<p>微信崛起、头条崛起、百度走下神坛。美团、pdd崛起</p>
-<p>12年2月6号的王护士长外逃美国大使馆也让大家兴奋了，11年的郭美美红十字会事件快要被忘记了，但是也让大家对慈善事件更加警惕，倒是谅解了汶川地震的王石10块捐款事件，不过老王很快因为娶了年轻的影星田朴珺一下子人设坍塌，大家更热衷老王的负面言论了。</p>
-<p>温州动车事件让高铁降速了</p>
-<p>我爸是李刚、药家鑫、李天一、邓玉娇（09年），陈冠希艳照门、三鹿奶粉、汶川地震、奥运会（08年）</p>
-<p>2018年：中美贸易站、问题疫苗、个税改革、中兴被美制裁，北京驱赶低端人口，鸿茅药酒，p2p暴雷，昆山反杀案，相互宝</p>
-<p>2015年：雾霾、柴静纪录片《穹顶之下》，屠呦呦诺贝尔奖，放开二胎</p>
-<p>2014年：东莞扫黄、马航370事件；周师傅被查、占中</p>
-<p>2013年：劳教正式被废除，想起2003年的孙志刚事件废除收容制度</p>
-<p>2012年：方韩之争，韩寒走下神坛</p>
-<p>2011年：日本海啸地震，中国抢盐事件；郭美美，温州动车</p>
-<p>2010年：google退出中国，上海世博会开幕，富士康N连跳楼事件；我爸是李刚，腾讯大战360</p>
-<h2 id="自我记忆"><a href="#自我记忆" class="headerlink" title="自我记忆"></a>自我记忆</h2><p>刚看到有人在说乐清钱云会事件，一晃10年了，10年前微博开始流行改变了好多新闻、热点事件的引爆方式。</p>
-<p>这十年BBS、门户慢慢在消亡，10年前大家都知道三大门户网站和天涯，现在的新网民应该知道的不多了。</p>
-<p>影响最大的还是移动网络的崛起，这也取决于4G和山寨机以及后来的小米手机，真正给中国的移动互联网带来巨大的红利，注入的巨大的增长。<br>我自己对移动互联网的判断是极端错误的，即使09年我就开始用上了iphone手机，那又怎么样，看问题还是用静态的视觉观点。手机没有键盘、手机屏幕狭小，这些确实是限制，到2014年我还想不明白为什么要在手机上购物，比较、看物品图片太不方便了，结果便利性秒杀了这些不方便；只有手机的群体秒杀了办公室里的白领，最后大家都很高兴地用手机购物了，甚至PC端bug更多，更甚至有些网站不提供PC端。</p>
-<p>移动网络的崛起和微信的成功也相辅相成的，在移动网络时代每个人都有自己的手机，所以账号系统的打通不再是问题，尤其是都被微信这个移动航母在吞噬，其它公司都活在微信的阴影里。</p>
-<p>当然移动支付的崛起就理所当然了。</p>
-<p>即使今天网上购物还是PC上要方便，那又怎么样，很多时候网上购物都是不在电脑前的零碎时间。</p>
-<p>10多年前第一次看到智能手机是室友购买的多普达，20年前也是这个室友半夜里很兴奋地播报台湾大选，让我知道了台湾大选这个事情。</p>
-<p>基本的价值观、世界观，没怎么改变，不应该是年龄大了僵化了，应该是掌握信息的手段和能力增强了，翻墙获取信息也很容易，基本的逻辑还在也没那么容易跑偏了。可能就是别人看到的年纪大了脑子僵化了吧，自我感觉不一定对。</p>
-<p>最近10年经济发展的非常好，政府对言论的控制越来越精准，舆论引导也非常”成功”,所以网络上看到这5年和5年前基本差别很大，5年前公知是个褒义词，5年后居然成了贬义词。</p>
-<p>房价自然是这10年最火的话题，07年大家开始感觉到房价上涨快、房价高，08年金融危机本来是最好的机会，结果4万亿刺激下09年年底房价开始翻倍，到10年面对翻倍了的房价政府、媒体、老百姓都在喊高，实际也只是横盘，13-14年小拉一波，16年涨价去库存再大拉一波。基本让很多人绝望了</p>
-<p>这十年做的最错的事情除了没有早点买房外就是想搞点投资收入投了制造外加炒股，踩点能力太差了，虽然前5年像任志强一样一直看多房价的不多，这个5年都被现实教育了，房价也基本到头了。</p>
-<p>工作上应该更早地、坚定地进入互联网、移动互联网，这10年互联网对人才的需求实在太大了，虽然最终能伴随公司成长的太少，毕竟活下来长大的公司不多。</p>
-<p>Google退出中国、看着小杨同学和一些同事移民、360大战QQ、诺贝尔和平奖、华为251事件都算是自己在一些公众事情上投入比较多的。非常不舍google的离开，这些年也基本还是只用google，既是无奈中用下百度也还是觉得搜不到什么有效信息；好奇移民的想法和他们出去后的各种生活；360跟QQ大战的时候觉得腾讯的垄断太牛叉了，同时认为可能360有这种资源的话会更作恶和垄断的更厉害，至少腾讯还是在乎外面的看法和要面子的；LXB到现在也是敏感词，直到病死在软禁中，这些年敏感词越来越多，言论的控制更严厉了；华为251也是个奇葩事件了，暴漏了资本家的粗野和枉法。</p>
-<p>自己工作上最幸运的事情是换到了现在的公司，才能够继续做一个北漂，要不已经被淘汰走了。这也导致了这几年能赚到前面10多年都赚不到钱。现在的公司对自己的方法论改变确实比较大，近距离看到了一些成功因素方面的逻辑（更有效的激励和企业文化）。</p>
-<p>经历了从外企到私企，从小公司到大公司的不同，外企英语是天花板，也看到了华为所谓的狼性、在金钱激励下的狼性，和对企业文化的维护，不能否认90%以上的人工作是为了钱</p>
-<p>这几年也开始习惯写技术文章来总结了，这得益于Markdown+截图表述的便利，也深刻感受到深抠，然后总结分享的方法真的很好（高斯学习方法），也体会到了抓手、触类旁通的运用。10年前在搜狐blog写过一两年的博客放弃的很快，很难一直有持续的高水平总结和输出。</p>
-<p>10年前还在比较MSN和QQ谁更好（我是坚定站在QQ这边的），10年后MSN再也看不见了，QQ也有了更好的替代工具微信。用处不大的地方倒是站对了，对自己最有用的关键地方都站错了。</p>
-<p>10年前差点要去豆瓣，10年后豆瓣还活着，依然倔强地保持自己的品味，这太难得了。相反十年前好用得不得了的RSS订阅，从抓虾转到google reader再到feedly好东西就是活得这么艰难。反过来公众号起来了、贴吧式微了，公众号运作新闻类是没问题的（看完就过），但是对技术类深度一点的就很不合适了，你看看一篇文章24小时内的阅读量占据了98%以上，再到后面就存亡了！但是公众号有流量，流量可以让大家跪在地上。</p>
-<p>10年前坑老是被看不起的，10年后早结婚、多啃老也基本成了这10年更对的事情，结婚得买房，啃老买的更早，不对的事情变对了（结婚早没错）。</p>
-<p>很成功地组织了一次初中同学20周年的聚会，也看到了远则亲、近则仇的现实情况，自己组织统筹能力还可以。</p>
-<p>情绪控制能力太差、容易失眠。这十年爱上了羽毛球和滑雪，虽然最近几年滑雪少了。</p>
-<p>体会到自小贫穷带来的一些抠门的坏习惯。</p>
-<p>2015年的股票大跌让自己很痛苦，这个过程反馈出来的不愿意撒手、在股市上的鸵鸟方式，股市上总是踩不到正确的点。割肉太难，割掉的总是错误的。</p>
-<p>15、16年我认为云计算不怎么样，觉得无非就是新瓶装旧酒，现在云计算不再有人质疑了，即使现在都还是亏钱。</p>
-<p>当然我也质疑过外卖就是一跑腿的，确实撑不起那么大的盘子，虽然没有像团购一样消亡，基本跟共享单车一样了，主要因为我是共享单车的重度用户，而我极端不喜欢外卖，所以要站出来看问题、屁股坐在哪边会严重影响看法，也就是不够客观。</p>
-<p>网约车和移动支付一起在硝烟中混战</p>
-<p>电动车开始起来，主要受政府弯道超车的刺激，目前看取决于自有充电位（适合三四线城市），可是三四线城市用户舍不得花这个溢价，汽油车都还没爽够呢。</p>
-<p>对世界杯不再那么关注，对AlphaGo的新闻倒是很在意了。魏则西事件牢牢地把百度钉死在耻辱柱上。</p>
-<p>随着12306的发展和高铁的起来，终于过年回家的火车票不用再靠半夜排队了。</p>
-<p>2019年年末行政强制安装ETC，让我想起20年前物理老师在课堂上跟我们描述的将来小汽车走高速公路再也不用停下来收费了，会自动感应，开过去就自动扣钱了。我一直对这个未来场景念念不忘，最近10年我经常问别人为什么不办ETC，这个年底看到的是行政命令下的各种抱怨。</p>
-<h3 id="看到："><a href="#看到：" class="headerlink" title="看到："></a>看到：</h3><ul>
-<li><p>老人、家人更不愿意听身边亲近人员的建议；</p>
-</li>
-<li><p>老人思维为什么固化、怎么样在自己老后不是那样固化；</p>
-</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/12/24/Linux内核版本升级，性能到底提升多少？拿数据说话/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/12/24/Linux内核版本升级，性能到底提升多少？拿数据说话/" itemprop="url">Linux内核版本升级，性能到底提升多少？拿数据说话</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-24T17:30:03+08:00">
-                2019-12-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/12/24/Linux内核版本升级，性能到底提升多少？拿数据说话/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/12/24/Linux内核版本升级，性能到底提升多少？拿数据说话/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux内核版本升级，性能到底提升多少？拿数据说话"><a href="#Linux内核版本升级，性能到底提升多少？拿数据说话" class="headerlink" title="Linux内核版本升级，性能到底提升多少？拿数据说话"></a>Linux内核版本升级，性能到底提升多少？拿数据说话</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差</p>
-<p>以下不作特殊说明的话都是在相同核数的Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz下得到的数据，最后还会比较相同内核下不同机型/CPU型号的性能差异。</p>
-<p>场景都是用sysbench 100个并发跑点查。</p>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p><strong>先说大家关心的数据，最终4.19内核性能比2.6.32好将近30%，建议大家升级新内核，不需要做任何改动，尤其是Java应用（不同场景会有差异）</strong></p>
-<p>本次比较的场景是Java应用的Proxy类服务，主要瓶颈是网络消耗，类似于MaxScale。后面有一个简单的MySQL Server场景下2.6.32和4.19的比较，性能也有33%的提升。</p>
-<h2 id="2-6-32性能数据"><a href="#2-6-32性能数据" class="headerlink" title="2.6.32性能数据"></a>2.6.32性能数据</h2><p>升级前先看看目前的性能数据好对比（以下各个场景都是CPU基本跑到85%）</p>
-<p><img src="/images/oss/b57c5ee5fe50ceb81cbad158f7b7aeeb.png" alt="image.png"></p>
-<h2 id="一波N折的4-19"><a href="#一波N折的4-19" class="headerlink" title="一波N折的4.19"></a>一波N折的4.19</h2><p>阿里云上默认买到的ALinux2 OS（4.19），同样配置跑起来后，tps只有16000，比2.6.32的22000差了不少，心里只能暗暗骂几句坑爹的货，看了下各项指标，看不出来什么问题，就像是CPU能力不行一样。如果这个时候直接找内核同学，估计他们心里会说 DRDS 是个什么东西？是不是你们测试有问题，是不是你们配置的问题，不要来坑我，内核性能我们每次发布都在实验室里跑过了，肯定是你们的应用问题。</p>
-<p>所以要找到一个公认的场景下的性能差异。幸好通过qperf发现了一些性能差异。</p>
-<h3 id="通过qperf来比较差异"><a href="#通过qperf来比较差异" class="headerlink" title="通过qperf来比较差异"></a>通过qperf来比较差异</h3><p>大包的情况下性能基本差不多，小包上差别还是很明显</p>
-<pre><code>qperf -t 40 -oo msg_size:1  4.19 tcp_bw tcp_lat
-tcp_bw:
-    bw  =  2.13 MB/sec
-tcp_lat:
-    latency  =  224 us
-tcp_bw:
-    bw  =  2.15 MB/sec
-tcp_lat:
-    latency  =  226 us
-
-qperf -t 40 -oo msg_size:1  2.6.32 tcp_bw tcp_lat
-tcp_bw:
-    bw  =  82 MB/sec
-tcp_lat:
-    latency  =  188 us
-tcp_bw:
-    bw  =  90.4 MB/sec
-tcp_lat:
-    latency  =  229 us
-</code></pre><p>这下不用怕内核同学怼回来了，拿着这个数据直接找他们，可以稳定重现。</p>
-<p>经过内核同学一顿排查后，发现默认镜像做了一些加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为DRDS的OS只给我们自己用，上面部署的代码都是DRDS自己的代码，没有客户代码，客户也不能够ssh连上DRDS节点）</p>
-<pre><code>去掉 melt、spec 能到20000， 去掉sonypatch能到21000 
-</code></pre><p>关闭的办法在grub配置中增加这些参数：</p>
-<pre><code>nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off
-</code></pre><p>关掉之后的状态看起来是这样的：</p>
-<pre><code>$sudo cat /sys/devices/system/cpu/vulnerabilities/*
-Mitigation: PTE Inversion
-Vulnerable; SMT Host state unknown
-Vulnerable
-Vulnerable
-Vulnerable: __user pointer sanitization and usercopy barriers only; no swapgs barriers
-Vulnerable, STIBP: disabled
-</code></pre><p>这块参考<a href="https://help.aliyun.com/knowledge_detail/154567.html?spm=a2c4g.11186623.2.12.887e38843VLHkv" target="_blank" rel="noopener">阿里云文档</a> 和<a href="https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC" target="_blank" rel="noopener">这个</a></p>
-<h3 id="4-9版本的内核性能"><a href="#4-9版本的内核性能" class="headerlink" title="4.9版本的内核性能"></a>4.9版本的内核性能</h3><p>但是性能还是不符合预期，总是比2.6.32差点。在中间经过几个星期排查不能解决问题，陷入僵局的过程中，尝试了一下4.9内核，果然有惊喜。</p>
-<p>下图中对4.9的内核版本验证发现，tps能到24000，明显比2.6.32要好，所以传说中的新内核版本性能要好看来是真的，这下坚定了升级的念头，同时也看到了兜底的方案–最差就升级到4.9</p>
-<p><img src="/images/oss/2f035e145f1bc41eb4a8b8bda8ed4ea2.png" alt="image.png"></p>
-<p><strong>多队列是指网卡多队列功能，也是这次升级的一个动力。看起来在没达到单核瓶颈前，网卡多队列性能反而差点，这也符合预期</strong></p>
-<h3 id="继续分析为什么4-19比4-9差了这么多"><a href="#继续分析为什么4-19比4-9差了这么多" class="headerlink" title="继续分析为什么4.19比4.9差了这么多"></a>继续分析为什么4.19比4.9差了这么多</h3><p>4.9和4.19这两个内核版本隔的近，比较好对比分析内核参数差异，4.19跟2.6.32差太多，比较起来很困难。</p>
-<p>最终仔细对比了两者配置的差异，发现ALinux的4.19中 transparent_hugepage 是 madvise ,这对Java应用来说可不是太友好：</p>
-<pre><code>$cat /sys/kernel/mm/transparent_hugepage/enabled
-always [madvise] never
-</code></pre><p>将其改到 always 后4.19的tps终于稳定在了28300</p>
-<p><img src="/images/oss/081c08801adb36cdfd8ff62be54fce94.png" alt="image.png"></p>
-<p>这个过程中花了两个月的一些其他折腾就不多说了，主要是内核补丁和transparent_hugepage导致了性能差异。</p>
-<p>transparent_hugepage，在redis、mongodb、memcache等场景（很多小内存分配）是推荐关闭的，所以要根据不同的业务场景来选择开关。</p>
-<p><strong>透明大页打开后在内存紧张的时候会触发sys飙高对业务会导致不可预期的抖动，同时存在已知内存泄漏的问题，我们建议是关掉的，如果需要使用，建议使用madvise方式或者hugetlbpage</strong></p>
-<h2 id="一些内核版本、机型和CPU的总结"><a href="#一些内核版本、机型和CPU的总结" class="headerlink" title="一些内核版本、机型和CPU的总结"></a>一些内核版本、机型和CPU的总结</h2><p>到此终于看到不需要应用做什么改变，整体性能将近有30%的提升。 在这个测试过程中发现不同CPU对性能影响很明显，相同机型也有不同的CPU型号（性能差异在20%以上–这个太坑了）</p>
-<p>性能方面 4.19&gt;4.9&gt;2.6.32</p>
-<p>没有做3.10内核版本的比较</p>
-<p>以下仅作为大家选择ECS的时候做参考。</p>
-<h3 id="不同机型-CPU对性能的影响"><a href="#不同机型-CPU对性能的影响" class="headerlink" title="不同机型/CPU对性能的影响"></a>不同机型/CPU对性能的影响</h3><p>还是先说结论：</p>
-<ul>
-<li>CPU:内存为1:2机型的性能排序：c6-&gt;c5-&gt;sn1ne-&gt;hfc5-&gt;s1</li>
-<li>CPU:内存为1:4机型的性能排序：g6-&gt;g5-&gt;sn2ne-&gt;hfg5-&gt;sn2</li>
-</ul>
-<p>性能差异主要来源于CPU型号的不同</p>
-<pre><code>c6/g6:                  Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz
-c5/g5/sn1ne/sn2ne:      Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
-</code></pre><p>8269比8163大概好5-10%，价格便宜一点点，8163比E5-2682好20%以上，价格便宜10%（该买什么机型你懂了吧，价格是指整个ECS，而不是单指CPU）</p>
-<p>要特别注意sn1ne/sn2ne 是8163和E5-2682 两种CPU型号随机的，如果买到的是E5-2682就自认倒霉吧</p>
-<p>C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是8核以上的sn1ne机型就把网络性能拉开了（价格还是维持c5便宜10%），从点查场景的测试来看网络不会成为瓶颈，到16核机型网卡多队列才会需要打开。</p>
-<p>顺便给一下部分机型的包月价格比较：</p>
-<p><img src="/images/oss/7c8b107fb12e285c8eab2c2d136bbd4e.png" alt="image.png"></p>
-<p>官方给出的CPU数据：</p>
-<p><img src="/images/oss/5f57f4228621378d14ffdd124fe54626.png" alt="image.png"></p>
-<h2 id="4-19内核在MySQL-Server场景下的性能比较"><a href="#4-19内核在MySQL-Server场景下的性能比较" class="headerlink" title="4.19内核在MySQL Server场景下的性能比较"></a>4.19内核在MySQL Server场景下的性能比较</h2><p>这只是sysbench点查场景粗略比较，因为本次的目标是对DRDS性能的改进</p>
-<p><img src="/images/oss/4f276e93cb914b3cdd312423be63c376.png" alt="image.png"></p>
-<p>（以上表格数据主要由 @夷则 团队和我一起测试得到）</p>
-<p><strong>重点注意2.6.32不但tps差30%，并发能力也差的比较多，如果同样用100个并发压2.6.32上的MySQL，TPS在30000左右。只有在减少并发到20个的时候压测才能达到图中最好的tps峰值：45000. </strong></p>
-<h2 id="新内核除了性能提升外带来的便利性"><a href="#新内核除了性能提升外带来的便利性" class="headerlink" title="新内核除了性能提升外带来的便利性"></a>新内核除了性能提升外带来的便利性</h2><p>升级内核带来的性能提升只是在极端场景下才会需要，大部分时候我们希望节省开发人员的时间，提升工作效率。于是DRDS在新内核的基础上定制如下一些便利的工具。</p>
-<h3 id="麻烦的网络重传率"><a href="#麻烦的网络重传率" class="headerlink" title="麻烦的网络重传率"></a>麻烦的网络重传率</h3><p>通过tsar或者其它方式发现网络重传率有点高，有可能是别的管理端口重传率高，有可能是往外连其它服务端口重传率高等，尤其是在整体流量小的情况下一点点管理端口的重传包拉升了整个机器的重传率，严重干扰了问题排查，所以需要进一步确认重传发生在哪个进程的哪个端口上，是否真正影响了我们的业务。</p>
-<p>在2.6.32内核下的排查过程是：抓包，然后写脚本分析（或者下载到本地通过wireshark分析），整个过程比较麻烦，需要的时间也比较长。那么在新镜像中我们可以利用内核自带的bcc来快速得到这些信息</p>
-<pre><code>sudo /usr/share/bcc/tools/tcpretrans -l
-</code></pre><p><img src="/images/oss/c68cc22b2e6eb7dd51d8613c5e79e88c.png" alt="image.png"></p>
-<p>从截图可以看到重传时间、pid、tcp四元组、状态，针对重传发生的端口和阶段（SYN_SENT握手、ESTABLISHED）可以快速推断导致重传的不同原因。</p>
-<p>再也不需要像以前一样抓包、下载、写脚本分析了。</p>
-<h3 id="通过perf-top直接看Java函数的CPU消耗"><a href="#通过perf-top直接看Java函数的CPU消耗" class="headerlink" title="通过perf top直接看Java函数的CPU消耗"></a>通过perf top直接看Java函数的CPU消耗</h3><p>这个大家都比较了解，不多说，主要是top的时候能够把java函数给关联上，直接看截图：</p>
-<pre><code>sh ~/tools/perf-map-agent/bin/create-java-perf-map.sh pid
-sudo perf top
-</code></pre><p><img src="/images/oss/1568775788220-32745082-5155-4ecd-832a-e814a682c0df.gif" alt></p>
-<h3 id="快速定位Java中的锁等待"><a href="#快速定位Java中的锁等待" class="headerlink" title="快速定位Java中的锁等待"></a>快速定位Java中的锁等待</h3><p>如果CPU跑不起来，可能会存在锁瓶颈，需要快速找到它们</p>
-<p>如下测试中上面的11万tps是解决掉锁后得到的，下面的4万tps是没解决锁等待前的tps：</p>
-<pre><code>#[ 210s] threads: 400, tps: 0.00, reads/s: 115845.43, writes/s: 0.00, response time: 7.57ms (95%)
-#[ 220s] threads: 400, tps: 0.00, reads/s: 116453.12, writes/s: 0.00, response time: 7.28ms (95%)
-#[ 230s] threads: 400, tps: 0.00, reads/s: 116400.31, writes/s: 0.00, response time: 7.33ms (95%)
-#[ 240s] threads: 400, tps: 0.00, reads/s: 116025.35, writes/s: 0.00, response time: 7.48ms (95%)
-
-#[ 250s] threads: 400, tps: 0.00, reads/s: 45260.97, writes/s: 0.00, response time: 29.57ms (95%)
-#[ 260s] threads: 400, tps: 0.00, reads/s: 41598.41, writes/s: 0.00, response time: 29.07ms (95%)
-#[ 270s] threads: 400, tps: 0.00, reads/s: 41939.98, writes/s: 0.00, response time: 28.96ms (95%)
-#[ 280s] threads: 400, tps: 0.00, reads/s: 40875.48, writes/s: 0.00, response time: 29.16ms (95%)
-#[ 290s] threads: 400, tps: 0.00, reads/s: 41053.73, writes/s: 0.00, response time: 29.07ms (95%)
-</code></pre><p>下面这行命令得到如下等锁的top 10堆栈（<a href="https://github.com/jvm-profiling-tools/async-profiler" target="_blank" rel="noopener">async-profiler</a>）：</p>
-<pre><code>$~/tools/async-profiler/profiler.sh -e lock -d 5 1560
-
---- 1687260767618 ns (100.00%), 91083 samples
- [ 0] ch.qos.logback.classic.sift.SiftingAppender
- [ 1] ch.qos.logback.core.AppenderBase.doAppend
- [ 2] ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders
- [ 3] ch.qos.logback.classic.Logger.appendLoopOnAppenders
- [ 4] ch.qos.logback.classic.Logger.callAppenders
- [ 5] ch.qos.logback.classic.Logger.buildLoggingEventAndAppend
- [ 6] ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus
- [ 7] ch.qos.logback.classic.Logger.info
- [ 8] com.*****.logger.slf4j.Slf4jLogger.info
- [ 9] com.*****.utils.logger.support.FailsafeLogger.info
- [10] com.*****.util.LogUtils.recordSql
-
-
-
-&quot;ServerExecutor-3-thread-480&quot; #753 daemon prio=5 os_prio=0 tid=0x00007f8265842000 nid=0x26f1 waiting for monitor entry [0x00007f82270bf000]
-  java.lang.Thread.State: BLOCKED (on object monitor)
-    at ch.qos.logback.core.AppenderBase.doAppend(AppenderBase.java:64)
-    - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-    at ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders(AppenderAttachableImpl.java:48)
-    at ch.qos.logback.classic.Logger.appendLoopOnAppenders(Logger.java:282)
-    at ch.qos.logback.classic.Logger.callAppenders(Logger.java:269)
-    at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:470)
-    at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:424)
-    at ch.qos.logback.classic.Logger.info(Logger.java:628)
-    at com.****.utils.logger.slf4j.Slf4jLogger.info(Slf4jLogger.java:42)
-    at com.****.utils.logger.support.FailsafeLogger.info(FailsafeLogger.java:102)
-    at com.****.util.LogUtils.recordSql(LogUtils.java:115)
-
-          ns  percent  samples  top
-  ----------  -------  -------  ---
-160442633302   99.99%    38366  ch.qos.logback.classic.sift.SiftingAppender
-    12480081    0.01%       19  java.util.Properties
-     3059572    0.00%        9  com.***.$$$.common.IdGenerator
-      244394    0.00%        1  java.lang.Object
-</code></pre><p>堆栈中也可以看到大量的：</p>
-<pre><code>- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - locked &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
-</code></pre><p>当然还有很多其他爽得要死的命令，比如一键生成火焰图等，不再一一列举，可以从业务层面的需要从这次镜像升级的便利中将他们固化到镜像中，以后排查问题不再需要繁琐的安装、配置、调试过程了。</p>
-<h2 id="跟内核无关的应用层的优化"><a href="#跟内核无关的应用层的优化" class="headerlink" title="跟内核无关的应用层的优化"></a>跟内核无关的应用层的优化</h2><p>到此我们基本不用任何改动得到了30%的性能提升，但是对整个应用来说，通过以上工具让我们看到了一些明显的问题，还可以从应用层面继续提升性能。</p>
-<p>如上描述通过锁排序定位到logback确实会出现锁瓶颈，同时在一些客户场景中，因为网盘的抖动也带来了灾难性的影响，所以日志需要异步处理，经过异步化后tps 达到了32000，关键的是rt 95线下降明显，这个rt下降对DRDS这种Proxy类型的应用是非常重要的（经常被客户指责多了一层转发，rt增加了）。</p>
-<p>日志异步化和使用协程后的性能数据：</p>
-<p><img src="/images/oss/bec4e8105091bc4b8a263aef245c0ce9.png" alt="image.png"></p>
-<h3 id="Wisp2-协程带来的红利"><a href="#Wisp2-协程带来的红利" class="headerlink" title="Wisp2 协程带来的红利"></a>Wisp2 协程带来的红利</h3><p>参考 <a href="https://www.atatech.org/articles/147345" target="_blank" rel="noopener">@梁希 的 Wisp2: 开箱即用的Java协程</a>：</p>
-<p>在整个测试过程中都很顺利，只是<strong>发现Wisp2在阻塞不明显的场景下，抖的厉害</strong>。简单来说就是压力比较大的话Wisp2表现很稳定，一旦压力一般（这是大部分应用场景），Wisp2表现像是一会是协程状态，一会是没开携程状态，系统的CS也变化很大。</p>
-<p>比如同一测试过程中tps抖动明显，从15000到50000：</p>
-<p><img src="/images/oss/1550cc74116a56220d25e1434a675d14.png" alt="image.png"></p>
-<p>100个并发的时候cs很小，40个并发的时候cs反而要大很多：</p>
-<p><img src="/images/oss/3f79909f89889459d1f0dfe4fa0a2f53.png" alt="image.png"></p>
-<p>最终在 @梁希 同学的攻关下发布了新的jdk版本，问题基本都解决了。不但tps提升明显，rt也有很大的下降。</p>
-<h2 id="致谢"><a href="#致谢" class="headerlink" title="致谢"></a>致谢</h2><p>感谢 @夷则 团队对这次内核版本升级的支持，感谢 @雏雁 @飞绪 @李靖轩(无牙) @齐江(窅默) @梁希 等大佬的支持。</p>
-<p>最终应用不需要任何改动可以得到 30%的性能提升，经过开启协程等优化后应用有将近80%的性能提升，同时平均rt下降了到原来的60%，rt 95线下降到原来的40%。</p>
-<p>快点升级你们的内核，用上协程吧。同时考虑下在你们的应用中用上DRDS。</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/104696" target="_blank" rel="noopener">记一次不同OS间的网络性能差异的排查经历</a></p>
-<p><a href="https://www.atatech.org/articles/147345" target="_blank" rel="noopener">@梁希 的 Wisp2: 开箱即用的Java协程</a></p>
-<p><a href="https://help.aliyun.com/document_detail/25378.html" target="_blank" rel="noopener">https://help.aliyun.com/document_detail/25378.html</a></p>
-<p><a href="https://help.aliyun.com/document_detail/55263.html" target="_blank" rel="noopener">https://help.aliyun.com/document_detail/55263.html</a></p>
-<p><a href="https://help.aliyun.com/document_detail/52559.html" target="_blank" rel="noopener">https://help.aliyun.com/document_detail/52559.html</a> (网卡)</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -5862,7 +5731,7 @@ sudo perf top
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">99</span>
+                <span class="site-state-item-count">101</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5873,7 +5742,7 @@ sudo perf top
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">20</span>
+                <span class="site-state-item-count">19</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -5884,7 +5753,7 @@ sudo perf top
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">217</span>
+                <span class="site-state-item-count">196</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

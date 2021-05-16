@@ -282,6 +282,443 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/04/21/netstat定位性能案例/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/04/21/netstat定位性能案例/" itemprop="url">netstat定位性能案例</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-04-21T17:30:03+08:00">
+                2019-04-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/04/21/netstat定位性能案例/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/04/21/netstat定位性能案例/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="netstat定位性能案例"><a href="#netstat定位性能案例" class="headerlink" title="netstat定位性能案例"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="https://plantegg.github.io/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/" target="_blank" rel="noopener">ss用法见这里</a></p>
+<h2 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre><p> **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Recv-Q</span><br><span class="line">Established: The count of bytes not copied by the user program connected to this socket.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</span><br><span class="line"></span><br><span class="line">Send-Q</span><br><span class="line">Established: The count of bytes not acknowledged by the remote host.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog.</span><br></pre></td></tr></table></figure>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><p><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h2><p>所有统计信息基本都有</p>
+<h2 id="netstat-timer"><a href="#netstat-timer" class="headerlink" title="netstat timer"></a>netstat timer</h2><p>from: <a href="https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers" target="_blank" rel="noopener">https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers</a></p>
+<p>The timer column has two fields (from your o/p above):</p>
+<p>keepalive (6176.47/0/0)  </p>
+<p><1st field> <2nd field>  </2nd></1st></p>
+<h4 id="The-1st-field-can-have-values"><a href="#The-1st-field-can-have-values" class="headerlink" title="The 1st field can have values:"></a>The 1st field can have values:</h4><p>keepalive - when the keepalive timer is ON for the socket<br>on - when the retransmission timer is ON for the socket<br>off - none of the above is ON</p>
+<h4 id="The-2nd-field-has-THREE-subfields"><a href="#The-2nd-field-has-THREE-subfields" class="headerlink" title="The 2nd field has THREE subfields:"></a>The 2nd field has THREE subfields:</h4><p>(6176.47/0/0) -&gt; (a/b/c)<br>a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)<br>b=number of retransmissions that have occurred<br>c=number of keepalive probes that have been sent</p>
+<h4 id="For-example-I-had-two-sockets-opened-between-a-client-amp-a-server-not-loopback-The-keepalive-setting-are"><a href="#For-example-I-had-two-sockets-opened-between-a-client-amp-a-server-not-loopback-The-keepalive-setting-are" class="headerlink" title="For example, I had two sockets opened between a client &amp; a server (not loopback). The keepalive setting are:"></a>For example, I had two sockets opened between a client &amp; a server (not loopback). The keepalive setting are:</h4><p>KEEPALIVE_IDLETIME   30<br>KEEPALIVE_NUMPROBES   4<br>KEEPALIVE_INTVL      10<br>And I did a shutdown of the client machine, so at …SHED on (2.47/254/2) </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">tcp        0    210 192.0.0.1:36483  192.0.68.1:43881   ESTABLISHED on (1.39/254/2)  </span><br><span class="line">tcp        0    210 192.0.0.1:36483  192.0.68.1:43881   ESTABLISHED on (0.31/254/2)</span><br></pre></td></tr></table></figure>
+<p>As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.</p>
+<p>Hope this explains the netstat –timer option well.</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/24/Linux Module/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/01/24/Linux Module/" itemprop="url">Linux Module and make debug</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
+                2019-01-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/01/24/Linux Module/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/24/Linux Module/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
+Makefile:4: *** missing separator.  Stop.
+</code></pre><p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
+<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
+make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
+make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
+make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&apos;, needed by `arch/x86/include/generated/asm/syscalls_32.h&apos;.  Stop.
+make[1]: *** [archheaders] Error 2
+make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
+make: *** [all] Error 2
+</code></pre><p>Makefile中的：<br>    make -C /lib/modules/$(shell uname -r)/build M=$(pwd) modules</p>
+<p>$(pwd) 需要修改成：$(shell pwd)</p>
+<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
+$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
+$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
+$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
+</code></pre><h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
+<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &apos;^# makefile&apos; | grep -v &apos;^--&apos; | awk &apos;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&apos; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
+$ cat variable.log
+# makefile (from `Makefile&apos;, line 1) ; aa := 11
+# makefile (from `Makefile&apos;, line 3) ; cc := 11
+# makefile (from `Makefile&apos;, line 4) ; bb := 9999
+# makefile (from `cfg_makefile&apos;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
+# makefile (from `cfg_makefile&apos;, line 1) ; xx := 4444
+# makefile (from `cfg_makefile&apos;, line 2) ; yy := 4444
+# makefile (from `cfg_makefile&apos;, line 3) ; zz := 4444
+# makefile (from `sub_makefile&apos;, line 1) ; MAKEFILE_LIST :=  sub_makefile
+# makefile (from `sub_makefile&apos;, line 1) ; aaaa := 222222
+# makefile (from `sub_makefile&apos;, line 2) ; bbbb := 222222
+# makefile (from `sub_makefile&apos;, line 3) ; cccc := 222222
+</code></pre><h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
+<pre><code>$(warning $(var123))
+</code></pre><p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
+<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
+<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
+<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
+<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
+<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
+<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
+<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
+</code></pre><h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING,    /* Now a valid state */
+
+    TCP_MAX_STATES  /* Leave at the end! */
+};
+</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a>kdump</h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
+<pre><code>sudo systemctl start kdump
+</code></pre><h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
+//手动触发crash
+#echo 1 &gt; /proc/sys/kernel/sysrq
+#echo c &gt; /proc/sysrq-trigger
+//系统crash，然后重启，重启后分析：
+sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
+</code></pre><h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/oss/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
+<pre><code>static int __init hotfix_init(void)
+{
+  unsigned char e8_call[POKE_LENGTH];
+  s32 offset, i;
+
+  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
+  if (!addr) {
+    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
+    return -1;
+  }
+
+  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
+  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
+
+  stub = (void *)test_stub1;
+
+  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
+
+  e8_call[0] = 0xe8;
+  (*(s32 *)(&amp;e8_call[1])) = offset;
+  for (i = 5; i &lt; POKE_LENGTH; i++) {
+    e8_call[i] = 0x90;
+  }
+  get_online_cpus();
+  mutex_lock(_text_mutex);
+  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
+  mutex_unlock(_text_mutex);
+  put_online_cpus();
+
+  return 0;
+}
+
+void test_stub1(void)
+{
+  struct sock *sk = NULL;
+  unsigned long sk_addr = 0;
+  char buf[MAX_BUF_SIZE];
+  int size=0;
+  asm (&quot;push %rdi&quot;);
+
+  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
+  sk = (struct sock *)sk_addr;
+
+  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
+      sk-&gt;sk_state,
+      sk-&gt;sk_rcv_saddr,
+      sk-&gt;sk_daddr);
+/*
+  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
+                     get_seconds(),
+                     sk-&gt;sk_state,
+                     &amp;(inet_sk(sk)-&gt;inet_saddr),
+                     ntohs(inet_sk(sk)-&gt;inet_sport),
+                     ntohs(inet_sk(sk)-&gt;inet_dport),
+                     &amp;(inet_sk(sk)-&gt;inet_daddr));
+*/
+//  tcp_rt_log_output(buf,size,1);
+
+  asm (&quot;pop %rdi&quot;);
+}
+</code></pre><h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
+<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4506,520 +4943,11 @@ net.ipv4.route.min_pmtu = 552
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/03/24/Linux环境变量/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/24/Linux环境变量/" itemprop="url">Linux环境变量问题汇总</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-24T17:30:03+08:00">
-                2018-03-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/03/24/Linux环境变量/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/03/24/Linux环境变量/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux环境变量问题汇总"><a href="#Linux环境变量问题汇总" class="headerlink" title="Linux环境变量问题汇总"></a>Linux环境变量问题汇总</h1><h3 id="测试好的脚本放到-crontab-里就报错-找不到命令"><a href="#测试好的脚本放到-crontab-里就报错-找不到命令" class="headerlink" title="测试好的脚本放到 crontab 里就报错: 找不到命令"></a>测试好的脚本放到 crontab 里就报错: 找不到命令</h3><p>写好一个脚本，测试没有问题，然后放到crontab 想要定时执行，但是总是报错，去看日志的话显示某些命令找不到，这种一般都是因为PATH环境变量变了导致的</p>
-<p>自己在shell命令行下测试的时候当前环境变量就是这个用户的环境变量，可以通过命令：env 看到，脚本放到crontab 里面后一般都加了sudo 这个时候 env 变了。比如你可以在命令行下执行 env 和 sudo env 比较一下就发现他们很不一样</p>
-<p>sudo有一个参数 -E （–preserver-env）就是为了解决这个问题的。</p>
-<p>这个时候再比较一下 </p>
-<ul>
-<li>env</li>
-<li>sudo env</li>
-<li>sudo -E env</li>
-</ul>
-<p>大概就能理解这里的区别了。</p>
-<p>本文后面的回复中有同学提到了：</p>
-<blockquote>
-<p>第一个问题，sudo -E在阿里的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source “/etc/profile.d/dockerenv.sh”才行</p>
-</blockquote>
-<p>我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里</p>
-<h3 id="docker-容器中admin取不到env参数"><a href="#docker-容器中admin取不到env参数" class="headerlink" title="docker 容器中admin取不到env参数"></a>docker 容器中admin取不到env参数</h3><p>docker run的时候带入一堆参数，用root能env中能看到这些参数，admin用户也能看见这些参数，但是通过crond用admin就没法启动应用了，因为读不到这些env。</p>
-<h3 id="同样一个命令ssh执行不了，-报找不到命令"><a href="#同样一个命令ssh执行不了，-报找不到命令" class="headerlink" title="同样一个命令ssh执行不了， 报找不到命令"></a>同样一个命令ssh执行不了， 报找不到命令</h3><p>比如：</p>
-<p>ssh user@ip “ ip a “  报错： bash: ip: command not found</p>
-<p>但是你要是先执行 ssh user@ip 连上服务器后，再执行 ip a 就可以，这里是同一个命令通过两种不同的方式使用，但是环境变量也不一样了。</p>
-<p>同样想要解决这个问题的话可以先 ssh 连上服务器，再执行 which ip ; env | grep PATH  </p>
-<pre><code>$ which ip
-/usr/sbin/ip
-$ env | grep PATH
-PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin
-</code></pre><p>很明显这里因为 ip在/usr/sbin下，而/usr/sbin又在PATH变量中，所以可以找到。</p>
-<p>那么接下来我们看看 </p>
-<pre><code>$ssh user@ip &quot;env | grep PATH&quot;
-PATH=/usr/local/bin:/usr/bin
-</code></pre><p>很明显这里的PATH比上面的PATH短了一截，/usr/sbin也没有在里面，所以/usr/sbin 下的ip命令自然也找不到了，这里虽然都是同一个用户，但是他们的环境变量还不一样，有点出乎我的意料之外。</p>
-<p>主要原因是我们的shell 分为login shell 和 no-login shell , 先ssh 登陆上去再执行命令就是一个login shell，Linux要为这个终端分配资源。</p>
-<p>而下面的直接在ssh 里面放执行命令实际上就不需要login，所以这是一个no-login shell.</p>
-<h4 id="login-shell-和-no-login-shell又有什么区别呢？"><a href="#login-shell-和-no-login-shell又有什么区别呢？" class="headerlink" title="login shell 和 no-login shell又有什么区别呢？"></a>login shell 和 no-login shell又有什么区别呢？</h4><ul>
-<li>login shell加载环境变量的顺序是：① /etc/profile ② ~/.bash_profile ③ ~/.bashrc ④ /etc/bashrc </li>
-<li>而non-login shell加载环境变量的顺序是： ① ~/.bashrc ② /etc/bashrc</li>
-</ul>
-<p>也就是nog-login少了前面两步，我们先看后面两步。</p>
-<p>下面是一个 .bashrc 的内容：</p>
-<pre><code>[ ~]$ cat .bashrc 
-# .bashrc
-
-# Source global definitions
-if [ -f /etc/bashrc ]; then
-    . /etc/bashrc
-fi
-</code></pre><p>基本没有什么内容，它主要是去加载 /etc/bashrc  而他里面也没有看到sbin相关的东西</p>
-<p>那我们再看non-login少的两步： ① /etc/profile ② ~/.bash_profile </p>
-<p>cat /etc/profile :</p>
-<pre><code>if [ &quot;$EUID&quot; = &quot;0&quot; ]; then
-    pathmunge /usr/sbin
-    pathmunge /usr/local/sbin
-else
-    pathmunge /usr/local/sbin after
-    pathmunge /usr/sbin after
-fi
-</code></pre><p>这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。</p>
-<p><strong>用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口</strong>：<br><img src="/images/oss/ae3095f063dede80a8c1ee79ec25685c.png" alt="image.png"></p>
-<p>像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？</p>
-<p>在 /etc/profile.d/ 下创建一个文件：/etc/profile.d/my_bashenv.sh 内容如下：</p>
-<pre><code>$cat /etc/profile.d/my_bashenv.sh 
-
-pathmunge () {
-if ! echo $PATH | /bin/egrep -q &quot;(^|:)$1($|:)&quot; ; then
-   if [ &quot;$2&quot; = &quot;after&quot; ] ; then
-  PATH=$PATH:$1
-   else
-  PATH=$1:$PATH
-   fi
-fi
-}
-
-pathmunge /sbin
-pathmunge /usr/sbin
-pathmunge /usr/local/sbin
-pathmunge /usr/local/bin
-pathmunge /usr/X11R6/bin after
-
-unset pathmunge
-
-complete -cf sudo
-
-    alias chgrp=&apos;chgrp --preserve-root&apos;
-    alias chown=&apos;chown --preserve-root&apos;
-    alias chmod=&apos;chmod --preserve-root&apos;
-    alias rm=&apos;rm -i --preserve-root&apos;
-
-HISTTIMEFORMAT=&apos;[%F %T] &apos;
-HISTSIZE=1000
-export EDITOR=vim    
-export PS1=&apos;\n\e[1;37m[\e[m\e[1;32m\u\e[m\e[1;33m@\e[m\e[1;35m\H\e[m \e[4m`pwd`\e[m\e[1;37m]\e[m\e[1;36m\e[m\n\$&apos;
-</code></pre><p> 通过前面我们可以看到 /etc/bashrc 总是会去加载 /etc/profile.d/ 下的所有 *.sh 文件，同时我们还可以在这个文件中修改我们喜欢的 shell 配色方案和环境变量等等 </p>
-<h3 id="BASH"><a href="#BASH" class="headerlink" title="BASH"></a>BASH</h3><p>1、交互式的登录shell （bash –il xxx.sh）<br>载入的信息：<br>/etc/profile<br>~/.bash_profile（ -&gt;  ~/.bashrc  -&gt;  /etc/bashrc）<br>~/.bash_login<br>~/.profile</p>
-<p>2、非交互式的登录shell （bash –l xxx.sh）<br>载入的信息：<br>/etc/profile<br>~/.bash_profile （ -&gt;  ~/.bashrc  -&gt;  /etc/bashrc）<br>~/.bash_login<br>~/.profile<br>$BASH_ENV</p>
-<p>3、交互式的非登录shell （bash –i xxx.sh）<br>载入的信息：<br>~/.bashrc （ -&gt;  /etc/bashrc）</p>
-<p>4、非交互式的非登录shell （bash xxx.sh）<br>载入的信息：<br>$BASH_ENV</p>
-<h3 id="SH"><a href="#SH" class="headerlink" title="SH"></a>SH</h3><p>1、交互式的登录shell<br>载入的信息：<br>/etc/profile<br>~/.profile</p>
-<p>2、非交互式的登录shell<br>载入的信息：<br>/etc/profile<br>~/.profile</p>
-<p>3、交互式的非登录shell<br>载入的信息：<br>$ENV</p>
-<h4 id="练习验证一下bash、sh和login、non-login"><a href="#练习验证一下bash、sh和login、non-login" class="headerlink" title="练习验证一下bash、sh和login、non-login"></a>练习验证一下bash、sh和login、non-login</h4><ul>
-<li>sudo ll 或者 sudo cd 是不是都报找不到命令</li>
-<li>先sudo bash 然后执行 ll或者cd就可以了</li>
-<li>先sudo sh   然后执行 ll或者cd还是报找不到命令</li>
-<li>sudo env | grep PATH 然后 sudo bash 后再执行 env | grep PATH 看到的PATH环境变量不一样了</li>
-</ul>
-<p><strong>找不到ll、cd命令不是因为login/non-login而是因为这两个命令是bash内部定义的，所以sh找不到，通过type -a cd 可以看到一个命令到底是哪里来的</strong></p>
-<p>4、非交互式的非登录shell<br>载入的信息：<br>nothing</p>
-<h3 id="export命令的作用"><a href="#export命令的作用" class="headerlink" title="export命令的作用"></a>export命令的作用</h3><p>Linux 中export是一种命令工具通过export命令把shell变量中包含的用户变量导入给子程序.<strong>默认情况下子程序仅会继承父程序的环境变量</strong>，子程序不会继承父程序的自定义变量，所以需要export让父程序中的<strong>自定义变量</strong>变成环境变量，然后子程序就能继承过来了。</p>
-<p>我们来看一个例子， 有一个变量，名字 abc 内容123 如果没有export ，那么通过bash创建一个新的shell（新shell是之前bash的子程序），在新的shell里面就没有abc这个变量， export之后在新的 shell 里面才可以看到这个变量，但是退出重新login后（产生了一个新的bash，只会加载env）abc变量都不在了</p>
-<pre><code>$echo $abc
-$abc=&quot;123&quot;
-$echo $abc
-123
-$bash
-$echo $abc
-
-$exit
-exit
-
-$export abc
-
-$echo $abc
-123
-
-$bash
-
-$echo $abc
-123
-</code></pre><h2 id="一些常见问题"><a href="#一些常见问题" class="headerlink" title="一些常见问题"></a>一些常见问题</h2><h3 id="执行好好地shell-脚本换台服务器就：source-not-found"><a href="#执行好好地shell-脚本换台服务器就：source-not-found" class="headerlink" title="执行好好地shell 脚本换台服务器就：source: not found"></a>执行好好地shell 脚本换台服务器就：source: not found</h3><p>source 是bash的一个内建命令（所以你找不到一个/bin/source 这样的可执行文件），也就是他是bash自带的，如果我们执行脚本是这样： sh shell.sh 而shell.sh中用到了source命令的话就会报 source: not found</p>
-<p>这是因为bash 和 sh是两个东西，sh是 POSIX shell，你可以把它看成是一个兼容某个规范的shell，而bash是 Bourne-Again shell script， bash是 POSIX shell的扩展，就是bash支持所有符合POSIX shell的规范，但是反过来就不一定了，而这里的 source 恰好就是 bash内建的，不符合 POSIX shell的规范（<strong>POSIX shell 中用 . 来代替source</strong>)</p>
-<h3 id="在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误"><a href="#在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误" class="headerlink" title="在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误"></a>在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误</h3><p>同上，如果到ubuntu上用 bash shell.sh是可以的，但是sh shell.sh就报语法错误，但是在centos上执行：sh或者bash shell.sh 都可以通过。 在centos上执行 ls -lh /usr/bin/sh 可以看到 /usr/bin/sh link到了 /usr/bin/bash 也就是sh等同于bash，所以都可以通过不足为奇。 </p>
-<p>但是在ubuntu上执行 ls -lh /usr/bin/sh 可以看到 /usr/bin/sh link到了 <strong>/usr/bin/dash</strong> ， 这就是为什么ubuntu上会报错</p>
-<h3 id="source-shell-sh-和-bash-shell-sh以及-shell-sh的区别"><a href="#source-shell-sh-和-bash-shell-sh以及-shell-sh的区别" class="headerlink" title="source shell.sh 和 bash shell.sh以及 ./shell.sh的区别"></a>source shell.sh 和 bash shell.sh以及 ./shell.sh的区别</h3><p>source shell.sh就在本shell中展开执行<br>bash shell.sh表示在本shell启动一个子程序（bash），在子程序中执行 shell.sh (shell.sh中产生的一些环境变量就没法带回父shell进程了)， 只需要有读 shell.sh 权限就可以执行<br>./shell.sh 跟bash shell.sh类似，但是必须要求shell.sh有rx权限，然后根据shell.sh前面的 #! 后面的指示来确定用bash还是sh </p>
-<pre><code>$cat test.sh 
-echo $$
-
-$echo $$
-2299
-
-$source test.sh 
-2299
-
-$bash test.sh 
-4037
-
-$./test.sh 
-4040
-</code></pre><p>如上实例，只有source的时候进程ID和bash进程ID一样，其它方式都创建了一个新的bash进程，所以ID也变了。</p>
-<p>bash test.sh 产生一个新的bash，但是这个新的bash中不会加载 .bashrc 需要加载的话必须 bash -l test.sh.</p>
-<h3 id="通过ssh-执行命令（命令前有sudo）的时候报错：sudo-sorry-you-must-have-a-tty-to-run-sudo"><a href="#通过ssh-执行命令（命令前有sudo）的时候报错：sudo-sorry-you-must-have-a-tty-to-run-sudo" class="headerlink" title="通过ssh 执行命令（命令前有sudo）的时候报错：sudo: sorry, you must have a tty to run sudo"></a>通过ssh 执行命令（命令前有sudo）的时候报错：sudo: sorry, you must have a tty to run sudo</h3><p>这是因为 /etc/sudoers (Linux控制sudo行为、权限的配置文件）中指定了 requiretty（<a href="https://www.shell-tips.com/2014/09/08/sudo-sorry-you-must-have-a-tty-to-run-sudo/" target="_blank" rel="noopener">Redhat、Fedora默认行为</a>），但是 通过ssh远程执行命令是没有tty的（不需要交互）。<br>解决办法可以试试 ssh -t or -tt (强制分配tty）或者先修改 /etc/sudoers把 requiretty 删掉或者改成 !requiretty</p>
-<h3 id="cp-命令即使使用了-f-force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等"><a href="#cp-命令即使使用了-f-force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等" class="headerlink" title="cp 命令即使使用了 -f force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等"></a>cp 命令即使使用了 -f force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等</h3><p>Google搜索一下别人给出的方案是这样 echo yes | cp -rf xxx yyy 算是笨办法，但是没有找到这里为什么-f 不管用。<br>type -a cp 先确认一下 cp到底是个什么东西：</p>
-<pre><code>#type -a cp
-cp is aliased to `cp -i&apos;
-cp is /usr/bin/cp
-</code></pre><p>这下算是有点清楚了，原来默认cp 都是-i了（-i, –interactive prompt before overwrite (overrides a previous -n option)），看起来就是默认情况下为了保护我们的目录不经意间被修改了。所以真的确认要overwrite的话直接用 /usr/bin/cp -f 就不需要每次yes确认了</p>
-<h3 id="重定向"><a href="#重定向" class="headerlink" title="重定向"></a>重定向</h3><p>sudo docker logs swarm-agent-master &gt;master.log 2&gt;&amp;1 输出重定向<a href="http://www.kissyu.org/2016/12/25/shell%E4%B8%AD%3E%20:dev:null%202%20%3E%20&amp;1%E6%98%AF%E4%BB%80%E4%B9%88%E9%AC%BC%EF%BC%9F/" target="_blank" rel="noopener">http://www.kissyu.org/2016/12/25/shell%E4%B8%AD%3E%20:dev:null%202%20%3E%20&amp;1%E6%98%AF%E4%BB%80%E4%B9%88%E9%AC%BC%EF%BC%9F/</a></p>
-<pre><code>&gt;/dev/null 2&gt;&amp;1 标准输出丢弃 错误输出丢弃
-2&gt;&amp;1 &gt;/dev/null 标准输出丢弃 错误输出屏幕
-</code></pre><p><a href="http://kodango.com/bash-one-liners-explained-part-three" target="_blank" rel="noopener">http://kodango.com/bash-one-liners-explained-part-three</a></p>
-<h3 id="umask"><a href="#umask" class="headerlink" title="umask"></a>umask</h3><p>创建文件的默认权限是 666 文件夹是777 但是都要跟 umask做运算（按位减法） 一般umask是002<br>所以创建出来文件最终是664，文件夹是775，如果umask 是027的话最终文件是 640 文件夹是750<br>『尽量不要以数字相加减啦！』你应该要这样想(-rw-rw- rw-) – (——–wx)=-rw-rw-r–这样就对啦！不要用十进制的数字喔！够能力的话，用二进制来算，不晓得的话，用 rwx 来算喔！</p>
-<h3 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h3><pre><code>echo $-   // himBH 
-</code></pre><p>“$-” 中含有“i”代表“交互式shell”<br>“$0”的显示结果为“-bash”，bash前面多个“-”，代表“登录shell”.<br>没有“i“和“-”的，是“非交互式的非登录shell”</p>
-<p>set +o histexpand （！ 是history展开符号， histexpand 可以打开或者关闭这个展开符）<br>alias 之后，想要用原来的命令：+alias  （命令前加)</p>
-<p>bash程序执行，当“$0”是“sh”的时候，则要求下面的代码遵循一定的规范，当不符合规范的语法存在时，则会报错，所以可以这样理解，“sh”并不是一个程序，而是一种标准（POSIX），这种标准，在一定程度上（具体区别见下面的“Things bash has that sh does not”）保证了脚本的跨系统性（跨UNIX系统）</p>
-<p>Linux 分 shell变量(set)，用户变量(env)， shell变量包含用户变量，export是一种命令工具，是显式那些通过export命令把shell变量中包含的用户变量导入给用户变量的那些变量.</p>
-<h3 id="引号"><a href="#引号" class="headerlink" title="引号"></a>引号</h3><p>shell 中：单引号的处理是比较简单的，被单引号包括的所有字符都保留原有的意思，例如’$a’不会被展开, ‘<code>cmd</code>‘也不会执行命令；而双引号，则相对比较松，在双引号中，以下几个字符$, <code>, \依然有其特殊的含义，比如$可以用于变量展开, 反引号</code>可以执行命令，反斜杠\可以用于转义。但是，在双引号包围的字符串里，反斜杠的转义也是有限的，它只能转义$, `, “, \或者newline（回车）这几个字符，后面如果跟着的不是这几个字符，只不会被黑底，反斜杠会被保留  <a href="http://kodango.com/simple-bash-programming-skills-2" target="_blank" rel="noopener">http://kodango.com/simple-bash-programming-skills-2</a></p>
-<h3 id="su-和-su-的区别"><a href="#su-和-su-的区别" class="headerlink" title="su 和 su - 的区别"></a>su 和 su - 的区别</h3><p>su命令和su -命令最大的本质区别就是：前者只是切换了root身份，但Shell环境仍然是普通用户的Shell；而后者连用户和Shell环境一起切换成root身份了。只有切换了Shell环境才不会出现PATH环境变量错误。su切换成root用户以后，pwd一下，发现工作目录仍然是普通用户的工作目录；而用su -命令切换以后，工作目录变成root的工作目录了。用echo $PATH命令看一下su和su -以后的环境变量有何不同。以此类推，要从当前用户切换到其它用户也一样，应该使用su -命令。</p>
-<p>比如：<br>   su admin 会重新加载 ~/.bashrc ，但是不会切换到admin 的home目录。<br>   但是 su - admin 不会重新加载 ~/.bashrc ，但是会切换admin的home目录。</p>
-<p>The su command is used to become another user during a login session. Invoked without a username, su defaults to becoming the superuser. The optional argument - may be used to provide an environment similar to what the user would expect had the user logged in directly.</p>
-<h3 id="后台任务执行"><a href="#后台任务执行" class="headerlink" title="后台任务执行"></a>后台任务执行</h3><p>将任务放到后台，断开ssh后还能运行：<br>“ctrl-Z”将当前任务挂起；<br>“disown -h”让该任务忽略SIGHUP信号（不会因为掉线而终止执行）；<br>“bg”让该任务在后台恢复运行。</p>
-<h2 id="shell-调试与参数"><a href="#shell-调试与参数" class="headerlink" title="shell 调试与参数"></a>shell 调试与参数</h2><p>为了方便 Debug，有时在启动 Bash 的时候，可以加上启动参数。</p>
-<ul>
-<li><code>-n</code>：不运行脚本，只检查是否有语法错误。</li>
-<li><code>-v</code>：输出每一行语句运行结果前，会先输出该行语句。</li>
-<li><code>-x</code>：每一个命令处理完以后，先输出该命令，再进行下一个命令的处理。</li>
-</ul>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ bash -n scriptname</span><br><span class="line">$ bash -v scriptname</span><br><span class="line">$ bash -x scriptname</span><br></pre></td></tr></table></figure>
-<h2 id="shell-数值运算"><a href="#shell-数值运算" class="headerlink" title="shell 数值运算"></a>shell 数值运算</h2><p>bash中数值运算要这样 $(( $a+$b )) // declare -i 才是定义一个整型变量</p>
-<ul>
-<li>在中括号 [] 内的每个组件都需要有空白键来分隔；</li>
-<li>在中括号内的变量，最好都以双引号括号起来；</li>
-<li>在中括号内的常数，最好都以单或双引号括号起来。</li>
-</ul>
-<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a>tty</h2><p>tty（teletype–最早的一种终端设备） stty 设置tty的相关参数</p>
-<p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
-<p>/dev/pty（Pseudo Terminal） 伪终端</p>
-<p>/dev/tty 控制终端</p>
-<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://blog.csdn.net/u010871982/article/details/78525367" target="_blank" rel="noopener">关于ansible远程执行的环境变量问题</a></p>
-<p><a href="http://bbs.chinaunix.net/thread-1068678-1-1.html" target="_blank" rel="noopener">Bash和Sh的区别</a></p>
-<p><a href="http://kodango.com/what-is-interactive-and-login-shell" target="_blank" rel="noopener">什么是交互式登录 Shell what-is-interactive-and-login-shell</a></p>
-<p><a href="http://kodango.com/explain-shell-default-options" target="_blank" rel="noopener">Shell 默认选项 himBH 的解释</a></p>
-<p><a href="http://kodango.com/useful-documents-about-shell" target="_blank" rel="noopener">useful-documents-about-shell</a></p>
-<p><a href="http://coolnull.com/4432.html" target="_blank" rel="noopener">linux cp实现强制覆盖</a></p>
-<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="noopener">https://wangdoc.com/bash/startup.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/03/14/如何设置git Proxy/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/14/如何设置git Proxy/" itemprop="url">Git HTTP Proxy and SSH Proxy</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-14T10:30:03+08:00">
-                2018-03-14
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/SSH/" itemprop="url" rel="index">
-                    <span itemprop="name">SSH</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/03/14/如何设置git Proxy/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/03/14/如何设置git Proxy/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何设置git-Proxy"><a href="#如何设置git-Proxy" class="headerlink" title="如何设置git Proxy"></a>如何设置git Proxy</h1><h2 id="git-http-proxy"><a href="#git-http-proxy" class="headerlink" title="git http proxy"></a>git http proxy</h2><blockquote>
-<p>首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。</p>
-<p>Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658</p>
-</blockquote>
-<p>下面的例子假设你的socks5代理是： 127.0.0.1:13658</p>
-<h3 id="配置git-http-proxy"><a href="#配置git-http-proxy" class="headerlink" title="配置git http proxy"></a>配置git http proxy</h3><pre><code>git config --global http.proxy socks5://127.0.0.1:13658
-</code></pre><p>上面的命令实际上是修改了 .gitconfig：</p>
-<pre><code>$cat ~/.gitconfig   
-[http]
-    proxy = socks5://127.0.0.1:13658
-</code></pre><p>现在git的http代理就配置好了， git clone <a href="https://github.com/torvalds/linux.git" target="_blank" rel="noopener">https://github.com/torvalds/linux.git</a> 速度会快到你流泪（取决于你的代理速度），我这里是从每秒10K到了3M 。</p>
-<p>注意：</p>
-<ul>
-<li>http.proxy就可以了，不需要配置https.proxy</li>
-<li>这个http代理仅仅针对 git clone <strong>https://</strong> 的方式生效</li>
-</ul>
-<h2 id="配置git-ssh-proxy"><a href="#配置git-ssh-proxy" class="headerlink" title="配置git ssh proxy"></a>配置git ssh proxy</h2><p>如果想要 git clone <strong>git@</strong>github.com:torvalds/linux.git 也要快起来的话 需要配置 ssh proxy</p>
-<blockquote>
-<p>这里要求你有一台海外的服务器，能ssh登陆，做好免密码，假设这台服务器的IP是：2.2.2.2</p>
-</blockquote>
-<p>修改（如果没有就创建这个文件）~/.ssh/config, 内容如下：</p>
-<pre><code>$cat ~/.ssh/config 
-host github.com
-#LogLevel DEBUG3
-ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
-</code></pre><p>然后 git clone <a href="mailto:git@github.com" target="_blank" rel="noopener">git@github.com</a>:torvalds/linux.git 也能飞起来了</p>
-<p>需要注意你的代理服务器2.2.2.2上nc有没有安装，没有的话yum装上，装上后再检查一下安装的位置，对应配置中的 /usr/bin/nc</p>
-<p>写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。</p>
-<p>整个原理还是穿墙术。 可以参考 ：<a href="https://www.atatech.org/articles/76026" target="_blank" rel="noopener">SSH 高级用法和技巧大全</a>  </p>
-<h3 id="配置git-走socks"><a href="#配置git-走socks" class="headerlink" title="配置git 走socks"></a><a href="https://superuser.com/questions/454210/how-can-i-use-ssh-with-a-socks-5-proxy" target="_blank" rel="noopener">配置git 走socks</a></h3><p>如果没有海外服务器，但是本地已经有了socks5 服务那么也可以直接走socks5来proxy所有git 流量</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">cat ~/.ssh/config</span><br><span class="line">host github.com</span><br><span class="line">ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口来转发代理流量</span><br><span class="line">#ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump</span><br></pre></td></tr></table></figure>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -5062,7 +4990,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">99</span>
+                <span class="site-state-item-count">101</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5073,7 +5001,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">20</span>
+                <span class="site-state-item-count">19</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -5084,7 +5012,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">217</span>
+                <span class="site-state-item-count">196</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

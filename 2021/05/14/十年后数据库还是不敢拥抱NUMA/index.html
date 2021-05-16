@@ -107,6 +107,8 @@
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png">
+<meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/uma-architecture.png">
+<meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/numa-architecture.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png">
@@ -114,7 +116,7 @@
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png">
-<meta property="og:updated_time" content="2021-05-15T03:07:20.687Z">
+<meta property="og:updated_time" content="2021-05-16T03:35:35.739Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="十年后数据库还是不敢拥抱NUMA？">
 <meta name="twitter:description" content="十年后数据库还是不敢拥抱NUMA？背景最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图   从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，">
@@ -346,8 +348,8 @@
               
               
                 <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
                   </a>
                 </span>
 
@@ -409,10 +411,15 @@
 <p>这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。</p>
 <h2 id="关于NUMA"><a href="#关于NUMA" class="headerlink" title="关于NUMA"></a>关于NUMA</h2><p>如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。</p>
 <p><img src="/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png" alt="undefined"> </p>
+<p>在两路及以上的服务器，远程 DRAM 的访问延迟，远远高于本地 DRAM 的访问延迟，有些系统可以达到 2 倍的差异。即使服务器 BIOS 里关闭了 NUMA 特性，也只是对 OS 内核屏蔽了这个特性，这种延迟差异还是存在的。</p>
 <p><img src="/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png" alt="undefined"> </p>
-<p>开启NUMA会优先就近使用内存，在内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是通过 zone_reclaim_mode 可以配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。</p>
+<p>如果 BIOS 打开了 NUMA 支持，Linux 内核则会根据 ACPI 提供的表格，针对 NUMA 节点做一系列的 NUMA 亲和性的优化。也就是开启NUMA会优先就近使用内存，在内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是通过 zone_reclaim_mode 可以配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。</p>
 <p><strong>这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃</strong></p>
 <p>以上理论告诉我们：<strong>也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。</strong></p>
+<h4 id="UMA和NUMA对比"><a href="#UMA和NUMA对比" class="headerlink" title="UMA和NUMA对比"></a>UMA和NUMA对比</h4><p>The SMP/UMA architecture</p>
+<p><img src="/images/951413iMgBlog/uma-architecture.png" alt="img"></p>
+<p>The NUMA architecture</p>
+<p><img src="/images/951413iMgBlog/numa-architecture.png" alt="img"></p>
 <h2 id="对比测试Intel-NUMA-性能"><a href="#对比测试Intel-NUMA-性能" class="headerlink" title="对比测试Intel NUMA 性能"></a>对比测试Intel NUMA 性能</h2><p>对如下Intel CPU进行一些测试，在开启NUMA的情况下</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                64</span><br><span class="line">On-line CPU(s) list:   0-63</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    16</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 79</span><br><span class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</span><br><span class="line">Stepping:              1</span><br><span class="line">CPU MHz:               2500.000</span><br><span class="line">CPU max MHz:           3000.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              5000.06</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              256K</span><br><span class="line">L3 cache:              40960K</span><br><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3</span><br><span class="line"></span><br><span class="line">#numastat</span><br><span class="line">                           node0           node1</span><br><span class="line">numa_hit               129600200        60501102</span><br><span class="line">numa_miss                      0               0</span><br><span class="line">numa_foreign                   0               0</span><br><span class="line">interleave_hit            108648          108429</span><br><span class="line">local_node             129576548        60395061</span><br><span class="line">other_node                 23652          106041</span><br></pre></td></tr></table></figure>
 <p>我在这个64core的物理机上运行一个MySQL 实例，先将MySQL进程绑定在0-63core，0-31core，以及0-15,32-47上</p>
@@ -442,7 +449,7 @@
 <p>所以文章给出的解决方案就是（三选一）：</p>
 <ul>
 <li>关掉NUMA</li>
-<li>或者启动MySQL的时候指定不分NUMA</li>
+<li>或者启动MySQL的时候指定不分NUMA,比如：/usr/bin/numactl –interleave all $cmd</li>
 <li>或者启动MySQL的时候先回收所有PageCache</li>
 </ul>
 <p>我想这就是这么多人在上面栽了跟头，所以干脆一不做二不休干脆关了NUMA 一了百了。</p>
@@ -451,9 +458,7 @@
 <h3 id="zone-reclaim-mode"><a href="#zone-reclaim-mode" class="headerlink" title="zone_reclaim_mode"></a>zone_reclaim_mode</h3><p>事实上Linux识别到NUMA架构后，默认的内存分配方案就是：优先尝试在请求线程当前所处的CPU的Local内存上分配空间。<strong>如果local内存不足，优先淘汰local内存中无用的Page（Inactive，Unmapped）</strong>。然后才到其它NUMA上分配内存。</p>
 <p>intel 芯片跨node延迟远低于其他家，所以跨node性能损耗不大</p>
 <p>zone_reclaim_mode，它用来管理当一个内存区域(zone)内部的内存耗尽时，是从其内部进行内存回收还是可以从其他zone进行回收的选项：</p>
-<blockquote>
 <p>zone_reclaim_mode:</p>
-</blockquote>
 <blockquote>
 <p>Zone_reclaim_mode allows someone to set more or less aggressive approaches to<br>reclaim memory when a zone runs out of memory. If it is set to zero then no<br>zone reclaim occurs. Allocations will be satisfied from other zones / nodes<br>in the system.</p>
 </blockquote>
@@ -551,8 +556,8 @@
 
           <div class="post-nav-prev post-nav-item">
             
-              <a href="/2117/06/07/文章索引index/" rel="prev" title="文章索引">
-                文章索引 <i class="fa fa-chevron-right"></i>
+              <a href="/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/" rel="prev" title="飞腾ARM芯片(FT2500)的性能测试">
+                飞腾ARM芯片(FT2500)的性能测试 <i class="fa fa-chevron-right"></i>
               </a>
             
           </div>
@@ -630,7 +635,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">99</span>
+                <span class="site-state-item-count">101</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -641,7 +646,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">20</span>
+                <span class="site-state-item-count">19</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -652,7 +657,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">217</span>
+                <span class="site-state-item-count">196</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -694,7 +699,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#十年后数据库还是不敢拥抱NUMA？"><span class="nav-number">1.</span> <span class="nav-text">十年后数据库还是不敢拥抱NUMA？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#背景"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#原因分析"><span class="nav-number">1.2.</span> <span class="nav-text">原因分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#CPU的实际信息"><span class="nav-number">1.2.1.</span> <span class="nav-text">CPU的实际信息</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#关于NUMA"><span class="nav-number">1.3.</span> <span class="nav-text">关于NUMA</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#对比测试Intel-NUMA-性能"><span class="nav-number">1.4.</span> <span class="nav-text">对比测试Intel NUMA 性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么集团内外所有物理机都把NUMA关掉了呢？"><span class="nav-number">1.5.</span> <span class="nav-text">为什么集团内外所有物理机都把NUMA关掉了呢？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Linux-Kernel对NUMA内存的使用"><span class="nav-number">1.6.</span> <span class="nav-text">Linux Kernel对NUMA内存的使用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#zone-reclaim-mode"><span class="nav-number">1.6.1.</span> <span class="nav-text">zone_reclaim_mode</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#查看kernel提交记录"><span class="nav-number">1.6.2.</span> <span class="nav-text">查看kernel提交记录</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#验证一下zone-reclaim-mode-0是生效的"><span class="nav-number">1.6.3.</span> <span class="nav-text">验证一下zone_reclaim_mode 0是生效的</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><span class="nav-number">1.6.3.1.</span> <span class="nav-text">将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.7.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#十年后数据库还是不敢拥抱NUMA？"><span class="nav-number">1.</span> <span class="nav-text">十年后数据库还是不敢拥抱NUMA？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#背景"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#原因分析"><span class="nav-number">1.2.</span> <span class="nav-text">原因分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#CPU的实际信息"><span class="nav-number">1.2.1.</span> <span class="nav-text">CPU的实际信息</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#关于NUMA"><span class="nav-number">1.3.</span> <span class="nav-text">关于NUMA</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#UMA和NUMA对比"><span class="nav-number">1.3.0.1.</span> <span class="nav-text">UMA和NUMA对比</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#对比测试Intel-NUMA-性能"><span class="nav-number">1.4.</span> <span class="nav-text">对比测试Intel NUMA 性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么集团内外所有物理机都把NUMA关掉了呢？"><span class="nav-number">1.5.</span> <span class="nav-text">为什么集团内外所有物理机都把NUMA关掉了呢？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Linux-Kernel对NUMA内存的使用"><span class="nav-number">1.6.</span> <span class="nav-text">Linux Kernel对NUMA内存的使用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#zone-reclaim-mode"><span class="nav-number">1.6.1.</span> <span class="nav-text">zone_reclaim_mode</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#查看kernel提交记录"><span class="nav-number">1.6.2.</span> <span class="nav-text">查看kernel提交记录</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#验证一下zone-reclaim-mode-0是生效的"><span class="nav-number">1.6.3.</span> <span class="nav-text">验证一下zone_reclaim_mode 0是生效的</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><span class="nav-number">1.6.3.1.</span> <span class="nav-text">将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.7.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></div>
             
 
           </div>
