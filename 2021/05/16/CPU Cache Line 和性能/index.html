@@ -109,7 +109,7 @@
 <meta property="og:image" content="http://yoursite.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/1620984677390-81694fd0-0323-4052-98d1-32be39a02248.png">
-<meta property="og:updated_time" content="2021-05-16T03:35:35.498Z">
+<meta property="og:updated_time" content="2021-05-17T00:31:18.203Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU Cache Line 和性能">
 <meta name="twitter:description" content="CPU Cache Line 和性能什么是 cache_lineCPU访问内存是非常慢的，所以我们在CPU中增加了3级缓存，并且每次CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子） Cache Line">
@@ -490,7 +490,8 @@
 <p>重点留意上述代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。</p>
 <p><img src="/images/oss/1620984677390-81694fd0-0323-4052-98d1-32be39a02248.png" alt="image.png"></p>
 <h2 id="Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"><a href="#Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的" class="headerlink" title="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"></a>Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</h2><p>MySQL利用Intel 的Pause指令在spinlock(自旋锁)的时候尽量避免cache line ping-pong，但是不同的Intel芯片每个Pause指令背后实际执行的circle是不一样的，从而导致MySQL性能差异很大</p>
-<p>详细请看：<a href="https://www.atatech.org/articles/157681" target="_blank" rel="noopener">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p>详细请看：</p>
+<p><a href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" target="_blank" rel="noopener">《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大</a></p>
 <h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="noopener">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠</p>
 <h3 id="pause-和-cpu-relax"><a href="#pause-和-cpu-relax" class="headerlink" title="pause 和 cpu_relax"></a>pause 和 cpu_relax</h3><p>内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：</p>
 <ul>
