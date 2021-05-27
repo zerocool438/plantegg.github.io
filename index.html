@@ -930,8 +930,9 @@ Performance counter stats for &apos;system wide&apos;:
 <p>ARM芯片基本不做超线程，另外请思考为什么有了应用层的多线程切换还需要CPU层面的超线程？</p>
 </blockquote>
 <p><strong>超线程(Hyper-Threading)物理实现</strong>: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。</p>
-<h3 id="超线程如何查看"><a href="#超线程如何查看" class="headerlink" title="超线程如何查看"></a>超线程如何查看</h3><p>如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT</p>
+<h3 id="超线程如何查看"><a href="#超线程如何查看" class="headerlink" title="超线程如何查看"></a>超线程如何查看</h3><p>如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT。</p>
 <p><img src="/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png" alt="image.png"></p>
+<p>physical id对应socket，也就是物理上购买到的一块CPU； core id对应着每个物理CPU里面的一个物理core，同一个phyiscal id下core id一样说明开了HT</p>
 <h3 id="IPC和超线程的关系"><a href="#IPC和超线程的关系" class="headerlink" title="IPC和超线程的关系"></a>IPC和超线程的关系</h3><p>IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是从core里面取到的，不针对具体进程。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍</p>
 <p><img src="/images/951413iMgBlog/image-20210513123233344.png" alt="image-20210513123233344"></p>
 <p>对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%</p>
@@ -1440,6 +1441,8 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p><img src="/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png" alt="undefined"> </p>
 <p>从这个数据看起来<strong>即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下</strong>， NUMA更多性能差异应该会更大。</p>
 <p>说明前面的理论是正确的。</p>
+<p><img src="/images/951413iMgBlog/image-20210525151537507.png" alt="image-20210525151537507"></p>
+<p><img src="/images/951413iMgBlog/image-20210525151622425.png" alt="image-20210525151622425"></p>
 <p>实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。</p>
 <p>如果比较读写混合场景的话肯定会因为写锁导致CPU跑起来，最终的性能差异也不会这么大，但是绑在同一个NUMA下的性能肯定要好，IPC也会高一些。具体好多少取决于锁的竞争程度。</p>
 <h2 id="为什么集团内外所有物理机都把NUMA关掉了呢？"><a href="#为什么集团内外所有物理机都把NUMA关掉了呢？" class="headerlink" title="为什么集团内外所有物理机都把NUMA关掉了呢？"></a>为什么集团内外所有物理机都把NUMA关掉了呢？</h2><p>10年前几乎所有的运维都会多多少少被NUMA坑害过，让我们看看究竟有多少种在NUMA上栽的方式：</p>
@@ -1492,6 +1495,9 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <h4 id="将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><a href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试" class="headerlink" title="将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试"></a>将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</h4><p>可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿</p>
 <p><img src="/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png" alt="undefined"> </p>
 <p>测试结论：<strong>从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了</strong></p>
+<h3 id="innodb-numa-interleave"><a href="#innodb-numa-interleave" class="headerlink" title="innodb_numa_interleave"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的感知：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="noopener">innodb_numa_interleave</a></p>
+<p>当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 <a href="https://linux.die.net/man/2/set_mempolicy" target="_blank" rel="noopener">NUMA memory policy</a> 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。</p>
+<p>innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，<strong>修复后这个参数没有意义了</strong>。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>放弃对NUMA的偏见吧，优先回收 PageCache 这个Bug早已修复了</li>
 <li>按NUMA绑定core收益巨大，即使只有两个NUMA的intel芯片，也有一倍以上的性能提升，在飞腾等其他芯片上收益更大</li>
