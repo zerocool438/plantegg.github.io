@@ -110,7 +110,8 @@
 <meta property="og:image" content="http://yoursite.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/1620984677390-81694fd0-0323-4052-98d1-32be39a02248.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png">
-<meta property="og:updated_time" content="2021-05-24T01:40:22.740Z">
+<meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/1.png">
+<meta property="og:updated_time" content="2021-06-02T05:35:34.558Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU 性能和Cache Line">
 <meta name="twitter:description" content="CPU 性能和Cache Line什么是 cache_lineCPU访问内存是非常慢的，所以我们在CPU中增加了3级缓存，并且每次CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子） Cache Line">
@@ -565,6 +566,15 @@
 <p>在ARM芯片里因为yield很快，那么上层软件的spinlock就要用不一样的方式来优化了。</p>
 <h2 id="ECS-cache-line-miss导致整个物理机响应慢"><a href="#ECS-cache-line-miss导致整个物理机响应慢" class="headerlink" title="ECS cache_line miss导致整个物理机响应慢"></a>ECS cache_line miss导致整个物理机响应慢</h2><p><a href="https://topic.atatech.org/articles/100065" target="_blank" rel="noopener">如果一台ECS运行大量的cache_line miss逻辑</a>，也就是利用spinlock所保护的区域没有按照cacheline对齐的时候，CPU为了保证数据一致性，会触发Super Queue lock splits，将总线锁住，哪怕是其他socket，而这个时候，其他CPU CORE访问L2cache、L3cahe、以及内存就会阻塞，直到Super Queue lock splits释放。</p>
 <p>这个影响不是socket、node内部，而是整个物理机总线被锁，所以影响的是整个物理机。</p>
+<h3 id="从地址不对齐访问到split-lock"><a href="#从地址不对齐访问到split-lock" class="headerlink" title="从地址不对齐访问到split lock"></a><a href="https://kernel.taobao.org/2019/07/Detecting-and-handling-split-locks/" target="_blank" rel="noopener">从地址不对齐访问到split lock</a></h3><p>Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却不允许。在众多的不对齐中，一个特殊的场景是：<a href="https://lwn.net/Articles/790464/" target="_blank" rel="noopener">原子操作的操作数（由于地址不对齐）跨越两个cache lines，Intel将之叫做split lock。</a>它有两个特征：</p>
+<ol>
+<li>原子操作，即汇编指令包含Lock前缀；</li>
+<li>操作数地址不对齐，还跨越两个cache lines；</li>
+</ol>
+<p>其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。最近，Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版<a href="https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/" target="_blank" rel="noopener">code review</a>。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。</p>
+<p>学过体系结构的同学都应该知道，缓存一制性协议MESI只能保证cache line粒度的一致性。同时访问两个cache lines不是常见操作，为保证split lock的原子性，设计硬件时使用特殊逻辑（冷路径）来处理：<strong>锁住整个访存总线，阻止其它逻辑cpu访存</strong>。</p>
+<p>从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。</p>
+<p><img src="/images/951413iMgBlog/1.png" alt="img"></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?referer=https://www.google.com/&amp;httpsredir=1&amp;article=1001&amp;context=etd_projects" target="_blank" rel="noopener">Analysis of False Cache Line Sharing Effects on Multicore CPUs</a></p>
 <p><a href="https://software.intel.com/content/www/us/en/develop/articles/avoiding-and-identifying-false-sharing-among-threads.html" target="_blank" rel="noopener">Avoiding and Identifying False Sharing Among Threads</a></p>
 
@@ -623,8 +633,8 @@
 
           <div class="post-nav-prev post-nav-item">
             
-              <a href="/2117/06/07/文章索引index/" rel="prev" title="文章索引">
-                文章索引 <i class="fa fa-chevron-right"></i>
+              <a href="/2021/06/01/CPU的制造和概念/" rel="prev" title="CPU的制造和概念">
+                CPU的制造和概念 <i class="fa fa-chevron-right"></i>
               </a>
             
           </div>
@@ -702,7 +712,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">101</span>
+                <span class="site-state-item-count">102</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -766,7 +776,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#CPU-性能和Cache-Line"><span class="nav-number">1.</span> <span class="nav-text">CPU 性能和Cache Line</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是-cache-line"><span class="nav-number">1.1.</span> <span class="nav-text">什么是 cache_line</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#cache-失效"><span class="nav-number">1.1.1.</span> <span class="nav-text">cache 失效</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#各级IO延迟数字"><span class="nav-number">1.2.</span> <span class="nav-text">各级IO延迟数字</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#L1C、L2C、L3C、DDR-的Latency"><span class="nav-number">1.2.1.</span> <span class="nav-text">L1C、L2C、L3C、DDR 的Latency</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#查看-cache-line"><span class="nav-number">1.3.</span> <span class="nav-text">查看 cache_line</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#cache-line-影响性能的案例"><span class="nav-number">1.4.</span> <span class="nav-text">cache_line 影响性能的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Disruptor"><span class="nav-number">1.5.</span> <span class="nav-text">Disruptor</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Disruptor中对cache-line的使用"><span class="nav-number">1.5.1.</span> <span class="nav-text">Disruptor中对cache_line的使用</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"><span class="nav-number">1.6.</span> <span class="nav-text">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pause-和-spinlock"><span class="nav-number">1.6.1.</span> <span class="nav-text">pause 和 spinlock</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#pause-和-cpu-relax"><span class="nav-number">1.6.2.</span> <span class="nav-text">pause 和 cpu_relax</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ECS-cache-line-miss导致整个物理机响应慢"><span class="nav-number">1.7.</span> <span class="nav-text">ECS cache_line miss导致整个物理机响应慢</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#CPU-性能和Cache-Line"><span class="nav-number">1.</span> <span class="nav-text">CPU 性能和Cache Line</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是-cache-line"><span class="nav-number">1.1.</span> <span class="nav-text">什么是 cache_line</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#cache-失效"><span class="nav-number">1.1.1.</span> <span class="nav-text">cache 失效</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#各级IO延迟数字"><span class="nav-number">1.2.</span> <span class="nav-text">各级IO延迟数字</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#L1C、L2C、L3C、DDR-的Latency"><span class="nav-number">1.2.1.</span> <span class="nav-text">L1C、L2C、L3C、DDR 的Latency</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#查看-cache-line"><span class="nav-number">1.3.</span> <span class="nav-text">查看 cache_line</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#cache-line-影响性能的案例"><span class="nav-number">1.4.</span> <span class="nav-text">cache_line 影响性能的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Disruptor"><span class="nav-number">1.5.</span> <span class="nav-text">Disruptor</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Disruptor中对cache-line的使用"><span class="nav-number">1.5.1.</span> <span class="nav-text">Disruptor中对cache_line的使用</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Intel-PAUSE指令变化是如何影响自旋锁以及MySQL的性能的"><span class="nav-number">1.6.</span> <span class="nav-text">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pause-和-spinlock"><span class="nav-number">1.6.1.</span> <span class="nav-text">pause 和 spinlock</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#pause-和-cpu-relax"><span class="nav-number">1.6.2.</span> <span class="nav-text">pause 和 cpu_relax</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ECS-cache-line-miss导致整个物理机响应慢"><span class="nav-number">1.7.</span> <span class="nav-text">ECS cache_line miss导致整个物理机响应慢</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#从地址不对齐访问到split-lock"><span class="nav-number">1.7.1.</span> <span class="nav-text">从地址不对齐访问到split lock</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

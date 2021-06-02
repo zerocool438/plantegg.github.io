@@ -282,6 +282,320 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/02/Linux 问题总结/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/02/Linux 问题总结/" itemprop="url">Linux 问题总结</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-02T17:30:03+08:00">
+                2020-01-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/01/02/Linux 问题总结/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/02/Linux 问题总结/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-问题总结"><a href="#Linux-问题总结" class="headerlink" title="Linux 问题总结"></a>Linux 问题总结</h1><h2 id="crond文件权限的坑"><a href="#crond文件权限的坑" class="headerlink" title="crond文件权限的坑"></a>crond文件权限的坑</h2><p>crond第一次加载的时候（刚启动）会去检查文件属性，不是644的话以后都不会执行了，即使后面chmod改成了644. </p>
+<p>手工随便修改一下该文件的内容就能触发自动执行了，或者重启crond, 或者 sudo service crond reload， 或者 /etc/cron.d/下有任何修改都会触发crond reload配置(包含 touch )。</p>
+<p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
+<p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
+<h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="noopener">https://access.redhat.com/solutions/30316</a></p>
+<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
+<p>如上图去掉 admin nproc限制就可以了</p>
+<p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@i22h08323 /home/admin]</span><br><span class="line">#ulimit -u</span><br><span class="line">unlimited</span><br></pre></td></tr></table></figure>
+<h2 id="容器中ulimit限制了sudo的执行"><a href="#容器中ulimit限制了sudo的执行" class="headerlink" title="容器中ulimit限制了sudo的执行"></a>容器中ulimit限制了sudo的执行</h2><p>容器启动的时候默认nofile为65535（可以通过 docker run –ulimit nofile=655360 来设置），如果容器中的 /etc/security/limits.conf 中设置的nofile大于 65535就会报错，因为容器的1号进程就是65535了，比如在容器中用root用户执行sudo ls报错：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#sudo ls</span><br><span class="line">sudo: pam_open_session: Permission denied</span><br><span class="line">sudo: policy plugin failed session initialization</span><br></pre></td></tr></table></figure>
+<p>可以修改容器中的 ulimit 不要超过默认的65535或者修改容器的启动参数来解决。</p>
+<p>子进程都会继承父进程的一些环境变量，比如 limits.conf, sudo/su/crond/passwd等都会触发重新加载limits, </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景</span><br></pre></td></tr></table></figure>
+<h2 id="debug-crond"><a href="#debug-crond" class="headerlink" title="debug crond"></a>debug crond</h2><p>先停掉 crond service，然后开启debug参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">systemctl stop crond</span><br><span class="line">crond -x proc //不想真正执行的话：test</span><br></pre></td></tr></table></figure>
+<p>或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Debug sudo /var/log/sudo_debug all@warn</span><br><span class="line">Debug sudoers.so /var/log/sudoers_debug all@debug</span><br></pre></td></tr></table></figure>
+<h2 id="systemd-limits"><a href="#systemd-limits" class="headerlink" title="systemd limits"></a>systemd limits</h2><p>/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。</p>
+<p>因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。</p>
+<p>对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf<br>和/etc/systemd/user.conf.d/.conf。</p>
+<h3 id="关于ulimit的一些知识点"><a href="#关于ulimit的一些知识点" class="headerlink" title="关于ulimit的一些知识点"></a>关于ulimit的一些知识点</h3><p>参考 <a href="https://feichashao.com/ulimit_demo/" target="_blank" rel="noopener">Ulimit</a> <a href="http://blog.yufeng.info/archives/2568" target="_blank" rel="noopener">http://blog.yufeng.info/archives/2568</a></p>
+<ul>
+<li>limit的设定值是 per-process 的</li>
+<li>在 Linux 中，每个普通进程可以调用 getrlimit() 来查看自己的 limits，也可以调用 setrlimit() 来改变自身的 soft limits</li>
+<li>要改变 hard limit, 则需要进程有 CAP_SYS_RESOURCE 权限</li>
+<li>进程 fork() 出来的子进程，会继承父进程的 limits 设定</li>
+<li><code>ulimit</code> 是 shell 的内置命令。在执行<code>ulimit</code>命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定</li>
+<li>shell 的初始 limits 是谁设定的: 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值</li>
+</ul>
+<p>ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：</p>
+<ol>
+<li>用户进行登录，触发 pam_limits;</li>
+<li>pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；</li>
+<li>用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;</li>
+<li>当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了</li>
+</ol>
+<h2 id="deleted-文件"><a href="#deleted-文件" class="headerlink" title="deleted 文件"></a>deleted 文件</h2><p><code>lsof +L1</code> 或者<code>lsof | grep delete</code> 发现有被删除的文件，且占用大量磁盘空间</p>
+<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
+<p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficientS</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$cat /etc/pam.d/crond </span><br><span class="line">#</span><br><span class="line"># The PAM configuration file for the cron daemon</span><br><span class="line">#</span><br><span class="line">#</span><br><span class="line"># No PAM authentication called, auth modules not needed</span><br><span class="line">account    required   pam_access.so</span><br><span class="line">account    include    system-auth</span><br><span class="line">session    required   pam_loginuid.so //required 改成 sufficient</span><br><span class="line">session    include    system-auth</span><br><span class="line">auth       include    system-auth</span><br></pre></td></tr></table></figure>
+<p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
+<ul>
+<li><code>account</code> 处理账户限制。对于有效的用户，允许他做什么？</li>
+<li><code>auth</code> 处理用户识别 — 例如，通过输入用户名和密码。</li>
+<li><code>password</code> 只处理与密码相关的问题，比如设置新密码。</li>
+<li><code>session</code> 处理连接管理，包括日志记录。</li>
+</ul>
+<p>在 /etc/pam.d 目录中为将使用 PAM 的每个应用程序创建一个配置文件，文件名与应用程序名相同。例如，<code>login</code> 命令的配置文件是 /etc/pam.d/login。</p>
+<p>必须定义将应用哪些模块，创建一个动作 “堆”。PAM 运行堆中的所有模块，根据它们的结果允许或拒绝用户的请求。还必须定义检查是否是必需的。最后，<em>other</em> 文件为没有特殊规则的所有应用程序提供默认规则。</p>
+<ul>
+<li><code>optional</code> 模块可以成功，也可以失败；PAM 根据模块是否最终成功返回 <code>success</code> 或 <code>failure</code>。</li>
+<li><code>required</code> 模块必须成功。如果失败，PAM 返回 <code>failure</code>，但是会在运行堆中的其他模块之后返回。</li>
+<li><code>requisite</code> 模块也必须成功。但是，如果失败，PAM 立即返回 <code>failure</code>，不再运行其他模块。</li>
+<li><code>sufficient</code> 模块在成功时导致 PAM 立即返回 <code>success</code>，不再运行其他模块。</li>
+</ul>
+<p>当pam安装之后有两大部分：在/lib64/security目录下的各种pam模块以及/etc/pam.d和/etc/pam.d目录下的针对各种服务和应用已经定义好的pam配置文件。当某一个有认证需求的应用程序需要验证的时候，一般在应用程序中就会定义负责对其认证的PAM配置文件。以vsftpd为例，在它的配置文件/etc/vsftpd/vsftpd.conf中就有这样一行定义：</p>
+<blockquote>
+<p>pam_service_name=vsftpd</p>
+</blockquote>
+<p>表示登录FTP服务器的时候进行认证是根据/etc/pam.d/vsftpd文件定义的内容进行。</p>
+<h3 id="PAM-认证过程"><a href="#PAM-认证过程" class="headerlink" title="PAM 认证过程"></a>PAM 认证过程</h3><p>当程序需要认证的时候已经找到相关的pam配置文件，认证过程是如何进行的？下面我们将通过解读/etc/pam.d/system-auth文件予以说明。</p>
+<p>首先要声明一点的是：system-auth是一个非常重要的pam配置文件，主要负责用户登录系统的认证工作。而且该文件不仅仅只是负责用户登录系统认证，其它的程序和服务通过include接口也可以调用到它，从而节省了很多重新自定义配置的工作。所以应该说该文件是系统安全的总开关和核心的pam配置文件。</p>
+<p>下面是/etc/pam.d/system-auth文件的全部内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">$cat /etc/pam.d/system-auth</span><br><span class="line">#%PAM-1.0</span><br><span class="line"># This file is auto-generated.</span><br><span class="line"># User changes will be destroyed the next time authconfig is run.</span><br><span class="line">auth        required      pam_env.so</span><br><span class="line">auth        required      pam_faildelay.so delay=2000000</span><br><span class="line">auth        sufficient    pam_unix.so nullok try_first_pass</span><br><span class="line">auth        requisite     pam_succeed_if.so uid &gt;= 1000 quiet_success</span><br><span class="line">auth        required      pam_deny.so</span><br><span class="line"></span><br><span class="line">account     required      pam_unix.so</span><br><span class="line">account     sufficient    pam_localuser.so</span><br><span class="line">account     sufficient    pam_succeed_if.so uid &lt; 1000 quiet</span><br><span class="line">account     required      pam_permit.so</span><br><span class="line"></span><br><span class="line">password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=</span><br><span class="line">password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok</span><br><span class="line">password    required      pam_deny.so</span><br><span class="line"></span><br><span class="line">session     optional      pam_keyinit.so revoke</span><br><span class="line">session     required      pam_limits.so</span><br><span class="line">-session     optional      pam_systemd.so</span><br><span class="line">session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid</span><br><span class="line">session     required      pam_unix.so</span><br></pre></td></tr></table></figure>
+<h4 id="第一部分"><a href="#第一部分" class="headerlink" title="第一部分"></a>第一部分</h4><p>当用户登录的时候，首先会通过auth类接口对用户身份进行识别和密码认证。所以在该过程中验证会经过几个带auth的配置项。</p>
+<p>其中的第一步是通过pam_env.so模块来定义用户登录之后的环境变量， pam_env.so允许设置和更改用户登录时候的环境变量，默认情况下，若没有特别指定配置文件，将依据/etc/security/pam_env.conf进行用户登录之后环境变量的设置。</p>
+<p>然后通过pam_unix.so模块来提示用户输入密码，并将用户密码与/etc/shadow中记录的密码信息进行对比，如果密码比对结果正确则允许用户登录，而且<strong>该配置项的使用的是“sufficient”控制位，即表示只要该配置项的验证通过，用户即可完全通过认证而不用再去走下面的认证项</strong>。不过在特殊情况下，用户允许使用空密码登录系统，例如当将某个用户在/etc/shadow中的密码字段删除之后，该用户可以只输入用户名直接登录系统。</p>
+<p>下面的配置项中，通过pam_succeed_if.so对用户的登录条件做一些限制，表示允许uid大于500的用户在通过密码验证的情况下登录，在Linux系统中，一般系统用户的uid都在500之内，所以该项即表示允许使用useradd命令以及默认选项建立的普通用户直接由本地控制台登录系统。</p>
+<p>最后通过pam_deny.so模块对所有不满足上述任意条件的登录请求直接拒绝，pam_deny.so是一个特殊的模块，该模块返回值永远为否，类似于大多数安全机制的配置准则，在所有认证规则走完之后，对不匹配任何规则的请求直接拒绝。</p>
+<h4 id="第二部分"><a href="#第二部分" class="headerlink" title="第二部分"></a>第二部分</h4><p>三个配置项主要表示通过account账户类接口来识别账户的合法性以及登录权限。</p>
+<p>第一行仍然使用pam_unix.so模块来声明用户需要通过密码认证。第二行承认了系统中uid小于500的系统用户的合法性。之后对所有类型的用户登录请求都开放控制台。</p>
+<h4 id="第三部分"><a href="#第三部分" class="headerlink" title="第三部分"></a>第三部分</h4><p>会通过password口令类接口来确认用户使用的密码或者口令的合法性。第一行配置项表示需要的情况下将调用pam_cracklib来验证用户密码复杂度。如果用户输入密码不满足复杂度要求或者密码错，最多将在三次这种错误之后直接返回密码错误的提示，否则期间任何一次正确的密码验证都允许登录。需要指出的是，pam_cracklib.so是一个常用的控制密码复杂度的pam模块，关于其用法举例我们会在之后详细介绍。之后带pam_unix.so和pam_deny.so的两行配置项的意思与之前类似。都表示需要通过密码认证并对不符合上述任何配置项要求的登录请求直接予以拒绝。不过用户如果执行的操作是单纯的登录，则这部分配置是不起作用的。</p>
+<h4 id="第四部分"><a href="#第四部分" class="headerlink" title="第四部分"></a>第四部分</h4><p>主要将通过session会话类接口为用户初始化会话连接。其中几个比较重要的地方包括，使用pam_keyinit.so表示当用户登录的时候为其建立相应的密钥环，并在用户登出的时候予以撤销。不过该行配置的控制位使用的是optional，表示这并非必要条件。之后通过pam_limits.so限制用户登录时的会话连接资源，相关pam_limit.so配置文件是/etc/security/limits.conf，默认情况下对每个登录用户都没有限制。关于该模块的配置方法在后面也会详细介绍。</p>
+<h3 id="常用的PAM模块介绍"><a href="#常用的PAM模块介绍" class="headerlink" title="常用的PAM模块介绍"></a>常用的PAM模块介绍</h3><table>
+<thead>
+<tr>
+<th>PAM模块</th>
+<th>结合管理类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pam_unix.so</td>
+<td>auth</td>
+<td>提示用户输入密码,并与/etc/shadow文件相比对.匹配返回0</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>account</td>
+<td>检查用户的账号信息(包括是否过期等).帐号可用时,返回0.</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>password</td>
+<td>修改用户的密码. 将用户输入的密码,作为用户的新密码更新shadow文件</td>
+</tr>
+<tr>
+<td>pam_shells.so</td>
+<td>auth、account</td>
+<td>如果用户想登录系统，那么它的shell必须是在/etc/shells文件中之一的shell</td>
+</tr>
+<tr>
+<td>pam_deny.so</td>
+<td>account、auth、password、session</td>
+<td>该模块可用于拒绝访问</td>
+</tr>
+<tr>
+<td>pam_permit.so</td>
+<td>account、auth、password、session</td>
+<td>模块任何时候都返回成功.</td>
+</tr>
+<tr>
+<td>pam_securetty.so</td>
+<td>auth</td>
+<td>如果用户要以root登录时,则登录的tty必须在/etc/securetty之中.</td>
+</tr>
+<tr>
+<td>pam_listfile.so</td>
+<td>account、auth、password、session</td>
+<td>访问应用程的控制开关</td>
+</tr>
+<tr>
+<td>pam_cracklib.so</td>
+<td>password</td>
+<td>这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.</td>
+</tr>
+<tr>
+<td>pam_limits.so</td>
+<td>session</td>
+<td>定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定</td>
+</tr>
+</tbody>
+</table>
+<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
+<h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
+<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
+<p>因为 /etc/localtime 是deleted状态</p>
+<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="noopener">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
+<p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。实际是写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
+<p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="noopener">而 ls -s 中的 -s就是只看实际大小</a></p>
+<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
+<p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="noopener">图片来源</a></p>
+<p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="noopener">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
+<p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>
+<h2 id="增加dmesg-buffer"><a href="#增加dmesg-buffer" class="headerlink" title="增加dmesg buffer"></a>增加dmesg buffer</h2><p>If dmesg does not show any information about NUMA, then increase the Ring Buffer size:<br>Boot with ‘log_buf_len=16M’ (or some other big value). Refer the following kbase article <a href="https://access.redhat.com/solutions/47276" target="_blank" rel="noopener">How do I increase the kernel log ring buffer size?</a> for steps on how to increase the ring buffer</p>
+<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="noopener">Yum commands error “pycurl.so: undefined symbol”</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"># yum check update</span><br><span class="line">There was a problem importing one of the Python modules</span><br><span class="line">required to run yum. The error leading to this problem was:</span><br><span class="line"></span><br><span class="line">/usr/lib64/python2.6/site-packages/pycurl.so: undefined symbol: CRYPTO_set_locking_callback</span><br><span class="line"></span><br><span class="line">Please install a package which provides this module, or</span><br><span class="line">verify that the module is installed correctly.</span><br><span class="line"></span><br><span class="line">It&apos;s possible that the above module doesn&apos;t match the</span><br><span class="line">current version of Python, which is:</span><br><span class="line">2.6.6 (r266:84292, Sep  4 2013, 07:46:00)</span><br><span class="line">[GCC 4.4.7 20120313 (Red Hat 4.4.7-3)]</span><br><span class="line"></span><br><span class="line">If you cannot solve this problem yourself, please go to</span><br><span class="line">the yum faq at:</span><br><span class="line">http://yum.baseurl.org/wiki/Faq</span><br></pre></td></tr></table></figure>
+<ul>
+<li>Check and fix the related library paths or remove 3rd party libraries, usually <code>libcurl</code> or <code>libssh2</code>. On a x86_64 system, the standard paths for those libraries are <code>/usr/lib64/libcurl.so.4</code> and <code>/usr/lib64/libssh2.so.1</code></li>
+</ul>
+<h2 id="软中断、系统调用和上下文切换"><a href="#软中断、系统调用和上下文切换" class="headerlink" title="软中断、系统调用和上下文切换"></a>软中断、系统调用和上下文切换</h2><p>“你可以把内核看做是不断对请求进行响应的服务器，这些请求可能来自在CPU上执行的进程，也可能来自发出中断的外部设备。老板的请求相当于中断，而顾客的请求相当于用户态进程发出的系统调用”。</p>
+<p>软中断和系统调用一样，都是CPU停止掉当前用户态上下文，保存工作现场，然后陷入到内核态继续工作。二者的唯一区别是系统调用是切换到同进程的内核态上下文，而软中断是则是切换到了另外一个内核进程ksoftirqd上。</p>
+<blockquote>
+<p>系统调用开销是200ns起步</p>
+<p>从实验数据来看，一次软中断CPU开销大约3.4us左右</p>
+<p>实验结果显示进程上下文切换平均耗时 3.5us，lmbench工具显示的进程上下文切换耗时从2.7us到5.48之间</p>
+<p>大约每次线程切换开销大约是3.8us左右。<strong>从上下文切换的耗时上来看，Linux线程（轻量级进程）其实和进程差别不太大</strong>。</p>
+</blockquote>
+<p>软中断和进程上下文切换比较起来，进程上下文切换是从用户进程A切换到了用户进程B。而软中断切换是从用户进程A切换到了内核线程ksoftirqd上。而ksoftirqd作为一个内核控制路径，其处理程序比一个用户进程要轻量，所以上下文切换开销相对比进程切换要少一些（实际数据基本差不多）。</p>
+<p>系统调用只是在进程内将用户态切换到内核态，然后再切回来，而上下文切换可是直接从进程A切换到了进程B。显然这个上下文切换需要完成的工作量更大。</p>
+<h3 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483827&amp;idx=3&amp;sn=8b897c8d6d3038ea79bd156a0e88db10&amp;scene=21#wechat_redirect" target="_blank" rel="noopener">软中断开销计算</a></h3><ul>
+<li><strong>查看软中断总耗时</strong>， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%–1秒[1000ms]中的1.2%）</li>
+<li><strong>查看软中断次数</strong>，再用vmstat命令可以看到软中断的次数（in列 56000）</li>
+<li><strong>计算每次软中断的耗时</strong>，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右</li>
+</ul>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="noopener">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
+<p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="noopener">https://www.jianshu.com/p/ac3e7009a764</a></p>
+<p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="noopener">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
+<p>B 站清华大学操作系统视频地址：<a href="https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697" target="_blank" rel="noopener">https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/01/2010到2020这10年的碎碎念念/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5923,327 +6237,6 @@ tx-frame-high: 0
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/05/15/就是要你懂网络--一个网络包的旅程/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/05/15/就是要你懂网络--一个网络包的旅程/" itemprop="url">就是要你懂网络--一个网络包的旅程</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-15T17:30:03+08:00">
-                2019-05-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/05/15/就是要你懂网络--一个网络包的旅程/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/05/15/就是要你懂网络--一个网络包的旅程/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂网络–一个网络包的旅程"><a href="#就是要你懂网络–一个网络包的旅程" class="headerlink" title="就是要你懂网络–一个网络包的旅程"></a>就是要你懂网络–一个网络包的旅程</h1><hr>
-<h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>我相信你脑子里关于网络的概念都在下面这张图上，但是乱成一团麻，这就是因为知识没有贯通、没有实践、没有组织</p>
-<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
-<p>上面的概念在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>中讲的无比的通熟易懂了，但是抱歉，当时你也许看懂了，但是一个月后又忘记了，或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
-<p><strong>所以这篇文章希望解决书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
-<h2 id="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"><a href="#最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下" class="headerlink" title="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"></a>最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下</h2><p>当时的网络链路是（大概是这样，略有简化）：</p>
-<pre><code>容器1-&gt;容器1所在物理机1-&gt;交换机-&gt;物理机2
-</code></pre><ul>
-<li>从容器1 ping 物理机2 不通；</li>
-<li>从物理机1上的容器2 ping物理机2 通；</li>
-<li>物理机用一个vlan，容器用另外一个vlan</li>
-<li>交换机都做了trunk，让两个vlan都允许通过（肯定没问题，因为容器2是通的）</li>
-<li>同时发现即使是通的，有的容器 ping物理机1只需要0.1ms，有的容器需要200ms以上（都在同一个交换机下），不合理</li>
-<li>所有容器 ping 其它外网IP反而是通的</li>
-</ul>
-<p>扯了一周是因为容器的网络是我们自己配置的，交换机我们没有权限接触，由客户配置。出问题的时候都会觉得自己没问题对方有问题，另外就是对网络基本知识认识不够所以都觉得自己没问题。</p>
-<p>这个问题的答案在大家看完本文的基础知识后会总结出来。</p>
-<blockquote>
-<p>开始前大家先想想，假如有个面试题是：输入 ping IP后 敲回车，然后发生了什么？</p>
-</blockquote>
-<h2 id="route-路由表"><a href="#route-路由表" class="headerlink" title="route 路由表"></a>route 路由表</h2><pre><code>$route -n
-Kernel IP routing table
-Destination Gateway Genmask Flags Metric RefUse Iface
-0.0.0.0     10.125.15.254   0.0.0.0 UG0  00 eth0
-10.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
-10.125.0.0  0.0.0.0 255.255.240.0   U 0  00 eth0
-11.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
-30.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
-100.64.0.0  10.125.15.254   255.192.0.0 UG0  00 eth0
-169.254.0.0 0.0.0.0 255.255.0.0 U 1002   00 eth0
-172.16.0.0  10.125.15.254   255.240.0.0 UG0  00 eth0
-172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
-192.168.0.0 10.125.15.254   255.255.0.0 UG0  00 eth0
-</code></pre><p>假如你现在在这台机器上ping 172.17.0.2 根据上面的route表得出 172.17.0.2这个IP符合：</p>
-<pre><code>172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
-</code></pre><p>这条路由规则，那么ping 包会从docker0这张网卡发出去。</p>
-<p>但是如果是ping 10.125.4.4 根据路由规则应该走eth0这张网卡。</p>
-<p>接下来就要判断目标IP是否在同一个子网了</p>
-<h2 id="ifconfig"><a href="#ifconfig" class="headerlink" title="ifconfig"></a>ifconfig</h2><p>首先来看看这台机器的网卡情况：</p>
-<pre><code>$ifconfig
-docker0: flags=4099&lt;UP,BROADCAST,MULTICAST&gt;  mtu 1500
-    inet 172.17.42.1  netmask 255.255.0.0  broadcast 0.0.0.0
-    ether 02:42:49:a7:dc:ba  txqueuelen 0  (Ethernet)
-    RX packets 461259  bytes 126800808 (120.9 MiB)
-    RX errors 0  dropped 0  overruns 0  frame 0
-    TX packets 462820  bytes 103470899 (98.6 MiB)
-    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
-
-eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
-    inet 10.125.3.33  netmask 255.255.240.0  broadcast 10.125.15.255
-    ether 00:16:3e:00:02:67  txqueuelen 1000  (Ethernet)
-    RX packets 280918095  bytes 89102074868 (82.9 GiB)
-    RX errors 0  dropped 0  overruns 0  frame 0
-    TX packets 333504217  bytes 96311277198 (89.6 GiB)
-    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
-
-lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536
-    inet 127.0.0.1  netmask 255.0.0.0
-    loop  txqueuelen 0  (Local Loopback)
-    RX packets 1077128597  bytes 104915529133 (97.7 GiB)
-    RX errors 0  dropped 0  overruns 0  frame 0
-    TX packets 1077128597  bytes 104915529133 (97.7 GiB)
-    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
-</code></pre><p>这里有三个IP，三个子网掩码（netmask)，根据目标路由走哪张网卡，得到这个网卡的子网掩码，来计算目标IP是否在这个子网内。</p>
-<h2 id="arp协议"><a href="#arp协议" class="headerlink" title="arp协议"></a>arp协议</h2><p>网络包在物理层传输的时候依赖的mac 地址而不是上面的IP地址，也就是根据mac地址来决定把包发到哪里去。 </p>
-<p>arp协议就是查询某个IP地址的mac地址是多少，由于这种对应关系一般不太变化，所以每个os都有一份arp缓存（一般15分钟过期），也可以手工清理，下面是arp缓存的内容：</p>
-<pre><code>$arp -a
-e010125011202.bja.tbsite.net (10.125.11.202) at 00:16:3e:01:c2:00 [ether] on eth0
-? (10.125.15.254) at 0c:da:41:6e:23:00 [ether] on eth0
-v125004187.bja.tbsite.net (10.125.4.187) at 00:16:3e:01:cb:00 [ether] on eth0
-e010125001224.bja.tbsite.net (10.125.1.224) at 00:16:3e:01:64:00 [ether] on eth0
-v125009121.bja.tbsite.net (10.125.9.121) at 00:16:3e:01:b8:ff [ether] on eth0
-e010125009114.bja.tbsite.net (10.125.9.114) at 00:16:3e:01:7c:00 [ether] on eth0
-v125012028.bja.tbsite.net (10.125.12.28) at 00:16:3e:00:fb:ff [ether] on eth0
-e010125005234.bja.tbsite.net (10.125.5.234) at 00:16:3e:01:ee:00 [ether] on eth0
-</code></pre><h2 id="进入正题，回车后发生什么"><a href="#进入正题，回车后发生什么" class="headerlink" title="进入正题，回车后发生什么"></a>进入正题，回车后发生什么</h2><p>首先 os需要把ping命令封成一个icmp包，需要填上包头（包括IP、mac地址），那么os先根据目标IP和本机的route规则计算使用哪个interface(网卡），每条路由规则基本都包含目标IP范围、网关、网卡这样几个基本元素。</p>
-<h3 id="如果目标IP在同一子网"><a href="#如果目标IP在同一子网" class="headerlink" title="如果目标IP在同一子网"></a>如果目标IP在同一子网</h3><p>如果目标IP和本机IP是同一个子网（根据本机ifconfig上的每个网卡的netmask来判断），并且本机arp缓存没有这条IP对应的mac记录，那么给整个子网的所有机器广播发送一个 arp查询</p>
-<p>比如我ping 10.125.3.42，然后tcpdump抓包看到的arp请求：</p>
-<pre><code>$sudo tcpdump -i eth0  arp
-tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
-listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
-16:22:01.792501 ARP, Request who-has e010125003042.bja.tbsite.net tell e010125003033.bja, length 28
-16:22:01.792566 ARP, Reply e010125003042.bja.tbsite.net is-at 00:16:3e:01:8d:ff (oui Unknown), length 28
-</code></pre><p>上面就是本机发送广播消息，10.125.3.42的mac地址是多少，很快10.125.3.42回复了自己的mac地址。<br>收到这个回复后，先缓存起来，下个ping包就不需要再次arp广播了。<br>然后将这个mac地址填写到ping包的包头的目标Mac（icmp包），然后发出这个icmp request包，按照mac地址，正确到达目标机器，然后对方正确回复icmp reply【对方回复也要查路由规则，arp查发送放的mac，这样回包才能正确路由回来，略过】。</p>
-<p>来看一次完整的ping 10.125.3.43，tcpdump抓包结果：</p>
-<pre><code>$sudo tcpdump -i eth0  arp or icmp
-tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
-listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
-16:25:15.195401 ARP, Request who-has e010125003043.bja.tbsite.net tell e010125003033.bja, length 28
-16:25:15.195459 ARP, Reply e010125003043.bja.tbsite.net is-at 00:16:3e:01:0c:ff (oui Unknown), length 28
-16:25:15.211505 IP e010125003033.bja &gt; e010125003043.bja.tbsite.net: ICMP echo request, id 27990, seq 1, length 64
-16:25:15.212056 IP e010125003043.bja.tbsite.net &gt; e010125003033.bja: ICMP echo reply, id 27990, seq 1, length 64
-</code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
-<h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关就行转发，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
-<p>从本机10.125.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走10.125.15.254这个网关，如下截图：</p>
-<p><img src="/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
-<p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关10.125.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到10.125.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
-<p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
-<pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
-    inet 11.239.161.60  netmask 255.255.252.0  broadcast 11.239.163.255
-    ether 00:16:3e:00:04:c4  txqueuelen 1000  (Ethernet)
-</code></pre><p>这个包根据Mac地址路由到了网关上</p>
-<h3 id="网关接下来怎么办"><a href="#网关接下来怎么办" class="headerlink" title="网关接下来怎么办"></a>网关接下来怎么办</h3><p><strong>为了简化问题，假设两个网关直连</strong></p>
-<p>网关收到这个包后（因为mac地址是她的），打开一看IP地址是 11.239.161.60，不是自己的，于是继续查自己的route和arp缓存，发现11.239.161.60这个IP的网关是11.239.163.247，于是把包的目的mac地址改成11.239.163.247的mac继续发出去。</p>
-<p>11.239.163.247这个网关收到包后，一看 11.239.161.60是自己同一子网的IP，于是该arp广播找mac就广播，cache有就拿cache的，然后这个包才最终到达目的11.239.161.60上。</p>
-<p>整个过程中目标mac地址每一跳都在变，IP地址不变，每经过一次变化可以简单理解从一跳。</p>
-<p>实际上可能要经过多个网关多次跳跃才能真正到达目标机器</p>
-<h3 id="目标收到这个icmp包后的回复过程一样，略过。"><a href="#目标收到这个icmp包后的回复过程一样，略过。" class="headerlink" title="目标收到这个icmp包后的回复过程一样，略过。"></a>目标收到这个icmp包后的回复过程一样，略过。</h3><h3 id="arp广播风暴和arp欺骗"><a href="#arp广播风暴和arp欺骗" class="headerlink" title="arp广播风暴和arp欺骗"></a>arp广播风暴和arp欺骗</h3><p>广播风暴：如果一个子网非常大，机器非常多，每次arp查询都是广播的话，也容易因为N*N的问题导致广播风暴。</p>
-<p>arp欺骗：同样如果一个子网中的某台机器冒充网关或者其他机器，当收到arp查询的时候总是把自己的mac冒充目标机器的mac发给你，然后你的包先走到他，为了不被发现达到自己的目的后再转发给真正的网关或者机器，所以在里面都点什么手脚，看看你发送的内容都还是很容易的</p>
-<h2 id="讲完基础再来看开篇问题的答案"><a href="#讲完基础再来看开篇问题的答案" class="headerlink" title="讲完基础再来看开篇问题的答案"></a>讲完基础再来看开篇问题的答案</h2><h3 id="分别在两个物理机上抓包"><a href="#分别在两个物理机上抓包" class="headerlink" title="分别在两个物理机上抓包"></a>分别在两个物理机上抓包</h3><p>在物理机2上抓包：</p>
-<p><img src="/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
-<pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
-f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
-10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
-18:66:da:f0:15:90 &gt; 00:00:0c:9f:f0:86, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 64, id 21395, offset 0, flags [none], proto ICMP (1), length 84)
-10.159.43.1 &gt; 10.159.43.162: ICMP echo reply, id 6285, seq 1, length 64
-</code></pre><p>这个抓包能看到核心证据，ping包有到达物理机2，同时物理机2也正确回复了（mac、ip都对）</p>
-<p>同时在物理机1上抓包只能看到ping包出去，回包没有到物理机1（所以回包肯定不会到容器里了）</p>
-<p><strong>所以问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
-<p>同时观察到的不正常延时：<br><img src="/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
-<h3 id="过程中的其它测试："><a href="#过程中的其它测试：" class="headerlink" title="过程中的其它测试："></a>过程中的其它测试：</h3><ol>
-<li>新拿出一台物理机配置上不通的容器的IP，这是通的，所以客户坚持是容器网络的配置；</li>
-<li>怀疑不通的IP所使用的mac地址冲突，在交换机上清理了交换机的arp缓存，没有帮助，还是不通</li>
-</ol>
-<p>对于1能通，我认为这个测试不严格，新物理机所用的mac不一样，并且所接的交换机口也不一样，影响了测试结果。</p>
-<h3 id="最终的原因"><a href="#最终的原因" class="headerlink" title="最终的原因"></a>最终的原因</h3><p>最后在交换机上分析包没正确发到物理机1上的原因跟客户交换机使用了HSRP（热备份路由器协议，就是多个交换机HA高可用，也就是同一子网可以有多个网关的IP），停掉HSRP后所有IP容器都能通了，并且前面的某些容器延时也恢复正常了。</p>
-<p><strong>通俗点说就是HSRP把回包拐跑了，有些回包拐跑了又送回来了（延时200ms那些）</strong></p>
-<p>至于HSRP为什么会这么做，要厂家出来解释了。</p>
-<p>大概结构如下图：</p>
-<p><img src="/images/oss/1561010762561-4a8510f9-db2f-44bd-b86f-ddfc5bc889d3.png" alt="undefined">     </p>
-<h4 id="关于HSRP和VRRP"><a href="#关于HSRP和VRRP" class="headerlink" title="关于HSRP和VRRP"></a>关于HSRP和VRRP</h4><p>VRRP是虚拟路由冗余协议的简称，这个协议的目的是为了让多台路由器共同组成一个虚拟路由器，从而解决单点故障。</p>
-<p>使用VRRP的网络架构大致如上面这个图所示，其中Master和Slave共同组成了一个虚拟路由器，这台虚拟路由器的IP是1.1.1.1，同时还会有一个虚拟的mac地址，所有主机的默认网关IP都将设置成1.1.1.1。</p>
-<p>假设主机H1需要对外发送数据，在发送IP数据包时主机H1需要知道1.1.1.1这个IP对应的物理地址，因此H1会向外广播一个ARP请求，询问1.1.1.1这个IP数据包对应的物理地址。此时，Master将会负责响应这个APR请求，将虚拟的mac地址报告给主机H1，主机H1就用这个物理地址发送IP数据包。</p>
-<p>当IP数据包到达交换机Switch A的时候，Switch A需要知道应该把这个数据包转发到哪条链路去，这个时候Switch A也会广播一个ARP请求，看看哪条链路会响应这个ARP请求。同样，Master会响应这个ARP请求，从而Switch A就知道了应该把数据包从自己的eth0对应的这条链路转发出去。此时，Master就是真正负责整个网络对外通信的路由器。</p>
-<p>当Master出现故障的时候，通过VRRP协议，Slave可以感知到这个故障(通过类似于心跳的方式)，这个时候Slave会主动广播一个ARP消息，告诉Switch A应该从eth1对应的链路转发物理地址是虚拟mac地址的数据包。这样就完成了主备路由器的切换，这个过程对网络中的主机来说是透明的。</p>
-<p>通过VRRP不仅可以实现1主1备的部署，还可以实现1主多备的部署。在1主多备的部署结构下，当Master路由器出现故障，多个Backup路由器会通过选举的方式产生一个新的Master路由器，由这个Master路由器来响应ARP请求。</p>
-<p>除了利用VRRP屏蔽单点故障之外，还可以实现负载均衡。在主备部署的情况下，Backup路由器其实是空转的，并不负责数据包的路由工作，这样显然是有点浪费的。此时，为了让Backup也负责一部分的路由工作，可以将两台路由器配制成互为主备的模式，这样就形成了两台虚拟路由器，网络中的主机可以选择任意一台作为默认网关。这种互为主备的模式也可以应用到1主多备的部署方式下。比如由3台路由器，分别是R1，R2和R3，用这3台路由器可以组成3台虚拟路由器，一台虚拟路由器以R1为Master，R2和R3为Backup路由器，另外一台以R2为Master，R1和R3为Backup路由器，第三台则以R3为Master，R1和R2为Backup路由器。</p>
-<p>通过VRRP，可以实现LVS的主备部署，屏蔽LVS单点故障对应用服务器的影响。</p>
-<h2 id="网络到底通不通是个复杂的问题"><a href="#网络到底通不通是个复杂的问题" class="headerlink" title="网络到底通不通是个复杂的问题"></a>网络到底通不通是个复杂的问题</h2><p>讲这个过程的核心目的是除了真正的网络不通，有些是服务不可用了也怪网络。很多现场的同学根本讲不清自己的服务（比如80端口上的tomcat服务）还在不在，网络通不通，网络不通的话该怎么办？</p>
-<p>实际这里涉及到四个节点（以两个网关直连为例），srcIP -&gt; src网关 -&gt; dest网关 -&gt; destIP.如果ping不通(也有特殊的防火墙限制ping包不让过的），那么分段ping（二分查找程序员应该最熟悉了）。 比如前面的例子就是网关没有把包转发回来</p>
-<p>抓包看ping包有没有出去，对方抓包看有没有收到，收到后有没有回复。</p>
-<p>ping自己网关能不能通，ping对方网关能不能通</p>
-<h2 id="接下来说点跟程序员日常相关的"><a href="#接下来说点跟程序员日常相关的" class="headerlink" title="接下来说点跟程序员日常相关的"></a>接下来说点跟程序员日常相关的</h2><h3 id="如果网络能ping通，服务无法访问"><a href="#如果网络能ping通，服务无法访问" class="headerlink" title="如果网络能ping通，服务无法访问"></a>如果网络能ping通，服务无法访问</h3><p>那么尝试telnet IP port 看看你的服务监听的端口是否还在，在的话是否能正常响应新的连接。有时候是进程挂掉了，端口也没人监听了。有时候是进程还在但是死掉了，所以端口也不响应新的请求了。</p>
-<p>如果端口还在也是正常的话，telnet应该是好的：</p>
-<pre><code>$telnet 11.239.161.60 2376
-Trying 11.239.161.60...
-Connected to 11.239.161.60.
-Escape character is &apos;^]&apos;.
-^C
-Connection closed by foreign host.
-</code></pre><p>假如我故意换成一个不存在的端口，目标机器上的OS直接就拒绝了这个连接（抓包的话一般是看到reset标识）：</p>
-<pre><code>$telnet 11.239.161.60 2379
-Trying 11.239.161.60...
-telnet: connect to address 11.239.161.60: Connection refused
-</code></pre><h2 id="一个服务不响应，然后首先怀疑网络不通、丢包的Case"><a href="#一个服务不响应，然后首先怀疑网络不通、丢包的Case" class="headerlink" title="一个服务不响应，然后首先怀疑网络不通、丢包的Case"></a>一个服务不响应，然后首先怀疑网络不通、丢包的Case</h2><p>当时的反馈应用代码抛SocketTimeoutException，怀疑网络问题：</p>
-<ol>
-<li>tsar检查，发现retran率特别高，docker容器（tlog-console）内达到50，物理机之间的retran在1-2之间。</li>
-<li>Tlog连接Hbase，出现大量连接断开，具体日志见附件，Hbase服务器完全正常，Hbase同学怀疑retran比较高导致。</li>
-<li>业务应用连接Diamond 偶尔会出现超时异常，具体日志见附件。</li>
-<li>业务很多这样的异常日志：[Diamond  SocketTimeoutException]</li>
-<li>有几台物理机io偶然情况下会飙升到80多。需要定位解决。</li>
-</ol>
-<p>其实当时看到tsar监控retran比较高，我也觉得网络有问题，但是我去看的时候网络又非常好，于是我看了一下出问题时间段的网卡的流量信息也非常正常：</p>
-<p><img src="/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
-<p>上图是通过sar监控到的9号 10.16.11.138（v24d9e0f23d40） 这个网卡的流量，看起来也是正常，流量没有出现明显的波动（10.16.11.138  出问题容器对应的网卡名：v24d9e0f23d40）</p>
-<p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求，基本认识告诉我们如果网络丢包、卡顿，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常。</p>
-<p>实际监控来看，应用出异常的时候我的http服务是正常的（写了脚本判断日志的连续性，没问题）：</p>
-<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
-<p>这也强有力地证明了网络没问题，所以大家集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
-<h2 id="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"><a href="#TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。" class="headerlink" title="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"></a>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</h2><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
-<ul>
-<li>有重传的时候（或者说重传率高的时候），ping有可能是正常的（icmp包网卡直接返回）；</li>
-<li>重传高，一般是tcp retrans，可能应用不响应，可能操作系统软中断太高等</li>
-<li>ping只是保证网络链路是否通畅</li>
-</ul>
-<hr>
-<p>参考文章：</p>
-<p><a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">https://tools.ietf.org/html/rfc1180</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6291,7 +6284,7 @@ telnet: connect to address 11.239.161.60: Connection refused
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">101</span>
+                <span class="site-state-item-count">102</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
