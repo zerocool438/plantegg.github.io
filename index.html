@@ -646,6 +646,11 @@
 <p>感觉前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是<strong>Ring bus到Mesh</strong>）</p>
 <p><img src="/images/951413iMgBlog/image-20210602154509596.png" alt="image-20210602154509596"></p>
 <h3 id="不同的架构下的参数"><a href="#不同的架构下的参数" class="headerlink" title="不同的架构下的参数"></a>不同的架构下的参数</h3><p><img src="/images/oss/e4a2fb522be7aa65158778b7ea825207.png" alt="image.png"></p>
+<h2 id="主频睿频超频"><a href="#主频睿频超频" class="headerlink" title="主频睿频超频"></a>主频睿频超频</h2><p><strong>主频=外频×倍频系数</strong></p>
+<p>不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。</p>
+<p>超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。</p>
+<p>睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。</p>
+<p><img src="/images/951413iMgBlog/1000.jpeg" alt="img"></p>
 <h2 id="UEFI和Bios"><a href="#UEFI和Bios" class="headerlink" title="UEFI和Bios"></a>UEFI和Bios</h2><p><strong>UEFI</strong>，全称Unified Extensible Firmware Interface，即“统一的可扩展固件接口”，是一种详细描述全新类型接口的标准，是适用于电脑的标准固件接口，旨在代替BIOS（基本输入/输出系统）</p>
 <p>电脑中有一个BIOS设置，它主要负责开机时检测硬件功能和引导操作系统启动的功能。而UEFI则是用于操作系统自动从预启动的操作环境，加载到一种操作系统上从而节省开机时间。</p>
 <p>UEFI启动是一种新的主板引导项，它被看做是bios的继任者。UEFI最主要的特点是图形界面，更利于用户对象图形化的操作选择。</p>
@@ -1040,7 +1045,7 @@
 <li>原子操作，即汇编指令包含Lock前缀；</li>
 <li>操作数地址不对齐，还跨越两个cache lines；</li>
 </ol>
-<p>其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。最近，Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版<a href="https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/" target="_blank" rel="noopener">code review</a>。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。</p>
+<p>其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版<a href="https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/" target="_blank" rel="noopener">code review</a>。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。</p>
 <p>学过体系结构的同学都应该知道，缓存一制性协议MESI只能保证cache line粒度的一致性。同时访问两个cache lines不是常见操作，为保证split lock的原子性，设计硬件时使用特殊逻辑（冷路径）来处理：<strong>锁住整个访存总线，阻止其它逻辑cpu访存</strong>。</p>
 <p>从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。</p>
 <p><img src="/images/951413iMgBlog/1.png" alt="img"></p>
