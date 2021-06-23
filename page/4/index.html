@@ -282,6 +282,239 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/09/一文搞懂域名解析相关问题/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/09/一文搞懂域名解析相关问题/" itemprop="url">就是要你懂DNS--一文搞懂域名解析相关问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-09T10:30:03+08:00">
+                2019-06-09
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/DNS/" itemprop="url" rel="index">
+                    <span itemprop="name">DNS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/06/09/一文搞懂域名解析相关问题/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/09/一文搞懂域名解析相关问题/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="一文搞懂域名解析DNS相关问题"><a href="#一文搞懂域名解析DNS相关问题" class="headerlink" title="一文搞懂域名解析DNS相关问题"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
+<p>本文希望通过一篇文章解决所有域名解析中相关的问题 </p>
+<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
+</blockquote>
+<p>这几个Case描述如下：</p>
+<ol>
+<li><a href="https://plantegg.github.io/2019/01/09/nslookup-OK-but-ping-fail/" target="_blank" rel="noopener">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="https://plantegg.github.io/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" target="_blank" rel="noopener">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="https://plantegg.github.io/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" target="_blank" rel="noopener">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="https://plantegg.github.io/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" target="_blank" rel="noopener">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
+<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
+<h2 id="Linux下域名解析流程"><a href="#Linux下域名解析流程" class="headerlink" title="Linux下域名解析流程"></a>Linux下域名解析流程</h2><ul>
+<li>DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
+<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns </li>
+<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
+</ul>
+<p><img src="/images/oss/b7458f344de1d1b10c2a6f6ee7f1c501.png" alt="image.png"></p>
+<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener">所以默认的nsswitch流程是</a>：</p>
+<p><img src="/images/oss/82489e801d8f7bd455053315d760614b.png" alt="image.png"></p>
+<p>以下是一个 /etc/nsswitch.conf</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/nsswitch.conf |grep -v &quot;^#&quot; |grep -v &quot;^$&quot;</span><br><span class="line">passwd:     files sss</span><br><span class="line">shadow:     files sss</span><br><span class="line">group:      files sss</span><br><span class="line">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序</span><br><span class="line">bootparams: nisplus [NOTFOUND=return] files</span><br><span class="line">ethers:     files</span><br><span class="line">netmasks:   files</span><br><span class="line">networks:   files</span><br><span class="line">protocols:  files</span><br><span class="line">rpc:        files</span><br><span class="line">services:   files sss</span><br><span class="line">netgroup:   nisplus sss</span><br><span class="line">publickey:  nisplus</span><br><span class="line">automount:  files nisplus sss</span><br><span class="line">aliases:    files nisplus</span><br></pre></td></tr></table></figure>
+<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
+<h2 id="Linux下域名解析流程需要注意的地方"><a href="#Linux下域名解析流程需要注意的地方" class="headerlink" title="Linux下域名解析流程需要注意的地方"></a>Linux下域名解析流程需要注意的地方</h2><ul>
+<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+<li>如果被解析的域名不是以 “.” 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a href="https://access.redhat.com/solutions/58028" target="_blank" rel="noopener">resolv.conf最多支持6个search域</a></li>
+<li>ping调用的是glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch，nslookup不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
+</ul>
+<h2 id="Linux下域名解析诊断工具"><a href="#Linux下域名解析诊断工具" class="headerlink" title="Linux下域名解析诊断工具"></a>Linux下域名解析诊断工具</h2><ul>
+<li>ping</li>
+<li>nslookup (nslookup domain @dns-server-ip)</li>
+<li>dig (dig +trace domain)</li>
+<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
+<li>strace</li>
+</ul>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>向 /etc/hosts 中添加了一条test.unknow.host, 无法解析到，但是test.localhost可以解析？</p>
+<pre><code>[ren@vb 08:50 /home/ren]
+$head -2 /etc/hosts
+127.0.0.1　 test.unknow.host
+127.0.0.1   test.localhost
+
+[ren@vb 08:50 /home/ren]
+$ping test.unknow.host
+ping: unknown host test.unknow.host
+
+[ren@vb 08:50 /home/ren]
+$ping -c 1 test.localhost
+PING test.localhost (127.0.0.1) 56(84) bytes of data.
+64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
+
+--- test.localhost ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
+</code></pre><p>为什么 test.unknow.host 没法解析到？<br>可能有哪些因素导致这种现象？</p>
+<p>尝试 ping -c 1 test.localhost 的目的是做什么？</p>
+<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
+<ul>
+<li>/etc/hosts 没有启用</li>
+<li>有本地缓存记录了一个unknow host记录</li>
+</ul>
+<h4 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
+</code></pre><p>可以通，说明 /etc/hosts 是在起作用的，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
+<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了</p>
+<p><img src="/images/oss/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png" alt="undefined"> </p>
+<p>从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
+<p>到这里可能的情况要追加第三种了：</p>
+<ul>
+<li>/etc/hosts 中添加的记录没生效(比如中文符号）</li>
+</ul>
+<h3 id="dhcp"><a href="#dhcp" class="headerlink" title="dhcp"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 /etc/resolv.conf</p>
+<h3 id="dnsmasq"><a href="#dnsmasq" class="headerlink" title="dnsmasq"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：/run/dnsmasq/resolv.conf。集团内部的vipclient就是类似这个原理。</p>
+<h2 id="微服务下的域名解析、负载均衡"><a href="#微服务下的域名解析、负载均衡" class="headerlink" title="微服务下的域名解析、负载均衡"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
+<h3 id="域名解析通过jar、lib包"><a href="#域名解析通过jar、lib包" class="headerlink" title="域名解析通过jar、lib包"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
+<h3 id="域名解析通过dns-server"><a href="#域名解析通过dns-server" class="headerlink" title="域名解析通过dns server"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
+<p>如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
+<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
+<h2 id="kubernetes-和-docker中的域名解析"><a href="#kubernetes-和-docker中的域名解析" class="headerlink" title="kubernetes 和 docker中的域名解析"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
+<h2 id="nginx-中的域名解析"><a href="#nginx-中的域名解析" class="headerlink" title="nginx 中的域名解析"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 /etc/resolv.conf转换而来，要注意对 /etc/resolv.conf中 注释的<a href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf" target="_blank" rel="noopener">兼容</a></p>
+<p><a href="https://github.com/blacklabelops-legacy/nginx/issues/36" target="_blank" rel="noopener">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 /etc/resolv.conf没有处理好 # 注释的问题</p>
+<h2 id="进一步的Case学习："><a href="#进一步的Case学习：" class="headerlink" title="进一步的Case学习："></a>进一步的Case学习：</h2><ol>
+<li><a href="https://plantegg.github.io/2019/01/09/nslookup-OK-but-ping-fail/" target="_blank" rel="noopener">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="https://plantegg.github.io/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" target="_blank" rel="noopener">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="https://plantegg.github.io/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" target="_blank" rel="noopener">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="https://plantegg.github.io/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" target="_blank" rel="noopener">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://blog.bruceding.me/516.html" target="_blank" rel="noopener">GO DNS 原理解析</a></p>
+<p><a href="https://blog.arstercz.com/linux-系统如何处理名称解析" target="_blank" rel="noopener">Linux 系统如何处理名称解析</a></p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener">Anatomy of a Linux DNS Lookup – Part I</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/02/史上最全 SSH 暗黑技巧详解--收藏保平安/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4741,161 +4974,6 @@ nameserver 10.0.0.3
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/24/性能优化，从老中医到科学理论指导/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/24/性能优化，从老中医到科学理论指导/" itemprop="url">性能优化，从老中医到科学理论指导</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-24T16:30:03+08:00">
-                2018-08-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/performance/" itemprop="url" rel="index">
-                    <span itemprop="name">performance</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/24/性能优化，从老中医到科学理论指导/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/24/性能优化，从老中医到科学理论指导/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量</p>
-<p>单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
-<p>最佳线程数量 rt(total)/rt(cpu)</p>
-<p>维持住rt</p>
-<p>这一点占性能优化领域的50%</p>
-<p>从单线程跑出QPS、各个环节的RT、CPU占用等数据</p>
-<p>然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里</p>
-<h2 id="思路严谨"><a href="#思路严谨" class="headerlink" title="思路严谨"></a>思路严谨</h2><p>最难讲清楚</p>
-<h2 id="老中医经验不可缺少"><a href="#老中医经验不可缺少" class="headerlink" title="老中医经验不可缺少"></a>老中医经验不可缺少</h2><p>量变到质变</p>
-<h2 id="找瓶颈，先干掉瓶颈才能优化其它"><a href="#找瓶颈，先干掉瓶颈才能优化其它" class="headerlink" title="找瓶颈，先干掉瓶颈才能优化其它"></a>找瓶颈，先干掉瓶颈才能优化其它</h2><p>没有找到瓶颈，所做的其它优化会看不出效果，误入歧途，瞎蒙</p>
-<h2 id="全栈能力，一文钱难倒英雄好汉"><a href="#全栈能力，一文钱难倒英雄好汉" class="headerlink" title="全栈能力，一文钱难倒英雄好汉"></a>全栈能力，一文钱难倒英雄好汉</h2><p>因为关键是找瓶颈，作为java程序员如果只能看jstack、jstat可能发现的不是瓶颈</p>
-<h2 id="案列"><a href="#案列" class="headerlink" title="案列"></a>案列</h2><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">https://www.atatech.org/articles/73174</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4943,7 +5021,7 @@ nameserver 10.0.0.3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">110</span>
+                <span class="site-state-item-count">111</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
