@@ -95,13 +95,13 @@
 
 
 
-<meta name="description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。这次让我们从最底层的沙子开始回答各种疑问 系列文章CPU的制造和概念 Perf IPC以及CPU性能 CPU 性能和Cache Line Intel">
+<meta name="description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
 <meta name="keywords" content="CPU,perf,IPC,pipeline">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Perf IPC以及CPU性能">
 <meta property="og:url" content="http://yoursite.com/2021/05/16/Perf IPC以及CPU利用率/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。这次让我们从最底层的沙子开始回答各种疑问 系列文章CPU的制造和概念 Perf IPC以及CPU性能 CPU 性能和Cache Line Intel">
+<meta property="og:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/image-20210511154816751.png">
@@ -119,10 +119,10 @@
 <meta property="og:image" content="http://yoursite.com/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2021-06-24T09:44:27.088Z">
+<meta property="og:updated_time" content="2021-06-24T14:30:24.948Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
-<meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。这次让我们从最底层的沙子开始回答各种疑问 系列文章CPU的制造和概念 Perf IPC以及CPU性能 CPU 性能和Cache Line Intel">
+<meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
 <meta name="twitter:image" content="http://yoursite.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
 
 
@@ -400,15 +400,16 @@
       
 
       
-        <h1 id="Perf-IPC以及CPU性能"><a href="#Perf-IPC以及CPU性能" class="headerlink" title="Perf IPC以及CPU性能"></a>Perf IPC以及CPU性能</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。这次让我们从最底层的沙子开始回答各种疑问</p>
+        <h1 id="Perf-IPC以及CPU性能"><a href="#Perf-IPC以及CPU性能" class="headerlink" title="Perf IPC以及CPU性能"></a>Perf IPC以及CPU性能</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
+<p>这次让我们从最底层的沙子开始回答各种疑问。</p>
 <h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="https://plantegg.github.io/2021/06/01/CPU的制造和概念/" target="_blank" rel="noopener">CPU的制造和概念</a></p>
 <p><a href="https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/" target="_blank" rel="noopener">Perf IPC以及CPU性能</a></p>
 <p><a href="https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/" target="_blank" rel="noopener">CPU 性能和Cache Line</a></p>
-<p><a href="https://plantegg.github.io/2021/06/18/几款CPU性能对比/" target="_blank" rel="noopener">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
-<p><a href="https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500" target="_blank" rel="noopener">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
 <p><a href="https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/" target="_blank" rel="noopener">十年后数据库还是不敢拥抱NUMA？</a></p>
-<p><a href="https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/" target="_blank" rel="noopener">一次海光物理机资源竞争压测的记录</a></p>
 <p><a href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" target="_blank" rel="noopener">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="https://plantegg.github.io/2021/06/18/几款CPU性能对比/" target="_blank" rel="noopener">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/" target="_blank" rel="noopener">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500" target="_blank" rel="noopener">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
 <h2 id="程序性能"><a href="#程序性能" class="headerlink" title="程序性能"></a>程序性能</h2><blockquote>
 <p> 程序的 CPU 执行时间 = 指令数/(主频*IPC)</p>
 </blockquote>
