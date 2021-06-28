@@ -95,13 +95,13 @@
 
 
 
-<meta name="description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
+<meta name="description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
 <meta name="keywords" content="CPU,perf,IPC,pipeline">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Perf IPC以及CPU性能">
 <meta property="og:url" content="http://yoursite.com/2021/05/16/Perf IPC以及CPU利用率/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
+<meta property="og:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
 <meta property="og:image" content="http://yoursite.com/images/951413iMgBlog/image-20210511154816751.png">
@@ -119,10 +119,10 @@
 <meta property="og:image" content="http://yoursite.com/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="http://yoursite.com/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2021-06-24T14:30:24.948Z">
+<meta property="og:updated_time" content="2021-06-28T00:35:40.485Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
-<meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始回答各种疑问。">
+<meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
 <meta name="twitter:image" content="http://yoursite.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
 
 
@@ -401,7 +401,14 @@
 
       
         <h1 id="Perf-IPC以及CPU性能"><a href="#Perf-IPC以及CPU性能" class="headerlink" title="Perf IPC以及CPU性能"></a>Perf IPC以及CPU性能</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
-<p>这次让我们从最底层的沙子开始回答各种疑问。</p>
+<p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
+<p>大的方面主要是从这几个疑问来写这些文章：</p>
+<ul>
+<li>同样程序为什么CPU跑到800%还不如CPU跑到200%快？</li>
+<li>IPC背后的原理和和程序效率的关系？</li>
+<li>为什么数据库领域都爱把NUMA关了，这对吗？</li>
+<li>几个国产芯片的性能到底怎么样？</li>
+</ul>
 <h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="https://plantegg.github.io/2021/06/01/CPU的制造和概念/" target="_blank" rel="noopener">CPU的制造和概念</a></p>
 <p><a href="https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/" target="_blank" rel="noopener">Perf IPC以及CPU性能</a></p>
 <p><a href="https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/" target="_blank" rel="noopener">CPU 性能和Cache Line</a></p>
