@@ -282,6 +282,1079 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2017/10/31/磁盘爆掉的几种情况/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2017/10/31/磁盘爆掉的几种情况/" itemprop="url">磁盘爆掉的几种情况</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-10-31T12:30:03+08:00">
+                2017-10-31
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2017/10/31/磁盘爆掉的几种情况/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/10/31/磁盘爆掉的几种情况/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Docker容器磁盘爆掉的几种情况"><a href="#Docker容器磁盘爆掉的几种情况" class="headerlink" title="Docker容器磁盘爆掉的几种情况"></a>Docker容器磁盘爆掉的几种情况</h1><h2 id="磁盘爆掉的几种情况"><a href="#磁盘爆掉的几种情况" class="headerlink" title="磁盘爆掉的几种情况"></a>磁盘爆掉的几种情况</h2><ol>
+<li>系统磁盘没有空间，解决办法：删掉 /var/log/ 下边的带日期的日志，清空 /var/log/messages 内容</li>
+<li>容器使用的大磁盘空间不够，又有三个地方会使用大量的磁盘<ul>
+<li>容器内部日志非常大，处理办法见方法一</li>
+<li>容器内部产生非常多或者非常大的文件，但是这个文件的位置又通过volume 挂载到了物理机上，处理办法见方法二</li>
+<li>对特别老的部署环境，还有可能是容器的系统日志没有限制大小，处理办法见方法三</li>
+</ul>
+</li>
+</ol>
+<h2 id="现场的同学按如下方法依次检查"><a href="#现场的同学按如下方法依次检查" class="headerlink" title="现场的同学按如下方法依次检查"></a>现场的同学按如下方法依次检查</h2><h3 id="方法零：-检查系统根目录下每个文件夹的大小"><a href="#方法零：-检查系统根目录下每个文件夹的大小" class="headerlink" title="方法零： 检查系统根目录下每个文件夹的大小"></a>方法零： 检查系统根目录下每个文件夹的大小</h3><p><code>sudo du / -lh --max-depth=1 --exclude=overlay --exclude=proc</code></p>
+<p>看看除了容器之外有没有其它目录使用磁盘特别大，如果有那么一层层进去通过du命令来查看，比如：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#sudo du / -lh --max-depth=1 --exclude=overlay --exclude=proc</span><br><span class="line">16K	/dev</span><br><span class="line">16K	/lost+found</span><br><span class="line">4.0K	/media</span><br><span class="line">17G	/home</span><br><span class="line">136M	/boot</span><br><span class="line">832K	/run</span><br><span class="line">1.9G	/usr</span><br><span class="line">75M	/tmp</span><br><span class="line">12K	/log</span><br><span class="line">8.5G	/var</span><br><span class="line">4.0K	/srv</span><br><span class="line">0	/proc</span><br><span class="line">22M	/etc</span><br><span class="line">84G	/root</span><br><span class="line">4.0K	/mnt</span><br><span class="line">508M	/opt</span><br><span class="line">0	/sys</span><br><span class="line">112G	/</span><br></pre></td></tr></table></figure>
+<p>那么这个案例中应该查看 /root下为什么用掉了84G（总共用了112G）， 先 cd /root 然后执行： sudo du . -lh –max-depth=1 –exclude=overlay 进一步查看 /root 目录下每个文件夹的大小</p>
+<p><strong>如果方法零没找到占用特别大的磁盘文件，那么一般来说是容器日志占用太多的磁盘空间，请看方法一</strong></p>
+<h3 id="方法一：-容器内部日志非常大（请确保先按方法零检查过了）"><a href="#方法一：-容器内部日志非常大（请确保先按方法零检查过了）" class="headerlink" title="方法一： 容器内部日志非常大（请确保先按方法零检查过了）"></a>方法一： 容器内部日志非常大（请确保先按方法零检查过了）</h3><p>在磁盘不够的物理机上执行如下脚本：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">sudo docker ps -a -q &gt;containers.list</span><br><span class="line"></span><br><span class="line">sudo cat containers.list | xargs sudo docker inspect $1 | grep merged | awk -F \&quot; &apos;&#123; print $4 &#125;&apos; | sed &apos;s/\/merged//g&apos; | xargs sudo du  --max-depth=0 $1 &gt;containers.size </span><br><span class="line"></span><br><span class="line">sudo paste containers.list containers.size | awk &apos;&#123; print $1, $2 &#125;&apos;  | sort -nk2 &gt;real_size.log</span><br><span class="line"></span><br><span class="line">sudo tail -10 real_size.log  | awk &apos;BEGIN &#123;print &quot;\tcontainer     size\tunit&quot;&#125; &#123; print NR&quot;:\t&quot; $0&quot;\t kB&quot; &#125;&apos;</span><br></pre></td></tr></table></figure>
+<h5 id="执行完后会输出如下格式："><a href="#执行完后会输出如下格式：" class="headerlink" title="执行完后会输出如下格式："></a>执行完后会输出如下格式：</h5><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">container     size	unit</span><br><span class="line">1:	22690f16822f 3769980	 kb</span><br><span class="line">2:	82b4ae98eeed 4869324	 kb</span><br><span class="line">3:	572a1b7c8ef6 10370404	 kb</span><br><span class="line">4:	9f9250d98df6 10566776	 kb</span><br><span class="line">5:	7fab70481929 13745648	 kb</span><br><span class="line">6:	4a14b58e3732 29873504	 kb</span><br><span class="line">7:	8a01418b6df2 30432068	 kb</span><br><span class="line">8:	83dc85caaa5c 31010960	 kb</span><br><span class="line">9:	433e51df88b1 35647052	 kb</span><br><span class="line">10:	4b42818a8148 61962416	 kb</span><br></pre></td></tr></table></figure>
+<p>第二列是容器id，第三列是磁盘大小，第四列是单位， 占用最大的排在最后面</p>
+<h5 id="然后进到容器后通过-du-–max-depth-2-快速发现大文件"><a href="#然后进到容器后通过-du-–max-depth-2-快速发现大文件" class="headerlink" title="然后进到容器后通过 du / –max-depth=2 快速发现大文件"></a>然后进到容器后通过 du / –max-depth=2 快速发现大文件</h5><h3 id="方法二：-容器使用的volume使用过大"><a href="#方法二：-容器使用的volume使用过大" class="headerlink" title="方法二： 容器使用的volume使用过大"></a>方法二： 容器使用的volume使用过大</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">$sudo du -l /data/lib/docker/defaultVolumes --max-depth=1 | sort -rn</span><br><span class="line">456012884	/data/lib/docker/defaultVolumes</span><br><span class="line">42608332	/data/lib/docker/defaultVolumes/task_3477_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">32322220	/data/lib/docker/defaultVolumes/task_3477_g0_dbpaas-metadb_dbpaas_1</span><br><span class="line">27461120	/data/lib/docker/defaultVolumes/task_3001_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27319360	/data/lib/docker/defaultVolumes/task_36000_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27313836	/data/lib/docker/defaultVolumes/task_3600_g0_dbpaas-metadb_minidbpaas</span><br><span class="line">27278692	/data/lib/docker/defaultVolumes/task_3604_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27277004	/data/lib/docker/defaultVolumes/task_3603_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27275736	/data/lib/docker/defaultVolumes/task_3542_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27271428	/data/lib/docker/defaultVolumes/task_3597_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270840	/data/lib/docker/defaultVolumes/task_3603_g0_dbpaas-metadb_minidbpaas_1</span><br><span class="line">27270492	/data/lib/docker/defaultVolumes/task_3603_g0_dbpaas-metadb_minidbpaas</span><br><span class="line">27270468	/data/lib/docker/defaultVolumes/task_3600_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270252	/data/lib/docker/defaultVolumes/task_3535_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270244	/data/lib/docker/defaultVolumes/task_3538_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270244	/data/lib/docker/defaultVolumes/task_3536_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">25312404	/data/lib/docker/defaultVolumes/task_3477_g0_dncs-server_middleware-dncs_2</span><br></pre></td></tr></table></figure>
+<p>/data/lib/docker/defaultVolumes 参数是方舟默认volume存放的目录（一般是docker的存储路径下 –graph=/data/lib/docker) ，第一列是大小，后面是容器名</p>
+<p>volume路径在物理机上也有可能是 /var/lib/docker 或者 /mw/mvdocker/ 之类的路径下，这个要依据安装参数来确定，可以用如下命令来找到这个路径：</p>
+<p><code>sudo systemctl status docker -l | grep --color graph</code></p>
+<p>结果如下，红色参数后面的路径就是docker 安装目录，到里面去找带volume的字眼：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1558521949392-d1ab9886-9f08-4ebf-bfdb-5283461ed9de.png#align=left&amp;display=inline&amp;height=165&amp;originHeight=165&amp;originWidth=930&amp;size=0&amp;status=done&amp;width=930" alt></p>
+<p>找到 volume很大的文件件后同样可以进到这个文件夹中执行如下命令快速发现大文件：</p>
+<p><code>du . --max-depth=2</code></p>
+<h3 id="方法三-容器的系统日志没有限制大小"><a href="#方法三-容器的系统日志没有限制大小" class="headerlink" title="方法三 容器的系统日志没有限制大小"></a>方法三 容器的系统日志没有限制大小</h3><p>这种情况只针对2017年上半年之前的部署环境，后面部署的环境默认都控制了这些日志不会超过150M</p>
+<p>按照方法二的描述先找到docker 安装目录，cd 进去，然后 ：</p>
+<p><code>du ./containers --max-depth=2</code></p>
+<p>就很快找到那个大json格式的日志文件了,然后执行清空这个大文件的内容：</p>
+<p><code>echo &#39;&#39; | sudo tee 大文件名</code></p>
+<h3 id="一些其他可能占用空间的地方"><a href="#一些其他可能占用空间的地方" class="headerlink" title="一些其他可能占用空间的地方"></a>一些其他可能占用空间的地方</h3><ul>
+<li>机器上镜像太多，可以删掉一些没用的： sudo docker images -q | xargs sudo docker rmi</li>
+<li>机器上残留的volume太多，删：sudo docker volume ls -q | xargs sudo docker volume rm</li>
+<li>物理文件被删了，但是还有进程占用这个文件句柄，导致文件对应的磁盘空间没有释放，检查： lsof |　grep deleted  如果这个文件非常大的话，只能通过重启这个进程来真正释放磁盘空间</li>
+</ul>
+<h3 id="OverlayFS（overlay）的镜像分层与共享"><a href="#OverlayFS（overlay）的镜像分层与共享" class="headerlink" title="OverlayFS（overlay）的镜像分层与共享"></a><a href="https://hhbbz.github.io/2018/03/28/Docker%E5%AE%B9%E5%99%A8%E5%8D%A0%E7%94%A8%E7%A3%81%E7%9B%98%E5%86%85%E5%AD%98%E8%BF%87%E5%A4%A7%E7%9A%84%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5/" target="_blank" rel="noopener">OverlayFS（overlay）的镜像分层与共享</a></h3><p>OverlayFS使用两个目录，把一个目录置放于另一个之上，并且对外提供单个统一的视角。这两个目录通常被称作层，这个分层的技术被称作union mount。术语上，下层的目录叫做lowerdir，上层的叫做upperdir。对外展示的统一视图称作merged。 　　</p>
+<p>如下图所示，Overlay在主机上用到2个目录，这2个目录被看成是overlay的层。 upperdir为容器层、lowerdir为镜像层使用联合挂载技术将它们挂载在同一目录(merged)下，提供统一视图。</p>
+<p><img src="https://hhbbz.github.io/2018/03/28/Docker%E5%AE%B9%E5%99%A8%E5%8D%A0%E7%94%A8%E7%A3%81%E7%9B%98%E5%86%85%E5%AD%98%E8%BF%87%E5%A4%A7%E7%9A%84%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5/overlay_constructs.jpg" alt="图片"></p>
+<p>注意镜像层和容器层是如何处理相同的文件的：容器层（upperdir）的文件是显性的，会隐藏镜像层（lowerdir）相同文件的存在。容器映射（merged）显示出统一的视图。 　　overlay驱动只能工作在两层之上。也就是说多层镜像不能用多层OverlayFS实现。替代的，每个镜像层在/var/lib/docker/overlay中用自己的目录来实现，使用硬链接这种有效利用空间的方法，来引用底层分享的数据。注意：Docker1.10之后，镜像层ID和/var/lib/docker中的目录名不再一一对应。 　　创建一个容器，overlay驱动联合镜像层和一个新目录给容器。镜像顶层是overlay中的只读lowerdir，容器的新目录是可写的upperdir。</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2017/08/28/netstat 等网络工具/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2017/08/28/netstat 等网络工具/" itemprop="url">netstat timer keepalive RTO explain</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-08-28T10:30:03+08:00">
+                2017-08-28
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2017/08/28/netstat 等网络工具/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/08/28/netstat 等网络工具/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="netstat-等网络工具"><a href="#netstat-等网络工具" class="headerlink" title="netstat 等网络工具"></a>netstat 等网络工具</h1><h2 id="netstat-和重传–-timer"><a href="#netstat-和重传–-timer" class="headerlink" title="netstat 和重传– timer"></a>netstat 和重传– timer</h2><p>经常碰到一些断网环境下需要做快速切换，那么断网后需要多久tcp才能感知到这个断网，并断开连接触发上层的重连（一般会连向新的server）</p>
+<p>netstat -st命令中，tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp</p>
+<h3 id="keepalive"><a href="#keepalive" class="headerlink" title="keepalive"></a>keepalive</h3><p>from: <a href="https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers" target="_blank" rel="noopener">https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers</a></p>
+<p>The timer column has two fields (from your o/p above):</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">keepalive     (6176.47/0/0)  </span><br><span class="line">&lt;1st field&gt;   &lt;2nd field&gt;</span><br></pre></td></tr></table></figure>
+<p>The 1st field can have values:<br>keepalive - when the keepalive timer is ON for the socket  </p>
+<p>on - when the retransmission timer is ON for the socket  </p>
+<p>off - none of the above is ON</p>
+<p>on - #表示是重发（retransmission）的时间计时</p>
+<p>off - #表示没有时间计时</p>
+<p>timewait - #表示等待（timewait）时间计时</p>
+<p>keepalive 是指在连接闲置状态发送心跳包来检测连接是否还有效（比如对方掉电后肯定就无效了，tcp得靠这个keepalive来感知）。如果有流量在传输过程中对方掉电后会不停地 retransmission ，这个时候看到的就是 on，然后重传间隔和次数跟keepalive参数无关，只和 net.ipv4.tcp_retries1、net.ipv4.tcp_retries2相关了。</p>
+<p>keepalive 状态下的连接：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png" alt="image.png"></p>
+<p>The 2nd field has THREE subfields:</p>
+<p>(6176.47/0/0) -&gt; (a/b/c)<br>a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)  </p>
+<p>b=number of retransmissions that have occurred  </p>
+<p>c=number of keepalive probes that have been sent</p>
+<blockquote>
+<p>/proc/sys/net/ipv4/tcp_keepalive_time<br>当keepalive起用的时候，TCP发送keepalive消息的频度。缺省是2小时。</p>
+<p>/proc/sys/net/ipv4/tcp_keepalive_intvl<br>当探测没有确认时，重新发送探测的频度。缺省是75秒。</p>
+<p>/proc/sys/net/ipv4/tcp_keepalive_probes<br>在认定连接失效之前，发送多少个TCP的keepalive探测包。缺省值是9。这个值乘以tcp_keepalive_intvl之后决定了，一个连接发送了keepalive之后可以有多少时间没有回应</p>
+</blockquote>
+<p>For example, I had two sockets opened between a client &amp; a server (not loopback). The keepalive setting are:</p>
+<p>KEEPALIVE_IDLETIME   30<br>KEEPALIVE_NUMPROBES   4<br>KEEPALIVE_INTVL      10  </p>
+<p>And I did a shutdown of the client machine, so at …SHED on (2.47/254/2)  </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.39/254/2)  </span><br><span class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (0.31/254/2)  </span><br><span class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (2.19/255/2)  </span><br><span class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.12/255/2)</span><br></pre></td></tr></table></figure>
+<p>As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.</p>
+<p>Hope this explains the netstat –timer option well.</p>
+<h2 id="RTO-重传"><a href="#RTO-重传" class="headerlink" title="RTO 重传"></a><a href="https://pracucci.com/linux-tcp-rto-min-max-and-tcp-retries2.html" target="_blank" rel="noopener">RTO</a> 重传</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#define TCP_RTO_MAX ((unsigned)(120*HZ)) //HZ 通常为1秒 </span><br><span class="line">#define TCP_RTO_MIN ((unsigned)(HZ/5))</span><br></pre></td></tr></table></figure>
+<p>Linux 2.6+ uses HZ of 1000ms, so <code>TCP_RTO_MIN</code> is ~200 ms and <code>TCP_RTO_MAX</code> is ~120 seconds. Given a default value of <code>tcp_retries</code> set to <code>15</code>, it means that <strong>it takes 924.6 seconds</strong> before a broken network link is notified to the upper layer (ie. application), since the connection is detected as broken when the last (15th) retry expires.</p>
+<p><img src="https://pracucci.com/assets/2018-04-27-linux-tcp-rto-retries2-b71ad2ef586126c2ad4180543f78d8b0a4bf66925fb88d69889f04c4b7aedeaa.png" alt="2018-04-27-linux-tcp-rto-retries2.png"></p>
+<p>The <code>tcp_retries2</code> sysctl can be <strong>tuned</strong> via <code>/proc/sys/net/ipv4/tcp_retries2</code> or the sysctl <code>net.ipv4.tcp_retries2</code>.</p>
+<h3 id="查看重传状态"><a href="#查看重传状态" class="headerlink" title="查看重传状态"></a>查看重传状态</h3><p>重传状态的连接：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png" alt="image.png"></p>
+<p>前两个 syn_sent 状态明显是 9031端口不work了，握手不上。</p>
+<p>最后 established 状态的连接, 是22端口给53795发了136字节的数据但是没有收到ack，所以在倒计时准备重传中。</p>
+<blockquote>
+<p><strong>net.ipv4.tcp_retries1 = 3</strong></p>
+</blockquote>
+<p>放弃回应一个TCP <strong>连接请求前</strong>﹐需要进行多少次重试。RFC 规定最低的数值是3﹐这也是默认值﹐根据RTO的值大约在3秒 - 8分钟之间。(注意:这个值同时还决定进入的syn连接)</p>
+<p><strong>(第二种解释：它表示的是TCP传输失败时不检测路由表的最大的重试次数，当超过了这个值，我们就需要检测路由表了)</strong></p>
+<p>从kernel代码可以看到，一旦重传超过阈值tcp_retries1，主要的动作就是更新路由缓存。<br>用以避免由于路由选路变化带来的问题。<strong>这个时候tcp连接没有关闭</strong></p>
+<blockquote>
+<p> <strong>net.ipv4.tcp_retries2 = 15</strong></p>
+</blockquote>
+<p><strong>在丢弃激活(已建立通讯状况)</strong>的TCP连接之前﹐需要进行多少次重试。默认值为15，根据RTO的值来决定，相当于13-30分钟(RFC1122规定，必须大于100秒).(这个值根据目前的网络设置,可以适当地改小,我的网络内修改为了5)</p>
+<p><strong>(第二种解释：表示重试最大次数，只不过这个值一般要比上面的值大。和上面那个不同的是，当重试次数超过这个值，我们就必须关闭连接了)</strong></p>
+<p>from：Documentation/networking/ip-sysctl.txt</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">tcp_retries1 - INTEGER</span><br><span class="line">    This value influences the time, after which TCP decides, that</span><br><span class="line">    something is wrong due to unacknowledged RTO retransmissions,</span><br><span class="line">    and reports this suspicion to the network layer.</span><br><span class="line">    See tcp_retries2 for more details.</span><br><span class="line"></span><br><span class="line">    RFC 1122 recommends at least 3 retransmissions, which is the</span><br><span class="line">    default.</span><br><span class="line"></span><br><span class="line">tcp_retries2 - INTEGER</span><br><span class="line">    This value influences the timeout of an alive TCP connection,</span><br><span class="line">    when RTO retransmissions remain unacknowledged.</span><br><span class="line">    Given a value of N, a hypothetical TCP connection following</span><br><span class="line">    exponential backoff with an initial RTO of TCP_RTO_MIN would</span><br><span class="line">    retransmit N times before killing the connection at the (N+1)th RTO.</span><br><span class="line"></span><br><span class="line">    The default value of 15 yields a hypothetical timeout of 924.6</span><br><span class="line">    seconds and is a lower bound for the effective timeout.</span><br><span class="line">    TCP will effectively time out at the first RTO which exceeds the</span><br><span class="line">    hypothetical timeout.</span><br><span class="line"></span><br><span class="line">    RFC 1122 recommends at least 100 seconds for the timeout,</span><br><span class="line">    which corresponds to a value of at least 8.</span><br></pre></td></tr></table></figure>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png" alt="img"></p>
+<h3 id="retries限制的重传次数吗"><a href="#retries限制的重传次数吗" class="headerlink" title="retries限制的重传次数吗"></a>retries限制的重传次数吗</h3><p>咋一看文档，很容易想到retries的数字就是限定的重传的次数，甚至源码中对于retries常量注释中都写着”This is how many retries it does…”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#define TCP_RETR1       3   /*</span><br><span class="line">                             * This is how many retries it does before it</span><br><span class="line">                             * tries to figure out if the gateway is</span><br><span class="line">                             * down. Minimal RFC value is 3; it corresponds</span><br><span class="line">                             * to ~3sec-8min depending on RTO.</span><br><span class="line">                             */</span><br><span class="line"></span><br><span class="line">#define TCP_RETR2       15  /*</span><br><span class="line">                             * This should take at least</span><br><span class="line">                             * 90 minutes to time out.</span><br><span class="line">                             * RFC1122 says that the limit is 100 sec.</span><br><span class="line">                             * 15 is ~13-30min depending on RTO.</span><br><span class="line">                             */</span><br></pre></td></tr></table></figure>
+<p>那就就来看看retransmits_timed_out的具体实现，看看到底是不是限制的重传次数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">/* This function calculates a &quot;timeout&quot; which is equivalent to the timeout of a</span><br><span class="line"> * TCP connection after &quot;boundary&quot; unsuccessful, exponentially backed-off</span><br><span class="line"> * retransmissions with an initial RTO of TCP_RTO_MIN or TCP_TIMEOUT_INIT if</span><br><span class="line"> * syn_set flag is set.</span><br><span class="line"> */</span><br><span class="line">static bool retransmits_timed_out(struct sock *sk,</span><br><span class="line">                              unsigned int boundary,</span><br><span class="line">                              unsigned int timeout,</span><br><span class="line">                              bool syn_set)</span><br><span class="line">&#123;</span><br><span class="line">    unsigned int linear_backoff_thresh, start_ts;</span><br><span class="line">    // 如果是在三次握手阶段，syn_set为真</span><br><span class="line">    unsigned int rto_base = syn_set ? TCP_TIMEOUT_INIT : TCP_RTO_MIN;</span><br><span class="line"></span><br><span class="line">    if (!inet_csk(sk)-&gt;icsk_retransmits)</span><br><span class="line">            return false;</span><br><span class="line"></span><br><span class="line">    // retrans_stamp记录的是数据包第一次发送的时间，在tcp_retransmit_skb()中设置</span><br><span class="line">    if (unlikely(!tcp_sk(sk)-&gt;retrans_stamp))</span><br><span class="line">            start_ts = TCP_SKB_CB(tcp_write_queue_head(sk))-&gt;when;</span><br><span class="line">    else</span><br><span class="line">            start_ts = tcp_sk(sk)-&gt;retrans_stamp;</span><br><span class="line"></span><br><span class="line">    // 如果用户态未指定timeout，则算一个出来</span><br><span class="line">    if (likely(timeout == 0)) &#123;</span><br><span class="line">            /* 下面的计算过程，其实就是算一下如果以rto_base为第一次重传间隔，</span><br><span class="line">             * 重传boundary次需要多长时间</span><br><span class="line">             */</span><br><span class="line">            linear_backoff_thresh = ilog2(TCP_RTO_MAX/rto_base);</span><br><span class="line"></span><br><span class="line">            if (boundary &lt;= linear_backoff_thresh)</span><br><span class="line">                    timeout = ((2 &lt;&lt; boundary) - 1) * rto_base;</span><br><span class="line">            else</span><br><span class="line">                    timeout = ((2 &lt;&lt; linear_backoff_thresh) - 1) * rto_base +</span><br><span class="line">                            (boundary - linear_backoff_thresh) * TCP_RTO_MAX;</span><br><span class="line">    &#125;</span><br><span class="line">    // 如果数据包第一次发送的时间距离现在的时间间隔，超过了timeout值，则认为重传超于阈值了</span><br><span class="line">    return (tcp_time_stamp - start_ts) &gt;= timeout;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>从以上的代码分析可以看到，真正起到限制重传次数的并不是真正的重传次数。<br>而是以tcp_retries1或tcp_retries2为boundary，以rto_base(如TCP_RTO_MIN 200ms)为初始RTO，计算得到一个timeout值出来。如果重传间隔超过这个timeout，则认为超过了阈值。<br>上面这段话太绕了，下面举两个个例子来说明</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&gt; 以判断是否放弃TCP流为例，如果tcp_retries2=15，那么计算得到的timeout=924600ms。</span><br><span class="line">&gt; </span><br><span class="line">&gt; 1. 如果RTT比较小，那么RTO初始值就约等于下限200ms</span><br><span class="line">&gt;    由于timeout总时长是924600ms，表现出来的现象刚好就是重传了15次，超过了timeout值，从而放弃TCP流</span><br><span class="line">&gt; </span><br><span class="line">&gt; 2. 如果RTT较大，比如RTO初始值计算得到的是1000ms</span><br><span class="line">&gt;    那么根本不需要重传15次，重传总间隔就会超过924600ms。</span><br><span class="line">&gt;    比如我测试的一个RTT=400ms的情况，当tcp_retries2=10时，仅重传了3次就放弃了TCP流</span><br><span class="line">&gt;</span><br></pre></td></tr></table></figure>
+</blockquote>
+<p>一些重传的其它问题</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt; effective timeout指的是什么？  </span><br><span class="line">&lt;&lt; 就是retransmits_timed_out计算得到的timeout值</span><br><span class="line"></span><br><span class="line">&gt;&gt; 924.6s是怎么算出来的？</span><br><span class="line">&lt;&lt; 924.6s = (( 2 &lt;&lt; 9) -1) * 200ms + (15 - 9) * 120s</span><br><span class="line"></span><br><span class="line">&gt;&gt; 为什么924.6s是lower bound？</span><br><span class="line">&lt;&lt; 重传总间隔必须大于timeout值，即 (tcp_time_stamp - start_ts) &gt;= timeout</span><br><span class="line"></span><br><span class="line">&gt;&gt; 那RTO超时的间隔到底是不是源码注释的&quot;15 is ~13-30min depending on RTO.&quot;呢？  </span><br><span class="line">&lt;&lt; 显然不是! 虽然924.6s(15min)是一个lower bound，但是它同时也是一个upper bound!</span><br><span class="line">   怎么理解？举例说明  </span><br><span class="line">        1. 如果某个RTO值导致，在已经重传了14次后，总重传间隔开销是924s</span><br><span class="line">        那么它还需要重传第15次，即使离924.6s只差0.6s。这就是发挥了lower bound的作用</span><br><span class="line">        2. 如果某个RTO值导致，在重传了10次后，总重传间隔开销是924s</span><br><span class="line">        重传第11次后，第12次超时触发时计算得到的总间隔变为1044s，超过924.6s</span><br><span class="line">        那么此时会放弃第12次重传，这就是924.6s发挥了upper bound的作用</span><br><span class="line">   总的来说，在Linux3.10中，如果tcp_retres2设置为15。总重传超时周期应该在如下范围内</span><br><span class="line">        [924.6s, 1044.6s)</span><br></pre></td></tr></table></figure>
+<h3 id="RTO重传案例"><a href="#RTO重传案例" class="headerlink" title="RTO重传案例"></a>RTO重传案例</h3><p>我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png" alt="image.png"></p>
+<p>上图中垂直方向基本都是发出3-5个包，然后休息120秒，继续发3-5个 包，速度肯定慢，下图可以看到具体的包：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png" alt="image.png"></p>
+<p>来看下到9627的RTT，基本稳定在245秒或者122秒，这RTT也实在太大了。可以看到：</p>
+<ol>
+<li><p>网络质量很不好，丢包有点多；</p>
+</li>
+<li><p>rtt高得离谱，导致rto计算出来120秒了，所以一旦丢包就卡120秒以上。</p>
+</li>
+</ol>
+<p>下图是RTT图</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/932b5124b7d445ee82c82a5f65a98321.png" alt="image.png"></p>
+<p>两个原因一叠加，就出现了奇慢无比.</p>
+<p>正常情况下RTO是从200ms开始翻倍，实际上OS层面限制了最小RTO 200ms、最大RTO 120秒，由于RTT都超过120秒了，计算所得的RTO必定也大于120秒，所以最终就是我们看到的一上来第一个RTO不是常见的200ms，直接干到了120秒。</p>
+<h2 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h2><p>netstat -s统计，有两个和timestamp stamp reject相关的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">netstat -st | grep stamp | grep reject</span><br><span class="line">18 passive connections rejected because of time stamp</span><br><span class="line">1453 packets rejects in established connections because of timestamp</span><br></pre></td></tr></table></figure>
+<p>丢包统计：</p>
+<blockquote>
+<p>netstat -s |egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
+<p>nstat -z -t 1 | egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
+</blockquote>
+<h2 id="nc-测试"><a href="#nc-测试" class="headerlink" title="nc 测试"></a>nc 测试</h2><p>nc -v -u -z -w 3 10.101.0.1 53 //测试server 的53端口上的udp服务能否通</p>
+<h2 id="ping"><a href="#ping" class="headerlink" title="ping"></a>ping</h2><p>sudo ping -f ip 大批量的icmp包</p>
+<p>ping -D  带时间戳 或者：ping -i 5 google.com | xargs -L 1 -I ‘{}’ date ‘+%Y-%m-%d %H:%M:%S: {}’  或者 ping <a href="http://www.google.fr" target="_blank" rel="noopener">www.google.fr</a> | while read pong; do echo “$(date): $pong”; done</p>
+<p>ping -O  不通的时候输出：no answer yet for icmp_seq=xxx </p>
+<p>或者-D + awk</p>
+<blockquote>
+<p>ping -D 114.114.114.114 | awk ‘{ if(gsub(/[|]/, “”, $1)) $1=strftime(“[%F %T]”, $1); print}’</p>
+</blockquote>
+<p>Linux 下直接增加如下函数：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">ping.ts()&#123;</span><br><span class="line">    if [ -t 1 ]; then</span><br><span class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[\033[34m%F %T\033[0m]&quot;, $1); print; fflush()&#125;&apos;</span><br><span class="line">    else</span><br><span class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[%F %T]&quot;, $1); print; fflush()&#125;&apos;</span><br><span class="line">    fi  </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="mtr"><a href="#mtr" class="headerlink" title="mtr"></a>mtr</h2><p>若需要将mtr的结果提供给第三方，建议可以使用-rc参数，r代表不使用交互界面，而是在最后给出一个探测结果报告；c参数指定需要作几次探测（一般建议是至少200个包，可以配合-i参数减少包间隔来加快得到结果的时间）。</p>
+<h2 id="traceroute"><a href="#traceroute" class="headerlink" title="traceroute"></a>traceroute</h2><p>和mtr不同的是，traceroute默认使用UDP作为四层协议，下层还是依靠IP头的TTL来控制中间的节点返回ICMP差错报文，来获得中间节点的IP和延时。唯一的区别是，在达到目标节点时，若是ICMP协议，目标大概率是会回复ICMP reply；如果是UDP协议，按照RFC协议规定，系统是要回复ICMP 端口不可达的差错报文，虽然三大平台Windows/MacOS/Linux都实现了这个行为，但出于某些原因，这个包可能还是会在链路上被丢弃，导致路由跟踪的结果无法显示出最后一跳。所以建议在一般的情况下，traceroute命令可以加上-I参数，让程序使用ICMP协议来发送探测数据包。</p>
+<h2 id="dstat"><a href="#dstat" class="headerlink" title="dstat"></a>dstat</h2><p><a href="https://www.huaweicloud.com/articles/9fc282e450af6f9b2878008a9e938d4d.html" target="_blank" rel="noopener">dstat 监控</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425082343156.png" alt="image-20210425082343156"></p>
+<p>dstat -cdgilmnrsy –aio –fs –lock –raw</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/" target="_blank" rel="noopener">http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/</a></p>
+<p><a href="ttps://github.com/huigher/tcpping2" target="_blank" rel="noopener">tcpping2</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/" itemprop="url">就是要你懂TCP--半连接队列和全连接队列</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-07T17:30:03+08:00">
+                2017-06-07
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/06/07/就是要你懂TCP--半连接队列和全连接队列/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+<p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
+<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
+<p>1)  这两个队列是干什么用的；</p>
+<p>2）怎么设置和观察他们的最大值；</p>
+<p>3）怎么查看这两个队列当前使用到了多少；</p>
+<p>4）一旦溢出的后果和现象是什么</p>
+</blockquote>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
+
+1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
+2.出问题的时间点，会同时有很多连接出现这个问题。
+3.selector没有销毁重建，一直用的都是一个。
+4.程序刚启动的时候必会出现一些，之后会间歇性出现。
+</code></pre><h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><h3 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
+</ul>
+<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
+<pre><code>667399 times the listen queue of a socket overflowed
+</code></pre><p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
+<p>接着查看溢出后，OS怎么处理：</p>
+<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
+0
+</code></pre><p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
+<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
+<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
+<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
+<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
+<blockquote>
+<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
+</blockquote>
+<h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
+<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
+<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
+</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
+<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
+<pre><code>net.ipv4.tcp_synack_retries = 2
+</code></pre><h2 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
+<p>（<em>通过具体的、感性的东西来强化我们对知识点的理解和吸收</em>）</p>
+<h3 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
+667399 times the listen queue of a socket overflowed
+667399 SYNs to LISTEN sockets ignored
+</code></pre><p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。</p>
+<h3 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h3><pre><code>[root@server ~]# ss -lnt
+Recv-Q Send-Q Local Address:Port  Peer Address:Port 
+0        50               *:3306             *:* 
+</code></pre><p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
+<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
+<p>《Unix Network Programming》中关于backlog的描述</p>
+<blockquote>
+<p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
+<p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it “defines the maximum length the queue of pending connections may grow to.” Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
+</blockquote>
+<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
+<pre><code>ServerSocket()
+    Creates an unbound server socket.
+ServerSocket(int port)
+    Creates a server socket, bound to the specified port.
+ServerSocket(int port, int backlog)
+    Creates a server socket and binds it to the specified local port number, with the specified backlog.
+ServerSocket(int port, int backlog, InetAddress bindAddr)
+    Create a server with the specified port, listen backlog, and local IP address to bind to.
+</code></pre><p>（来自JDK帮助文档：<a href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）" target="_blank" rel="noopener">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
+<p><strong>半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 不同版本的os会有些差异</strong></p>
+<blockquote>
+<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
+</blockquote>
+<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp    0  0 server:8182  client-1:15260 SYN_RECV   
+tcp    0 28 server:22    client-1:51708  ESTABLISHED
+tcp    0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre><p><strong>netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆</strong>  </p>
+<p>所以ss看到的 Send-Q、Recv-Q是目前全连接队列使用情况和最大设置<br>netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话就是发出的bytes并且没有ack的包、和os接收到的bytes还没交给应用</p>
+<p>我们看到的 Recv-Q、Send-Q获取源代码如下（ net/ipv4/tcp_diag.c ）：   </p>
+<pre><code>static void tcp_diag_get_info(struct sock *sk, struct inet_diag_msg *r,
+  void *_info)
+{
+    const struct tcp_sock *tp = tcp_sk(sk);
+    struct tcp_info *info = _info;
+
+    if (sk-&gt;sk_state == TCP_LISTEN) {  //LISTEN状态下的 Recv-Q、Send-Q
+        r-&gt;idiag_rqueue = sk-&gt;sk_ack_backlog;
+        r-&gt;idiag_wqueue = sk-&gt;sk_max_ack_backlog; //Send-Q 最大backlog
+    } else {                           //其它状态下的 Recv-Q、Send-Q
+        r-&gt;idiag_rqueue = max_t(int, tp-&gt;rcv_nxt - tp-&gt;copied_seq, 0);
+        r-&gt;idiag_wqueue = tp-&gt;write_seq - tp-&gt;snd_una;
+    }
+    if (info != NULL)
+        tcp_get_info(sk, info);
+}
+</code></pre><p>比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="netstat看到的listen状态的Recv-Q-Send-Q"><a href="#netstat看到的listen状态的Recv-Q-Send-Q" class="headerlink" title="netstat看到的listen状态的Recv-Q/Send-Q"></a>netstat看到的listen状态的Recv-Q/Send-Q</h4><p>netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全不一样。上面的 netstat 对非listen的描述没问题，但是listen状态似乎Send-Q这个值总是0，这要去看netstat的代码了，实际上Listen状态它不是一个连接，所以肯定统计不到流量，netstat似乎只是针对连接的统计</p>
+<p>从网上找了两个Case，server的8765端口故意不去读取对方发过来的2000字节，所看到的是：</p>
+<pre><code>$ netstat -ano | grep 8765  
+tcp0  0 0.0.0.0:87650.0.0.0:*   LISTEN  off (0.00/0/0)  
+tcp 2000  0 10.100.70.140:8765  10.100.70.139:43634 ESTABLISHED off (0.00/0/0)
+</code></pre><p>第二个Case，8000端口的半连接满了（129），但是这个时候Send-Q还是看到的0</p>
+<pre><code>$ netstat -ntap | grep 8000 
+tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- 
+tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    - 
+tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    - 
+tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -  
+</code></pre><h2 id="案列：如果TCP连接队列溢出，抓包是什么现象呢？"><a href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？" class="headerlink" title="案列：如果TCP连接队列溢出，抓包是什么现象呢？"></a>案列：如果TCP连接队列溢出，抓包是什么现象呢？</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c0849615ae52531887ce6b0313d7d2d1.png" alt="image.png"></p>
+<p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
+<h3 id="通过ss和netstat所观察到的状态"><a href="#通过ss和netstat所观察到的状态" class="headerlink" title="通过ss和netstat所观察到的状态"></a>通过ss和netstat所观察到的状态</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png" alt="image.png"></p>
+<p><a href="https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
+<h2 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下 </p>
+<p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
+<pre><code>Fri May  5 13:50:23 CST 2017
+Recv-Q Send-QLocal Address:Port  Peer Address:Port
+11         10         *:3306               *:*
+</code></pre><p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
+<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
+<pre><code>#ss -lnt
+Recv-Q Send-Q   Local Address:Port Peer Address:Port
+0       100                 *:8080            *:*
+</code></pre><p>Nginx默认是511</p>
+<pre><code>$sudo ss -lnt
+State  Recv-Q Send-Q Local Address:PortPeer Address:Port
+LISTEN    0     511              *:8085           *:*
+LISTEN    0     511              *:8085           *:*
+</code></pre><p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/01dc036aca4b445ed86e3e295bf245b8.png" alt="image.png"></p>
+<h2 id="进一步思考-client-fooling-问题"><a href="#进一步思考-client-fooling-问题" class="headerlink" title="进一步思考 client fooling 问题"></a>进一步思考 client fooling 问题</h2><p>如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）</p>
+<p>先来看一个例子：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9179e08ac24ce3d53e74b92dbd044906.png" alt="image.png"></p>
+<p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png" alt="image.png"></p>
+<p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：<a href="https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071" target="_blank" rel="noopener">https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</a> ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
+<p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
+<p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
+<h2 id="过程中发现的一个奇怪问题"><a href="#过程中发现的一个奇怪问题" class="headerlink" title="过程中发现的一个奇怪问题"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:58 CST 2017
+1641685 times the listen queue of a socket overflowed
+1641685 SYNs to LISTEN sockets ignored
+
+[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:59 CST 2017
+1641906 times the listen queue of a socket overflowed
+1641906 SYNs to LISTEN sockets ignored
+</code></pre><p>如上所示：<br>overflowed和ignored居然总是一样多，并且都是同步增加，overflowed表示全连接队列溢出次数，socket ignored表示半连接队列溢出次数，没这么巧吧。</p>
+<p>翻看内核源代码（<a href="http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：" target="_blank" rel="noopener">http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a5616904df3a505572d99d557b534db2.png" alt="image.png"></p>
+<p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
+<p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
+<pre><code>server1
+150 SYNs to LISTEN sockets dropped
+
+server2
+193 SYNs to LISTEN sockets dropped
+
+server3
+16329 times the listen queue of a socket overflowed
+16422 SYNs to LISTEN sockets dropped
+
+server4
+20 times the listen queue of a socket overflowed
+51 SYNs to LISTEN sockets dropped
+
+server5
+984932 times the listen queue of a socket overflowed
+988003 SYNs to LISTEN sockets dropped
+</code></pre><h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：" target="_blank" rel="noopener">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png" alt="image.png"></p>
+<p>TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：</p>
+<pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
+//如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
+  if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
+      goto drop;
+</code></pre><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
+<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
+<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
+<hr>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="noopener">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="noopener">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
+<p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="noopener">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
+<p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
+<p><a href="http://jin-yang.github.io/blog/network-synack-queue.html#" target="_blank" rel="noopener">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
+<p><a href="http://blog.chinaunix.net/uid-20662820-id-4154399.html" target="_blank" rel="noopener">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
+<p><a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener">https://www.atatech.org/articles/12919</a></p>
+<p><a href="https://blog.cloudflare.com/syn-packet-handling-in-the-wild/" target="_blank" rel="noopener">https://blog.cloudflare.com/syn-packet-handling-in-the-wild/</a></p>
+<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="noopener">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
+<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">案例三：诡异的幽灵连接，全连接队列满后4.9内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
+<blockquote>
+<p>commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071<br>Author: Eric Dumazet <a href="mailto:&#x65;&#100;&#117;&#x6d;&#97;&#122;&#101;&#x74;&#x40;&#103;&#x6f;&#x6f;&#103;&#x6c;&#101;&#x2e;&#99;&#111;&#109;" target="_blank" rel="noopener">&#x65;&#100;&#117;&#x6d;&#97;&#122;&#101;&#x74;&#x40;&#103;&#x6f;&#x6f;&#103;&#x6c;&#101;&#x2e;&#99;&#111;&#109;</a><br>Date:   Thu Oct 27 00:27:57 2016</p>
+<pre><code>tcp/dccp: drop SYN packets if accept queue is full
+
+Per listen(fd, backlog) rules, there is really no point accepting a SYN,
+sending a SYNACK, and dropping the following ACK packet if accept queue
+is full, because application is not draining accept queue fast enough.
+
+This behavior is fooling TCP clients that believe they established a
+flow, while there is nothing at server side. They might then send about
+10 MSS (if using IW10) that will be dropped anyway while server is under
+stress.
+
+-
+-       /* Accept backlog is full. If we have already queued enough
+-        * of warm entries in syn queue, drop request. It is better than
+-        * clogging syn queue with openreqs with exponentially increasing
+-        * timeout.
+-        */
+-       if (sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; 1) {
++       if (sk_acceptq_is_full(sk)) {
+                NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
+                goto drop;
+        }
+</code></pre></blockquote>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2017/06/02/就是要你懂TCP--连接和握手/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2017/06/02/就是要你懂TCP--连接和握手/" itemprop="url">就是要你懂TCP--握手和挥手</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-02T17:30:03+08:00">
+                2017-06-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2017/06/02/就是要你懂TCP--连接和握手/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/06/02/就是要你懂TCP--连接和握手/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="就是要你懂TCP–握手和挥手"><a href="#就是要你懂TCP–握手和挥手" class="headerlink" title="就是要你懂TCP–握手和挥手"></a>就是要你懂TCP–握手和挥手</h1><blockquote>
+<p>看过太多tcp相关文章，但是看完总是不过瘾，似懂非懂，反复考虑过后，我觉得是那些文章太过理论，看起来没有体感，所以吸收不了。</p>
+<p>希望这篇文章能做到言简意赅，帮助大家透过案例来理解原理</p>
+</blockquote>
+<h2 id="tcp的特点"><a href="#tcp的特点" class="headerlink" title="tcp的特点"></a>tcp的特点</h2><p>这个大家基本都能说几句，面试的时候候选人也肯定会告诉你这些：</p>
+<ul>
+<li>三次握手</li>
+<li>四次挥手</li>
+<li>可靠连接</li>
+<li>丢包重传</li>
+<li>速度自我调整</li>
+</ul>
+<p>但是我只希望大家记住一个核心的：<strong>tcp是可靠传输协议，它的所有特点都为这个可靠传输服务</strong>。</p>
+<h3 id="那么tcp是怎么样来保障可靠传输呢？"><a href="#那么tcp是怎么样来保障可靠传输呢？" class="headerlink" title="那么tcp是怎么样来保障可靠传输呢？"></a>那么tcp是怎么样来保障可靠传输呢？</h3><p>tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到那些包了。这样发送方能知道有没有丢包，进而确定重传</p>
+<h3 id="tcp建连接的三次握手"><a href="#tcp建连接的三次握手" class="headerlink" title="tcp建连接的三次握手"></a>tcp建连接的三次握手</h3><p>来看一个java代码连接数据库的三次握手过程</p>
+<p><img src="/images/oss/6d66dadecb72e11e3e5ab765c6c3ea2e.png" alt="image.png"></p>
+<p>三个红框表示建立连接的三次握手：</p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的48287端口的连接已经是established）</li>
+</ul>
+<p>握手的核心目的是告知对方seq（绿框是client的初始seq，蓝色框是server 的初始seq），对方回复ack（收到的seq+包的大小），这样发送端就知道有没有丢包了</p>
+<p>握手的次要目的是告知和协商一些信息，图中黄框。</p>
+<ul>
+<li>MSS–最大传输包</li>
+<li>SACK_PERM–是否支持Selective ack(用户优化重传效率）</li>
+<li>WS–窗口计算指数（有点复杂的话先不用管）</li>
+</ul>
+<p><img src="/images/oss/1423013fe76719cfa3088ebc4704c023.png" alt="image.png"></p>
+<p>全连接队列（accept queue）的长度是由 listen(sockfd, backlog) 这个函数里的 backlog 控制的，而该 backlog 的最大值则是 somaxconn。somaxconn 在 5.4 之前的内核中，默认都是 128（5.4 开始调整为了默认 4096）</p>
+<p>当服务器中积压的全连接个数超过该值后，新的全连接就会被丢弃掉。Server 在将新连接丢弃时，有的时候需要发送 reset 来通知 Client，这样 Client 就不会再次重试了。不过，默认行为是直接丢弃不去通知 Client。至于是否需要给 Client 发送 reset，是由 tcp_abort_on_overflow 这个配置项来控制的，该值默认为 0，即不发送 reset 给 Client。推荐也是将该值配置为 0</p>
+<blockquote>
+<p>net.ipv4.tcp_abort_on_overflow = 0</p>
+</blockquote>
+<p><strong>这就是tcp为什么要握手建立连接，就是为了解决tcp的可靠传输</strong></p>
+<p>物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的连接是指tcp是拥有和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。</p>
+<h3 id="unres-qlen-和-握手"><a href="#unres-qlen-和-握手" class="headerlink" title="unres_qlen  和 握手"></a>unres_qlen  和 握手</h3><p>tcp connect 的本地流程是这样的：</p>
+<p>1、tcp发出SYN建链报文后，报文到ip层需要进行路由查询</p>
+<p>2、路由查询完成后，报文到arp层查询下一跳mac地址</p>
+<p>3、如果本地没有对应网关的arp缓存，就需要缓存住这个报文，发起arp请求</p>
+<p>4、arp层收到arp回应报文之后，从缓存中取出SYN报文，完成mac头填写并发送给驱动。</p>
+<p>问题在于，arp层报文缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
+<p>TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
+<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3。</p>
+<h3 id="建连接失败经常碰到的问题"><a href="#建连接失败经常碰到的问题" class="headerlink" title="建连接失败经常碰到的问题"></a>建连接失败经常碰到的问题</h3><p>内核扔掉syn的情况（握手失败，建不上连接）：</p>
+<ul>
+<li>rp_filter 命中(rp_filter=1, 多网卡环境）， troubleshooting:  netstat -s | grep -i filter ;</li>
+<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
+<li>全连接队列满的情况</li>
+<li>syn flood攻击</li>
+<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增）</li>
+<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
+</ul>
+<h3 id="tcp断开连接的四次挥手"><a href="#tcp断开连接的四次挥手" class="headerlink" title="tcp断开连接的四次挥手"></a>tcp断开连接的四次挥手</h3><p>再来看java连上mysql后，执行了一个SQL： select sleep(2); 然后就断开了连接</p>
+<p><img src="/images/oss/b6f4a952cdf8ffbb8f6e9434d1432e05.png" alt="image.png"></p>
+<p>四个红框表示断开连接的四次挥手：</p>
+<ul>
+<li>第一步： client主动发送fin包给server</li>
+<li>第二步： server回复ack（对应第一步fin包的ack）给client，表示server知道client要断开了</li>
+<li>第三步： server发送fin包给client，表示server也可以断开了</li>
+<li>第四部： client回复ack给server，表示既然双发都发送fin包表示断开，那么就真的断开吧</li>
+</ul>
+<p><img src="/images/oss/321f96243eef2f6437fe4e1559c15efe.png" alt="image.png"></p>
+<p>除了 CLOSE_WAIT 状态外，其余两个状态都有对应的系统配置项来控制。</p>
+<p>我们首先来看 FIN_WAIT_2 状态，TCP 进入到这个状态后，如果本端迟迟收不到对端的 FIN 包，那就会一直处于这个状态，于是就会一直消耗系统资源。Linux 为了防止这种资源的开销，设置了这个状态的超时时间 tcp_fin_timeout，默认为 60s，超过这个时间后就会自动销毁该连接。</p>
+<p>至于本端为何迟迟收不到对端的 FIN 包，通常情况下都是因为对端机器出了问题，或者是因为太繁忙而不能及时 close()。所以，通常我们都建议将 tcp_fin_timeout 调小一些，以尽量避免这种状态下的资源开销。对于数据中心内部的机器而言，将它调整为 2s 足以：</p>
+<blockquote>
+<p>net.ipv4.tcp_fin_timeout = 2</p>
+</blockquote>
+<p>TIME_WAIT 状态存在的意义是：最后发送的这个 ACK 包可能会被丢弃掉或者有延迟，这样对端就会再次发送 FIN 包。如果不维持 TIME_WAIT 这个状态，那么再次收到对端的 FIN 包后，本端就会回一个 Reset 包，这可能会产生一些异常。</p>
+<p><img src="/images/oss/9fbe15fa8b913ba76048f3b2ad2b923a.png" alt="image.png"></p>
+<h3 id="为什么握手三次、挥手四次"><a href="#为什么握手三次、挥手四次" class="headerlink" title="为什么握手三次、挥手四次"></a>为什么握手三次、挥手四次</h3><p>这个问题太恶心，面试官太喜欢问，其实大部分面试官只会背诵：因为TCP是双向的，所以关闭需要四次挥手……。</p>
+<p>你要是想怼面试官的话可以问他握手也是双向的但是只需要三次呢？</p>
+<p>我也不知道怎么回答。网上都说tcp是双向的，所以断开要四次。但是我认为建连接也是双向的（双向都协调告知对方自己的seq号），为什么不需要四次握手呢，所以网上说的不一定精准。</p>
+<p>你再看三次握手的第二步发 syn+ack，如果拆分成两步先发ack再发syn完全也是可以的（效率略低），这样三次握手也变成四次握手了。</p>
+<p>看起来挥手的时候多一次，主要是收到第一个fin包后单独回复了一个ack包，如果能回复fin+ack那么四次挥手也就变成三次了。 来看一个案例：</p>
+<p><img src="/images/oss/9db33f9304f8236b1ebcb215064bb2af.png" alt="image.png"></p>
+<p>图中第二个红框就是回复的fin+ack，这样四次挥手变成三次了（如果一个包就是一次的话）。</p>
+<p>我的理解：之所以绝大数时候我们看到的都是四次挥手，是因为收到fin后，知道对方要关闭了，然后OS通知应用层要关闭，这里应用层可能需要做些准备工作，可能还有数据没发送完，所以内核先回ack，等应用准备好了主动调close时再发fin 。 握手过程没有这个准备过程所以可以立即发送syn+ack（把这里的两步合成一步了）。 内核收到对方的fin后，只能ack，不能主动替应用来fin，因为他不清楚应用能不能关闭。</p>
+<h3 id="ack-seq-len"><a href="#ack-seq-len" class="headerlink" title="ack=seq+len"></a>ack=seq+len</h3><p>ack总是seq+len（包的大小），这样发送方明确知道server收到那些东西了</p>
+<p>但是特例是三次握手和四次挥手，虽然len都是0，但是syn和fin都要占用一个seq号，所以这里的ack都是seq+1</p>
+<p><img src="/images/oss/45c6d36ce8b17a5c0442e66fce002ab4.png" alt="image.png"></p>
+<p>看图中左边红框里的len+seq就是接收方回复的ack的数字，表示这个包接收方收到了。然后下一个包的seq就是前一个包的len+seq，依次增加，一旦中间发出去的东西没有收到ack就是丢包了，过一段时间（或者其他方式）触发重传，保障了tcp传输的可靠性。</p>
+<h3 id="三次握手中协商的其它信息"><a href="#三次握手中协商的其它信息" class="headerlink" title="三次握手中协商的其它信息"></a>三次握手中协商的其它信息</h3><p>MSS 最大一个包中能传输的信息（不含tcp、ip包头），MSS+包头就是MTU（最大传输单元），如果MTU过大可能在传输的过程中被卡住过不去造成卡死（这个大小的包一直传输不过去），跟丢包还不一样</p>
+<p>MSS的问题具体可以看我这篇文章： <a href="https://www.atatech.org/articles/60633" target="_blank" rel="noopener">scp某个文件的时候卡死问题的解决过程</a></p>
+<p>SACK_PERM 用于丢包的话提升重传效率，比如client一次发了1、2、3、4、5 这5个包给server，实际server收到了 1、3、4、5这四个包，中间2丢掉了。这个时候server回复ack的时候，都只能回复2，表示2前面所有的包都收到了，给我发第二个包吧，如果server 收到3、4、5还是没有收到2的话，也是回复ack 2而不是回复ack 3、4、5、6的，表示快点发2过来。</p>
+<p>但是这个时候client虽然知道2丢了，然后会重发2，但是不知道3、4、5有没有丢啊，实际3、4、5 server都收到了，如果支持sack，那么可以ack 2的时候同时告诉client 3、4、5都收到了，这样client重传的时候只重传2就可以，如果没有sack的话那么可能会重传2、3、4、5，这样效率就低了。</p>
+<p>来看一个例子：</p>
+<p><img src="/images/oss/5322d0cf77a3a1ae6c87a972cc5843d0.png" alt="image.png"></p>
+<p>图中的红框就是SACK。</p>
+<p>知识点：ack数字表示这个数字前面的数据<strong>都</strong>收到了</p>
+<h2 id="TIME-WAIT-和-CLOSE-WAIT"><a href="#TIME-WAIT-和-CLOSE-WAIT" class="headerlink" title="TIME_WAIT 和 CLOSE_WAIT"></a>TIME_WAIT 和 CLOSE_WAIT</h2><p>假设服务端和客户端跑在同一台机器上，服务端监听在 18080端口上，客户端使用18089端口建立连接。</p>
+<p>如果client主动断开连接那么就会看到client端的连接在 TIME_WAIT：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 1808</span><br><span class="line">tcp        0      0 0.0.0.0:18080           0.0.0.0:*               LISTEN      </span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      TIME_WAIT</span><br></pre></td></tr></table></figure>
+<p>如果Server主动断开连接(也就是18080）那么就会看到client端的连接在CLOSE_WAIT 而Server在FIN_WAIT2：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 1808</span><br><span class="line">tcp    0      0 192.168.1.79:18080      192.168.1.79:18089      FIN_WAIT2  --&lt;&lt; server</span><br><span class="line">tcp    0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT --&lt;&lt; client</span><br></pre></td></tr></table></figure>
+<p><strong>TIME_WAIT是主动断连方出现的状态（ 2MSL）</strong></p>
+<h3 id="被动关闭方收到fin后有两种选择"><a href="#被动关闭方收到fin后有两种选择" class="headerlink" title="被动关闭方收到fin后有两种选择"></a>被动关闭方收到fin后有两种选择</h3><p>如下描述是server端主动关闭的情况</p>
+<p>1 如果client也立即断开，那么Server的这个连接会进入 TIME_WAIT状态</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 1808</span><br><span class="line">tcp    0      0 0.0.0.0:18080           0.0.0.0:*            LISTEN  --&lt;&lt; server还在  </span><br><span class="line">tcp    0      0 192.168.1.79:18080      192.168.1.79:18089   TIME_WAIT --&lt;&lt; server</span><br></pre></td></tr></table></figure>
+<p>2 client 坚持不断开过 Server 一段时间后（3.10：net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 120， 4.19：net.ipv4.tcp_fin_timeout = 15）会结束这个连接但是client还是会 在CLOSE_WAIT 直到client进程退出</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 1808</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT</span><br></pre></td></tr></table></figure>
+<h3 id="CLOSE-WAIT"><a href="#CLOSE-WAIT" class="headerlink" title="CLOSE_WAIT"></a>CLOSE_WAIT</h3><p><strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong></p>
+<p>通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着被动关闭的一方没有及时发出 FIN 包，一般有如下几种可能：</p>
+<ul>
+<li><strong>程序问题</strong>：如果代码层面忘记了 close 相应的 socket 连接，那么自然不会发出 FIN 包，从而导致 CLOSE_WAIT 累积；或者代码不严谨，出现死循环之类的问题，导致即便后面写了 close 也永远执行不到。</li>
+<li>响应太慢或者超时设置过小：如果连接双方不和谐，一方不耐烦直接 timeout，另一方却还在忙于耗时逻辑，就会导致 close 被延后。响应太慢是首要问题，不过换个角度看，也可能是 timeout 设置过小。</li>
+<li>BACKLOG 太大：此处的 backlog 不是 syn backlog，而是 accept 的 backlog，如果 backlog 太大的话，设想突然遭遇大访问量的话，即便响应速度不慢，也可能出现来不及消费的情况，导致多余的请求还在<a href="http://jaseywang.me/2014/07/20/tcp-queue-的一些问题/" target="_blank" rel="noopener">队列</a>里就被对方关闭了。</li>
+</ul>
+<p>如果你通过「netstat -ant」或者「ss -ant」命令发现了很多 CLOSE_WAIT 连接，请注意结果中的「Recv-Q」和「Local Address」字段，通常「Recv-Q」会不为空，它表示应用还没来得及接收数据，而「Local Address」表示哪个地址和端口有问题，我们可以通过「lsof -i:<port>」来确认端口对应运行的是什么程序以及它的进程号是多少。</port></p>
+<p>如果是我们自己写的一些程序，比如用 HttpClient 自定义的蜘蛛，那么八九不离十是程序问题，如果是一些使用广泛的程序，比如 Tomcat 之类的，那么更可能是响应速度太慢或者 timeout 设置太小或者 BACKLOG 设置过大导致的故障。</p>
+<h4 id="server端大量close-wait案例"><a href="#server端大量close-wait案例" class="headerlink" title="server端大量close_wait案例"></a>server端大量close_wait案例</h4><p>看了这么多理论，下面用个案例来检查自己对close_wait理论（tcp握手本质）的掌握。同时也可以看看自己从知识到问题的推理能力（跟文章最后的知识效率呼应一下）。</p>
+<p>问题描述：</p>
+<blockquote>
+<p>服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）</p>
+</blockquote>
+<p>根据这个描述先不要往下看，自己推理分析下可能的原因。</p>
+<p>我的推理如下：</p>
+<p>从这里看起来，client跟server成功建立了somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这个连接，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时Server上这个连接变成了CLOSE_WAIT .</p>
+<p>也就是从开始到结束这些连接都在accept queue中，没有被应用accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。</p>
+<p>如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到server是否accept()了，只是发了数据后server的os代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。</p>
+<p>得检查server 应用为什么没有accept。</p>
+<p><img src="/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"></p>
+<p>结论：</p>
+<blockquote>
+<p>这个case的最终原因是因为<strong>OS的open files设置的是1024,达到了上限</strong>，进而导致server不能accept，但这个时候的tcp连接状态已经是ESTABLISHED了（这个状态变换是取决于内核收发包，跟应用是否accept()无关）。</p>
+<p>同时从这里可以推断 netstat 即使看到一个tcp连接状态是ESTABLISHED也不能代表占用了 open files句柄。此时client可以正常发送数据了，只是应用服务在accept之前没法receive数据和close连接。</p>
+</blockquote>
+<h2 id="TCP连接状态图"><a href="#TCP连接状态图" class="headerlink" title="TCP连接状态图"></a>TCP连接状态图</h2><p><img src="/images/oss/b3d075782450b0c8d2615c5d2b75d923.png" alt="image.png"></p>
+<h2 id="总结下"><a href="#总结下" class="headerlink" title="总结下"></a>总结下</h2><p>tcp所有特性基本上核心都是为了<strong>可靠传输</strong>这个目标来服务的，然后有一些是出于优化性能的目的</p>
+<p>三次握手建连接的详细过程可以参考我这篇： <a href="https://www.atatech.org/articles/78858" target="_blank" rel="noopener">关于TCP 半连接队列和全连接队列</a></p>
+<p>后续希望再通过几个案例来深化一下上面的知识。</p>
+<hr>
+<p>为什么要案例来深化一下上面的知识，说点关于学习的题外话</p>
+<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举三反一，这是知识效率，这种人非常少；</p>
+<p>大多数普通人都是看点知识然后结合实践来强化理解理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
+<p>对于费曼（参考费曼学习法）这样的聪明人就是很容易看到一个理论知识就能理解这个理论知识背后的本质。</p>
+<p>肯定知识效率最牛逼，但是拥有这种能力的人毕竟非常少。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快地掌握一个新知识。剩下的绝大部分只能拼时间(刷题)+方法+总结等也能掌握一些知识</p>
+<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
+<p>使劲挖掘自己在知识效率型方面的能力吧，即使灰色地带也行啊。</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2017/06/02/就是要你懂TCP--wireshark-dup-ack-issue/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2557,7 +3630,7 @@ ok =&gt; 10.125.12.174 =&gt; {
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">111</span>
+                <span class="site-state-item-count">115</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -2579,7 +3652,7 @@ ok =&gt; 10.125.12.174 =&gt; {
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">207</span>
+                <span class="site-state-item-count">213</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

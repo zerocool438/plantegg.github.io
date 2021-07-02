@@ -282,6 +282,899 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="url">就是要你懂抓包--WireShark之命令行版tshark</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T15:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/tcpdump/" itemprop="url" rel="index">
+                    <span itemprop="name">tcpdump</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="玩转TShark（Wireshark的命令行版）"><a href="#玩转TShark（Wireshark的命令行版）" class="headerlink" title="玩转TShark（Wireshark的命令行版）"></a>玩转TShark（Wireshark的命令行版）</h1><p>在我感叹Wireshark图形界面的强大时候，有时候也抱怨有点慢，或者感叹下要是有命令行界面版该多好啊，实际上TShark就是WireShark的命令行版，WireShark的功能基本都有，还能组合grep/awk等编程处理分析抓包文件。</p>
+<p>下面让我们通过一些例子来学习TShark的常用功能，所有用到的<em>.cap/</em>.pcap等都是通过tcpdump抓到的包。请收藏好，下次碰到类似问题直接用文章中的命令跑一下。</p>
+<h2 id="wireshark不再展示协议内容"><a href="#wireshark不再展示协议内容" class="headerlink" title="wireshark不再展示协议内容"></a>wireshark不再展示协议内容</h2><p>比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 </p>
+<p>配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos</p>
+<p>如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。</p>
+<h3 id="tcp-segment-of-a-reassembled-pdu"><a href="#tcp-segment-of-a-reassembled-pdu" class="headerlink" title="tcp segment of a reassembled pdu"></a>tcp segment of a reassembled pdu</h3><p>这个提示是指，wireshark需要将多个tcp协议包重新组合成特定协议内容（比如MySQL，HTTP），但是因为包缺失（或者每个包大小截断了）导致reassembled失败。实际上wireshark已经成功检测到该协议，只是在解析这个协议的时候缺失包导致解析不好。</p>
+<p>这个时候可以试试将指定协议的reassembled属性关掉</p>
+<p><img src="/images/oss/1fc544dcd6e064f967481472f6688be9.png" alt="image.png"></p>
+<p><a href="https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html" target="_blank" rel="noopener">PDU：Protocol Data Unit</a></p>
+<blockquote>
+<p>If the reassembly is successful, the TCP segment containing the last part of the packet will show the packet.<br>The reassembly might fail if some TCP segments are missing.</p>
+</blockquote>
+<p><a href="https://osqa-ask.wireshark.org/questions/58186/tcp-segment-of-a-reassembled-pdu" target="_blank" rel="noopener">TCP segment of a reassembled PDU </a> means that:</p>
+<ol>
+<li>Wireshark/TShark thinks it knows what protocol is running atop TCP in that TCP segment;</li>
+<li>that TCP segment doesn’t contain all of a “protocol data unit” (PDU) for that higher-level protocol, i.e. a packet or protocol message for that higher-level protocol, and doesn’t contain the last part of that PDU, so it’s trying to reassemble the multiple TCP segments containing that higher-level PDU.</li>
+</ol>
+<h2 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">#parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query &apos;port 8507&apos;</span><br><span class="line"></span><br><span class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y &quot; ((tcp.port eq 4444 )  )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#query time</span><br><span class="line">sudo tshark -i eth0 -Y &quot; ((tcp.port eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟生成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M </span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br></pre></td></tr></table></figure>
+<h2 id="分析mysql的每个SQL响应时间"><a href="#分析mysql的每个SQL响应时间" class="headerlink" title="分析mysql的每个SQL响应时间"></a>分析mysql的每个SQL响应时间</h2><p>应用有输出的日志显示DB慢，DB监控到的日志显示自己很快，经常扯皮，如果直接在应用机器的网卡抓包，然后分析到每个SQL的响应时间，那么DB、网络都可以甩锅了（有时候应用统计的时间包含了应用自身的时间、取连接的时间等）</p>
+<pre><code>tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1
+</code></pre><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">34143	1475902394.645073000	0.000342000	10.100.53.17	3306	40383	10.100.10.213	0.000153000	2273	0	</span><br><span class="line">34145	1475902394.645333000	0.000260000	10.100.53.17	3306	40383	10.100.10.213	0.000253000	2273	77	</span><br><span class="line">34150	1475902394.645537000	0.000204000	10.100.53.17	3306	40383	10.100.10.213	0.000146000	2273	0	</span><br><span class="line">34151	1475902394.645706000	0.000169000	10.100.53.17	3306	40383	10.100.10.213	0.000169000	2273	11	</span><br><span class="line">34153	1475902394.645737000	0.000031000	10.100.10.213	40383	3306	10.100.53.17	0.000031000	2273	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34161	1475902394.646390000	0.000158000	10.100.53.17	3306	40383	10.100.10.213	0.000653000	2273	11	</span><br><span class="line">34162	1475902394.646418000	0.000028000	10.100.10.213	40383	3306	10.100.53.17	0.000028000	2273	22	START TRANSACTION</span><br><span class="line">34164	1475902394.646713000	0.000295000	10.100.53.17	3306	40383	10.100.10.213	0.000295000	2273	11	</span><br><span class="line">34166	1475902394.646776000	0.000063000	10.100.10.213	40383	3306	10.100.53.17	0.000063000	2273	46	select AUTO_SEQ_t_order.nextval from dual</span><br><span class="line">34194	1475902394.651468000	0.000909000	10.100.53.17	3306	40383	10.100.10.213	0.004692000	2273	100	</span><br><span class="line">34195	1475902394.651782000	0.000314000	10.100.10.213	40383	3306	10.100.53.17	0.000314000	2273	576	insert into t_order (`out_order_no`,`pk_order`,`uid`,`ytid`,`platform`,`origin_price`,`price`,`partner_id`,`ip`,`sources`,`pay_state`,`type`,`product_type`,`device`,`extension`,`spm`,`ext2`,`createtime`,`pay_channel`,`use_ytid`,`updatetime`) values (&apos;2016100822003361672230261573284&apos;,&apos;261573284&apos;,&apos;336167223&apos;,&apos;336167223&apos;,&apos;1&apos;,&apos;500&apos;,&apos;500&apos;,&apos;100000&apos;,&apos;42.49.141.142&apos;,&apos;2&apos;,&apos;1&apos;,&apos;1&apos;,&apos;2&apos;,&apos;3&apos;,&apos;&#123;\&quot;showid\&quot;:\&quot;286083\&quot;,\&quot;play_url\&quot;:\&quot;http:\\/\\/v.youku.com\\/v_show\\/id_XMTczOTM5NjU1Mg==.html\&quot;,\&quot;permit_duration\&quot;:172800&#125;&apos;,&apos;&apos;,&apos;&apos;,&apos;2016-10-08 12:53:14&apos;,&apos;201&apos;,&apos;0&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34196	1475902394.653275000	0.001493000	10.100.53.17	3306	40383	10.100.10.213	0.001493000	2273	19	</span><br><span class="line">34197	1475902394.653410000	0.000135000	10.100.10.213	40383	3306	10.100.53.17	0.000135000	2273	370	insert into t_order_product (`fk_order`,`product_id`,`origin_price`,`price`,`discount`,`deliver_state`,`product_url`,`product_name`,`amount`,`ytid`,`sub_product_id`,`createtime`) values (&apos;2016100822003361672230261573284&apos;,&apos;4000010000&apos;,&apos;500&apos;,&apos;500&apos;,&apos;0&apos;,&apos;1&apos;,&apos;http://vip.youku.com&apos;,&apos;���������������������2:���������������&apos;,&apos;1&apos;,&apos;336167223&apos;,&apos;286083&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34198	1475902394.658326000	0.004916000	10.100.53.17	3306	40383	10.100.10.213	0.004916000	2273	19	</span><br><span class="line">34199	1475902394.658407000	0.000081000	10.100.10.213	40383	3306	10.100.53.17	0.000081000	2273	11	commit</span><br><span class="line">34200	1475902394.659626000	0.001219000	10.100.53.17	3306	40383	10.100.10.213	0.001219000	2273	11	</span><br><span class="line">34201	1475902394.659811000	0.000185000	10.100.10.213	40383	3306	10.100.53.17	0.000185000	2273	22	START TRANSACTION</span><br><span class="line">34202	1475902394.660054000	0.000243000	10.100.53.17	3306	40383	10.100.10.213	0.000243000	2273	11	</span><br><span class="line">34203	1475902394.660126000	0.000072000	10.100.10.213	40383	3306	10.100.53.17	0.000072000	2273	125	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) FOR UPDATE</span><br><span class="line">34209	1475902394.661970000	0.001844000	10.100.53.17	3306	40383	10.100.10.213	0.001844000	2273	2214	</span><br><span class="line">34211	1475902394.662069000	0.000099000	10.100.10.213	40383	3306	10.100.53.17	0.000089000	2273	122	update t_order set `pay_state`=&apos;2&apos;,`updatetime`=&apos;2016-10-08 12:53:14&apos; where pk_order=&apos;261573284&apos; and ytid=&apos;336167223&apos;</span><br><span class="line">34213	1475902394.662917000	0.000848000	10.100.53.17	3306	40383	10.100.10.213	0.000848000	2273	19	</span><br><span class="line">34216	1475902394.663049000	0.000088000	10.100.10.213	40383	3306	10.100.53.17	0.000132000	2273	11	commit</span><br><span class="line">34225	1475902394.664204000	0.000264000	10.100.53.17	3306	40383	10.100.10.213	0.001155000	2273	11	</span><br><span class="line">34226	1475902394.664269000	0.000065000	10.100.10.213	40383	3306	10.100.53.17	0.000065000	2273	115	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) </span><br><span class="line">34235	1475902394.665694000	0.000061000	10.100.53.17	3306	40383	10.100.10.213	0.001425000	2273	2214	</span><br><span class="line">34354	1475902394.681464000	0.000157000	10.100.53.17	3306	40383	10.100.10.213	0.000187000	2273	0	</span><br><span class="line">34174	1475902394.648046000	0.001123000	10.100.53.19	3306	33471	10.100.10.213	0.000151000	2275	0	</span><br><span class="line">34176	1475902394.648331000	0.000285000	10.100.53.19	3306	33471	10.100.10.213	0.000278000	2275	77	</span><br><span class="line">34179	1475902394.648482000	0.000151000	10.100.53.19	3306	33471	10.100.10.213	0.000127000	2275	0	</span><br><span class="line">34180	1475902394.648598000	0.000116000	10.100.53.19	3306	33471	10.100.10.213	0.000116000	2275	11	</span><br><span class="line">34181	1475902394.648606000	0.000008000	10.100.10.213	33471	3306	10.100.53.19	0.000008000	2275	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34182	1475902394.648846000	0.000240000	10.100.53.19	3306	33471	10.100.10.213	0.000240000	2275	11	</span><br><span class="line">34183	1475902394.648885000	0.000039000	10.100.10.213	33471	3306	10.100.53.19	0.000039000	2275	380	select pk_auto_renew_account as account_id,fk_user as uid,platform,ytid,fk_member_conf_id as member_id,fk_product_id as product_id,price,fk_pay_channel as pay_channel,renew_type,fk_order,fk_auto_renew_subscribe_log as fk_subscribe_log,state,memo,nexttime,createtime,updatetime from t_auto_renew_account where ( ytid = &apos;354295193&apos; ) AND ( platform = &apos;1&apos; ) AND ( state &lt;&gt; &apos;3&apos; )</span><br><span class="line">34184	1475902394.650040000	0.001155000	10.100.53.19	3306	33471	10.100.10.213	0.001155000	2275	1727	</span><br><span class="line">34189	1475902394.650559000	0.000519000	10.100.53.19	3306	33471	10.100.10.213	0.000198000	2275	0</span><br></pre></td></tr></table></figure>
+<p>或者：<br>    tshark -r gege_drds.pcap -Y “ ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )” -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </p>
+<p>这个命令跑出来，倒数第四列基本就是rt</p>
+<pre><code>967     1548148159.346612000    0.000442000     192.168.4.18    3306    44026   192.168.100.30  0.005255000     17      1576    0.005255000
+969     1548148159.346826000    0.000214000     192.168.4.18    3306    44090   192.168.100.30  0.005425000     15      1576    0.005425000
+973     1548148159.347428000    0.000602000     192.168.4.18    3306    44070   192.168.100.30  0.005517000     8       2500    0.005517000
+979     1548148159.348640000    0.001212000     192.168.4.18    3306    44048   192.168.100.30  0.005517000     22      2462    0.005517000
+981     1548148159.348751000    0.000111000     192.168.4.18    3306    44066   192.168.100.30  0.005855000     21      2692    0.005855000
+983     1548148159.348844000    0.000093000     192.168.4.18    3306    44046   192.168.100.30  0.004589000     3       2692    0.004589000
+985     1548148159.348981000    0.000137000     192.168.4.18    3306    44012   192.168.100.30  0.004885000     19      2443    0.004885000
+990     1548148159.349293000    0.000312000     192.168.4.18    3306    44074   192.168.100.30  0.005923000     5       2692    0.005923000
+994     1548148159.349671000    0.000378000     192.168.4.18    3306    44080   192.168.100.30  0.004889000     4       2730    0.004889000
+1009    1548148159.350591000    0.000920000     192.168.4.18    3306    44022   192.168.100.30  0.004187000     14      1448    0.004187000
+1010    1548148159.350592000    0.000001000     192.168.4.18    3306    44022   192.168.100.30  0.000001000     14      1052    
+1013    1548148159.350790000    0.000198000     192.168.4.18    3306    44002   192.168.100.30  0.005998000     0       1576    0.005998000
+1026    1548148159.352207000    0.001417000     192.168.4.18    3306    44026   192.168.100.30  0.005348000     17      1448    0.005348000
+1027    1548148159.352217000    0.000010000     192.168.4.18    3306    44026   192.168.100.30  0.000010000     17      1052    
+1036    1548148159.352973000    0.000756000     192.168.4.18    3306    44090   192.168.100.30  0.005940000     15      2500    0.005940000
+1041    1548148159.353683000    0.000710000     192.168.4.18    3306    44070   192.168.100.30  0.005190000     8       2692    0.005190000
+1043    1548148159.353737000    0.000054000     192.168.4.18    3306    44066   192.168.100.30  0.004635000     21      1448    0.004635000
+1044    1548148159.353749000    0.000012000     192.168.4.18    3306    44066   192.168.100.30  0.000012000     21      128     
+1051    1548148159.354289000    0.000540000     192.168.4.18    3306    44046   192.168.100.30  0.004911000     3       1576    0.004911000
+1054    1548148159.354511000    0.000222000     192.168.4.18    3306    44080   192.168.100.30  0.004515000     4       1576    0.004515000
+1055    1548148159.354530000    0.000019000     192.168.4.18    3306    44074   192.168.100.30  0.004909000     5       1576    0.004909000
+1065    1548148159.355412000    0.000882000     192.168.4.18    3306    44012   192.168.100.30  0.005217000     19      2692    0.005217000
+1067    1548148159.355496000    0.000084000     192.168.4.18    3306    44048   192.168.100.30  0.005231000     22      2610    0.005231000
+1072    1548148159.356111000    0.000615000     192.168.4.18    3306    44052   192.168.100.30  0.005830000     24      2730    0.005830000
+1076    1548148159.356545000    0.000434000     192.168.4.18    3306    44022   192.168.100.30  0.005615000     14      2692    0.005615000
+1079    1548148159.357012000    0.000467000     192.168.4.18    3306    44002   192.168.100.30  0.005966000     0       2462    0.005966000
+1082    1548148159.357235000    0.000223000     192.168.4.18    3306    44072   192.168.100.30  0.004817000     23      2692    0.004817000
+1093    1548148159.359244000    0.002009000     192.168.4.18    3306    44070   192.168.100.30  0.005188000     8       1576    0.005188000
+</code></pre><h4 id="MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】"><a href="#MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】" class="headerlink" title="MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】"></a>MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】</h4><pre><code>tshark -r gege_drds.pcap -Y &quot;mysql.query or (tcp.srcport==3306  and tcp.len&gt;60)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk &apos;BEGIN {sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0} {rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;} END{printf &quot;-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n&quot; , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;}&apos;
+
+ -------------
+3ms:    145037 
+10ms:    78811 
+30ms:    7032 
+50ms:    2172 
+100ms:    1219 
+300ms:    856 
+500ms:    449 
+1000ms:118
+&gt;1s:    0
+-------------
+avg: 0.005937 
+</code></pre><p><strong>对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</strong></p>
+<h3 id="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"><a href="#有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥" class="headerlink" title="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"></a>有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥</h3><p>开发测试环境上通过如下命令也可以直接用tshark抓包分析SQL语句：</p>
+<pre><code>sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;
+</code></pre><p>这样就直接看到发出的SQL是否是autocommit=1了</p>
+<h2 id="按http-response分析响应时间"><a href="#按http-response分析响应时间" class="headerlink" title="按http response分析响应时间"></a>按http response分析响应时间</h2><p>tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y “http.request or http.response” -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">54087	1475902398.264070000	0.000549000	10.100.188.59	10.100.39.212	3577		100	Continue</span><br><span class="line">54089	1475902398.264325000	0.000255000	10.100.39.212	10.100.188.59	3577	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54130	1475902398.269529000	0.003113000	10.100.188.59	10.100.39.212	3577		200	OK</span><br><span class="line">54104	1475902398.266175000	0.001774000	10.100.188.59	10.100.37.32	3578		100	Continue</span><br><span class="line">54108	1475902398.266416000	0.000241000	10.100.37.32	10.100.188.59	3578	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54150	1475902398.271960000	0.001209000	10.100.188.59	10.100.37.32	3578		200	OK</span><br><span class="line">54143	1475902398.270437000	0.000908000	10.100.188.59	10.100.37.31	3581		100	Continue</span><br><span class="line">54145	1475902398.270751000	0.000314000	10.100.37.31	10.100.188.59	3581	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54171	1475902398.275876000	0.003916000	10.100.188.59	10.100.37.31	3581		200	OK</span><br><span class="line">54180	1475902398.278597000	0.002721000	10.103.10.12	10.100.188.59	3583	http://premium.api.vip.youku.com/trade/query_preorder_paystate.json		</span><br><span class="line">54197	1475902398.283177000	0.004580000	10.100.188.59	10.103.10.12	3583		200	OK</span><br><span class="line">54208	1475902398.283758000	0.000581000	10.100.188.59	10.100.10.88	3585		100	Continue</span><br><span class="line">54211	1475902398.283981000	0.000223000	10.100.10.88	10.100.188.59	3585	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54235	1475902398.288862000	0.000508000	10.100.188.59	10.100.10.88	3585		200	OK</span><br><span class="line">54226	1475902398.286716000	0.002735000	10.100.188.59	10.100.37.30	3587		100	Continue</span><br><span class="line">54232	1475902398.288354000	0.001638000	10.100.37.30	10.100.188.59	3587	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54269	1475902398.293808000	0.000205000	10.100.188.59	10.100.37.30	3587		200	OK</span><br></pre></td></tr></table></figure>
+<h2 id="分析包的总概览"><a href="#分析包的总概览" class="headerlink" title="分析包的总概览"></a>分析包的总概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">$ capinfos rsb2.cap </span><br><span class="line">File name:           rsb2.cap</span><br><span class="line">File type:           Wireshark/tcpdump/... - pcap</span><br><span class="line">File encapsulation:  Ethernet</span><br><span class="line">Packet size limit:   file hdr: 65535 bytes</span><br><span class="line">Number of packets:   510 k</span><br><span class="line">File size:           143 MB</span><br><span class="line">Data size:           135 MB</span><br><span class="line">Capture duration:    34 seconds</span><br><span class="line">Start time:          Tue Jun  7 11:15:31 2016</span><br><span class="line">End time:            Tue Jun  7 11:16:05 2016</span><br><span class="line">Data byte rate:      3997 kBps</span><br><span class="line">Data bit rate:       31 Mbps</span><br><span class="line">Average packet size: 265.62 bytes</span><br><span class="line">Average packet rate: 15 kpackets/sec</span><br><span class="line">SHA1:                a8367d0d291eab6ba78732d092ae72a5305756a2</span><br><span class="line">RIPEMD160:           ec991772819f316d2f629745d4b58fb861e41fc6</span><br><span class="line">MD5:                 53975139fa49581eacdb42bd967cbd58</span><br><span class="line">Strict time order:   False</span><br></pre></td></tr></table></figure>
+<h2 id="分析每两个IP之间的流量"><a href="#分析每两个IP之间的流量" class="headerlink" title="分析每两个IP之间的流量"></a>分析每两个IP之间的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,ip&apos; </span><br><span class="line">================================================================================</span><br><span class="line">IPv4 Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">100.98.50.214        &lt;-&gt; 10.117.41.213            425     60647     544    350182     969    410829     0.856983000        88.7073</span><br><span class="line">10.252.138.13        &lt;-&gt; 10.117.41.213            381    131639     451     45706     832    177345     3.649894000        79.5370</span><br><span class="line">10.168.127.178       &lt;-&gt; 10.117.41.213            335    118164     390     39069     725    157233     3.456698000        81.2639</span><br><span class="line">10.168.246.105       &lt;-&gt; 10.117.41.213            435     23490     271     14634     706     38124     0.000000000        89.7614</span><br><span class="line">10.117.49.244        &lt;-&gt; 10.117.41.213            452     24408     221     11934     673     36342     0.289990000        89.6024</span><br><span class="line">100.97.197.0         &lt;-&gt; 10.117.41.213             45      4226     107      7310     152     11536     0.538867000        88.0736</span><br><span class="line">100.97.196.0         &lt;-&gt; 10.117.41.213             48      4576     102      6960     150     11536     0.524268000        89.0840</span><br><span class="line">100.97.196.128       &lt;-&gt; 10.117.41.213             39      3462      90      6116     129      9578     0.573839000        88.0728</span><br><span class="line">100.97.197.128       &lt;-&gt; 10.117.41.213             27      1998      81      5562     108      7560     1.071232000        87.0382</span><br><span class="line">100.98.148.129       &lt;-&gt; 10.117.41.213             55      3630      37      2442      92      6072     0.571963000        86.7362</span><br><span class="line">================================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="分析每个会话的流量"><a href="#分析每个会话的流量" class="headerlink" title="分析每个会话的流量"></a>分析每个会话的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,tcp&apos; </span><br><span class="line">================================================================================</span><br><span class="line">TCP Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">10.117.41.213:33362  &lt;-&gt; 100.98.50.214:3306       143    107183     108     17345     251    124528     9.556973000        79.9993</span><br><span class="line">10.117.41.213:32695  &lt;-&gt; 100.98.50.214:3306       131     95816     118     17843     249    113659     3.464596000        54.7814</span><br><span class="line">10.117.41.213:33737  &lt;-&gt; 100.98.50.214:3306       107     67199      82     11842     189     79041    69.539519000        13.0781</span><br><span class="line">10.117.41.213:33736  &lt;-&gt; 100.98.50.214:3306        58     37851      31      4895      89     42746    69.539133000         8.2015</span><br><span class="line">10.117.41.213:33735  &lt;-&gt; 100.98.50.214:3306        51     37654      27      3338      78     40992    69.538573000        20.0257</span><br><span class="line">10.117.41.213:33681  &lt;-&gt; 100.98.50.214:3306        22      2367      15      2480      37      4847    58.237482000         0.0082</span><br><span class="line">10.252.138.13:17926  &lt;-&gt; 10.117.41.213:3306        13      3454      17      1917      30      5371    77.462089000         0.2816</span><br><span class="line">10.168.127.178:21250 &lt;-&gt; 10.117.41.213:3306        13      4926      17      2267      30      7193    77.442197000         0.6282</span><br><span class="line">10.252.138.13:17682  &lt;-&gt; 10.117.41.213:3306        13      5421      17      2267      30      7688    34.945805000         0.7274</span><br><span class="line">10.168.127.178:21001 &lt;-&gt; 10.117.41.213:3306        18      9872      11      1627      29     11499    21.220800000        35.0242</span><br><span class="line">10.252.138.13:17843  &lt;-&gt; 10.117.41.213:3306        13      4453      15      1510      28      5963    59.176447000        10.8169</span><br><span class="line">10.168.127.178:20927 &lt;-&gt; 10.117.41.213:3306        12      4414      15      1510      27      5924    13.686763000         0.1860</span><br><span class="line">10.252.138.13:17481  &lt;-&gt; 10.117.41.213:3306        11      4360      16      1564      27      5924     3.649894000         0.1810</span><br><span class="line">10.252.138.13:17928  &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.467248000         0.6720</span><br><span class="line">10.168.127.178:21241 &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.376858000         0.4669</span><br><span class="line">10.168.127.178:21201 &lt;-&gt; 10.117.41.213:3306        12      3971      14      2571      26      6542    64.890147000         5.4010</span><br><span class="line">10.168.127.178:21184 &lt;-&gt; 10.117.41.213:3306        12      6775      14      1794      26      8569    64.073021000         5.6804</span><br><span class="line">10.252.138.13:17545  &lt;-&gt; 10.117.41.213:3306        11      4379      15      1510      26      5889    13.940379000         0.1845</span><br><span class="line">10.168.127.178:20815 &lt;-&gt; 10.117.41.213:3306        11      4360      15      1510      26      5870     3.456698000         0.1901</span><br><span class="line">10.252.138.13:17864  &lt;-&gt; 10.117.41.213:3306        12      2985      12      1129      24      4114    59.855131000         9.7005</span><br><span class="line">10.252.138.13:17820  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    49.537379000         0.1669</span><br><span class="line">10.252.138.13:17757  &lt;-&gt; 10.117.41.213:3306        11      6006      13      1740      24      7746    45.507148000         0.7587</span><br><span class="line">10.252.138.13:17677  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    34.806484000         0.5017</span><br><span class="line">10.168.127.178:21063 &lt;-&gt; 10.117.41.213:3306        11      3848      13      1390      24      5238    29.902032000         0.0133</span><br><span class="line">10.252.138.13:17516  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725    11.505585000         0.1494</span><br><span class="line">10.252.138.13:17507  &lt;-&gt; 10.117.41.213:3306        11      3570      13      1424      24      4994     9.652955000         0.0151</span><br><span class="line">10.252.138.13:17490  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725     4.865639000         0.1275</span><br></pre></td></tr></table></figure>
+<h2 id="分析每个包的response-time"><a href="#分析每个包的response-time" class="headerlink" title="分析每个包的response time"></a>分析每个包的response time</h2><blockquote>
+<p>$ tshark -r rsb2.cap  -o tcp.calculate_timestamps:true -T fields  -e frame.number -e frame.time_epoch -e ip.src -e ip.dst  -e tcp.stream  -e tcp.len   -e tcp.analysis.initial_rtt  -e tcp.time_delta </p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">1481	1465269331.308138000	100.98.199.36	10.25.92.13	302	0		0.002276000</span><br><span class="line">1482	1465269331.308186000	10.25.92.13	    100.98.199.36	361	11	0.000063000</span><br><span class="line">1483	1465269331.308209000	100.98.199.36	10.25.92.13	496	0		0.004950000</span><br><span class="line">1484	1465269331.308223000	100.98.199.36	10.25.92.13	513	0		0.000000000</span><br><span class="line">1485	1465269331.308238000	100.98.199.36	10.25.92.13	326	0		0.055424000</span><br><span class="line">1486	1465269331.308246000	100.98.199.36	10.25.92.13	514	0		0.000000000</span><br><span class="line">1487	1465269331.308261000	10.25.92.71	    10.25.92.13	48	0		0.000229000</span><br><span class="line">1488	1465269331.308277000	100.98.199.36	10.25.92.13	254	0		0.055514000</span><br><span class="line">1489	1465269331.308307000	100.98.199.36	10.25.92.13	292	0		0.002096000</span><br><span class="line">1490	1465269331.308383000	100.98.199.36	10.25.92.13	308	0		0.055406000</span><br><span class="line">1491	1465269331.308403000	100.98.199.36	10.25.92.13	75	0		0.041664000</span><br><span class="line">1492	1465269331.308421000	100.98.199.36	10.25.92.13	291	0		0.001973000</span><br><span class="line">1493	1465269331.308532000	100.98.199.36	10.25.92.13	509	0		0.002100000</span><br><span class="line">1494	1465269331.308567000	100.98.199.36	10.25.92.13	123	0		0.041560000</span><br><span class="line">1495	1465269331.308576000	100.98.199.36	10.25.92.13	232	11		0.063317000</span><br><span class="line">1496	1465269331.308584000	100.98.199.36	10.25.92.13	465	655		0.018121000</span><br><span class="line">1497	1465269331.308626000	100.98.199.36	10.25.92.13	61	655		0.042409000</span><br><span class="line">1498	1465269331.308637000	100.98.199.36	10.25.92.13	146	0		0.001520000</span><br><span class="line">1499	1465269331.308639000	100.98.199.36	10.25.92.13	510	0		0.001460000</span><br><span class="line">1500	1465269331.308645000	100.98.199.36	10.25.92.13	237	11		0.063273000</span><br></pre></td></tr></table></figure>
+<h2 id="分析有问题的包、概览"><a href="#分析有问题的包、概览" class="headerlink" title="分析有问题的包、概览"></a>分析有问题的包、概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;expert,note&apos;</span><br><span class="line"></span><br><span class="line">Errors (22)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          22  Malformed              MySQL  Malformed Packet (Exception occurred)</span><br><span class="line"></span><br><span class="line">Warns (749)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">         538   Sequence                TCP  ACKed segment that wasn&apos;t captured (common at capture start)</span><br><span class="line">         192   Sequence                TCP  Connection reset (RST)</span><br><span class="line">          19   Sequence                TCP  Previous segment not captured (common at capture start)</span><br><span class="line"></span><br><span class="line">Notes (1162)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          84   Sequence                TCP  TCP keep-alive segment</span><br><span class="line">         274   Sequence                TCP  Duplicate ACK (#1)</span><br><span class="line">          37   Sequence                TCP  ACK to a TCP keep-alive segment</span><br><span class="line">          23   Sequence                TCP  This frame is a (suspected) retransmission</span><br><span class="line">         262   Sequence                TCP  Duplicate ACK (#2)</span><br><span class="line">         259   Sequence                TCP  Duplicate ACK (#3)</span><br><span class="line">         141   Sequence                TCP  Duplicate ACK (#4)</span><br><span class="line">          69   Sequence                TCP  Duplicate ACK (#5)</span><br><span class="line">           7   Sequence                TCP  Duplicate ACK (#6)</span><br><span class="line">           5   Sequence                TCP  This frame is a (suspected) spurious retransmission</span><br><span class="line">           1   Sequence                TCP  Duplicate ACK (#7)</span><br></pre></td></tr></table></figure>
+<h2 id="分析rtt、丢包、deplicate等等"><a href="#分析rtt、丢包、deplicate等等" class="headerlink" title="分析rtt、丢包、deplicate等等"></a>分析rtt、丢包、deplicate等等</h2><blockquote>
+<p>$ tshark -r retrans.cap -q -z io,stat,1,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”,”MIN(tcp.window_size)tcp.window_size”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  2 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</span><br><span class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1         |2      |3      |4      |5      |6      |                   |</span><br><span class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</span><br><span class="line">|-------------------------------------------------------------|                   |</span><br><span class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</span><br><span class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</span><br><span class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</span><br><span class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</span><br><span class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</span><br><span class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</span><br><span class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</span><br><span class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</span><br><span class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</span><br><span class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</span><br><span class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</span><br><span class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</span><br><span class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</span><br><span class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</span><br><span class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</span><br><span class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</span><br></pre></td></tr></table></figure>
+<h2 id="分析丢包、duplicate-ack"><a href="#分析丢包、duplicate-ack" class="headerlink" title="分析丢包、duplicate ack"></a>分析丢包、duplicate ack</h2><blockquote>
+<p>$ tshark -r retrans.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  5 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     2: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     3: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     4: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3      |4      |                                      |</span><br><span class="line">| Interval | COUNT | COUNT | COUNT | COUNT |                                      |</span><br><span class="line">|------------------------------------------|                                      |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |     0 |     0 |     1 |                                      |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |     0 |     0 |     0 |                                      |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |     0 |     0 |     4 |                                      |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 |     0 |     0 |     5 |                                      |</span><br><span class="line">| 20 &lt;&gt; 25 |     3 |     0 |    67 |     2 |                                      |</span><br><span class="line">| 25 &lt;&gt; 30 |     2 |     0 |    58 |     1 |                                      |</span><br><span class="line">| 30 &lt;&gt; 35 |     0 |     0 |   112 |     0 |                                      |</span><br><span class="line">| 35 &lt;&gt; 40 |     1 |     0 |   156 |     0 |                                      |</span><br><span class="line">| 40 &lt;&gt; 45 |     0 |     0 |   127 |     2 |                                      |</span><br><span class="line">| 45 &lt;&gt; 50 |     1 |     0 |    91 |     0 |                                      |</span><br><span class="line">| 50 &lt;&gt; 55 |     0 |     0 |    63 |     0 |                                      |</span><br><span class="line">| 55 &lt;&gt; 60 |     0 |     0 |    65 |     2 |                                      |</span><br><span class="line">| 60 &lt;&gt; 65 |     2 |     0 |    41 |     0 |                                      |</span><br><span class="line">| 65 &lt;&gt; 70 |     3 |     0 |    34 |     2 |                                      |</span><br><span class="line">| 70 &lt;&gt; 75 |     7 |     0 |    55 |     0 |                                      |</span><br><span class="line">| 75 &lt;&gt; 80 |     3 |     0 |    68 |     0 |                                      |</span><br><span class="line">| 80 &lt;&gt; 85 |     1 |     0 |    46 |     0 |                                      |</span><br><span class="line">| 85 &lt;&gt; Dur|     0 |     0 |    30 |     0 |                                      |</span><br><span class="line">===================================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="分析rtt-时间"><a href="#分析rtt-时间" class="headerlink" title="分析rtt 时间"></a>分析rtt 时间</h2><blockquote>
+<p>$ tshark -r ~/ali/metrics/tcpdump/rsb2.cap -q -z io,stat,1,”MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line">========================================================</span><br><span class="line">| IO Statistics                                        |</span><br><span class="line">|                                                      |</span><br><span class="line">| Duration: 33.914454 secs                             |</span><br><span class="line">| Interval:  1 secs                                    |</span><br><span class="line">|                                                      |</span><br><span class="line">| Col 1: MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     2: MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     3: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|------------------------------------------------------|</span><br><span class="line">|          |1         |2         |3         |          |</span><br><span class="line">| Interval |    MIN   |    MAX   |    AVG   |          |</span><br><span class="line">|-------------------------------------------|          |</span><br><span class="line">|  0 &lt;&gt;  1 | 0.000005 | 0.248840 | 0.009615 |          |</span><br><span class="line">|  1 &lt;&gt;  2 | 0.000004 | 0.458952 | 0.009601 |          |</span><br><span class="line">|  2 &lt;&gt;  3 | 0.000002 | 0.251274 | 0.009340 |          |</span><br><span class="line">|  3 &lt;&gt;  4 | 0.000006 | 0.290993 | 0.010843 |          |</span><br><span class="line">|  4 &lt;&gt;  5 | 0.000004 | 0.390800 | 0.008995 |          |</span><br><span class="line">|  5 &lt;&gt;  6 | 0.000008 | 0.407525 | 0.011133 |          |</span><br><span class="line">|  6 &lt;&gt;  7 | 0.000004 | 0.239225 | 0.008763 |          |</span><br><span class="line">|  7 &lt;&gt;  8 | 0.000003 | 0.177203 | 0.009211 |          |</span><br><span class="line">|  8 &lt;&gt;  9 | 0.000007 | 0.265505 | 0.010294 |          |</span><br><span class="line">|  9 &lt;&gt; 10 | 0.000007 | 0.354278 | 0.008475 |          |</span><br><span class="line">| 10 &lt;&gt; 11 | 0.000005 | 5.337388 | 0.011211 |          |</span><br><span class="line">| 11 &lt;&gt; 12 | 0.000004 | 0.320651 | 0.008231 |          |</span><br><span class="line">| 12 &lt;&gt; 13 | 0.000008 | 0.272029 | 0.008526 |          |</span><br><span class="line">| 13 &lt;&gt; 14 | 0.000005 | 0.663421 | 0.014589 |          |</span><br><span class="line">| 14 &lt;&gt; 15 | 0.000005 | 0.277754 | 0.009128 |          |</span><br><span class="line">| 15 &lt;&gt; 16 | 0.000002 | 0.260320 | 0.010388 |          |</span><br><span class="line">| 16 &lt;&gt; 17 | 0.000006 | 0.429298 | 0.009155 |          |</span><br><span class="line">| 17 &lt;&gt; 18 | 0.000005 | 0.668089 | 0.010008 |          |</span><br><span class="line">| 18 &lt;&gt; 19 | 0.000005 | 0.452897 | 0.009574 |          |</span><br><span class="line">| 19 &lt;&gt; 20 | 0.000006 | 0.850698 | 0.010345 |          |</span><br><span class="line">| 20 &lt;&gt; 21 | 0.000007 | 0.270671 | 0.012368 |          |</span><br><span class="line">| 21 &lt;&gt; 22 | 0.000005 | 0.295439 | 0.008660 |          |</span><br><span class="line">| 22 &lt;&gt; 23 | 0.000008 | 0.710938 | 0.010321 |          |</span><br><span class="line">| 23 &lt;&gt; 24 | 0.000003 | 0.269014 | 0.010238 |          |</span><br><span class="line">| 24 &lt;&gt; 25 | 0.000005 | 0.287966 | 0.009604 |          |</span><br><span class="line">| 25 &lt;&gt; 26 | 0.000009 | 0.661160 | 0.010807 |          |</span><br><span class="line">| 26 &lt;&gt; 27 | 0.000006 | 0.310515 | 0.009439 |          |</span><br><span class="line">| 27 &lt;&gt; 28 | 0.000003 | 0.346298 | 0.011302 |          |</span><br><span class="line">| 28 &lt;&gt; 29 | 0.000004 | 0.375117 | 0.008333 |          |</span><br><span class="line">| 29 &lt;&gt; 30 | 0.000006 | 1.323647 | 0.008799 |          |</span><br><span class="line">| 30 &lt;&gt; 31 | 0.000006 | 0.283616 | 0.010187 |          |</span><br><span class="line">| 31 &lt;&gt; 32 | 0.000007 | 0.649273 | 0.008613 |          |</span><br><span class="line">| 32 &lt;&gt; 33 | 0.000004 | 0.440265 | 0.010663 |          |</span><br><span class="line">| 33 &lt;&gt; Dur| 0.000004 | 0.337023 | 0.011477 |          |</span><br><span class="line">========================================================</span><br></pre></td></tr></table></figure>
+<h2 id="计算window-size"><a href="#计算window-size" class="headerlink" title="计算window size"></a>计算window size</h2><blockquote>
+<p>$ tshark -r rsb-single2.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission”,”AVG(tcp.window_size) tcp.window_size”,”MAX(tcp.window_size) tcp.window_size”,”MIN(tcp.window_size) tcp.window_size”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">=========================================================================</span><br><span class="line">| IO Statistics                                                         |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Duration: 30.776061 secs                                              |</span><br><span class="line">| Interval:  5 secs                                                     |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission |</span><br><span class="line">|     2: AVG(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     3: MAX(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     4: MIN(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|-----------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3       |4     |                            |</span><br><span class="line">| Interval | COUNT |  AVG  |   MAX  |  MIN |                            |</span><br><span class="line">|------------------------------------------|                            |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |  4753 |  15744 |   96 |                            |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |  8067 | 431616 |   96 |                            |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |  5144 |  18688 |   96 |                            |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 | 11225 | 611072 |   81 |                            |</span><br><span class="line">| 20 &lt;&gt; 25 |     0 |  5104 |  24448 |   96 |                            |</span><br><span class="line">| 25 &lt;&gt; 30 |     0 | 10103 | 506880 |   96 |                            |</span><br><span class="line">| 30 &lt;&gt; Dur|     0 |  5716 |  12423 |   96 |                            |</span><br><span class="line">=========================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="有用的命令（这些命令也都是安装WireShark就装好了的）："><a href="#有用的命令（这些命令也都是安装WireShark就装好了的）：" class="headerlink" title="有用的命令（这些命令也都是安装WireShark就装好了的）："></a>有用的命令（这些命令也都是安装WireShark就装好了的）：</h2><blockquote>
+<p>capinfos rsb2.cap</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,ip”   分析流量总况</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,tcp”  分析每一个连接的流量、rtt、响应时间、丢包率、重传率等等</p>
+</blockquote>
+<blockquote>
+<p>editcap -c 100000 ./rsb2.cap  rsb00.cap  //把大文件rsb2.cap按每个文件100000个package切成小文件</p>
+</blockquote>
+<h2 id="常用排错过滤条件"><a href="#常用排错过滤条件" class="headerlink" title="常用排错过滤条件:"></a>常用排错过滤条件:</h2><p>对于排查网络延时/应用问题有一些过滤条件是非常有用的：</p>
+<ul>
+<li>tcp.analysis.lost_segment：表明已经在抓包中看到不连续的序列号。报文丢失会造成重复的ACK，这会导致重传。</li>
+<li>tcp.analysis.duplicate_ack：显示被确认过不止一次的报文。大量的重复ACK是TCP端点之间高延时的迹象。</li>
+<li>tcp.analysis.retransmission：显示抓包中的所有重传。如果重传次数不多的话还是正常的，过多重传可能有问题。这通常意味着应用性能缓慢和/或用户报文丢失。</li>
+<li>tcp.analysis.window_update：将传输过程中的TCP window大小图形化。如果看到窗口大小下降为零，这意味着发送方已经退出了，并等待接收方确认所有已传送数据。这可能表明接收端已经不堪重负了。</li>
+<li>tcp.analysis.bytes_in_flight：某一时间点网络上未确认字节数。未确认字节数不能超过你的TCP窗口大小（定义于最初3此TCP握手），为了最大化吞吐量你想要获得尽可能接近TCP窗口大小。如果看到连续低于TCP窗口大小，可能意味着报文丢失或路径上其他影响吞吐量的问题。</li>
+<li>tcp.analysis.ack_rtt：衡量抓取的TCP报文与相应的ACK。如果这一时间间隔比较长那可能表示某种类型的网络延时（报文丢失，拥塞，等等）。</li>
+</ul>
+<h2 id="抓包常用命令"><a href="#抓包常用命令" class="headerlink" title="抓包常用命令"></a>抓包常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#tshark 解析MySQL协议</span><br><span class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#用tcpdump抓取并保存包：</span><br><span class="line">sudo tcpdump -i eth0 port 3306 -w drds.cap</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟��成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Zroot -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br><span class="line"></span><br><span class="line">#如果RDS开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</span><br><span class="line"></span><br><span class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y &quot; tcp.analysis.retransmission &quot;  -T fields-e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</span><br><span class="line"></span><br><span class="line">#分析MySQL rt，倒数第四列基本就是rt</span><br><span class="line">tshark -r gege_drds.pcap -Y &quot; ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt</span><br><span class="line"></span><br><span class="line">#或者排序一下</span><br><span class="line">tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</span><br></pre></td></tr></table></figure>
+<h2 id="一个案例"><a href="#一个案例" class="headerlink" title="一个案例"></a>一个案例</h2><blockquote>
+<p>问题：客户现场不管怎么样增加应用机器，tps就是上不去，同时增加机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪） 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各个环节都尝试过增加服务器（或提升配置），但是问题一直得不到解决    </p>
+</blockquote>
+<p>tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</p>
+<p>下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析</p>
+<p><img src="/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png" alt="image.png"></p>
+<p><strong> 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 </strong></p>
+<p><img src="/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
+<h2 id="其它工具-packetdrill"><a href="#其它工具-packetdrill" class="headerlink" title="其它工具 packetdrill"></a>其它工具 packetdrill</h2><p><a href="https://github.com/google/packetdrill" target="_blank" rel="noopener">https://github.com/google/packetdrill</a></p>
+<p><a href="https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw</a></p>
+<p><a href="http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html" target="_blank" rel="noopener">http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html</a></p>
+<p><a href="https://segmentfault.com/a/1190000019193928" target="_blank" rel="noopener">https://segmentfault.com/a/1190000019193928</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/21/就是要你懂TCP--性能优化大全/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/06/21/就是要你懂TCP--性能优化大全/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
+<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，把这个图形放大看看</p>
+<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p>换个角度，看看窗口尺寸图形：</p>
+<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
+<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
+<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
+</code></pre><p>来看一下tcp包发送流程：</p>
+<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt></p>
+<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="noopener">https://www.atatech.org/articles/9032）</a></p>
+<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code>#!/usr/bin/stap
+# Simple probe to detect when a process is waiting for more socket send
+# buffer memory. Usually means the process is doing writes larger than the
+# socket send buffer size or there is a slow receiver at the other side.
+# Increasing the socket&apos;s send buffer size might help decrease application
+# latencies, but it might also make it worse, so buyer beware.
+#
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener">这篇文章</a></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
+<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
+<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
+net.core.wmem_max = 1048576
+net.core.wmem_default = 124928
+net.ipv4.tcp_wmem = 4096        16384   4194304
+net.ipv4.udp_wmem_min = 4096
+</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<pre><code>net.ipv4.tcp_moderate_rcvbuf
+</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
+<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
+<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">问题 Case</a></strong></p>
+<p>发送和接收Buffer对性能的完整影响参考<a href="https://plantegg.github.io/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/" target="_blank" rel="noopener">这篇</a></p>
+<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
+<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
+<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
+<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
+<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
+<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
+</ul>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
+<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
+<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
+<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
+</ul>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<ul>
+<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
+<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
+<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
+<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
+<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
+<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
+</ul>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
+<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
+<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
+<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
+</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
+
+ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
+ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
+ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
+</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
+<pre><code>清除 tcp_metrics 
+sudo ip tcp_metrics flush all 
+
+关闭 tcp_metrics 功能
+net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><blockquote>
+<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
+</blockquote>
+<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
+<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
+<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
+<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
+<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
+<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
+<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
+<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
+<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
+<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
+<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">tcp metrics 在长肥网络下引发性能问题</a></p>
+<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="noopener">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
+<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
+<hr>
+<p>就是要你懂TCP相关文章：</p>
+<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="noopener">关于TCP 半连接队列和全连接队列</a></p>
+<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="noopener">MSS和MTU导致的悲剧</a> </p>
+<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">双11通过网络优化提升10倍性能</a></p>
+<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener">就是要你懂TCP的握手和挥手</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="noopener">https://access.redhat.com/solutions/407743</a></p>
+<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
+<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
+<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
+<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="noopener">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
+<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">https://www.atatech.org/articles/109721</a></p>
+<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">https://www.atatech.org/articles/109967</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="noopener">https://www.atatech.org/articles/27189</a> </p>
+<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="noopener">https://www.atatech.org/articles/45084</a></p>
+<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="noopener">https://www.atatech.org/articles/9032</a></p>
+<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">tcp_rmem case</a></p>
+<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="noopener">高性能网络编程7–tcp连接的内存使用</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
+                2019-06-20
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/LVS/" itemprop="url" rel="index">
+                    <span itemprop="name">LVS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
+<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
+</blockquote>
+<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
+<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
+<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
+<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
+vip：Virtual IP，LVS实例IP
+rip：Real IP，后端RS地址
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+sip： source ip
+dip： destination
+</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
+<li>DR模型 – (Director Routing-直接路由)</li>
+<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
+<li>fullNAT – (full NAT)</li>
+<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
+<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
+</ul>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
+<ol>
+<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
+<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
+<li>然后丢给Director，Director将这个包丢给选中的RS</li>
+<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
+<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
+<li>经过交换机直接回复给client了(不再走LVS)</li>
+</ol>
+<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
+<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
+<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
+<li>RS需要配置vip同时特殊处理arp；</li>
+<li>配置比较复杂；</li>
+<li>不支持端口映射。</li>
+</ul>
+<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
+<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
+<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
+<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
+<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
+<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
+<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
+<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>配置简单</li>
+<li>支持端口映射(看名字就知道)</li>
+<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>LVS和所有RS必须在同一个vlan</li>
+<li>进出流量都要走LVS转发</li>
+<li>LVS容易成为瓶颈</li>
+<li>一般而言需要将VIP配置成RS的网关</li>
+</ul>
+<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
+<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
+<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS看不到cip(NAT模式下可以看到)</li>
+<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
+</ul>
+<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
+<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
+<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
+<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
+<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
+<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
+<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
+<p>优点：</p>
+<ul>
+<li>不要求LVS和RS在同一个vlan</li>
+<li>出去的流量不需要走LVS，性能好</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
+</ul>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(cip，vip)</li>
+<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
+<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
+<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
+<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
+</ol>
+<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
+<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
+<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<p>最后说一下不太常用的 TUN模型</p>
+<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
+<ol>
+<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
+<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
+<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
+<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>集群节点可以跨vlan</li>
+<li>跟DR一样，响应报文直接发给client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS上必须安装运行IPIP模块</li>
+<li>多增加了一个IP头</li>
+<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
+</ul>
+<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
+<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
+<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
+<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
+<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
+<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
+<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
+<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景</p>
+<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<p>案例:</p>
+<p>主机房通过bgp协议发送/27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。</p>
+<p>根据路由最小匹配原则，默认情况下，外部的访问流量会优先选择主机房发布的/27 明细路由，从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
+<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
+<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
+<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
+<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="noopener">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="noopener">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
+<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="noopener">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
+<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
+<p>2.结合<a href="https://www.atatech.org/articles/111259?spm=ata.13269325.0.0.1cfa49faqM3Zpp" target="_blank" rel="noopener">Vtune</a>/<a href="https://www.atatech.org/articles/120853?spm=ata.13269325.0.0.1d9d49faNUdBi6" target="_blank" rel="noopener">PCM</a>性能测试数据，调整session的prefecth</p>
+<p>3.消除false sharing。</p>
+<p>目前LVS 40G机型，单机4块 40G网卡。</p>
+<p>平均包长1k的情况下能跑满4个网口(160G)</p>
+<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
+<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
+<p>lvs的优化方案为大小桶算法：</p>
+<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
+<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
+<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
+<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
+<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/106276" target="_blank" rel="noopener">云服务ALB接入，后端依赖内核模块及接口使用指南</a></p>
+<p><a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">程序员的网络知识 – 一个网络包的旅程</a></p>
+<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="noopener">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
+<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="noopener">https://yizhi.ren/2019/05/03/lvs/</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/09/一文搞懂域名解析相关问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4108,11 +5001,11 @@ end
 <p><strong>确认问题在宿主机网卡MTU设置为1350</strong>，从而导致容器发出的包被宿主机网卡丢掉</p>
 <h2 id="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名"><a href="#新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名" class="headerlink" title="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名"></a>新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名</h2><p>ping 这个域名能通，但是nslookup不行，基本可以确认网络没有大问题，之所以ping可以nslookup不行，是因为他们底层取dns server的逻辑不一样。</p>
 <p>先检查dns设置：</p>
-<p><img src="/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
-<p><img src="/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
 <p>多出来一个127.0.0.1肯定有问题，明明配置的时候只填了114.114.114.114. nslookup、浏览器默认把域名解析丢给了127.0.0.1，但是 ping丢给了114.114.114.114，所以看到如上描述的结果。</p>
 <p>经过思考发现应该是本机同时运行了easyconnect（vpn软件），127.0.0.1 是他强行塞进来的。马上停掉easyconnect再ipconfig /all 验证一下这个时候的dns server，果然127.0.0.1不见了, nslookup 也正常了。</p>
-<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
+<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
 <p>能ping通说明网络能通，但是dns域名要能解析依赖于：</p>
 <ul>
 <li>网络能通</li>
@@ -4121,7 +5014,7 @@ end
 </ul>
 <p>如上图，这里的问题非常明显是中间的防火墙没放行 udp 53端口</p>
 <h2 id="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通"><a href="#方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通" class="headerlink" title="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通"></a>方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通</h2><p><a href="https://www.atatech.org/articles/93688" target="_blank" rel="noopener">nslookup 域名结果正确，但是 ping 域名失败</a></p>
-<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
+<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
 <p><strong>如图所示容器中发了 arp包（IP 10.100.2.2 寻找10.100.2.1 的mac地址），这个包从bond0 网卡发出去了，也是带的正确的 vlanid 1011，但是交换机没有回复，那么就一定是交换机上vlan配置不对，需要找分配这个vlan的网工来检查交换机的配置</strong></p>
 <font color="red" size="4"><strong>能抓到进出的容器包–外部环境正确，方舟底座的问题</strong></font>
 
@@ -4133,7 +5026,7 @@ end
 <p>检查宿主机网卡状态，发现没插网线，<strong>如果容器所用的宿主机网卡没有插网线，那么ovs就不会转发任何包到宿主机网卡</strong>。</p>
 <h2 id="一台应用服务器无法访问部分drds-server"><a href="#一台应用服务器无法访问部分drds-server" class="headerlink" title="一台应用服务器无法访问部分drds-server"></a><a href="https://aone.alibaba-inc.com/task/9753887" target="_blank" rel="noopener">一台应用服务器无法访问部分drds-server</a></h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
 <p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
 <p><strong>上图是不通的IP，下图是正常IP</strong></p>
 <p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
 <h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
@@ -4146,7 +5039,7 @@ end
 <h2 id="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"><a href="#修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复" class="headerlink" title="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"></a>修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复</h2><p><a href="https://www.atatech.org/articles/105673" target="_blank" rel="noopener">Linux环境变量问题汇总</a></p>
 <h2 id="Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf"><a href="#Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf" class="headerlink" title="Centos系统重启后 /etc/resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 /etc/resolv.conf"></a>Centos系统重启后 /etc/resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 /etc/resolv.conf</h2><h2 id="MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"><a href="#MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。" class="headerlink" title="MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"></a>MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。</h2><p>好奇心迫使我去看代码、<strong>看openssl测试输出日志</strong>（MonkeyKing burn cpu内部调用 openssl speed 测试cpu的速度），这个测试一轮跑完了opessl就结束了，本身就不是死循环一直跑, 不是方舟杀掉的。</p>
 <p>另外说明这个问题一直存在开发、测试MonkeyKing功能的团队就没有发现，或者之前一直只需要跑不到10分钟就自己主动把它杀掉让出CPU。</p>
-<p><img src="/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
 <h2 id="某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"><a href="#某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常" class="headerlink" title="某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"></a>某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常</h2><p>尝试telnet zk发现不通，客户现场安装了kerberos导致telnet测试有问题（telnet被kerberos替换过）,换一个其他环境的telnet 二进制文件就可以了（md5sum、telnet –help）</p>
 <h2 id="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"><a href="#开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器" class="headerlink" title="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"></a><a href="https://aone.alibaba-inc.com/issue/10403085" target="_blank" rel="noopener">开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器</a></h2><p>主要是出现在tlog-console访问hbase容器的时候报连接异常</p>
 <ol>
@@ -4182,10 +5075,10 @@ end
 <p>手工修改这个文件，放到三行，问题没完，还是异常，我自己崩溃没管。最后听mq-diamond的开发讲他们取iplist的url比较特殊，是自己定义的，所以我修改的地方不起作用。<strong>反思，为什么修改不起作用的时候不去看看Nginx的access日志？ 这样可以证明我修改的文件实际没有被使用，同时还能找到真正被使用的配置文件</strong></p>
 <h2 id="内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）"><a href="#内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）" class="headerlink" title="内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）"></a>内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）</h2><p><a href="https://aone.alibaba-inc.com/issue/12510664" target="_blank" rel="noopener">内核migration进程bug导致对应的CPU核卡死</a>（图一），这个核上的所有进程得不到执行（Load高，CPU没有任何消耗， 图二），直到内核进程 watchdog 发现这个问题并恢复它。</p>
 <p>出现这个bug后的症状，通过top命令看到CPU没有任何消耗但是Load偏高，如果应用进程恰好被调度到这个出问题的CPU核上，那么这个进程会卡住（大概20秒）没有任何响应，比如 ping 进程（图三图四），watchdog恢复这个问题后，多个网络包在同一时间全部通。其实所影响的不仅仅是网络卡顿，中间件容器里面的服务如果调度到这个CPU核上同样得不到执行，从外面就是感觉容器不响应了</p>
-<p><img src="/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
-<p><img src="/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
-<p><img src="/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
-<p><img src="/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
 <p>拿如上证据求助内核开发</p>
 <p>关键信息在这里：<br>代码第297行<br>2017-09-15T06:52:37.820783+00:00 ascliveedas4.sgdc kernel: [598346.499872] WARNING: at net/sched/sch_generic.c:297 dev_watchdog+0x270/0x280()<br>2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499873] NETDEV WATCHDOG: ens2f0 (ixgbe): transmit queue 28 timed out</p>
 <p>kernel version: kernel-3.10.0-327.22.2.el7.src.rpm</p>
@@ -4477,514 +5370,6 @@ $ cat  kernel_log.0915
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/26/优酷一台应用服务器无法访问部分drds-server/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/26/优酷一台应用服务器无法访问部分drds-server/" itemprop="url">部分机器网络不通</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-26T16:30:03+08:00">
-                2018-08-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/26/优酷一台应用服务器无法访问部分drds-server/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/26/优酷一台应用服务器无法访问部分drds-server/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="部分机器网络不通"><a href="#部分机器网络不通" class="headerlink" title="部分机器网络不通"></a>部分机器网络不通</h1><h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
-<p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
-<p><strong>上图是不通的IP，下图是正常IP</strong></p>
-<p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
-<h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
-8c:dc:d4:b3:af:14 10.100.10.201
-</code></pre>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/26/关于TCP连接的KeepAlive和reset/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/26/关于TCP连接的KeepAlive和reset/" itemprop="url">关于TCP连接的Keepalive和reset</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-26T16:30:03+08:00">
-                2018-08-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/26/关于TCP连接的KeepAlive和reset/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/26/关于TCP连接的KeepAlive和reset/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="关于TCP连接的Keepalive和reset"><a href="#关于TCP连接的Keepalive和reset" class="headerlink" title="关于TCP连接的Keepalive和reset"></a>关于TCP连接的Keepalive和reset</h1><p>先来看一个现象，下面是测试代码：</p>
-<pre><code>Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
-Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
-
-Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
-</code></pre><p>server监听在2000端口，支持keepalive， client连接上server后每隔10秒发送一个keepalive包，一旦keepalive包得不对对方的响应，每隔1秒继续发送keepalive, 重试两次，如果一直得不到对方的响应那么这个时候client主动发送一个reset包，那么在client这边这个socket就断开了。server上会一直傻傻的等，直到真正要发送数据了才抛异常。</p>
-<p><img src="/images/oss/90d1c4919d86764242ab726b4c69f006.png" alt="image.png"></p>
-<p>假如client连接层是一个Java应用的连接池，那么这个socket断开后Java能感知吗？</p>
-<p><a href="https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed" target="_blank" rel="noopener">https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed</a></p>
-<p>Java对Socket的控制比较弱，比如只能指定是否keepalive，不能用特定的keepalive参数(intvl/cnt等），除非走JNI，不推荐。</p>
-<p>如下图（dup ack其实都是keepalive包，这是因为没有抓到握手包导致wireshark识别错误而已）<br><img src="/images/oss/c2893e5ad89ee450c61a370ec7bf6f06.png" alt="image.png"></p>
-<p>如上图，client 21512在多次keepalive server都不响应后，发送了reset断开这个连接（server没收到），server以为还连着，这个时候当server正常发数据给client，如果防火墙还在就丢掉，server不停地重传，如果防火墙不在，那么对方os收到这个包后知道21512这个端口对应的连接已经关闭了，再次发送reset给server，这时候server抛异常，中断这个连接。</p>
-<p><img src="/images/oss/78427c329e72d526aa8908942409f092.png" alt="image.png"></p>
-<p>os层面目前看起来除了用socket去读数据感知到内核已经reset了连接外也没什么好办法检测到。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/08/25/如何徒手撕Bug/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/25/如何徒手撕Bug/" itemprop="url">如何徒手撕Bug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-25T16:30:03+08:00">
-                2018-08-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/08/25/如何徒手撕Bug/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/25/如何徒手撕Bug/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何徒手撕Bug"><a href="#如何徒手撕Bug" class="headerlink" title="如何徒手撕Bug"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
-<p>所以不到万不得已不要碰复杂的源代码</p>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
-<p><img src="/images/oss/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
-<p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
-<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="/images/oss/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
-<pre><code>$sudo fuser /run/xtables.lock 
-/run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
-</code></pre><p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
-<h2 id="跟踪具体拿到锁的进程"><a href="#跟踪具体拿到锁的进程" class="headerlink" title="跟踪具体拿到锁的进程"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
-iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
-</code></pre><p>通过strace这个拿到锁的进程可以看到：</p>
-<p><img src="/images/oss/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
-<p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
-<p>看看物理机上的dns服务器配置：</p>
-<pre><code>$cat /etc/resolv.conf   
-options timeout:2 attempts:2   
-nameserver 10.0.0.1  
-nameserver 10.0.0.2
-nameserver 10.0.0.3
-</code></pre><p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
-<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="/images/oss/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
-<p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
-<h2 id="strace工作原理"><a href="#strace工作原理" class="headerlink" title="strace工作原理"></a>strace工作原理</h2><blockquote>
-<p>strace -T -tt -ff -p pid -o strace.out</p>
-<p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
-</blockquote>
-<p><img src="/images/oss/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
-<p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
-<p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
-<p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
-<p>两个术语：</p>
-<ol>
-<li>tracer：跟踪（其他程序的）程序</li>
-<li>tracee：被跟踪程序</li>
-</ol>
-<p>tracer 跟踪 tracee 的过程：</p>
-<p>首先，<strong>attach 到 tracee 进程</strong>：调用 <code>ptrace</code>，带 <code>PTRACE_ATTACH</code> 及 tracee 进程 ID 作为参数。</p>
-<p>之后当 <strong>tracee 运行到系统调用函数时就会被内核暂停</strong>；对 tracer 来说，就像 tracee 收到了 <code>SIGTRAP</code> 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。</p>
-<p>然后，<strong>恢复 tracee 执行</strong>：再次调用 <code>ptrace</code>，带 <code>PTRACE_SYSCALL</code> 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。</p>
-<p>以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。</p>
-<h3 id="strace-常用用法"><a href="#strace-常用用法" class="headerlink" title="strace 常用用法"></a>strace 常用用法</h3><p>1) sudo strace -tt -e poll,select,connect,recvfrom,sendto nc <a href="http://www.baidu.com" target="_blank" rel="noopener">www.baidu.com</a> 80 //网络连接不上，卡在哪里</p>
-<p>2) 如何确认一个程序为什么卡住和停止在什么地方?</p>
-<p>有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。</p>
-<p>$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX</p>
-<p>这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?</p>
-<p>$ readlink /proc/22067/fd/3 /tmp/foobar.lock</p>
-<p>aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?</p>
-<p>$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock</p>
-<p>原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。</p>
-<p> strace -cp  // strace  可以按操作汇总时间</p>
-<h2 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h2><p>docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。</p>
-<p>这应该是docker daemon实现上的小bug，也就是改iptables这里没加锁，如果修改dns的时候同时收到了dns查询，要是让查询等锁的话就不至于出现这种恶性循环</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>其实这个问题还是挺容易出现的，daemon重启，上面有很多容器，容器里面的任务启动的时候都要做dns解析，这个时候daemon还在修改dns，冲进来很多dns查询的话会导致修改进程变慢</p>
-<p>这也跟物理机的 /etc/resolv.conf 配置有关</p>
-<p>暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。</p>
-<p>解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/how-does-strace-work-zh/" target="_blank" rel="noopener">strace 是如何工作的（2016）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5032,7 +5417,7 @@ nameserver 10.0.0.3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">111</span>
+                <span class="site-state-item-count">115</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5054,7 +5439,7 @@ nameserver 10.0.0.3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">207</span>
+                <span class="site-state-item-count">213</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

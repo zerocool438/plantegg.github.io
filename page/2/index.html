@@ -282,6 +282,207 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/17/MySQL线程池导致的延时卡顿排查/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/17/MySQL线程池导致的延时卡顿排查/" itemprop="url">MySQL线程池导致的延时卡顿排查</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-17T07:30:03+08:00">
+                2020-11-17
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/17/MySQL线程池导致的延时卡顿排查/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/17/MySQL线程池导致的延时卡顿排查/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL-线程池导致的延时卡顿排查"><a href="#MySQL-线程池导致的延时卡顿排查" class="headerlink" title="MySQL 线程池导致的延时卡顿排查"></a>MySQL 线程池导致的延时卡顿排查</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。</p>
+<p>通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。</p>
+<p>所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，Tomcat实例规格 16C32g<em>8, MySQL  32c128g  </em>32 。</p>
+<p>5-28号现象复现，从监控图上CPU、内存、网络都没发现异常，MySQL侧查到的SQL依然执行很快，Tomcat侧记录12S执行时间，当时Tomcat节点的网络流量、CPU压力都很小。</p>
+<p>所以客户怀疑Tomcat有问题或者Tomcat上的代码写得有问题导致了这个问题，需要排查和解决掉。</p>
+<h2 id="Tomcat上抓包分析"><a href="#Tomcat上抓包分析" class="headerlink" title="Tomcat上抓包分析"></a>Tomcat上抓包分析</h2><h3 id="慢的连接"><a href="#慢的连接" class="headerlink" title="慢的连接"></a>慢的连接</h3><p>经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：</p>
+<p><img src="/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png" alt="image.png"></p>
+<p>以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。</p>
+<p>慢的SQL的response按时间排序基本都在3秒以上：</p>
+<p><img src="/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;"></p>
+<p>或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询</p>
+<p>!<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;"></p>
+<h3 id="快的连接"><a href="#快的连接" class="headerlink" title="快的连接"></a>快的连接</h3><p>同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图</p>
+<p><img src="/images/oss/d129dfe1a50b182f4d100ac7147f9099.png" alt="image.png"></p>
+<p>别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL</p>
+<p><img src="/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png" alt="image.png"></p>
+<h2 id="MySQL相关参数"><a href="#MySQL相关参数" class="headerlink" title="MySQL相关参数"></a>MySQL相关参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; show variables like &apos;%thread%&apos;;</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| Variable_name                              | Value           |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| innodb_purge_threads                       | 1               |</span><br><span class="line">| innodb_MySQL_thread_extra_concurrency        | 0               |</span><br><span class="line">| innodb_read_io_threads                     | 16              |</span><br><span class="line">| innodb_thread_concurrency                  | 0               |</span><br><span class="line">| innodb_thread_sleep_delay                  | 10000           |</span><br><span class="line">| innodb_write_io_threads                    | 16              |</span><br><span class="line">| max_delayed_threads                        | 20              |</span><br><span class="line">| max_insert_delayed_threads                 | 20              |</span><br><span class="line">| myisam_repair_threads                      | 1               |</span><br><span class="line">| performance_schema_max_thread_classes      | 50              |</span><br><span class="line">| performance_schema_max_thread_instances    | -1              |</span><br><span class="line">| pseudo_thread_id                           | 12882624        |</span><br><span class="line">| MySQL_is_dump_thread                         | OFF             |</span><br><span class="line">| MySQL_threads_running_ctl_mode               | SELECTS         |</span><br><span class="line">| MySQL_threads_running_high_watermark         | 50000           |</span><br><span class="line">| rocksdb_enable_thread_tracking             | OFF             |</span><br><span class="line">| rocksdb_enable_write_thread_adaptive_yield | OFF             |</span><br><span class="line">| rocksdb_signal_drop_index_thread           | OFF             |</span><br><span class="line">| thread_cache_size                          | 100             |</span><br><span class="line">| thread_concurrency                         | 10              |</span><br><span class="line">| thread_handling                            | pool-of-threads |</span><br><span class="line">| thread_pool_high_prio_mode                 | transactions    |</span><br><span class="line">| thread_pool_high_prio_tickets              | 4294967295      |</span><br><span class="line">| thread_pool_idle_timeout                   | 60              |</span><br><span class="line">| thread_pool_max_threads                    | 100000          |</span><br><span class="line">| thread_pool_oversubscribe                  | 10              |</span><br><span class="line">| thread_pool_size                           | 96              |</span><br><span class="line">| thread_pool_stall_limit                    | 30              |</span><br><span class="line">| thread_stack                               | 262144          |</span><br><span class="line">| threadpool_workaround_epoll_bug            | OFF             |</span><br><span class="line">| tokudb_cachetable_pool_threads             | 0               |</span><br><span class="line">| tokudb_checkpoint_pool_threads             | 0               |</span><br><span class="line">| tokudb_client_pool_threads                 | 0               |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">33 rows in set (0.00 sec)</span><br></pre></td></tr></table></figure>
+<h2 id="综上结论"><a href="#综上结论" class="headerlink" title="综上结论"></a>综上结论</h2><p>问题原因跟MySQL线程池比较相关，慢的连接总是慢，快的连接总是快。需要到MySQL Server下排查线程池相关参数。</p>
+<p>同一个慢的连接上的回包，所有 ack 就很快（OS直接回，不需要进到MySQL），但是set就很慢，基本理解只要进到MySQL的就慢了，所以排除了网络原因（流量本身也很小，也没看到乱序、丢包之类的）</p>
+<h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a>问题解决</h2><p>18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：</p>
+<p><img src="/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;"></p>
+<p>当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）</p>
+<p>MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。</p>
+<p><em>这里表现出高 RT 而不是超时，原因是 MySQL 线程池有另一个参数 thread_pool_stall_limit 防止线程卡死．请求如果在分组内等待超过 thread_pool_stall_limit 时间没被处理，则会退回传统模式，创建新线程来处理请求．这个参数的默认值是 500ms。另外这个等待时间是不会被记录到MySQL的慢查询日志中的</em></p>
+<h2 id="Thread-Pool原理"><a href="#Thread-Pool原理" class="headerlink" title="Thread Pool原理"></a>Thread Pool原理</h2><p><img src="/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png" alt="image.png"></p>
+<p>MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。</p>
+<p>no-threads一般用于调试，生产环境一般用one-thread-per-connection方式。one-thread-per-connection 适合于低并发长连接的环境，而在高并发或大量短连接环境下，大量创建和销毁线程，以及线程上下文切换，会严重影响性能。另外 one-thread-per-connection 对于大量连接数扩展也会影响性能。</p>
+<p>为了解决上述问题，MariaDB、Percona、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。</p>
+<p>线程池由一系列 worker 线程组成，这些worker线程被分为<code>thread_pool_size</code>个group。用户的连接按 round-robin 的方式映射到相应的group 中，一个连接可以由一个group中的一个或多个worker线程来处理。</p>
+<p>thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过<code>thread_pool_oversubscribe</code>时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了<code>thread_pool_max_threads</code>上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。<code>thread_pool_oversubscribe</code>控制group中活跃线程和等待中的线程总数，从而防止了上述情况。</p>
+<p><code>thread_pool_stall_limit</code> timer线程检测间隔。此参数设置过小，会导致创建过多的线程，从而产生较多的线程上下文切换，但可以及时处理锁等待的场景，避免死锁。参数设置过大，对长语句有益，但会阻塞短语句的执行。参数设置需视具体情况而定，例如99%的语句10ms内可以完成，那么我们可以将就<code>thread_pool_stall_limit</code>设置为10ms。</p>
+<p><strong>MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
+<p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
+<p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
+<h3 id="thread-pool-size过小的案例"><a href="#thread-pool-size过小的案例" class="headerlink" title="thread_pool_size过小的案例"></a>thread_pool_size过小的案例</h3><p>应用出现大量1秒超时报错：</p>
+<p><img src="/images/oss/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
+<p>分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。</p>
+<p>继续分析MySQL的参数：</p>
+<p><img src="/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
+<p>可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。</p>
+<p><img src="/images/oss/114b5b71468b33128e76129bbc7fb8f4.png" alt="image.png"></p>
+<p>这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是给MySQL发一个ping指令，一般都很快，这个ping验证过程设置的是1秒超时，但是实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。</p>
+<h3 id="MySQL-ping和MySQL协议相关知识"><a href="#MySQL-ping和MySQL协议相关知识" class="headerlink" title="MySQL ping和MySQL协议相关知识"></a>MySQL ping和MySQL协议相关知识</h3><blockquote>
+<p><a href="https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368" target="_blank" rel="noopener">Ping</a> use the JDBC method <a href="http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int" target="_blank" rel="noopener">Connection.isValid(int timeoutInSecs)</a>). Digging into the MySQL Connector/J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.</p>
+</blockquote>
+<p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">public class MySQLPingPacket implements CommandPacket &#123;</span><br><span class="line">    private final WriteBuffer buffer = new WriteBuffer();</span><br><span class="line">    public MySQLPingPacket() &#123;</span><br><span class="line">        buffer.writeByte((byte) 0x0e);</span><br><span class="line">    &#125;</span><br><span class="line">    public int send(final OutputStream os) throws IOException &#123;</span><br><span class="line">        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number</span><br><span class="line">        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1</span><br><span class="line">        os.flush();</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
+<p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这个问题的本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。</p>
+<p>MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，当然这个设计带来的问题就是多个池子中的任务不能均衡了。</p>
+<p>同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。</p>
+<p><strong>类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，如果这个worker上的某个连接有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。</strong></p>
+<p>Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。</p>
+<p>一包在手，万事无忧</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/36343" target="_blank" rel="noopener">https://www.atatech.org/articles/36343</a></p>
+<p><a href="http://mysql.taobao.org/monthly/2016/02/09/" target="_blank" rel="noopener">http://mysql.taobao.org/monthly/2016/02/09/</a></p>
+<p><a href="https://dbaplus.cn/news-11-1989-1.html" target="_blank" rel="noopener">https://dbaplus.cn/news-11-1989-1.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/15/Linux内存--HugePage/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5020,221 +5221,6 @@ LISTEN    0     511              *:8085           *:*
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/15/Linux 内存问题汇总/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/15/Linux 内存问题汇总/" itemprop="url">Linux 内存问题汇总</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-15T16:30:03+08:00">
-                2020-01-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Memory/" itemprop="url" rel="index">
-                    <span itemprop="name">Memory</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/01/15/Linux 内存问题汇总/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/15/Linux 内存问题汇总/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-内存问题汇总"><a href="#Linux-内存问题汇总" class="headerlink" title="Linux 内存问题汇总"></a>Linux 内存问题汇总</h1><p>本系列有如下几篇</p>
-<p><a href="https://plantegg.github.io/2020/01/15/Linux 内存问题汇总/" target="_blank" rel="noopener">Linux 内存问题汇总</a></p>
-<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--pagecache/" target="_blank" rel="noopener">Linux内存–PageCache</a></p>
-<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--管理和碎片/" target="_blank" rel="noopener">Linux内存–管理和碎片</a></p>
-<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--HugePage/" target="_blank" rel="noopener">Linux内存–HugePage</a></p>
-<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/" target="_blank" rel="noopener">Linux内存–零拷贝</a></p>
-<h2 id="内存使用观察"><a href="#内存使用观察" class="headerlink" title="内存使用观察"></a>内存使用观察</h2><pre><code># free -m
-         total       used       free     shared    buffers     cached
-Mem:          7515       1115       6400          0        189        492
--/+ buffers/cache:        432       7082
-Swap:            0          0          0
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
-<p><strong>上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。</strong></p>
-<h2 id="free"><a href="#free" class="headerlink" title="free"></a>free</h2><p>free是从 /proc/meminfo 读取数据然后展示：</p>
-<blockquote>
-<p>buff/cache = Buffers + Cached + SReclaimable</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i &quot;buff|cach|SReclai&quot;</span><br><span class="line">Buffers:          817764 kB</span><br><span class="line">Cached:         76629252 kB</span><br><span class="line">SwapCached:            0 kB</span><br><span class="line">SReclaimable:    7202264 kB</span><br><span class="line">[root@az1-drds-79 ~]# free -k</span><br><span class="line">             total       used       free     shared    buffers     cached</span><br><span class="line">Mem:      97267672   95522336    1745336          0     817764   76629352</span><br><span class="line">-/+ buffers/cache:   18075220   79192452</span><br><span class="line">Swap:            0          0          0</span><br></pre></td></tr></table></figure>
-<p>在内核启动时，物理页面将加入到伙伴系统 （Buddy System）中，用户申请内存时分配，释放时回收。为了照顾慢速设备及兼顾多种 workload，Linux 将页面类型分为匿名页（Anon Page）和文件页 （Page Cache），及 swapness，使用 Page Cache 缓存文件 （慢速设备），通过 swap cache 和 swapness 交由用户根据负载特征决定内存不足时回收二者的比例。</p>
-<h2 id="cached过高回收"><a href="#cached过高回收" class="headerlink" title="cached过高回收"></a>cached过高回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
-<ul>
-<li>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</li>
-<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
-</li>
-<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;= n &lt;=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
-</li>
-</ul>
-<p>cache回收：<br>    echo 1/2/3 &gt;/proc/sys/vm/drop_cached</p>
-<p>查看回收后：</p>
-<pre><code>cat /proc/meminfo
-</code></pre><p>手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：</p>
-<p><strong>echo 1 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache。</p>
-<p><strong>echo 2 &gt; /proc/sys/vm/drop_caches</strong>:表示清除回收slab分配器中的对象（包括目录项缓存和inode缓存）。slab分配器是内核中管理内存的一种机制，其中很多缓存数据实现都是用的pagecache。</p>
-<p><strong>echo 3 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache和slab分配器中的缓存对象。</p>
-<h2 id="cached无法回收"><a href="#cached无法回收" class="headerlink" title="cached无法回收"></a>cached无法回收</h2><p>可能是正打开的文件占用了cached，比如 vim 打开了一个巨大的文件；比如 mount的 tmpfs； 比如 journald 日志等等</p>
-<h3 id="通过vmtouch-查看"><a href="#通过vmtouch-查看" class="headerlink" title="通过vmtouch 查看"></a>通过<a href="https://hoytech.com/vmtouch/" target="_blank" rel="noopener">vmtouch</a> 查看</h3><pre><code># vmtouch -v test.x86_64.rpm 
-test.x86_64.rpm
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 10988/10988
-
-           Files: 1
-     Directories: 0
-  Resident Pages: 10988/10988  42M/42M  100%
-         Elapsed: 0.000594 seconds
-
-# ls -lh test.x86_64.rpm
--rw-r--r-- 1 root root 43M 10月  8 14:11 test.x86_64.rpm
-</code></pre><p>如上，表示整个文件 test.x86_64.rpm 都被cached了，回收的话执行：</p>
-<pre><code>vmtouch -e test.x86_64.rpm // 或者： echo 3 &gt;/proc/sys/vm/drop_cached
-</code></pre><h3 id="遍历某个目录下的所有文件被cached了多少"><a href="#遍历某个目录下的所有文件被cached了多少" class="headerlink" title="遍历某个目录下的所有文件被cached了多少"></a>遍历某个目录下的所有文件被cached了多少</h3><pre><code># vmtouch -vt /var/log/journal/
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000011ba49-00059979e0926f43.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
-/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000152f41-00059b2c88eb4344.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-00000000000f2181-000598335fcd492f.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
-/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000129aea-000599e83996db80.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000009f171-000595a722ead670.journal
-…………
-           Files: 48
- Directories: 2
- Touched Pages: 468992 (1G)
- Elapsed: 13.274 seconds
-</code></pre><h2 id="消失的内存"><a href="#消失的内存" class="headerlink" title="消失的内存"></a>消失的内存</h2><p>OS刚启动后就报内存不够了，什么都没跑就500G没了，cached和buffer基本没用，纯粹就是used占用高，top按内存排序没有超过0.5%的进程</p>
-<p>参考： <a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br></pre></td><td class="code"><pre><span class="line">[aliyun@uos15 18:40 /u02/backup_15/leo/benchmark/run]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503         501           1           0           0           1</span><br><span class="line">Swap:            15          12           3</span><br><span class="line"></span><br><span class="line">$cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:         1469632 kB</span><br><span class="line">MemAvailable:          0 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    950272 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:   252557   ----- 预分配太多，一个2M，加起来刚好500G了</span><br><span class="line">HugePages_Free:    252557</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:        517236736 kB</span><br><span class="line"></span><br><span class="line">以下是一台正常的机器对比：</span><br><span class="line">Percpu:            41856 kB</span><br><span class="line">AnonHugePages:  11442176 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:       0            ----没有做预分配</span><br><span class="line">HugePages_Free:        0</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:               0 kB</span><br><span class="line"></span><br><span class="line">[aliyun@uos16 18:43 /home/aliyun]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          20         481           0           1         480</span><br><span class="line">Swap:            15           0          15</span><br><span class="line"></span><br><span class="line">对有问题的机器执行：</span><br><span class="line"># echo 1024 &gt; /proc/sys/vm/nr_hugepages</span><br><span class="line">可以看到内存恢复正常了 </span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          10         492           0           0         490</span><br><span class="line">Swap:            15          12           3</span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:        516106832 kB</span><br><span class="line">MemAvailable:   514454408 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    313344 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:    1024</span><br><span class="line">HugePages_Free:     1024</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:         2097152 kB</span><br></pre></td></tr></table></figure>
-<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">24条32G的内存条，总内存768G</span><br><span class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</span><br><span class="line">  Size: 32 GB</span><br><span class="line">…………</span><br><span class="line">  Size: 32 GB</span><br><span class="line">  Size: 32 GB</span><br><span class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</span><br><span class="line">24</span><br><span class="line"></span><br><span class="line"># cat /boot/grub/grub.cfg  |grep 512</span><br><span class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br><span class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br></pre></td></tr></table></figure>
-<p>​    </p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
-<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5282,7 +5268,7 @@ test.x86_64.rpm
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">111</span>
+                <span class="site-state-item-count">115</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5304,7 +5290,7 @@ test.x86_64.rpm
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">207</span>
+                <span class="site-state-item-count">213</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

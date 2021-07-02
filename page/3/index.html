@@ -282,6 +282,221 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/15/Linux 内存问题汇总/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/15/Linux 内存问题汇总/" itemprop="url">Linux 内存问题汇总</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-15T16:30:03+08:00">
+                2020-01-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Memory/" itemprop="url" rel="index">
+                    <span itemprop="name">Memory</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/01/15/Linux 内存问题汇总/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/15/Linux 内存问题汇总/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-内存问题汇总"><a href="#Linux-内存问题汇总" class="headerlink" title="Linux 内存问题汇总"></a>Linux 内存问题汇总</h1><p>本系列有如下几篇</p>
+<p><a href="https://plantegg.github.io/2020/01/15/Linux 内存问题汇总/" target="_blank" rel="noopener">Linux 内存问题汇总</a></p>
+<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--pagecache/" target="_blank" rel="noopener">Linux内存–PageCache</a></p>
+<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--管理和碎片/" target="_blank" rel="noopener">Linux内存–管理和碎片</a></p>
+<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--HugePage/" target="_blank" rel="noopener">Linux内存–HugePage</a></p>
+<p><a href="https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/" target="_blank" rel="noopener">Linux内存–零拷贝</a></p>
+<h2 id="内存使用观察"><a href="#内存使用观察" class="headerlink" title="内存使用观察"></a>内存使用观察</h2><pre><code># free -m
+         total       used       free     shared    buffers     cached
+Mem:          7515       1115       6400          0        189        492
+-/+ buffers/cache:        432       7082
+Swap:            0          0          0
+</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
+<p><strong>上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。</strong></p>
+<h2 id="free"><a href="#free" class="headerlink" title="free"></a>free</h2><p>free是从 /proc/meminfo 读取数据然后展示：</p>
+<blockquote>
+<p>buff/cache = Buffers + Cached + SReclaimable</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i &quot;buff|cach|SReclai&quot;</span><br><span class="line">Buffers:          817764 kB</span><br><span class="line">Cached:         76629252 kB</span><br><span class="line">SwapCached:            0 kB</span><br><span class="line">SReclaimable:    7202264 kB</span><br><span class="line">[root@az1-drds-79 ~]# free -k</span><br><span class="line">             total       used       free     shared    buffers     cached</span><br><span class="line">Mem:      97267672   95522336    1745336          0     817764   76629352</span><br><span class="line">-/+ buffers/cache:   18075220   79192452</span><br><span class="line">Swap:            0          0          0</span><br></pre></td></tr></table></figure>
+<p>在内核启动时，物理页面将加入到伙伴系统 （Buddy System）中，用户申请内存时分配，释放时回收。为了照顾慢速设备及兼顾多种 workload，Linux 将页面类型分为匿名页（Anon Page）和文件页 （Page Cache），及 swapness，使用 Page Cache 缓存文件 （慢速设备），通过 swap cache 和 swapness 交由用户根据负载特征决定内存不足时回收二者的比例。</p>
+<h2 id="cached过高回收"><a href="#cached过高回收" class="headerlink" title="cached过高回收"></a>cached过高回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
+<ul>
+<li>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</li>
+<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
+</li>
+<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;= n &lt;=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
+</li>
+</ul>
+<p>cache回收：<br>    echo 1/2/3 &gt;/proc/sys/vm/drop_cached</p>
+<p>查看回收后：</p>
+<pre><code>cat /proc/meminfo
+</code></pre><p>手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：</p>
+<p><strong>echo 1 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache。</p>
+<p><strong>echo 2 &gt; /proc/sys/vm/drop_caches</strong>:表示清除回收slab分配器中的对象（包括目录项缓存和inode缓存）。slab分配器是内核中管理内存的一种机制，其中很多缓存数据实现都是用的pagecache。</p>
+<p><strong>echo 3 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache和slab分配器中的缓存对象。</p>
+<h2 id="cached无法回收"><a href="#cached无法回收" class="headerlink" title="cached无法回收"></a>cached无法回收</h2><p>可能是正打开的文件占用了cached，比如 vim 打开了一个巨大的文件；比如 mount的 tmpfs； 比如 journald 日志等等</p>
+<h3 id="通过vmtouch-查看"><a href="#通过vmtouch-查看" class="headerlink" title="通过vmtouch 查看"></a>通过<a href="https://hoytech.com/vmtouch/" target="_blank" rel="noopener">vmtouch</a> 查看</h3><pre><code># vmtouch -v test.x86_64.rpm 
+test.x86_64.rpm
+[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 10988/10988
+
+           Files: 1
+     Directories: 0
+  Resident Pages: 10988/10988  42M/42M  100%
+         Elapsed: 0.000594 seconds
+
+# ls -lh test.x86_64.rpm
+-rw-r--r-- 1 root root 43M 10月  8 14:11 test.x86_64.rpm
+</code></pre><p>如上，表示整个文件 test.x86_64.rpm 都被cached了，回收的话执行：</p>
+<pre><code>vmtouch -e test.x86_64.rpm // 或者： echo 3 &gt;/proc/sys/vm/drop_cached
+</code></pre><h3 id="遍历某个目录下的所有文件被cached了多少"><a href="#遍历某个目录下的所有文件被cached了多少" class="headerlink" title="遍历某个目录下的所有文件被cached了多少"></a>遍历某个目录下的所有文件被cached了多少</h3><pre><code># vmtouch -vt /var/log/journal/
+/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000011ba49-00059979e0926f43.journal
+[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
+/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000152f41-00059b2c88eb4344.journal
+[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
+/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-00000000000f2181-000598335fcd492f.journal
+[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
+/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000129aea-000599e83996db80.journal
+[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
+/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000009f171-000595a722ead670.journal
+…………
+           Files: 48
+ Directories: 2
+ Touched Pages: 468992 (1G)
+ Elapsed: 13.274 seconds
+</code></pre><h2 id="消失的内存"><a href="#消失的内存" class="headerlink" title="消失的内存"></a>消失的内存</h2><p>OS刚启动后就报内存不够了，什么都没跑就500G没了，cached和buffer基本没用，纯粹就是used占用高，top按内存排序没有超过0.5%的进程</p>
+<p>参考： <a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br></pre></td><td class="code"><pre><span class="line">[aliyun@uos15 18:40 /u02/backup_15/leo/benchmark/run]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503         501           1           0           0           1</span><br><span class="line">Swap:            15          12           3</span><br><span class="line"></span><br><span class="line">$cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:         1469632 kB</span><br><span class="line">MemAvailable:          0 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    950272 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:   252557   ----- 预分配太多，一个2M，加起来刚好500G了</span><br><span class="line">HugePages_Free:    252557</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:        517236736 kB</span><br><span class="line"></span><br><span class="line">以下是一台正常的机器对比：</span><br><span class="line">Percpu:            41856 kB</span><br><span class="line">AnonHugePages:  11442176 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:       0            ----没有做预分配</span><br><span class="line">HugePages_Free:        0</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:               0 kB</span><br><span class="line"></span><br><span class="line">[aliyun@uos16 18:43 /home/aliyun]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          20         481           0           1         480</span><br><span class="line">Swap:            15           0          15</span><br><span class="line"></span><br><span class="line">对有问题的机器执行：</span><br><span class="line"># echo 1024 &gt; /proc/sys/vm/nr_hugepages</span><br><span class="line">可以看到内存恢复正常了 </span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          10         492           0           0         490</span><br><span class="line">Swap:            15          12           3</span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:        516106832 kB</span><br><span class="line">MemAvailable:   514454408 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    313344 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:    1024</span><br><span class="line">HugePages_Free:     1024</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:         2097152 kB</span><br></pre></td></tr></table></figure>
+<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">24条32G的内存条，总内存768G</span><br><span class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</span><br><span class="line">  Size: 32 GB</span><br><span class="line">…………</span><br><span class="line">  Size: 32 GB</span><br><span class="line">  Size: 32 GB</span><br><span class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</span><br><span class="line">24</span><br><span class="line"></span><br><span class="line"># cat /boot/grub/grub.cfg  |grep 512</span><br><span class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br><span class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br></pre></td></tr></table></figure>
+<p>​    </p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/13/kubernetes 卷和volume/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2348,6 +2563,258 @@ while (1) {
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/12/09/如何在工作中学习-2019V2版/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/09/如何在工作中学习-2019V2版/" itemprop="url">如何在工作中学习-2019V2版</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-09T12:30:03+08:00">
+                2019-12-09
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/技巧/" itemprop="url" rel="index">
+                    <span itemprop="name">技巧</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/12/09/如何在工作中学习-2019V2版/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/12/09/如何在工作中学习-2019V2版/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何在工作中学习-2019V2版"><a href="#如何在工作中学习-2019V2版" class="headerlink" title="如何在工作中学习-2019V2版"></a>如何在工作中学习-2019V2版</h1><p><a href="https://plantegg.github.io/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/" target="_blank" rel="noopener">2018版简单一些，可以看这里</a>，2019版加入了一些新的理解和案例，目的是想要让文章中所说的不是空洞的口号，而是可以具体执行的命令，拉平对读者的要求。</p>
+<blockquote>
+<p>先说一件值得思考的事情：高考的时候大家都是一样的教科书，同一个教室，同样的老师辅导，时间精力基本差不多，可是最后别人考的是清华北大或者一本，而你的实力只能考个三本，为什么？ 当然这里主要是智商的影响，那么其他因素呢？智商解决的问题能不能后天用其他方式来补位一下？</p>
+</blockquote>
+<p>学习的闭环：先了解知识，再实战演练，然后总结复盘。很多时候只是停留在知识学习层面，没有实践，或者实践后没有思考复盘优化，都导致无法深入的理解掌握知识点(from: 瑾妤)</p>
+<h2 id="关键问题点"><a href="#关键问题点" class="headerlink" title="关键问题点"></a>关键问题点</h2><h3 id="为什么你的知识积累不了？"><a href="#为什么你的知识积累不了？" class="headerlink" title="为什么你的知识积累不了？"></a>为什么你的知识积累不了？</h3><p>有些知识看过就忘、忘了再看，实际碰到问题还是联系不上这个知识，这其实是知识的积累出了问题，没有深入的理解自然就不能灵活运用，也就谈不上解决问题了。这跟大家一起看相同的高考教科书但是高考结果不一样是一个原因。问题出在了理解上，每个人的理解能力不一样（智商），绝大多数人对知识的理解要靠不断地实践（做题）来巩固。</p>
+<h3 id="同样实践效果不一样？"><a href="#同样实践效果不一样？" class="headerlink" title="同样实践效果不一样？"></a>同样实践效果不一样？</h3><p>同样工作一年碰到了10个问题（或者说做了10套高考模拟试卷），但是结果不一样，那是因为在实践过程中方法不够好。或者说你对你为什么做对了、为什么做错了没有去复盘</p>
+<p>假如碰到一个问题，身边的同事解决了，而我解决不了。那么我就去想这个问题他是怎么解决的，他看到这个问题后的逻辑和思考是怎么样的，有哪些知识指导了他这么逻辑推理，这些知识哪些我也知道但是我没有想到这么去运用推理（说明我对这个知识理解的不到位导致灵活运用缺乏）；这些知识中又有哪些是我不知道的（知识缺乏，没什么好说的快去Google什么学习下–有场景案例和目的加持，学习理解起来更快）。</p>
+<p>等你把这个问题基本按照你同事掌握的知识和逻辑推理想明白后，需要再去琢磨一下他的逻辑推理解题思路中有没有不对的，有没有啰嗦的地方，有没有更直接的方式（对知识更好地运用）。</p>
+<p>我相信每个问题都这么去实践的话就不应该再抱怨灵活运用、举一反三，同时知识也积累下来了，这种场景下积累到的知识是不会那么容易忘记的。</p>
+<p>这就是向身边的牛人学习，同时很快超过他的办法。这就是为什么高考前你做了10套模拟题还不如其他人做一套的效果好</p>
+<p><strong>知识+逻辑 基本等于你的能力</strong>，知识让你知道那个东西，逻辑让你把东西和问题联系起来</p>
+<p><strong>这里的问题你可以理解成方案、架构、设计等</strong></p>
+<h3 id="系统化的知识哪里来？"><a href="#系统化的知识哪里来？" class="headerlink" title="系统化的知识哪里来？"></a>系统化的知识哪里来？</h3><p>知识之间是可以联系起来的并且像一颗大树一样自我生长，但是当你都没理解透彻，自然没法产生联系，也就不能够自我生长了。</p>
+<p>真正掌握好的知识点会慢慢生长连接最终组成一张大网</p>
+<p>但是我们最容易陷入的就是掌握的深度、系统化（工作中碎片时间过多，学校里缺少时间）不够，所以一个知识点每次碰到花半个小时学习下来觉得掌握了，但是3个月后就又没印象了。总是感觉自己在懵懵懂懂中，或者一个领域学起来总是不得要领，根本的原因还是在于：宏观整体大图了解不够（缺乏体系，每次都是盲人摸象）；关键知识点深度不够，理解不透彻，这些关键点就是这个领域的骨架、支点、抓手。缺了抓手自然不能生长，缺了宏观大图容易误入歧途。</p>
+<p>我们有时候发现自己在某个领域学起来特别快，但是换个领域就总是不得要领，问题出在了上面，即使花再多时间也是徒然。这也就是为什么学霸看两个小时的课本比你看两天效果还好，感受下来还觉得别人好聪明，是不是智商比我高啊。</p>
+<p>所以新进入一个领域的时候要去找他的大图和抓手。</p>
+<p>好的同事总是能很轻易地把这个大图交给你，再顺便给你几个抓手，你就基本入门了，这就是培训的魅力，这种情况肯定比自学效率高多了。但是目前绝大部分的培训都做不到这点</p>
+<h3 id="好的逻辑又怎么来？"><a href="#好的逻辑又怎么来？" class="headerlink" title="好的逻辑又怎么来？"></a>好的逻辑又怎么来？</h3><p>实践、复盘</p>
+<h2 id="讲个前同事的故事"><a href="#讲个前同事的故事" class="headerlink" title="讲个前同事的故事"></a>讲个前同事的故事</h2><p>有一个前同事是5Q过来的，负责技术（所有解决不了的问题都找他），这位同学从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。这位同学让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
+<h3 id="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"><a href="#应用刚启动连接到数据库的时候比较慢，但又不是慢查询" class="headerlink" title="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"></a>应用刚启动连接到数据库的时候比较慢，但又不是慢查询</h3><ol>
+<li>这位同学的解决办法是通过tcpdump来分析网络包，看网络包的时间戳和网络包的内容，然后找到了具体卡在了哪里。</li>
+<li>如果是专业的DBA可能会通过show processlist 看具体连接在做什么，比如看到这些连接状态是 <strong>authentication</strong> 状态，然后再通过Google或者对这个状态的理解知道创建连接的时候MySQL需要反查IP、域名这里比较耗时，通过配置参数 <strong>skip-name-resolve</strong> 跳过去就好了。</li>
+<li><p>如果是MySQL的老司机，一上来就知道连接慢的话跟 <strong>skip-name-resolve</strong> 关系最大。</p>
+<p> 在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的知识就把问题解决了。</p>
+</li>
+</ol>
+<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
+<h2 id="如何向身边的同学学习"><a href="#如何向身边的同学学习" class="headerlink" title="如何向身边的同学学习"></a>如何向身边的同学学习</h2><h3 id="钉钉提问的技巧"><a href="#钉钉提问的技巧" class="headerlink" title="钉钉提问的技巧"></a>钉钉提问的技巧</h3><p>我进现在的公司的时候是个网络小白，但是业务需要我去解决这些问题，于是我就经常在钉钉上找内部的专家来帮请教一些问题，首先要感谢他们的耐心，同时我觉得跟他们提问的时候的方法大家可以参考一下。</p>
+<p>首先，没有客套直奔主题把问题描述清楚，钉钉消息本来就不是即时的，就不要问在不在、能不能问个问题、你好（因为这些问题会浪费他一次切换，真要客套把 你好 写在问题前面在一条消息中发出去）。</p>
+<p>其次，我会截图把现象接下来，关键部分红框标明。如果是内部机器还会帮对方申请登陆账号，打通ssh登陆，然后把ssh登陆命令和触发截图现象命令的文字一起钉钉发过去。也就是对方收到我的消息，看到截图的问题后，他只要复制粘贴我发给他的文字信息就看到现象了。为什么要帮他申请账号，有时候账号要审批，要找人，对方不知道到哪里申请等等；这么复杂对方干脆就装作没看见你的消息好了。</p>
+<p>为什么还要把ssh登陆命令、重现文字命令发给他呢，怕他敲错啊，敲错了还得来问你，一来一回时间都浪费了。你也许会说我截图上有重现命令啊，那么凭什么他帮你解决问题他还要瞪大眼睛看你的截图把你的命令抄下来？比如容器ID一长串，你是截图了，结果他把b抄成6了，重现不了，还得问你，又是几个来回……</p>
+<p>提完问题后有三种情况：抱歉，我也不知道；这个问题你要问问谁，他应该知道；沉默</p>
+<p>没关系钉钉的优势是复制粘贴方便，你就换个人再问，可能问到第三个人终于搞定了。那么我会回来把结果告诉前面我问过的同学，即使他是沉默的那个。因为我骚扰过人家，要回来填这个坑，另外也许他真的不知道，那么同步给他也可以帮到他。结果就是他觉得我很靠谱，信任度就建立好了，下次再有问题会更卖力地一起来解决。</p>
+<h4 id="一些不好的"><a href="#一些不好的" class="headerlink" title="一些不好的"></a>一些不好的</h4><p>有个同学看了我的文章（晚上11点看的），马上发了钉钉消息过来问文章中用到的工具是什么。我还没睡觉但是躺床上看东西，有钉钉消息提醒，但没有切过去回复（不想中断我在看的东西）。5分钟后这个同学居然钉了我一下，我当时是很震惊的，这是你平时学习，不是我的产品出了故障，现在晚上11点。</p>
+<p>提问题的时间要考虑对方大概率在电脑前，打字快。否则要紧的话就提选择题类型的问题</p>
+<p>问题要尽量是封闭的，比如钉钉上不适合问的问题：</p>
+<ul>
+<li>为什么我们应用的TPS压不上去，即使CPU还有很多空闲（不好的原因：太开放，原因太多，对方要打字2000才能给你解释清楚各种可能的原因，你要不是他老板就不要这样问了）</li>
+<li>用多条消息来描述一个问题，一次没把问题描述清楚，需要对方中断多次</li>
+</ul>
+<h2 id="场景式学习、体感的来源、面对问题学习"><a href="#场景式学习、体感的来源、面对问题学习" class="headerlink" title="场景式学习、体感的来源、面对问题学习"></a>场景式学习、体感的来源、面对问题学习</h2><p>前面提到的对知识的深入理解这有点空，如何才能做到深入理解？</p>
+<h3 id="举个学习TCP三次握手例子"><a href="#举个学习TCP三次握手例子" class="headerlink" title="举个学习TCP三次握手例子"></a>举个学习TCP三次握手例子</h3><p>经历稍微丰富点的工程师都觉得TCP三次握手看过很多次、很多篇文章了，但是文章写得再好似乎当时理解了，但是总是过几个月就忘了或者一看就懂，过一阵子被人一问就模模糊糊了，或者两个为什么就答不上了，自己都觉得自己的回答是在猜或者不确定</p>
+<p>为什么会这样呢？而学其它知识就好通畅多了，我觉得这里最主要的是我们对TCP缺乏体感，比如没有几个工程师去看过TCP握手的代码，也没法想象真正的TCP握手是如何在电脑里运作的（打电话能给你一些类似的体感，但是细节覆盖面不够）。</p>
+<p>如果这个时候你一边学习的时候一边再用wireshark抓包看看三次握手具体在干什么，比抽象的描述实在多了，你能看到具体握手的一来一回，并且看到一来一回带了哪些内容，这些内容又是用来做什么、为什么要带，这个时候你再去看别人讲解的理论顿时会觉得好理解多了，以后也很难忘记。</p>
+<p>但是这里很多人执行能力不强，想去抓包，但是觉得要下载安装wireshark，要学习wireshark就放弃了。只看不动手当然是最舒适的，但是这个最舒适给了你在学习的假象，没有结果。</p>
+<p>这是不是跟你要解决一个难题非常像，这个难题需要你去做很多事，比如下载源代码（翻不了墙，放弃）；比如要编译（还要去学习那些编译参数，放弃）；比如要搭建环境（太琐屑，放弃）。你看这中间九九八十一难你放弃了一难都取不了真经。这也是为什么同样学习、同样的问题，他能学会，他能解决，你不可以。</p>
+<h3 id="再来看一个解决问题的例子"><a href="#再来看一个解决问题的例子" class="headerlink" title="再来看一个解决问题的例子"></a>再来看一个解决问题的例子</h3><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">会员系统双11优化这个问题</a>对我来说，我是个外来者，完全不懂这里面的部署架构、业务逻辑。但是在问题的关键地方（会员认为自己没问题–压力测试正常的；淘宝API更是认为自己没问题，alimonitor监控显示正常），结果就是会员的同学说我们没有问题，淘宝API肯定有问题，然后就不去思考自己这边可能出问题的环节了。思想上已经甩包了，那么即使再去review流程、环节也就不会那么仔细，自然更是发现不了问题了。</p>
+<p>但是我的经验告诉我要有证据地甩包，或者说拿着证据优雅地甩包，这迫使我去找更多的细节证据（证据要给力哦，不能让人家拍回来）。如果我是这么说的，这个问题在淘宝API这里，你看理由是…………，我做了这些实验，看到了这些东东。那么淘宝API那边想要证明我的理由错了就会更积极地去找一些数据。</p>
+<p>事实上我就是做这些实验找证据过程中发现了会员的问题，这就是态度、执行力、知识、逻辑能力综合下来拿到的一个结果。我最不喜欢的一句话就是我的程序没问题，因为我的逻辑是这样的，不会错的。你当然不会写你知道的错误逻辑，程序之所以有错误都是在你的逻辑、意料之外的东西。有很多次一堆人电话会议中扯皮的时候，我一般把电话静音了，直接上去人肉一个个过对方的逻辑，一般来说电话会议还没有结束我就给出来对方逻辑之外的东西。</p>
+<h3 id="场景式学习"><a href="#场景式学习" class="headerlink" title="场景式学习"></a>场景式学习</h3><p>我带2岁的小朋友看刷牙的画本的时候，小朋友理解不了喝口水含在嘴里咕噜咕噜不要咽下去，然后刷牙的时候就都喝下去了。我讲到这里的时候立马放下书把小朋友带到洗手间，先开始我自己刷牙了，示范一下什么是咕噜咕噜（放心，他还是理解不了的，但是至少有点感觉了，水在口里会响，然后水会吐出来）。示范完然后辅导他刷牙，喝水的时候我和他一起直接低着头，喝水然后立马水吐出来了，让他理解了到嘴里的东西不全是吞下去的。然后喝水晃脑袋，有点声音了（离咕噜咕噜不远了）。训练几次后小朋友就理解了咕噜咕噜，也学会了咕噜咕噜。这就是场景式学习的魅力。</p>
+<p>很多年前我有一次等电梯，边上还有一个老太太，一个年轻的妈妈带着一个4、5岁的娃。应该是刚从外面玩了回来，妈妈在教育娃娃刚刚在外面哪里做错了，那个小朋友也是气嘟嘟地。进了电梯后都不说话，小朋友就开始踢电梯。这个时候那个年轻的妈妈又想开始教育小朋友了。这时老太太教育这个妈妈说，这是小朋友不高兴，做出的反抗，就是想要用这个方式抗议刚刚的教育或者挑逗起妈妈的注意。这个时候要忽视他，不要去在意，他踢几下后（虽然没有公德这么小懂不了这么多）脚也疼还没人搭理他这个动作，就觉得真没劲，可能后面他都不踢电梯了，觉得这是一个非常无聊还挨疼的事情。那么我在这个场景下立马反应过来，这就是很多以前我对一些小朋友的行为不理解的原因啊，这比书上看到的深刻多了。就是他们生气了在那里做妖挑逗你骂他、打他或者激怒你来吸引大人的注意力。</p>
+<h2 id="钉子式学习方法和系统性学习方法"><a href="#钉子式学习方法和系统性学习方法" class="headerlink" title="钉子式学习方法和系统性学习方法"></a>钉子式学习方法和系统性学习方法</h2><p>系统性就是想掌握MySQL，那么搞几本MySQL专著和MySQL 官方DOC看下来，一般课程设计的好的话还是比较容易普遍性地掌握下来，绝大部分时候都是这种学习方法，可是问题在于在种方式下学完后当时看着似乎理解了，但是很容易忘记，一片一片地系统性的忘记。还是一般人对知识的理解没那么容易真正理解。</p>
+<p>钉子式的学习方式，就是在一大片知识中打入几个桩，反复演练将这个桩不停地夯实，夯温，做到在这个知识点上用通俗的语言跟小白都能讲明白，然后在这几个桩中间发散像星星之火燎原一样把整个一片知识都掌握下来。这种学习方法的缺点就是很难找到一片知识点的这个点，然后没有很好整合的话知识过于零散。</p>
+<p>我们常说的一个人很聪明，就是指系统性的看看书就都理解了，是真的理解那种，还能灵活运用，但是大多数普通人就不是这样的，看完书似乎理解了，实际几周后基本都忘记了，真正实践需要用的时候还是用不好。</p>
+<p>实际这两种学习方法要互相结合，对普通人来讲钉子式学习方法更好一些，掌握几个钉子后再系统性地学习也容易多了；对非常聪明的人来说系统性地学习效率更高一些。</p>
+<h3 id="举个Open-SSH的例子"><a href="#举个Open-SSH的例子" class="headerlink" title="举个Open-SSH的例子"></a>举个Open-SSH的例子</h3><p>为了做通 SSH 的免密登陆，大家都需要用到 ssh-keygen/ssh-copy-id， 如果我们把这两个命令当一个小的钉子的话，会去了解ssh-keygen做了啥（生成了密钥对），或者ssh-copy-id 的时候报错了（原来是需要秘钥对），然后将 ssh-keygen 生成的pub key复制到server的~/.ssh/authorized_keys 中。</p>
+<p>然后你应该会对这个原理要有一些理解（更大的钉子），于是理解了密钥对，和ssh验证的流程，顺便学会怎么看ssh debug信息，那么接下来网络上各种ssh攻略、各种ssh卡顿的解决都是很简单的事情了。</p>
+<p>比如你通过SSH可以解决这些问题：</p>
+<ul>
+<li>免密登陆</li>
+<li>ssh卡顿</li>
+<li>怎么去掉ssh的时候需要手工多输入yes</li>
+<li>怎么样一次登录，多次复用</li>
+<li>我的ssh怎么很快就断掉了</li>
+<li>我怎么样才能一次通过跳板机ssh到目标机器</li>
+<li>我怎么样通过ssh科学上网</li>
+<li>我的ansible（底层批量命令都是基于ssh）怎么这么多问题，到底是为什么</li>
+<li>我的git怎么报网络错误了</li>
+<li>xshell我怎么配置不好</li>
+<li>https为什么需要随机数加密，还需要签名</li>
+<li>…………</li>
+</ul>
+<p>这些问题都是一步步在扩大ssh的外延，让这个钉子变成一个巨大的桩。</p>
+<p>然后就会学习到一些<a href="https://plantegg.github.io/2018/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82SSH--SSH%E8%8A%B1%E5%BC%8F%E7%8E%A9%E6%B3%95/" target="_blank" rel="noopener">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
+<p>这基本都还是ssh的本质范围，像ansible、git在底层都是依赖ssh来通讯的，你会发现学、调试xshell、ansible和git简直太容易了。</p>
+<p>另外理解了ssh的秘钥对，也就理解了非对称加密，同时也很容易理解https流程（SSL），同时知道对称和非对称加密各自的优缺点，SSL为什么需要用到这两种加密算法了。</p>
+<p>你看一个简单日常的知识我们只要沿着它用钉子精神，深挖细挖你就会发现知识之间的连接，这个小小的知识点成为你知识体系的一根结实的柱子。</p>
+<p>我见过太多的老的工程师、年轻的工程师，天天在那里ssh 密码，ssh 跳板机，ssh 目标机，一小会ssh断了，重来一遍；或者ssh后卡住了，等吧……</p>
+<p>在这个问题上表现得没有求知欲、没有探索精神、没有一次把问题搞定的魄力，所以就习惯了</p>
+<h2 id="空洞的口号"><a href="#空洞的口号" class="headerlink" title="空洞的口号"></a>空洞的口号</h2><p>很多文章都会教大家：举一反三、灵活运用、活学活用、多做多练。但是只有这些口号是没法落地的，落地的基本原则就是前面提到的，却总是被忽视了。</p>
+<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举一反三，这是知识效率，这种人非常少；</p>
+<p>大多数普通人都是看点知识然后结合实践来强化理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
+<p>肯定知识效率最牛逼，但是拥有这种技能的人毕竟非常少（天生的高智商吧）。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快的掌握一个新知识，非常气人。剩下的绝大部分只能拼时间+方法+总结等也能掌握一些知识</p>
+<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
+<p>使劲挖掘自己在知识效率型方面的能力吧，两者之间当然没有明显的界限，知识积累多了逻辑训练好了在别人看来你的智商就高了</p>
+<h2 id="为什么看电影注意力特别好，做正事注意力集中不了"><a href="#为什么看电影注意力特别好，做正事注意力集中不了" class="headerlink" title="为什么看电影注意力特别好，做正事注意力集中不了"></a>为什么看电影注意力特别好，做正事注意力集中不了</h2><p>首先接受这个现实，医学上把这叫作注意力缺失症，基本所有人都有这种毛病，因为做正事比较枯燥、困难，让人不舒服，集中不了注意力，逃避很正常！</p>
+<p>改善方法：做笔记、收集素材、写作</p>
+<h2 id="极易被手机、微博、朋友圈干扰"><a href="#极易被手机、微博、朋友圈干扰" class="headerlink" title="极易被手机、微博、朋友圈干扰"></a>极易被手机、微博、朋友圈干扰</h2><p>意志力—还没有好办法</p>
+<h2 id="改变条件反射，多逻辑思考"><a href="#改变条件反射，多逻辑思考" class="headerlink" title="改变条件反射，多逻辑思考"></a>改变条件反射，多逻辑思考</h2><p>有科学家通过研究，发现一个人一天的行为中，5%是非习惯性的，用思考脑的逻辑驱动，95%是习惯性的，用反射脑的直觉驱动，决定我们一生的，永远是95%的反射脑（习惯），而不是5%的思考脑（逻辑）</p>
+<p>互联网+手机时代：浏览信息的时间多了，自己思考和琢磨的时间少了，专注在无效事情上的时间多了，专注在自我成长上的时间少了。</p>
+<h2 id="容易忘记"><a href="#容易忘记" class="headerlink" title="容易忘记"></a>容易忘记</h2><p>学东西当时感觉很好，但是过几周基本都忘记了</p>
+<p>这很正常，主要还是理解不够，理解不够也正常，这就是普通人的智商和理解能力。</p>
+<p>改善：做笔记，利用碎片时间回顾</p>
+<p>总结成系统性的文章，知识体系化，不会再忘记了。</p>
+<h2 id="执行力和自律"><a href="#执行力和自律" class="headerlink" title="执行力和自律"></a>执行力和自律</h2><p>执行力和自律在我们的工作和生活中出现的频率非常高，因为这是我们成长或做成事时必须要有的2个关键词，但是很长一段时间里，对于提升执行力，疑惑很大。同时在工作场景中可能会被老板多次要求提升执行力，抽象又具体，但往往只有提升执行力的要求没有如何提升的方法和认知，这是普遍点到即止的现象，普遍提升不了执行力的现象。</p>
+<p>“要有执行力”就是一句空话，谁都想，但是臣妾做不到。</p>
+<p>人生由成长（学习）和享受（比如看电影、刷朋友圈）构成，成长太艰难，享受就很自然符合人性</p>
+<p>怎么办？</p>
+<pre><code>划重点：执行力就是想明白，然后一步一步做下去。
+</code></pre><h2 id="跳出舒适区"><a href="#跳出舒适区" class="headerlink" title="跳出舒适区"></a>跳出舒适区</h2><p>重复、没有进步的时候就是舒适区，人性就是喜欢适合自己、符合自己技能的环境，解决问题容易；对陌生区域有恐惧感。</p>
+<p>有时候是缺机会和场景驱动自我去学习，要找到从舒适到陌生区域的交融点，慢慢跨出去。<br>比如从自己熟悉的知识体系中入手，从已有的抓手和桩开始突击不清楚的问题，也就是横向、纵向多深挖，自然恐惧区就越来越小了，舒适区慢慢在扩张</p>
+<h2 id="养成写文章的习惯非常重要"><a href="#养成写文章的习惯非常重要" class="headerlink" title="养成写文章的习惯非常重要"></a>养成写文章的习惯非常重要</h2><p>对自我碎片知识的总结、加深理解的良机，将知识体系化、结构化，形成知识体系中的抓手、桩。</p>
+<p>缺的不是鸡汤，而是勺子，勺子就是具体的步骤，可以复制，对人、人性要求很低的动作。</p>
+<p>生活本质是生产（工作学习成长）和消费(娱乐、刷朋友圈等)，消费总是符合人性的，当是对自己的适当奖励，不要把自己搞成机器人</p>
+<p>可以做的是生产的时候效率更高</p>
+<h2 id="知识分两种"><a href="#知识分两种" class="headerlink" title="知识分两种"></a>知识分两种</h2><p>一种是通用知识（不是说对所有人通用，而是说在一个专业领域去到哪个公司都能通用）；另外一种是跟业务公司绑定的特定知识</p>
+<p>通用知识没有任何疑问碰到后要非常饥渴地扑上去掌握他们（受益终生，这还有什么疑问吗？）。对于特定知识就要看你对业务需要掌握的深度了，肯定也是需要掌握一些的，特定知识掌握好的一般在公司里混的也会比较好</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/11/24/到底是谁reset了你的连接/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -3950,6 +4417,503 @@ ts=2019-06-04 11:38:06; [cost=2.75218ms] result=@HandlerExecutionChain[
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/09/16/SystemStap/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/09/16/SystemStap/" itemprop="url">SystemStap、BCC、bpftrace</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-16T12:30:03+08:00">
+                2019-09-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/09/16/SystemStap/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/09/16/SystemStap/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="SystemStap、BCC、bpftrace"><a href="#SystemStap、BCC、bpftrace" class="headerlink" title="SystemStap、BCC、bpftrace"></a>SystemStap、BCC、bpftrace</h1><p>Linux <code>4.4+</code> 支持 <code>eBPF</code>。基于 <code>eBPF</code> 可以将任何<strong>内核函数调用</strong>转换成<strong>可带任何 数据</strong>的<strong>用户空间事件</strong>。<code>bcc</code> 作为一个更上层的工具使这个过程更加方便。内核探测 代码用 C 写，数据处理代码用 Python。</p>
+<p>从 Linux 3.15 开始，BPF 被扩展成了 eBPF，extended BPF 的缩写。它<strong>从 2 个 32bit 寄存器扩展到了 10 个 64bit 寄存器，并增加了后向跳转</strong>。Linux 3.18 中又进行了进一 步扩展，将它从网络子系统中移出来，并添加了 maps 等工具。为了保证安全性又引入了一 个检测器，用于验证内存访问的合法性和可能的代码路径。如果检测器不能推断出程序会在 有限的步骤内结束，就会拒绝程序的注入（内核）。</p>
+<p>SystemTap 是一个 tracing 系统，<strong>简单来说，它提供了一种领域特定语言（DSL），代码编译成内核模块，然后热加 载到运行中的内核</strong>。但<strong>出于安全考虑，一些生产系统禁止动态模块加载</strong>，例如我研究 eBPF 时所用的系统就不允许。</p>
+<p><code>perf</code> 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。<code>perf</code> 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。<strong>可以把它想象成开销更低，但功能更强大的 <code>strace</code></strong>。 本文只会使用非常简单的 <code>perf</code> 命令。想了解更多，强烈建议访问 <a href="http://www.brendangregg.com/perf.html" target="_blank" rel="noopener">Brendan Gregg</a>的博客。</p>
+<h2 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h2><p>sudo stap-prep //安装好systemtap所有依赖的（debugfs等等）</p>
+<p>执行安装内核debug等等需要的一些包，然后才能运行systemtap</p>
+<pre><code># 简单的脚本，打印4s内所有进程打开了哪些文件
+#!/usr/bin/stap
+probe begin
+{
+    log(&quot;begin to probe&quot;)
+}
+
+probe syscall.open
+{
+    printf (&quot;%s(%d) open (%s)\n&quot;, execname(), pid(), argstr)
+}
+
+probe timer.ms(4000) # after 4 seconds
+{
+    exit ()
+}
+
+probe end
+{
+    log(&quot;end to probe&quot;)
+}
+</code></pre><p>主要需要两个包[“kernel-debuginfo”, “kernel-debuginfo-common”]<br>建议不要从yum装，可能会和内核小版本不同导致无法使用</p>
+<p>1 获取内核的参数<br>uname -r</p>
+<p>2 从下面的链接中取找对应内核的包</p>
+<p><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807" target="_blank" rel="noopener">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807</a><br><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805" target="_blank" rel="noopener">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805</a></p>
+<p>如果小版本不对导致装不上的话，加上–nodeps 参数<br>rpm -ivh kernel-debuginfo-2.6.32-220.23.2.ali878.el6.x86_64.rpm –nodeps</p>
+<pre><code>#验证安装是否成功
+sudo stap -v -e &apos;probe begin{printf(&quot;Hello, World&quot;); exit();}&apos;
+</code></pre><h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/<br>stap 部分源代码：  /usr/share/systemtap/tapset/linux/</p>
+<ul>
+<li>sudo ./socktop -N 20  //每个进程的流量，取最多的20个</li>
+<li>sudo stap netfilter_summary.stp -c “sleep 1” //每对IP之间的流量信息</li>
+<li>stap tcp_connections.stp -c “sleep 1” //每个进来的新连接</li>
+<li>sudo stap latencytap.stp –all-modules -w -t -x 38730 //监控进程38730最慢的内核操作</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">#! /usr/bin/env stap</span><br><span class="line"></span><br><span class="line">#################################################################</span><br><span class="line"># tcp_retransmit.stp</span><br><span class="line"># Author: Yang Bingwu (detailyang) &lt;detailyang@gmail.com&gt;</span><br><span class="line"># This systemtap script will prints the tcp retransmission packet</span><br><span class="line">#################################################################</span><br><span class="line"></span><br><span class="line">global record%</span><br><span class="line">global cwnd_record%</span><br><span class="line"></span><br><span class="line">probe begin &#123;</span><br><span class="line">log(&quot;Printing tcp retransmission&quot;)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">#probe kernel.function(&quot;tcp_retransmit_skb&quot;) &#123;</span><br><span class="line">#probe kernel.function(&quot;tcp_xmit_retransmit_queue&quot;) &#123;</span><br><span class="line">probe kernel.function(&quot;tcp_may_send_now&quot;) &#123;</span><br><span class="line">	#print_usyms(ubacktrace())</span><br><span class="line">	</span><br><span class="line">	print_backtrace()</span><br><span class="line"></span><br><span class="line">	#sudo stap tcp_retransmission.stp -x 19317  19317 is pid</span><br><span class="line">	if (pid() == target()) &#123;</span><br><span class="line"></span><br><span class="line">  rto = tcp_get_info_rto($sk)</span><br><span class="line">  snd_cwnd = tcp_get_info_snd_cwnd($sk)</span><br><span class="line">  saddr   = format_ipaddr(__ip_sock_saddr($sk), __ip_sock_family($sk))</span><br><span class="line">  daddr   = format_ipaddr(__ip_sock_daddr($sk), __ip_sock_family($sk))</span><br><span class="line">  sport   = __tcp_sock_sport($sk)</span><br><span class="line">  dport   = __tcp_sock_dport($sk)</span><br><span class="line">  lastrto = record[saddr, sport, daddr, dport]</span><br><span class="line">  lastcwnd = cwnd_record[saddr, sport, daddr, dport]</span><br><span class="line">  state = tcp_ts_get_info_state($sk)</span><br><span class="line">  </span><br><span class="line">  if (lastrto != rto) &#123;</span><br><span class="line">   if (lastrto) &#123;</span><br><span class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d -&gt; %d (ms)\n&quot;, saddr, sport,</span><br><span class="line">    daddr, dport, tcp_sockstate_str(state), lastrto/1000, rto/1000)</span><br><span class="line">   &#125; else &#123;</span><br><span class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d (ms)\n&quot;, saddr, sport,</span><br><span class="line">    daddr, dport, tcp_sockstate_str(state), rto/1000)</span><br><span class="line">   &#125;</span><br><span class="line">  </span><br><span class="line">printf(&quot;%s:%d =&gt; %s:%d STATE:%s snd_cwnd: %d -&gt; %d\n&quot;, saddr, sport, daddr, dport, tcp_sockstate_str(state), snd_cwnd, lastcwnd);</span><br><span class="line">		&#125;</span><br><span class="line"></span><br><span class="line">		record[saddr, sport, daddr, dport] = rto</span><br><span class="line">		cwnd_record[saddr, sport, daddr, dport] = snd_cwnd</span><br><span class="line"></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><a href="https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp" target="_blank" rel="noopener">https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp</a></p>
+<h2 id="案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"><a href="#案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞" class="headerlink" title="案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"></a>案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞</h2><pre><code>#!/usr/bin/env stap
+# 使用方式： stap delay.stp -g  --all-modules -x 7222   只对7222进程进行延迟hack
+
+# 延迟多少ms
+global DELAY = 100;
+global quit = 0;
+global found;
+
+probe begin {
+    warn(sprintf(&quot;Tracing pid %d ...\\n&quot;, target()))
+}
+
+# 如果想要针对mysql的写入，可以将下面换成
+#probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;sync_binlog_file&quot;).call
+probe syscall.write.return {
+      if (pid() == target() &amp;&amp; !quit ) {
+          mdelay( DELAY );
+          printf(&quot;write delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
+    }
+}
+</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​     </p>
+<pre><code># 任务持续时间
+probe timer.s(20) {
+    if (!found) {
+        warn(&quot;No backtraces found. Quitting now...\n&quot;)
+        exit()
+    } else {
+        warn(&quot;Time&apos;s up. Quitting now...(it may take a while)\n&quot;)
+        quit = 1
+    }
+}
+</code></pre><p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
+<pre><code>%{
+#undef STP_OVERLOAD
+#include &lt;linux/delay.h&gt;
+%}
+
+function mdelay(ms:long) %{
+  mdelay(THIS-&gt;ms);
+%}
+</code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="noopener">使用Systemtap生成Flame Graph(火焰图) </a></p>
+<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
+<h2 id="网络包大小分布"><a href="#网络包大小分布" class="headerlink" title="网络包大小分布"></a>网络包大小分布</h2><pre><code>bpftrace -e &apos;tracepoint:net:net_dev_queue{
+@txsize=hist(args-&gt;len);
+@txstat=stats(args-&gt;len);
+}
+
+tracepoint:net:netif_receive_skb
+{
+    @rxsize=hist(args-&gt;len);
+    @rxstat=stats(args-&gt;len);
+}&apos;
+</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
+<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
+<h2 id="网络连接创建rt？"><a href="#网络连接创建rt？" class="headerlink" title="网络连接创建rt？"></a>网络连接创建rt？</h2><pre><code># ./tools/bcc/tcpconnlat
+PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
+1935   java         4  10.81.177.14     100.100.110.2    80    0.21
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1930   java         4  10.81.177.14     100.100.110.2    80    0.23
+1914   java         4  10.81.177.14     100.100.110.2    80    0.26
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.04
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1778   java         4  10.81.177.14     100.100.17.97    8000  1.62
+1915   java         4  10.81.177.14     100.100.110.2    80    0.20
+1944   java         4  10.81.177.14     100.100.110.2    80    0.23
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+1823   java         4  10.81.177.14     100.100.110.2    80    9.58
+1928   java         4  10.81.177.14     100.100.110.2    80    9.61
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+1796   java         4  10.81.177.14     100.100.110.2    80    0.27
+1949   java         4  10.81.177.14     100.100.110.2    80    0.22
+1795   java         4  10.81.177.14     100.100.110.2    80    0.26
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1916   java         4  10.81.177.14     100.100.110.2    80    3.70
+1929   java         4  10.81.177.14     100.100.110.2    80    3.73
+7059   java         4  127.0.0.1        127.0.0.1        3406  0.05
+7059   java         4  127.0.0.1        127.0.0.1        3406  0.02
+948    java         4  10.81.177.14     100.100.110.2    80    0.27
+1917   java         4  10.81.177.14     100.100.110.2    80    0.20
+1934   java         4  10.81.177.14     100.100.110.2    80    0.22
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+</code></pre><h2 id="TCP队列实时查看"><a href="#TCP队列实时查看" class="headerlink" title="TCP队列实时查看"></a>TCP队列实时查看</h2><p>bpftrace工具包</p>
+<pre><code>cat tcpsynbl_example.txt
+Demonstrations of tcpsynbl, the Linux bpftrace/eBPF version.
+</code></pre><p>​<br>​    This tool shows the TCP SYN backlog size during SYN arrival as a histogram.<br>​    This lets you see how close your applications are to hitting the backlog limit<br>​    and dropping SYNs (causing performance issues with SYN retransmits). For<br>​    example:<br>​<br>​    # ./tcpsynbl.bt<br>​    Attaching 4 probes…<br>​    Tracing SYN backlog size. Ctrl-C to end.<br>​    ^C<br>​    @backlog[backlog limit]: histogram of backlog size</p>
+<p>​<br>​    @backlog[500]:<br>​    [0]                 2266 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​    [1]                    3 |                                                    |<br>​    [2, 4)                 1 |                                                    |</p>
+<pre><code>$sudo bpftrace ./tcpsynbl.bt
+Attaching 4 probes...
+Tracing SYN backlog size. Ctrl-C to end.
+
+^C
+@backlog[backlog limit]: histogram of backlog size
+</code></pre><p>​<br>​    @backlog[10]:<br>​    [0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​<br>​    @backlog[256]:<br>​    [0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|</p>
+<p>或者 bpftrace tcpaccept.bt</p>
+<pre><code>cat tcpaccept_example.txt 
+Demonstrations of tcpaccept, the Linux bpftrace/eBPF version.
+</code></pre><p>​<br>​    This tool traces the kernel function accepting TCP socket connections (eg, a<br>​    passive connection via accept(); not connect()). Some example output (IP<br>​    addresses changed to protect the innocent):<br>​<br>​    # ./tcpaccept<br>​    Tracing tcp accepts. Hit Ctrl-C to end.<br>​    TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL<br>​    00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128<br>​    00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128<br>​    00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128</p>
+<p>​<br>​    This output shows three connections, an IPv4 connections to PID 1463622, a “redis-server”<br>​    process listening on port 6379, and one IPv6 connection to a “thread.rb” process<br>​    listening on port 8000. The remote address and port are also printed, and the accept queue<br>​    current size as well as maximum size are shown.<br>​<br>​    The overhead of this tool should be negligible, since it is only tracing the<br>​    kernel function performing accept. It is not tracing every packet and then<br>​    filtering.<br>​<br>    This tool only traces successful TCP accept()s. Connection attempts to closed<br>    ports will not be shown (those can be traced via other functions).</p>
+<pre><code>There is another version of this tool in bcc: https://github.com/iovisor/bcc
+</code></pre><p>最后一列就是backlog最大大小和已经多少</p>
+<h2 id="DNS-域名解析时间"><a href="#DNS-域名解析时间" class="headerlink" title="DNS 域名解析时间"></a>DNS 域名解析时间</h2><pre><code>$sudo ./gethostlatency 
+TIME      PID    COMM                  LATms HOST
+15:40:01  10549  sendmail               0.19 localhost
+15:40:03  1782   java                   0.11 iZbp143cmod4v59cgon4zwZ
+15:40:13  10580  ping                   0.98 abck.akksda
+15:40:18  1823   java                   0.12 iZbp143cmod4v59cgon4zwZ
+</code></pre><p>可以明显抓到ping但是nslookup抓不到（因为nslookup 不调用 getaddrinfo/gethostbyname)</p>
+<h2 id="统计线程执行时间排名"><a href="#统计线程执行时间排名" class="headerlink" title="统计线程执行时间排名"></a>统计线程执行时间排名</h2><pre><code>$sudo stap thread-times.stp -T 5
+        comm   tid   %user %kernel (of 19997 ticks)
+        java 30474  20.06%   0.75%
+   swapper/0     0   0.00%   2.55%
+   swapper/2     0   0.00%   2.00%
+   swapper/3     0   0.00%   1.49%
+        java 19500   0.38%   0.72%
+        java 19501   0.35%   0.64%
+        java 19503   0.34%   0.65%
+        java 19496   0.28%   0.69%
+        java 19497   0.28%   0.67%
+        java 19502   0.31%   0.61%
+        java 19498   0.30%   0.58%
+        java 19499   0.26%   0.52%
+   swapper/1     0   0.00%   0.75%
+        java 20004   0.45%   0.18%
+        java 19995   0.40%   0.19%
+        java 20061   0.43%   0.16%
+        java 20066   0.41%   0.17%
+        java 20083   0.44%   0.13%
+        java 20027   0.41%   0.16%
+        java 20195   0.43%   0.13%
+</code></pre><p>如上java线程执行消耗在用户态和内核态的CPU占比，根据tid可以到jstack中对应，相当于是将top命令中的线程消耗CPU做了累积，分清了用户态和内核态</p>
+<h2 id="内核函数执行时间"><a href="#内核函数执行时间" class="headerlink" title="内核函数执行时间"></a>内核函数执行时间</h2><pre><code>$sudo ./funclatency &apos;c:connect&apos;
+Tracing 1 functions for &quot;c:connect&quot;... Hit Ctrl-C to end.
+^C
+
+Function = [unknown] [10997] 
+     nsecs               : count     distribution
+         0 -&gt; 1          : 0        |                                        |
+         2 -&gt; 3          : 0        |                                        |
+         4 -&gt; 7          : 0        |                                        |
+         8 -&gt; 15         : 0        |                                        |
+        16 -&gt; 31         : 0        |                                        |
+        32 -&gt; 63         : 0        |                                        |
+        64 -&gt; 127        : 0        |                                        |
+       128 -&gt; 255        : 0        |                                        |
+       256 -&gt; 511        : 0        |                                        |
+       512 -&gt; 1023       : 0        |                                        |
+      1024 -&gt; 2047       : 0        |                                        |
+      2048 -&gt; 4095       : 0        |                                        |
+      4096 -&gt; 8191       : 4        |****************************************|
+      8192 -&gt; 16383      : 2        |********************                    |
+     16384 -&gt; 32767      : 1        |**********                              |
+
+Function = connect [10999]  //telnet 连不上 tcp retry 
+     nsecs               : count     distribution
+         0 -&gt; 1          : 0        |                                        |
+         2 -&gt; 3          : 0        |                                        |
+         4 -&gt; 7          : 0        |                                        |
+         8 -&gt; 15         : 0        |                                        |
+        16 -&gt; 31         : 0        |                                        |
+        32 -&gt; 63         : 0        |                                        |
+        64 -&gt; 127        : 0        |                                        |
+       128 -&gt; 255        : 0        |                                        |
+       256 -&gt; 511        : 0        |                                        |
+       512 -&gt; 1023       : 0        |                                        |
+      1024 -&gt; 2047       : 0        |                                        |
+      2048 -&gt; 4095       : 0        |                                        |
+      4096 -&gt; 8191       : 3        |****************************************|
+      8192 -&gt; 16383      : 2        |**************************              |
+     16384 -&gt; 32767      : 1        |*************                           |
+</code></pre><h2 id="磁盘"><a href="#磁盘" class="headerlink" title="磁盘"></a>磁盘</h2><pre><code>15:49:40 loadavg: 0.07 0.04 0.05 1/1008 11533
+
+PID    COMM             D MAJ MIN DISK       I/O  Kbytes  AVGms
+10784  kworker/u8:0     W 254 0   vda         31     140   2.41
+416    jbd2/vda1-8      W 254 0   vda          2     100   0.93
+Detaching...
+
+[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
+$df -lh
+Filesystem      Size  Used Avail Use% Mounted on
+devtmpfs        3.8G     0  3.8G   0% /dev
+tmpfs           3.9G     0  3.9G   0% /dev/shm
+tmpfs           3.9G  620K  3.9G   1% /run
+tmpfs           3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/vda1        99G  5.1G   89G   6% /
+tmpfs           779M     0  779M   0% /run/user/0
+tmpfs           779M     0  779M   0% /run/user/1000
+
+[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
+$sudo ./biotop 5 1
+</code></pre><p> 或者</p>
+<pre><code>$sudo stap iostats.stp -T 5
+starting probe
+
+                                       read     read             write    write
+            name     open     read   KB tot    B avg    write   KB tot    B avg
+            java        8   125797     5406       44   251673    44337      180
+              ps      754      784      319      417        6       29     5105
+            grep       39       27       73     2781        9       42     4891
+              wc       10        6       17     2979        1        0        2
+       AliYunDun       43       53        9      175        0        0        0
+              sh        8        4        3      880        0        0        0
+             fio       20       20        2      136        5        0       81
+            sshd        0        6        0       70        6        0      121
+ AliYunDunUpdate        2        4        0       75        0        0        0
+   systemd-udevd        1        4        0       65        0        0        0
+    DragoonAgent        0        0        0        0        1        0      100
+          stapio        0       27        0        1        1        0       15
+  aliyun-service        0       25        0        0        0        0        0
+</code></pre><h2 id="fs-latency"><a href="#fs-latency" class="headerlink" title="fs latency"></a>fs latency</h2><pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# stap fslatency-nd.stp 1 1
+Tracing FS sync reads and writes... Output every 1 secs.
+
+Thu Sep 19 07:48:54 2019 FS latency (ns):
+
+FS call: __vfs_read()
+ value |-------------------------------------------------- count
+   128 |                                                       0
+   256 |                                                       0
+   512 |                                                       2
+  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  12423
+  2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@          10330
+  4096 |@@                                                   514
+  8192 |@@@@@@                                              1624
+ 16384 |@                                                    273
+ 32768 |                                                      48
+ 65536 |                                                       1
+131072 |                                                       0
+262144 |                                                       0
+
+FS call: __vfs_write()
+ value |-------------------------------------------------- count
+    64 |                                                       0
+   128 |                                                       0
+   256 |                                                     169
+   512 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  32549
+  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@                          16276
+  2048 |                                                     469
+  4096 |                                                     385
+  8192 |                                                     439
+ 16384 |                                                     100
+ 32768 |                                                       5
+ 65536 |                                                       1
+131072 |                                                       0
+262144 |                                                       0
+</code></pre><p>读写时间分布：<br>    [root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./rwtime-nd.stp java<br>    Tracing read/write syscalls for processes named “java”… Hit Ctrl-C to end.<br>    ^C<br>    syscall read latency (ns):<br>     value |————————————————– count<br>       128 |                                                       0<br>       256 |                                                       0<br>       512 |@                                                   3129<br>      1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  85897<br>      2048 |@@@@@@@@@@@@@@@                                    26032<br>      4096 |                                                     386<br>      8192 |                                                    1142<br>     16384 |                                                      63<br>     32768 |                                                       3<br>     65536 |                                                       1<br>    131072 |                                                       1<br>    262144 |                                                       0<br>    524288 |                                                       0</p>
+<pre><code>syscall write latency (ns):
+  value |-------------------------------------------------- count
+    256 |                                                        0
+    512 |                                                        0
+   1024 |                                                     1720
+   2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  104247
+   4096 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  105507
+   8192 |@@@@@@@@                                            17768
+  16384 |@                                                    3715
+  32768 |                                                      353
+  65536 |                                                       44
+ 131072 |                                                        0
+ 262144 |                                                        3
+ 524288 |                                                        0
+1048576 |                                                        0
+</code></pre><p>SLOW FS READ AND WRITE</p>
+<pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./fsslower-nd.stp 5
+Tracing FS sync reads and writes slower than 5 ms... Hit Ctrl-C to end.
+TIME     PID    COMM             FUNC           SIZE     LAT(ms)
+07:55:13 30941  grep             __vfs_read     32768         18
+07:55:13 30942  grep             __vfs_read     32768          5
+07:55:13 30943  grep             __vfs_read     32768         23
+07:55:13 30944  wc               __vfs_read     16384         24
+07:55:13 1102   java             __vfs_read     8192          39
+07:55:13 1102   java             __vfs_read     8192          40
+</code></pre><h2 id="cache"><a href="#cache" class="headerlink" title="cache"></a>cache</h2><pre><code>$sudo ./cachestat -T 5 1
+TIME         HITS   MISSES  DIRTIES HITRATIO   BUFFERS_MB  CACHED_MB
+16:01:10     6297        0       52  100.00%           31        652
+</code></pre><h2 id="中断发生，主要是网卡"><a href="#中断发生，主要是网卡" class="headerlink" title="中断发生，主要是网卡"></a>中断发生，主要是网卡</h2><pre><code># sudo stap interrupts-by-dev.stp -c &apos;sleep 1&apos;
+  DEVICE      NUMBER OF INTERRUPTS 
+    virtio2-req.0 :      1
+ virtio0-output.0 :      2
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      2
+ virtio0-output.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+</code></pre><h2 id="futex"><a href="#futex" class="headerlink" title="futex"></a>futex</h2><pre><code>$sudo stap futexes.stp  -T 1
+java[4457] lock 0x7f5da0bbd548 contended 1 times, 1 avg us
+java[4457] lock 0x7f5d23c46188 contended 1 times, 27 avg us
+java[4457] lock 0x7f5d52f3f154 contended 1 times, 1945 avg us
+java[4457] lock 0x7f5da06a03f0 contended 1 times, 20 avg us
+java[4457] lock 0x7f5da2baad54 contended 1 times, 267 avg us
+java[4457] lock 0x7f5d23a8d574 contended 1 times, 60130 avg us
+java[4457] lock 0x7f5d23c30154 contended 1 times, 664 avg us
+java[4457] lock 0x7f5d23c5e1b4 contended 3 times, 70979 avg us
+java[4457] lock 0x7f5d23bc3154 contended 1 times, 4342 avg us
+java[4457] lock 0x7f5da2b897b4 contended 1 times, 70190 avg us
+java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
+</code></pre><h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect" target="_blank" rel="noopener">https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect</a></p>
+<p>Demo集锦：<a href="https://github.com/openresty/openresty-systemtap-toolkit/blob/master/README-CN.markdown" target="_blank" rel="noopener">openresty systemtap demo</a></p>
+<p><a href="https://yq.aliyun.com/articles/174916" target="_blank" rel="noopener">SystemTap原理、安装、入门、脚本语言及技巧</a></p>
+<p><a href="https://yq.aliyun.com/articles/697679" target="_blank" rel="noopener">eBCC性能分析最佳实践–开启性能分析新篇章</a></p>
+<p><a href="http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/" target="_blank" rel="noopener">eBPF 内核探测：如何将任意系统调用转换成事件（2016）</a></p>
+<p><a href="http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/" target="_blank" rel="noopener">使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/09/12/logback日志异步化输出对性能的影响/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5053,899 +6017,6 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="url">就是要你懂抓包--WireShark之命令行版tshark</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T15:30:03+08:00">
-                2019-06-21
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/tcpdump/" itemprop="url" rel="index">
-                    <span itemprop="name">tcpdump</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="玩转TShark（Wireshark的命令行版）"><a href="#玩转TShark（Wireshark的命令行版）" class="headerlink" title="玩转TShark（Wireshark的命令行版）"></a>玩转TShark（Wireshark的命令行版）</h1><p>在我感叹Wireshark图形界面的强大时候，有时候也抱怨有点慢，或者感叹下要是有命令行界面版该多好啊，实际上TShark就是WireShark的命令行版，WireShark的功能基本都有，还能组合grep/awk等编程处理分析抓包文件。</p>
-<p>下面让我们通过一些例子来学习TShark的常用功能，所有用到的<em>.cap/</em>.pcap等都是通过tcpdump抓到的包。请收藏好，下次碰到类似问题直接用文章中的命令跑一下。</p>
-<h2 id="wireshark不再展示协议内容"><a href="#wireshark不再展示协议内容" class="headerlink" title="wireshark不再展示协议内容"></a>wireshark不再展示协议内容</h2><p>比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 </p>
-<p>配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos</p>
-<p>如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。</p>
-<h3 id="tcp-segment-of-a-reassembled-pdu"><a href="#tcp-segment-of-a-reassembled-pdu" class="headerlink" title="tcp segment of a reassembled pdu"></a>tcp segment of a reassembled pdu</h3><p>这个提示是指，wireshark需要将多个tcp协议包重新组合成特定协议内容（比如MySQL，HTTP），但是因为包缺失（或者每个包大小截断了）导致reassembled失败。实际上wireshark已经成功检测到该协议，只是在解析这个协议的时候缺失包导致解析不好。</p>
-<p>这个时候可以试试将指定协议的reassembled属性关掉</p>
-<p><img src="/images/oss/1fc544dcd6e064f967481472f6688be9.png" alt="image.png"></p>
-<p><a href="https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html" target="_blank" rel="noopener">PDU：Protocol Data Unit</a></p>
-<blockquote>
-<p>If the reassembly is successful, the TCP segment containing the last part of the packet will show the packet.<br>The reassembly might fail if some TCP segments are missing.</p>
-</blockquote>
-<p><a href="https://osqa-ask.wireshark.org/questions/58186/tcp-segment-of-a-reassembled-pdu" target="_blank" rel="noopener">TCP segment of a reassembled PDU </a> means that:</p>
-<ol>
-<li>Wireshark/TShark thinks it knows what protocol is running atop TCP in that TCP segment;</li>
-<li>that TCP segment doesn’t contain all of a “protocol data unit” (PDU) for that higher-level protocol, i.e. a packet or protocol message for that higher-level protocol, and doesn’t contain the last part of that PDU, so it’s trying to reassemble the multiple TCP segments containing that higher-level PDU.</li>
-</ol>
-<h2 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">#parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query &apos;port 8507&apos;</span><br><span class="line"></span><br><span class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y &quot; ((tcp.port eq 4444 )  )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#query time</span><br><span class="line">sudo tshark -i eth0 -Y &quot; ((tcp.port eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟生成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M </span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br></pre></td></tr></table></figure>
-<h2 id="分析mysql的每个SQL响应时间"><a href="#分析mysql的每个SQL响应时间" class="headerlink" title="分析mysql的每个SQL响应时间"></a>分析mysql的每个SQL响应时间</h2><p>应用有输出的日志显示DB慢，DB监控到的日志显示自己很快，经常扯皮，如果直接在应用机器的网卡抓包，然后分析到每个SQL的响应时间，那么DB、网络都可以甩锅了（有时候应用统计的时间包含了应用自身的时间、取连接的时间等）</p>
-<pre><code>tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1
-</code></pre><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">34143	1475902394.645073000	0.000342000	10.100.53.17	3306	40383	10.100.10.213	0.000153000	2273	0	</span><br><span class="line">34145	1475902394.645333000	0.000260000	10.100.53.17	3306	40383	10.100.10.213	0.000253000	2273	77	</span><br><span class="line">34150	1475902394.645537000	0.000204000	10.100.53.17	3306	40383	10.100.10.213	0.000146000	2273	0	</span><br><span class="line">34151	1475902394.645706000	0.000169000	10.100.53.17	3306	40383	10.100.10.213	0.000169000	2273	11	</span><br><span class="line">34153	1475902394.645737000	0.000031000	10.100.10.213	40383	3306	10.100.53.17	0.000031000	2273	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34161	1475902394.646390000	0.000158000	10.100.53.17	3306	40383	10.100.10.213	0.000653000	2273	11	</span><br><span class="line">34162	1475902394.646418000	0.000028000	10.100.10.213	40383	3306	10.100.53.17	0.000028000	2273	22	START TRANSACTION</span><br><span class="line">34164	1475902394.646713000	0.000295000	10.100.53.17	3306	40383	10.100.10.213	0.000295000	2273	11	</span><br><span class="line">34166	1475902394.646776000	0.000063000	10.100.10.213	40383	3306	10.100.53.17	0.000063000	2273	46	select AUTO_SEQ_t_order.nextval from dual</span><br><span class="line">34194	1475902394.651468000	0.000909000	10.100.53.17	3306	40383	10.100.10.213	0.004692000	2273	100	</span><br><span class="line">34195	1475902394.651782000	0.000314000	10.100.10.213	40383	3306	10.100.53.17	0.000314000	2273	576	insert into t_order (`out_order_no`,`pk_order`,`uid`,`ytid`,`platform`,`origin_price`,`price`,`partner_id`,`ip`,`sources`,`pay_state`,`type`,`product_type`,`device`,`extension`,`spm`,`ext2`,`createtime`,`pay_channel`,`use_ytid`,`updatetime`) values (&apos;2016100822003361672230261573284&apos;,&apos;261573284&apos;,&apos;336167223&apos;,&apos;336167223&apos;,&apos;1&apos;,&apos;500&apos;,&apos;500&apos;,&apos;100000&apos;,&apos;42.49.141.142&apos;,&apos;2&apos;,&apos;1&apos;,&apos;1&apos;,&apos;2&apos;,&apos;3&apos;,&apos;&#123;\&quot;showid\&quot;:\&quot;286083\&quot;,\&quot;play_url\&quot;:\&quot;http:\\/\\/v.youku.com\\/v_show\\/id_XMTczOTM5NjU1Mg==.html\&quot;,\&quot;permit_duration\&quot;:172800&#125;&apos;,&apos;&apos;,&apos;&apos;,&apos;2016-10-08 12:53:14&apos;,&apos;201&apos;,&apos;0&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34196	1475902394.653275000	0.001493000	10.100.53.17	3306	40383	10.100.10.213	0.001493000	2273	19	</span><br><span class="line">34197	1475902394.653410000	0.000135000	10.100.10.213	40383	3306	10.100.53.17	0.000135000	2273	370	insert into t_order_product (`fk_order`,`product_id`,`origin_price`,`price`,`discount`,`deliver_state`,`product_url`,`product_name`,`amount`,`ytid`,`sub_product_id`,`createtime`) values (&apos;2016100822003361672230261573284&apos;,&apos;4000010000&apos;,&apos;500&apos;,&apos;500&apos;,&apos;0&apos;,&apos;1&apos;,&apos;http://vip.youku.com&apos;,&apos;���������������������2:���������������&apos;,&apos;1&apos;,&apos;336167223&apos;,&apos;286083&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34198	1475902394.658326000	0.004916000	10.100.53.17	3306	40383	10.100.10.213	0.004916000	2273	19	</span><br><span class="line">34199	1475902394.658407000	0.000081000	10.100.10.213	40383	3306	10.100.53.17	0.000081000	2273	11	commit</span><br><span class="line">34200	1475902394.659626000	0.001219000	10.100.53.17	3306	40383	10.100.10.213	0.001219000	2273	11	</span><br><span class="line">34201	1475902394.659811000	0.000185000	10.100.10.213	40383	3306	10.100.53.17	0.000185000	2273	22	START TRANSACTION</span><br><span class="line">34202	1475902394.660054000	0.000243000	10.100.53.17	3306	40383	10.100.10.213	0.000243000	2273	11	</span><br><span class="line">34203	1475902394.660126000	0.000072000	10.100.10.213	40383	3306	10.100.53.17	0.000072000	2273	125	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) FOR UPDATE</span><br><span class="line">34209	1475902394.661970000	0.001844000	10.100.53.17	3306	40383	10.100.10.213	0.001844000	2273	2214	</span><br><span class="line">34211	1475902394.662069000	0.000099000	10.100.10.213	40383	3306	10.100.53.17	0.000089000	2273	122	update t_order set `pay_state`=&apos;2&apos;,`updatetime`=&apos;2016-10-08 12:53:14&apos; where pk_order=&apos;261573284&apos; and ytid=&apos;336167223&apos;</span><br><span class="line">34213	1475902394.662917000	0.000848000	10.100.53.17	3306	40383	10.100.10.213	0.000848000	2273	19	</span><br><span class="line">34216	1475902394.663049000	0.000088000	10.100.10.213	40383	3306	10.100.53.17	0.000132000	2273	11	commit</span><br><span class="line">34225	1475902394.664204000	0.000264000	10.100.53.17	3306	40383	10.100.10.213	0.001155000	2273	11	</span><br><span class="line">34226	1475902394.664269000	0.000065000	10.100.10.213	40383	3306	10.100.53.17	0.000065000	2273	115	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) </span><br><span class="line">34235	1475902394.665694000	0.000061000	10.100.53.17	3306	40383	10.100.10.213	0.001425000	2273	2214	</span><br><span class="line">34354	1475902394.681464000	0.000157000	10.100.53.17	3306	40383	10.100.10.213	0.000187000	2273	0	</span><br><span class="line">34174	1475902394.648046000	0.001123000	10.100.53.19	3306	33471	10.100.10.213	0.000151000	2275	0	</span><br><span class="line">34176	1475902394.648331000	0.000285000	10.100.53.19	3306	33471	10.100.10.213	0.000278000	2275	77	</span><br><span class="line">34179	1475902394.648482000	0.000151000	10.100.53.19	3306	33471	10.100.10.213	0.000127000	2275	0	</span><br><span class="line">34180	1475902394.648598000	0.000116000	10.100.53.19	3306	33471	10.100.10.213	0.000116000	2275	11	</span><br><span class="line">34181	1475902394.648606000	0.000008000	10.100.10.213	33471	3306	10.100.53.19	0.000008000	2275	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34182	1475902394.648846000	0.000240000	10.100.53.19	3306	33471	10.100.10.213	0.000240000	2275	11	</span><br><span class="line">34183	1475902394.648885000	0.000039000	10.100.10.213	33471	3306	10.100.53.19	0.000039000	2275	380	select pk_auto_renew_account as account_id,fk_user as uid,platform,ytid,fk_member_conf_id as member_id,fk_product_id as product_id,price,fk_pay_channel as pay_channel,renew_type,fk_order,fk_auto_renew_subscribe_log as fk_subscribe_log,state,memo,nexttime,createtime,updatetime from t_auto_renew_account where ( ytid = &apos;354295193&apos; ) AND ( platform = &apos;1&apos; ) AND ( state &lt;&gt; &apos;3&apos; )</span><br><span class="line">34184	1475902394.650040000	0.001155000	10.100.53.19	3306	33471	10.100.10.213	0.001155000	2275	1727	</span><br><span class="line">34189	1475902394.650559000	0.000519000	10.100.53.19	3306	33471	10.100.10.213	0.000198000	2275	0</span><br></pre></td></tr></table></figure>
-<p>或者：<br>    tshark -r gege_drds.pcap -Y “ ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )” -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </p>
-<p>这个命令跑出来，倒数第四列基本就是rt</p>
-<pre><code>967     1548148159.346612000    0.000442000     192.168.4.18    3306    44026   192.168.100.30  0.005255000     17      1576    0.005255000
-969     1548148159.346826000    0.000214000     192.168.4.18    3306    44090   192.168.100.30  0.005425000     15      1576    0.005425000
-973     1548148159.347428000    0.000602000     192.168.4.18    3306    44070   192.168.100.30  0.005517000     8       2500    0.005517000
-979     1548148159.348640000    0.001212000     192.168.4.18    3306    44048   192.168.100.30  0.005517000     22      2462    0.005517000
-981     1548148159.348751000    0.000111000     192.168.4.18    3306    44066   192.168.100.30  0.005855000     21      2692    0.005855000
-983     1548148159.348844000    0.000093000     192.168.4.18    3306    44046   192.168.100.30  0.004589000     3       2692    0.004589000
-985     1548148159.348981000    0.000137000     192.168.4.18    3306    44012   192.168.100.30  0.004885000     19      2443    0.004885000
-990     1548148159.349293000    0.000312000     192.168.4.18    3306    44074   192.168.100.30  0.005923000     5       2692    0.005923000
-994     1548148159.349671000    0.000378000     192.168.4.18    3306    44080   192.168.100.30  0.004889000     4       2730    0.004889000
-1009    1548148159.350591000    0.000920000     192.168.4.18    3306    44022   192.168.100.30  0.004187000     14      1448    0.004187000
-1010    1548148159.350592000    0.000001000     192.168.4.18    3306    44022   192.168.100.30  0.000001000     14      1052    
-1013    1548148159.350790000    0.000198000     192.168.4.18    3306    44002   192.168.100.30  0.005998000     0       1576    0.005998000
-1026    1548148159.352207000    0.001417000     192.168.4.18    3306    44026   192.168.100.30  0.005348000     17      1448    0.005348000
-1027    1548148159.352217000    0.000010000     192.168.4.18    3306    44026   192.168.100.30  0.000010000     17      1052    
-1036    1548148159.352973000    0.000756000     192.168.4.18    3306    44090   192.168.100.30  0.005940000     15      2500    0.005940000
-1041    1548148159.353683000    0.000710000     192.168.4.18    3306    44070   192.168.100.30  0.005190000     8       2692    0.005190000
-1043    1548148159.353737000    0.000054000     192.168.4.18    3306    44066   192.168.100.30  0.004635000     21      1448    0.004635000
-1044    1548148159.353749000    0.000012000     192.168.4.18    3306    44066   192.168.100.30  0.000012000     21      128     
-1051    1548148159.354289000    0.000540000     192.168.4.18    3306    44046   192.168.100.30  0.004911000     3       1576    0.004911000
-1054    1548148159.354511000    0.000222000     192.168.4.18    3306    44080   192.168.100.30  0.004515000     4       1576    0.004515000
-1055    1548148159.354530000    0.000019000     192.168.4.18    3306    44074   192.168.100.30  0.004909000     5       1576    0.004909000
-1065    1548148159.355412000    0.000882000     192.168.4.18    3306    44012   192.168.100.30  0.005217000     19      2692    0.005217000
-1067    1548148159.355496000    0.000084000     192.168.4.18    3306    44048   192.168.100.30  0.005231000     22      2610    0.005231000
-1072    1548148159.356111000    0.000615000     192.168.4.18    3306    44052   192.168.100.30  0.005830000     24      2730    0.005830000
-1076    1548148159.356545000    0.000434000     192.168.4.18    3306    44022   192.168.100.30  0.005615000     14      2692    0.005615000
-1079    1548148159.357012000    0.000467000     192.168.4.18    3306    44002   192.168.100.30  0.005966000     0       2462    0.005966000
-1082    1548148159.357235000    0.000223000     192.168.4.18    3306    44072   192.168.100.30  0.004817000     23      2692    0.004817000
-1093    1548148159.359244000    0.002009000     192.168.4.18    3306    44070   192.168.100.30  0.005188000     8       1576    0.005188000
-</code></pre><h4 id="MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】"><a href="#MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】" class="headerlink" title="MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】"></a>MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】</h4><pre><code>tshark -r gege_drds.pcap -Y &quot;mysql.query or (tcp.srcport==3306  and tcp.len&gt;60)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk &apos;BEGIN {sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0} {rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;} END{printf &quot;-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n&quot; , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;}&apos;
-
- -------------
-3ms:    145037 
-10ms:    78811 
-30ms:    7032 
-50ms:    2172 
-100ms:    1219 
-300ms:    856 
-500ms:    449 
-1000ms:118
-&gt;1s:    0
--------------
-avg: 0.005937 
-</code></pre><p><strong>对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</strong></p>
-<h3 id="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"><a href="#有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥" class="headerlink" title="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"></a>有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥</h3><p>开发测试环境上通过如下命令也可以直接用tshark抓包分析SQL语句：</p>
-<pre><code>sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;
-</code></pre><p>这样就直接看到发出的SQL是否是autocommit=1了</p>
-<h2 id="按http-response分析响应时间"><a href="#按http-response分析响应时间" class="headerlink" title="按http response分析响应时间"></a>按http response分析响应时间</h2><p>tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y “http.request or http.response” -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">54087	1475902398.264070000	0.000549000	10.100.188.59	10.100.39.212	3577		100	Continue</span><br><span class="line">54089	1475902398.264325000	0.000255000	10.100.39.212	10.100.188.59	3577	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54130	1475902398.269529000	0.003113000	10.100.188.59	10.100.39.212	3577		200	OK</span><br><span class="line">54104	1475902398.266175000	0.001774000	10.100.188.59	10.100.37.32	3578		100	Continue</span><br><span class="line">54108	1475902398.266416000	0.000241000	10.100.37.32	10.100.188.59	3578	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54150	1475902398.271960000	0.001209000	10.100.188.59	10.100.37.32	3578		200	OK</span><br><span class="line">54143	1475902398.270437000	0.000908000	10.100.188.59	10.100.37.31	3581		100	Continue</span><br><span class="line">54145	1475902398.270751000	0.000314000	10.100.37.31	10.100.188.59	3581	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54171	1475902398.275876000	0.003916000	10.100.188.59	10.100.37.31	3581		200	OK</span><br><span class="line">54180	1475902398.278597000	0.002721000	10.103.10.12	10.100.188.59	3583	http://premium.api.vip.youku.com/trade/query_preorder_paystate.json		</span><br><span class="line">54197	1475902398.283177000	0.004580000	10.100.188.59	10.103.10.12	3583		200	OK</span><br><span class="line">54208	1475902398.283758000	0.000581000	10.100.188.59	10.100.10.88	3585		100	Continue</span><br><span class="line">54211	1475902398.283981000	0.000223000	10.100.10.88	10.100.188.59	3585	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54235	1475902398.288862000	0.000508000	10.100.188.59	10.100.10.88	3585		200	OK</span><br><span class="line">54226	1475902398.286716000	0.002735000	10.100.188.59	10.100.37.30	3587		100	Continue</span><br><span class="line">54232	1475902398.288354000	0.001638000	10.100.37.30	10.100.188.59	3587	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54269	1475902398.293808000	0.000205000	10.100.188.59	10.100.37.30	3587		200	OK</span><br></pre></td></tr></table></figure>
-<h2 id="分析包的总概览"><a href="#分析包的总概览" class="headerlink" title="分析包的总概览"></a>分析包的总概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">$ capinfos rsb2.cap </span><br><span class="line">File name:           rsb2.cap</span><br><span class="line">File type:           Wireshark/tcpdump/... - pcap</span><br><span class="line">File encapsulation:  Ethernet</span><br><span class="line">Packet size limit:   file hdr: 65535 bytes</span><br><span class="line">Number of packets:   510 k</span><br><span class="line">File size:           143 MB</span><br><span class="line">Data size:           135 MB</span><br><span class="line">Capture duration:    34 seconds</span><br><span class="line">Start time:          Tue Jun  7 11:15:31 2016</span><br><span class="line">End time:            Tue Jun  7 11:16:05 2016</span><br><span class="line">Data byte rate:      3997 kBps</span><br><span class="line">Data bit rate:       31 Mbps</span><br><span class="line">Average packet size: 265.62 bytes</span><br><span class="line">Average packet rate: 15 kpackets/sec</span><br><span class="line">SHA1:                a8367d0d291eab6ba78732d092ae72a5305756a2</span><br><span class="line">RIPEMD160:           ec991772819f316d2f629745d4b58fb861e41fc6</span><br><span class="line">MD5:                 53975139fa49581eacdb42bd967cbd58</span><br><span class="line">Strict time order:   False</span><br></pre></td></tr></table></figure>
-<h2 id="分析每两个IP之间的流量"><a href="#分析每两个IP之间的流量" class="headerlink" title="分析每两个IP之间的流量"></a>分析每两个IP之间的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,ip&apos; </span><br><span class="line">================================================================================</span><br><span class="line">IPv4 Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">100.98.50.214        &lt;-&gt; 10.117.41.213            425     60647     544    350182     969    410829     0.856983000        88.7073</span><br><span class="line">10.252.138.13        &lt;-&gt; 10.117.41.213            381    131639     451     45706     832    177345     3.649894000        79.5370</span><br><span class="line">10.168.127.178       &lt;-&gt; 10.117.41.213            335    118164     390     39069     725    157233     3.456698000        81.2639</span><br><span class="line">10.168.246.105       &lt;-&gt; 10.117.41.213            435     23490     271     14634     706     38124     0.000000000        89.7614</span><br><span class="line">10.117.49.244        &lt;-&gt; 10.117.41.213            452     24408     221     11934     673     36342     0.289990000        89.6024</span><br><span class="line">100.97.197.0         &lt;-&gt; 10.117.41.213             45      4226     107      7310     152     11536     0.538867000        88.0736</span><br><span class="line">100.97.196.0         &lt;-&gt; 10.117.41.213             48      4576     102      6960     150     11536     0.524268000        89.0840</span><br><span class="line">100.97.196.128       &lt;-&gt; 10.117.41.213             39      3462      90      6116     129      9578     0.573839000        88.0728</span><br><span class="line">100.97.197.128       &lt;-&gt; 10.117.41.213             27      1998      81      5562     108      7560     1.071232000        87.0382</span><br><span class="line">100.98.148.129       &lt;-&gt; 10.117.41.213             55      3630      37      2442      92      6072     0.571963000        86.7362</span><br><span class="line">================================================================================</span><br></pre></td></tr></table></figure>
-<h2 id="分析每个会话的流量"><a href="#分析每个会话的流量" class="headerlink" title="分析每个会话的流量"></a>分析每个会话的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,tcp&apos; </span><br><span class="line">================================================================================</span><br><span class="line">TCP Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">10.117.41.213:33362  &lt;-&gt; 100.98.50.214:3306       143    107183     108     17345     251    124528     9.556973000        79.9993</span><br><span class="line">10.117.41.213:32695  &lt;-&gt; 100.98.50.214:3306       131     95816     118     17843     249    113659     3.464596000        54.7814</span><br><span class="line">10.117.41.213:33737  &lt;-&gt; 100.98.50.214:3306       107     67199      82     11842     189     79041    69.539519000        13.0781</span><br><span class="line">10.117.41.213:33736  &lt;-&gt; 100.98.50.214:3306        58     37851      31      4895      89     42746    69.539133000         8.2015</span><br><span class="line">10.117.41.213:33735  &lt;-&gt; 100.98.50.214:3306        51     37654      27      3338      78     40992    69.538573000        20.0257</span><br><span class="line">10.117.41.213:33681  &lt;-&gt; 100.98.50.214:3306        22      2367      15      2480      37      4847    58.237482000         0.0082</span><br><span class="line">10.252.138.13:17926  &lt;-&gt; 10.117.41.213:3306        13      3454      17      1917      30      5371    77.462089000         0.2816</span><br><span class="line">10.168.127.178:21250 &lt;-&gt; 10.117.41.213:3306        13      4926      17      2267      30      7193    77.442197000         0.6282</span><br><span class="line">10.252.138.13:17682  &lt;-&gt; 10.117.41.213:3306        13      5421      17      2267      30      7688    34.945805000         0.7274</span><br><span class="line">10.168.127.178:21001 &lt;-&gt; 10.117.41.213:3306        18      9872      11      1627      29     11499    21.220800000        35.0242</span><br><span class="line">10.252.138.13:17843  &lt;-&gt; 10.117.41.213:3306        13      4453      15      1510      28      5963    59.176447000        10.8169</span><br><span class="line">10.168.127.178:20927 &lt;-&gt; 10.117.41.213:3306        12      4414      15      1510      27      5924    13.686763000         0.1860</span><br><span class="line">10.252.138.13:17481  &lt;-&gt; 10.117.41.213:3306        11      4360      16      1564      27      5924     3.649894000         0.1810</span><br><span class="line">10.252.138.13:17928  &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.467248000         0.6720</span><br><span class="line">10.168.127.178:21241 &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.376858000         0.4669</span><br><span class="line">10.168.127.178:21201 &lt;-&gt; 10.117.41.213:3306        12      3971      14      2571      26      6542    64.890147000         5.4010</span><br><span class="line">10.168.127.178:21184 &lt;-&gt; 10.117.41.213:3306        12      6775      14      1794      26      8569    64.073021000         5.6804</span><br><span class="line">10.252.138.13:17545  &lt;-&gt; 10.117.41.213:3306        11      4379      15      1510      26      5889    13.940379000         0.1845</span><br><span class="line">10.168.127.178:20815 &lt;-&gt; 10.117.41.213:3306        11      4360      15      1510      26      5870     3.456698000         0.1901</span><br><span class="line">10.252.138.13:17864  &lt;-&gt; 10.117.41.213:3306        12      2985      12      1129      24      4114    59.855131000         9.7005</span><br><span class="line">10.252.138.13:17820  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    49.537379000         0.1669</span><br><span class="line">10.252.138.13:17757  &lt;-&gt; 10.117.41.213:3306        11      6006      13      1740      24      7746    45.507148000         0.7587</span><br><span class="line">10.252.138.13:17677  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    34.806484000         0.5017</span><br><span class="line">10.168.127.178:21063 &lt;-&gt; 10.117.41.213:3306        11      3848      13      1390      24      5238    29.902032000         0.0133</span><br><span class="line">10.252.138.13:17516  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725    11.505585000         0.1494</span><br><span class="line">10.252.138.13:17507  &lt;-&gt; 10.117.41.213:3306        11      3570      13      1424      24      4994     9.652955000         0.0151</span><br><span class="line">10.252.138.13:17490  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725     4.865639000         0.1275</span><br></pre></td></tr></table></figure>
-<h2 id="分析每个包的response-time"><a href="#分析每个包的response-time" class="headerlink" title="分析每个包的response time"></a>分析每个包的response time</h2><blockquote>
-<p>$ tshark -r rsb2.cap  -o tcp.calculate_timestamps:true -T fields  -e frame.number -e frame.time_epoch -e ip.src -e ip.dst  -e tcp.stream  -e tcp.len   -e tcp.analysis.initial_rtt  -e tcp.time_delta </p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">1481	1465269331.308138000	100.98.199.36	10.25.92.13	302	0		0.002276000</span><br><span class="line">1482	1465269331.308186000	10.25.92.13	    100.98.199.36	361	11	0.000063000</span><br><span class="line">1483	1465269331.308209000	100.98.199.36	10.25.92.13	496	0		0.004950000</span><br><span class="line">1484	1465269331.308223000	100.98.199.36	10.25.92.13	513	0		0.000000000</span><br><span class="line">1485	1465269331.308238000	100.98.199.36	10.25.92.13	326	0		0.055424000</span><br><span class="line">1486	1465269331.308246000	100.98.199.36	10.25.92.13	514	0		0.000000000</span><br><span class="line">1487	1465269331.308261000	10.25.92.71	    10.25.92.13	48	0		0.000229000</span><br><span class="line">1488	1465269331.308277000	100.98.199.36	10.25.92.13	254	0		0.055514000</span><br><span class="line">1489	1465269331.308307000	100.98.199.36	10.25.92.13	292	0		0.002096000</span><br><span class="line">1490	1465269331.308383000	100.98.199.36	10.25.92.13	308	0		0.055406000</span><br><span class="line">1491	1465269331.308403000	100.98.199.36	10.25.92.13	75	0		0.041664000</span><br><span class="line">1492	1465269331.308421000	100.98.199.36	10.25.92.13	291	0		0.001973000</span><br><span class="line">1493	1465269331.308532000	100.98.199.36	10.25.92.13	509	0		0.002100000</span><br><span class="line">1494	1465269331.308567000	100.98.199.36	10.25.92.13	123	0		0.041560000</span><br><span class="line">1495	1465269331.308576000	100.98.199.36	10.25.92.13	232	11		0.063317000</span><br><span class="line">1496	1465269331.308584000	100.98.199.36	10.25.92.13	465	655		0.018121000</span><br><span class="line">1497	1465269331.308626000	100.98.199.36	10.25.92.13	61	655		0.042409000</span><br><span class="line">1498	1465269331.308637000	100.98.199.36	10.25.92.13	146	0		0.001520000</span><br><span class="line">1499	1465269331.308639000	100.98.199.36	10.25.92.13	510	0		0.001460000</span><br><span class="line">1500	1465269331.308645000	100.98.199.36	10.25.92.13	237	11		0.063273000</span><br></pre></td></tr></table></figure>
-<h2 id="分析有问题的包、概览"><a href="#分析有问题的包、概览" class="headerlink" title="分析有问题的包、概览"></a>分析有问题的包、概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;expert,note&apos;</span><br><span class="line"></span><br><span class="line">Errors (22)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          22  Malformed              MySQL  Malformed Packet (Exception occurred)</span><br><span class="line"></span><br><span class="line">Warns (749)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">         538   Sequence                TCP  ACKed segment that wasn&apos;t captured (common at capture start)</span><br><span class="line">         192   Sequence                TCP  Connection reset (RST)</span><br><span class="line">          19   Sequence                TCP  Previous segment not captured (common at capture start)</span><br><span class="line"></span><br><span class="line">Notes (1162)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          84   Sequence                TCP  TCP keep-alive segment</span><br><span class="line">         274   Sequence                TCP  Duplicate ACK (#1)</span><br><span class="line">          37   Sequence                TCP  ACK to a TCP keep-alive segment</span><br><span class="line">          23   Sequence                TCP  This frame is a (suspected) retransmission</span><br><span class="line">         262   Sequence                TCP  Duplicate ACK (#2)</span><br><span class="line">         259   Sequence                TCP  Duplicate ACK (#3)</span><br><span class="line">         141   Sequence                TCP  Duplicate ACK (#4)</span><br><span class="line">          69   Sequence                TCP  Duplicate ACK (#5)</span><br><span class="line">           7   Sequence                TCP  Duplicate ACK (#6)</span><br><span class="line">           5   Sequence                TCP  This frame is a (suspected) spurious retransmission</span><br><span class="line">           1   Sequence                TCP  Duplicate ACK (#7)</span><br></pre></td></tr></table></figure>
-<h2 id="分析rtt、丢包、deplicate等等"><a href="#分析rtt、丢包、deplicate等等" class="headerlink" title="分析rtt、丢包、deplicate等等"></a>分析rtt、丢包、deplicate等等</h2><blockquote>
-<p>$ tshark -r retrans.cap -q -z io,stat,1,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”,”MIN(tcp.window_size)tcp.window_size”</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  2 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</span><br><span class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1         |2      |3      |4      |5      |6      |                   |</span><br><span class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</span><br><span class="line">|-------------------------------------------------------------|                   |</span><br><span class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</span><br><span class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</span><br><span class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</span><br><span class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</span><br><span class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</span><br><span class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</span><br><span class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</span><br><span class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</span><br><span class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</span><br><span class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</span><br><span class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</span><br><span class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</span><br><span class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</span><br><span class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</span><br><span class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</span><br><span class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</span><br></pre></td></tr></table></figure>
-<h2 id="分析丢包、duplicate-ack"><a href="#分析丢包、duplicate-ack" class="headerlink" title="分析丢包、duplicate ack"></a>分析丢包、duplicate ack</h2><blockquote>
-<p>$ tshark -r retrans.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  5 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     2: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     3: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     4: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3      |4      |                                      |</span><br><span class="line">| Interval | COUNT | COUNT | COUNT | COUNT |                                      |</span><br><span class="line">|------------------------------------------|                                      |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |     0 |     0 |     1 |                                      |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |     0 |     0 |     0 |                                      |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |     0 |     0 |     4 |                                      |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 |     0 |     0 |     5 |                                      |</span><br><span class="line">| 20 &lt;&gt; 25 |     3 |     0 |    67 |     2 |                                      |</span><br><span class="line">| 25 &lt;&gt; 30 |     2 |     0 |    58 |     1 |                                      |</span><br><span class="line">| 30 &lt;&gt; 35 |     0 |     0 |   112 |     0 |                                      |</span><br><span class="line">| 35 &lt;&gt; 40 |     1 |     0 |   156 |     0 |                                      |</span><br><span class="line">| 40 &lt;&gt; 45 |     0 |     0 |   127 |     2 |                                      |</span><br><span class="line">| 45 &lt;&gt; 50 |     1 |     0 |    91 |     0 |                                      |</span><br><span class="line">| 50 &lt;&gt; 55 |     0 |     0 |    63 |     0 |                                      |</span><br><span class="line">| 55 &lt;&gt; 60 |     0 |     0 |    65 |     2 |                                      |</span><br><span class="line">| 60 &lt;&gt; 65 |     2 |     0 |    41 |     0 |                                      |</span><br><span class="line">| 65 &lt;&gt; 70 |     3 |     0 |    34 |     2 |                                      |</span><br><span class="line">| 70 &lt;&gt; 75 |     7 |     0 |    55 |     0 |                                      |</span><br><span class="line">| 75 &lt;&gt; 80 |     3 |     0 |    68 |     0 |                                      |</span><br><span class="line">| 80 &lt;&gt; 85 |     1 |     0 |    46 |     0 |                                      |</span><br><span class="line">| 85 &lt;&gt; Dur|     0 |     0 |    30 |     0 |                                      |</span><br><span class="line">===================================================================================</span><br></pre></td></tr></table></figure>
-<h2 id="分析rtt-时间"><a href="#分析rtt-时间" class="headerlink" title="分析rtt 时间"></a>分析rtt 时间</h2><blockquote>
-<p>$ tshark -r ~/ali/metrics/tcpdump/rsb2.cap -q -z io,stat,1,”MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line">========================================================</span><br><span class="line">| IO Statistics                                        |</span><br><span class="line">|                                                      |</span><br><span class="line">| Duration: 33.914454 secs                             |</span><br><span class="line">| Interval:  1 secs                                    |</span><br><span class="line">|                                                      |</span><br><span class="line">| Col 1: MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     2: MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     3: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|------------------------------------------------------|</span><br><span class="line">|          |1         |2         |3         |          |</span><br><span class="line">| Interval |    MIN   |    MAX   |    AVG   |          |</span><br><span class="line">|-------------------------------------------|          |</span><br><span class="line">|  0 &lt;&gt;  1 | 0.000005 | 0.248840 | 0.009615 |          |</span><br><span class="line">|  1 &lt;&gt;  2 | 0.000004 | 0.458952 | 0.009601 |          |</span><br><span class="line">|  2 &lt;&gt;  3 | 0.000002 | 0.251274 | 0.009340 |          |</span><br><span class="line">|  3 &lt;&gt;  4 | 0.000006 | 0.290993 | 0.010843 |          |</span><br><span class="line">|  4 &lt;&gt;  5 | 0.000004 | 0.390800 | 0.008995 |          |</span><br><span class="line">|  5 &lt;&gt;  6 | 0.000008 | 0.407525 | 0.011133 |          |</span><br><span class="line">|  6 &lt;&gt;  7 | 0.000004 | 0.239225 | 0.008763 |          |</span><br><span class="line">|  7 &lt;&gt;  8 | 0.000003 | 0.177203 | 0.009211 |          |</span><br><span class="line">|  8 &lt;&gt;  9 | 0.000007 | 0.265505 | 0.010294 |          |</span><br><span class="line">|  9 &lt;&gt; 10 | 0.000007 | 0.354278 | 0.008475 |          |</span><br><span class="line">| 10 &lt;&gt; 11 | 0.000005 | 5.337388 | 0.011211 |          |</span><br><span class="line">| 11 &lt;&gt; 12 | 0.000004 | 0.320651 | 0.008231 |          |</span><br><span class="line">| 12 &lt;&gt; 13 | 0.000008 | 0.272029 | 0.008526 |          |</span><br><span class="line">| 13 &lt;&gt; 14 | 0.000005 | 0.663421 | 0.014589 |          |</span><br><span class="line">| 14 &lt;&gt; 15 | 0.000005 | 0.277754 | 0.009128 |          |</span><br><span class="line">| 15 &lt;&gt; 16 | 0.000002 | 0.260320 | 0.010388 |          |</span><br><span class="line">| 16 &lt;&gt; 17 | 0.000006 | 0.429298 | 0.009155 |          |</span><br><span class="line">| 17 &lt;&gt; 18 | 0.000005 | 0.668089 | 0.010008 |          |</span><br><span class="line">| 18 &lt;&gt; 19 | 0.000005 | 0.452897 | 0.009574 |          |</span><br><span class="line">| 19 &lt;&gt; 20 | 0.000006 | 0.850698 | 0.010345 |          |</span><br><span class="line">| 20 &lt;&gt; 21 | 0.000007 | 0.270671 | 0.012368 |          |</span><br><span class="line">| 21 &lt;&gt; 22 | 0.000005 | 0.295439 | 0.008660 |          |</span><br><span class="line">| 22 &lt;&gt; 23 | 0.000008 | 0.710938 | 0.010321 |          |</span><br><span class="line">| 23 &lt;&gt; 24 | 0.000003 | 0.269014 | 0.010238 |          |</span><br><span class="line">| 24 &lt;&gt; 25 | 0.000005 | 0.287966 | 0.009604 |          |</span><br><span class="line">| 25 &lt;&gt; 26 | 0.000009 | 0.661160 | 0.010807 |          |</span><br><span class="line">| 26 &lt;&gt; 27 | 0.000006 | 0.310515 | 0.009439 |          |</span><br><span class="line">| 27 &lt;&gt; 28 | 0.000003 | 0.346298 | 0.011302 |          |</span><br><span class="line">| 28 &lt;&gt; 29 | 0.000004 | 0.375117 | 0.008333 |          |</span><br><span class="line">| 29 &lt;&gt; 30 | 0.000006 | 1.323647 | 0.008799 |          |</span><br><span class="line">| 30 &lt;&gt; 31 | 0.000006 | 0.283616 | 0.010187 |          |</span><br><span class="line">| 31 &lt;&gt; 32 | 0.000007 | 0.649273 | 0.008613 |          |</span><br><span class="line">| 32 &lt;&gt; 33 | 0.000004 | 0.440265 | 0.010663 |          |</span><br><span class="line">| 33 &lt;&gt; Dur| 0.000004 | 0.337023 | 0.011477 |          |</span><br><span class="line">========================================================</span><br></pre></td></tr></table></figure>
-<h2 id="计算window-size"><a href="#计算window-size" class="headerlink" title="计算window size"></a>计算window size</h2><blockquote>
-<p>$ tshark -r rsb-single2.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission”,”AVG(tcp.window_size) tcp.window_size”,”MAX(tcp.window_size) tcp.window_size”,”MIN(tcp.window_size) tcp.window_size”</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">=========================================================================</span><br><span class="line">| IO Statistics                                                         |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Duration: 30.776061 secs                                              |</span><br><span class="line">| Interval:  5 secs                                                     |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission |</span><br><span class="line">|     2: AVG(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     3: MAX(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     4: MIN(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|-----------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3       |4     |                            |</span><br><span class="line">| Interval | COUNT |  AVG  |   MAX  |  MIN |                            |</span><br><span class="line">|------------------------------------------|                            |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |  4753 |  15744 |   96 |                            |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |  8067 | 431616 |   96 |                            |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |  5144 |  18688 |   96 |                            |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 | 11225 | 611072 |   81 |                            |</span><br><span class="line">| 20 &lt;&gt; 25 |     0 |  5104 |  24448 |   96 |                            |</span><br><span class="line">| 25 &lt;&gt; 30 |     0 | 10103 | 506880 |   96 |                            |</span><br><span class="line">| 30 &lt;&gt; Dur|     0 |  5716 |  12423 |   96 |                            |</span><br><span class="line">=========================================================================</span><br></pre></td></tr></table></figure>
-<h2 id="有用的命令（这些命令也都是安装WireShark就装好了的）："><a href="#有用的命令（这些命令也都是安装WireShark就装好了的）：" class="headerlink" title="有用的命令（这些命令也都是安装WireShark就装好了的）："></a>有用的命令（这些命令也都是安装WireShark就装好了的）：</h2><blockquote>
-<p>capinfos rsb2.cap</p>
-</blockquote>
-<blockquote>
-<p>tshark -q -n -r rsb2.cap  -z “conv,ip”   分析流量总况</p>
-</blockquote>
-<blockquote>
-<p>tshark -q -n -r rsb2.cap  -z “conv,tcp”  分析每一个连接的流量、rtt、响应时间、丢包率、重传率等等</p>
-</blockquote>
-<blockquote>
-<p>editcap -c 100000 ./rsb2.cap  rsb00.cap  //把大文件rsb2.cap按每个文件100000个package切成小文件</p>
-</blockquote>
-<h2 id="常用排错过滤条件"><a href="#常用排错过滤条件" class="headerlink" title="常用排错过滤条件:"></a>常用排错过滤条件:</h2><p>对于排查网络延时/应用问题有一些过滤条件是非常有用的：</p>
-<ul>
-<li>tcp.analysis.lost_segment：表明已经在抓包中看到不连续的序列号。报文丢失会造成重复的ACK，这会导致重传。</li>
-<li>tcp.analysis.duplicate_ack：显示被确认过不止一次的报文。大量的重复ACK是TCP端点之间高延时的迹象。</li>
-<li>tcp.analysis.retransmission：显示抓包中的所有重传。如果重传次数不多的话还是正常的，过多重传可能有问题。这通常意味着应用性能缓慢和/或用户报文丢失。</li>
-<li>tcp.analysis.window_update：将传输过程中的TCP window大小图形化。如果看到窗口大小下降为零，这意味着发送方已经退出了，并等待接收方确认所有已传送数据。这可能表明接收端已经不堪重负了。</li>
-<li>tcp.analysis.bytes_in_flight：某一时间点网络上未确认字节数。未确认字节数不能超过你的TCP窗口大小（定义于最初3此TCP握手），为了最大化吞吐量你想要获得尽可能接近TCP窗口大小。如果看到连续低于TCP窗口大小，可能意味着报文丢失或路径上其他影响吞吐量的问题。</li>
-<li>tcp.analysis.ack_rtt：衡量抓取的TCP报文与相应的ACK。如果这一时间间隔比较长那可能表示某种类型的网络延时（报文丢失，拥塞，等等）。</li>
-</ul>
-<h2 id="抓包常用命令"><a href="#抓包常用命令" class="headerlink" title="抓包常用命令"></a>抓包常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#tshark 解析MySQL协议</span><br><span class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#用tcpdump抓取并保存包：</span><br><span class="line">sudo tcpdump -i eth0 port 3306 -w drds.cap</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟��成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Zroot -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br><span class="line"></span><br><span class="line">#如果RDS开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</span><br><span class="line"></span><br><span class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y &quot; tcp.analysis.retransmission &quot;  -T fields-e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</span><br><span class="line"></span><br><span class="line">#分析MySQL rt，倒数第四列基本就是rt</span><br><span class="line">tshark -r gege_drds.pcap -Y &quot; ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt</span><br><span class="line"></span><br><span class="line">#或者排序一下</span><br><span class="line">tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</span><br></pre></td></tr></table></figure>
-<h2 id="一个案例"><a href="#一个案例" class="headerlink" title="一个案例"></a>一个案例</h2><blockquote>
-<p>问题：客户现场不管怎么样增加应用机器，tps就是上不去，同时增加机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪） 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各个环节都尝试过增加服务器（或提升配置），但是问题一直得不到解决    </p>
-</blockquote>
-<p>tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</p>
-<p>下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析</p>
-<p><img src="/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png" alt="image.png"></p>
-<p><strong> 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 </strong></p>
-<p><img src="/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
-<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
-<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
-<h2 id="其它工具-packetdrill"><a href="#其它工具-packetdrill" class="headerlink" title="其它工具 packetdrill"></a>其它工具 packetdrill</h2><p><a href="https://github.com/google/packetdrill" target="_blank" rel="noopener">https://github.com/google/packetdrill</a></p>
-<p><a href="https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw</a></p>
-<p><a href="http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html" target="_blank" rel="noopener">http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html</a></p>
-<p><a href="https://segmentfault.com/a/1190000019193928" target="_blank" rel="noopener">https://segmentfault.com/a/1190000019193928</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/21/就是要你懂TCP--性能优化大全/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
-                2019-06-21
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/06/21/就是要你懂TCP--性能优化大全/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
-<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
-</blockquote>
-<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
-<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
-<p>粗一看没啥问题，把这个图形放大看看</p>
-<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
-<p>换个角度，看看窗口尺寸图形：</p>
-<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
-<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
-<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
-<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
-</code></pre><p>来看一下tcp包发送流程：</p>
-<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt></p>
-<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="noopener">https://www.atatech.org/articles/9032）</a></p>
-<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt></p>
-<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
-<pre><code>#!/usr/bin/stap
-# Simple probe to detect when a process is waiting for more socket send
-# buffer memory. Usually means the process is doing writes larger than the
-# socket send buffer size or there is a slow receiver at the other side.
-# Increasing the socket&apos;s send buffer size might help decrease application
-# latencies, but it might also make it worse, so buyer beware.
-#
-# Typical output: timestamp in microseconds: procname(pid) event
-#
-# 1218230114875167: python(17631) blocked on full send buffer
-# 1218230114876196: python(17631) recovered from full send buffer
-# 1218230114876271: python(17631) blocked on full send buffer
-# 1218230114876479: python(17631) recovered from full send buffer
-
-probe kernel.function(&quot;sk_stream_wait_memory&quot;)
-{
-    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
-        gettimeofday_us(), execname(), pid())
-}
-
-probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
-{
-    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
-        gettimeofday_us(), execname(), pid())
-}
-</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener">这篇文章</a></p>
-<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
-<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
-<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
-net.core.wmem_max = 1048576
-net.core.wmem_default = 124928
-net.ipv4.tcp_wmem = 4096        16384   4194304
-net.ipv4.udp_wmem_min = 4096
-</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
-<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
-<pre><code>net.ipv4.tcp_moderate_rcvbuf
-</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
-<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
-<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
-<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
-<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
-<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
-<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
-sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
-</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
-<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
-<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">问题 Case</a></strong></p>
-<p>发送和接收Buffer对性能的完整影响参考<a href="https://plantegg.github.io/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/" target="_blank" rel="noopener">这篇</a></p>
-<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
-<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
-<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
-<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
-<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
-<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
-</ul>
-<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
-<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
-<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
-<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
-<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
-<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
-</ul>
-<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
-<ul>
-<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
-<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
-<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
-<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
-<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
-<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
-</ul>
-<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
-<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
-<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
-<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
-<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
-</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
-
-ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
-ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
-ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
-ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
-</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
-100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
-</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
-<pre><code>清除 tcp_metrics 
-sudo ip tcp_metrics flush all 
-
-关闭 tcp_metrics 功能
-net.ipv4.tcp_no_metrics_save = 1
-sudo ip tcp_metrics delete 100.118.58.7
-</code></pre><blockquote>
-<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
-</blockquote>
-<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
-<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
-<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
-<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
-<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
-<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
-<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
-<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
-<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
-<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
-<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">tcp metrics 在长肥网络下引发性能问题</a></p>
-<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="noopener">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
-<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
-<hr>
-<p>就是要你懂TCP相关文章：</p>
-<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="noopener">关于TCP 半连接队列和全连接队列</a></p>
-<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="noopener">MSS和MTU导致的悲剧</a> </p>
-<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">双11通过网络优化提升10倍性能</a></p>
-<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener">就是要你懂TCP的握手和挥手</a></p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="noopener">https://access.redhat.com/solutions/407743</a></p>
-<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
-<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
-<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
-<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="noopener">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
-<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">https://www.atatech.org/articles/109721</a></p>
-<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">https://www.atatech.org/articles/109967</a></p>
-<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="noopener">https://www.atatech.org/articles/27189</a> </p>
-<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="noopener">https://www.atatech.org/articles/45084</a></p>
-<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="noopener">https://www.atatech.org/articles/9032</a></p>
-<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">tcp_rmem case</a></p>
-<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="noopener">高性能网络编程7–tcp连接的内存使用</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
-                2019-06-20
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/LVS/" itemprop="url" rel="index">
-                    <span itemprop="name">LVS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
-<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
-</blockquote>
-<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
-<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
-<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
-<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
-vip：Virtual IP，LVS实例IP
-rip：Real IP，后端RS地址
-RS: Real Server 后端真正提供服务的机器
-LB： Load Balance 负载均衡器
-LVS： Linux Virtual Server
-sip： source ip
-dip： destination
-</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
-<li>DR模型 – (Director Routing-直接路由)</li>
-<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
-<li>fullNAT – (full NAT)</li>
-<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
-<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
-</ul>
-<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
-<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
-<ol>
-<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
-<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
-<li>然后丢给Director，Director将这个包丢给选中的RS</li>
-<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
-<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
-<li>经过交换机直接回复给client了(不再走LVS)</li>
-</ol>
-<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
-<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
-<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
-<li>RS需要配置vip同时特殊处理arp；</li>
-<li>配置比较复杂；</li>
-<li>不支持端口映射。</li>
-</ul>
-<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
-<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
-<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
-<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
-<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
-<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
-<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
-<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
-<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
-<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>配置简单</li>
-<li>支持端口映射(看名字就知道)</li>
-<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>LVS和所有RS必须在同一个vlan</li>
-<li>进出流量都要走LVS转发</li>
-<li>LVS容易成为瓶颈</li>
-<li>一般而言需要将VIP配置成RS的网关</li>
-</ul>
-<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
-<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
-<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
-<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
-<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
-<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
-<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS看不到cip(NAT模式下可以看到)</li>
-<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
-</ul>
-<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
-<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
-<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
-<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
-<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
-<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
-<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
-<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
-<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
-<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
-<p>优点：</p>
-<ul>
-<li>不要求LVS和RS在同一个vlan</li>
-<li>出去的流量不需要走LVS，性能好</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
-</ul>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(cip，vip)</li>
-<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
-<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
-<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
-<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
-</ol>
-<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
-<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
-<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
-<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
-<p>最后说一下不太常用的 TUN模型</p>
-<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
-<ol>
-<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
-<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
-<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
-<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>集群节点可以跨vlan</li>
-<li>跟DR一样，响应报文直接发给client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS上必须安装运行IPIP模块</li>
-<li>多增加了一个IP头</li>
-<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
-</ul>
-<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
-<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
-<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
-<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
-<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
-<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
-<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
-<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
-<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
-<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景</p>
-<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
-<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
-<p>案例:</p>
-<p>主机房通过bgp协议发送/27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
-<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。</p>
-<p>根据路由最小匹配原则，默认情况下，外部的访问流量会优先选择主机房发布的/27 明细路由，从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
-<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
-<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
-<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
-<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
-<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="noopener">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="noopener">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
-<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="noopener">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
-<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
-<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
-<p>2.结合<a href="https://www.atatech.org/articles/111259?spm=ata.13269325.0.0.1cfa49faqM3Zpp" target="_blank" rel="noopener">Vtune</a>/<a href="https://www.atatech.org/articles/120853?spm=ata.13269325.0.0.1d9d49faNUdBi6" target="_blank" rel="noopener">PCM</a>性能测试数据，调整session的prefecth</p>
-<p>3.消除false sharing。</p>
-<p>目前LVS 40G机型，单机4块 40G网卡。</p>
-<p>平均包长1k的情况下能跑满4个网口(160G)</p>
-<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
-<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
-<p>lvs的优化方案为大小桶算法：</p>
-<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
-<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
-<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
-<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
-<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/106276" target="_blank" rel="noopener">云服务ALB接入，后端依赖内核模块及接口使用指南</a></p>
-<p><a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">程序员的网络知识 – 一个网络包的旅程</a></p>
-<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="noopener">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
-<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="noopener">https://yizhi.ren/2019/05/03/lvs/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5993,7 +6064,7 @@ dip： destination
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">111</span>
+                <span class="site-state-item-count">115</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6015,7 +6086,7 @@ dip： destination
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">207</span>
+                <span class="site-state-item-count">213</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
