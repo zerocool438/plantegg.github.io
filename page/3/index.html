@@ -282,221 +282,6 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/15/Linux 内存问题汇总/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/15/Linux 内存问题汇总/" itemprop="url">Linux 内存问题汇总</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-15T16:30:03+08:00">
-                2020-01-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Memory/" itemprop="url" rel="index">
-                    <span itemprop="name">Memory</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/01/15/Linux 内存问题汇总/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/15/Linux 内存问题汇总/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-内存问题汇总"><a href="#Linux-内存问题汇总" class="headerlink" title="Linux 内存问题汇总"></a>Linux 内存问题汇总</h1><p>本系列有如下几篇</p>
-<p><a href="2020/01/15/Linux 内存问题汇总/">Linux 内存问题汇总</a></p>
-<p><a href="2020/11/15/Linux内存--pagecache/">Linux内存–PageCache</a></p>
-<p><a href="2020/11/15/Linux内存--管理和碎片/">Linux内存–管理和碎片</a></p>
-<p><a href="2020/11/15/Linux内存--HugePage/">Linux内存–HugePage</a></p>
-<p><a href="2020/11/15/Linux内存--零拷贝/">Linux内存–零拷贝</a></p>
-<h2 id="内存使用观察"><a href="#内存使用观察" class="headerlink" title="内存使用观察"></a>内存使用观察</h2><pre><code># free -m
-         total       used       free     shared    buffers     cached
-Mem:          7515       1115       6400          0        189        492
--/+ buffers/cache:        432       7082
-Swap:            0          0          0
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
-<p><strong>上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。</strong></p>
-<h2 id="free"><a href="#free" class="headerlink" title="free"></a>free</h2><p>free是从 /proc/meminfo 读取数据然后展示：</p>
-<blockquote>
-<p>buff/cache = Buffers + Cached + SReclaimable</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i &quot;buff|cach|SReclai&quot;</span><br><span class="line">Buffers:          817764 kB</span><br><span class="line">Cached:         76629252 kB</span><br><span class="line">SwapCached:            0 kB</span><br><span class="line">SReclaimable:    7202264 kB</span><br><span class="line">[root@az1-drds-79 ~]# free -k</span><br><span class="line">             total       used       free     shared    buffers     cached</span><br><span class="line">Mem:      97267672   95522336    1745336          0     817764   76629352</span><br><span class="line">-/+ buffers/cache:   18075220   79192452</span><br><span class="line">Swap:            0          0          0</span><br></pre></td></tr></table></figure>
-<p>在内核启动时，物理页面将加入到伙伴系统 （Buddy System）中，用户申请内存时分配，释放时回收。为了照顾慢速设备及兼顾多种 workload，Linux 将页面类型分为匿名页（Anon Page）和文件页 （Page Cache），及 swapness，使用 Page Cache 缓存文件 （慢速设备），通过 swap cache 和 swapness 交由用户根据负载特征决定内存不足时回收二者的比例。</p>
-<h2 id="cached过高回收"><a href="#cached过高回收" class="headerlink" title="cached过高回收"></a>cached过高回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
-<ul>
-<li>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</li>
-<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
-</li>
-<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;= n &lt;=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
-</li>
-</ul>
-<p>cache回收：<br>    echo 1/2/3 &gt;/proc/sys/vm/drop_cached</p>
-<p>查看回收后：</p>
-<pre><code>cat /proc/meminfo
-</code></pre><p>手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：</p>
-<p><strong>echo 1 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache。</p>
-<p><strong>echo 2 &gt; /proc/sys/vm/drop_caches</strong>:表示清除回收slab分配器中的对象（包括目录项缓存和inode缓存）。slab分配器是内核中管理内存的一种机制，其中很多缓存数据实现都是用的pagecache。</p>
-<p><strong>echo 3 &gt; /proc/sys/vm/drop_caches</strong>:表示清除pagecache和slab分配器中的缓存对象。</p>
-<h2 id="cached无法回收"><a href="#cached无法回收" class="headerlink" title="cached无法回收"></a>cached无法回收</h2><p>可能是正打开的文件占用了cached，比如 vim 打开了一个巨大的文件；比如 mount的 tmpfs； 比如 journald 日志等等</p>
-<h3 id="通过vmtouch-查看"><a href="#通过vmtouch-查看" class="headerlink" title="通过vmtouch 查看"></a>通过<a href="https://hoytech.com/vmtouch/" target="_blank" rel="noopener">vmtouch</a> 查看</h3><pre><code># vmtouch -v test.x86_64.rpm 
-test.x86_64.rpm
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 10988/10988
-
-           Files: 1
-     Directories: 0
-  Resident Pages: 10988/10988  42M/42M  100%
-         Elapsed: 0.000594 seconds
-
-# ls -lh test.x86_64.rpm
--rw-r--r-- 1 root root 43M 10月  8 14:11 test.x86_64.rpm
-</code></pre><p>如上，表示整个文件 test.x86_64.rpm 都被cached了，回收的话执行：</p>
-<pre><code>vmtouch -e test.x86_64.rpm // 或者： echo 3 &gt;/proc/sys/vm/drop_cached
-</code></pre><h3 id="遍历某个目录下的所有文件被cached了多少"><a href="#遍历某个目录下的所有文件被cached了多少" class="headerlink" title="遍历某个目录下的所有文件被cached了多少"></a>遍历某个目录下的所有文件被cached了多少</h3><pre><code># vmtouch -vt /var/log/journal/
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000011ba49-00059979e0926f43.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
-/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000152f41-00059b2c88eb4344.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-00000000000f2181-000598335fcd492f.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 4096/4096
-/var/log/journal/20190829214900434421844640356160/system@782ec314565e436b900454c59655247c-0000000000129aea-000599e83996db80.journal
-[OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 14336/14336
-/var/log/journal/20190829214900434421844640356160/user-1000@ad408d9cb9d94f9f93f2c2396c26b542-000000000009f171-000595a722ead670.journal
-…………
-           Files: 48
- Directories: 2
- Touched Pages: 468992 (1G)
- Elapsed: 13.274 seconds
-</code></pre><h2 id="消失的内存"><a href="#消失的内存" class="headerlink" title="消失的内存"></a>消失的内存</h2><p>OS刚启动后就报内存不够了，什么都没跑就500G没了，cached和buffer基本没用，纯粹就是used占用高，top按内存排序没有超过0.5%的进程</p>
-<p>参考： <a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br></pre></td><td class="code"><pre><span class="line">[aliyun@uos15 18:40 /u02/backup_15/leo/benchmark/run]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503         501           1           0           0           1</span><br><span class="line">Swap:            15          12           3</span><br><span class="line"></span><br><span class="line">$cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:         1469632 kB</span><br><span class="line">MemAvailable:          0 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    950272 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:   252557   ----- 预分配太多，一个2M，加起来刚好500G了</span><br><span class="line">HugePages_Free:    252557</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:        517236736 kB</span><br><span class="line"></span><br><span class="line">以下是一台正常的机器对比：</span><br><span class="line">Percpu:            41856 kB</span><br><span class="line">AnonHugePages:  11442176 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:       0            ----没有做预分配</span><br><span class="line">HugePages_Free:        0</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:               0 kB</span><br><span class="line"></span><br><span class="line">[aliyun@uos16 18:43 /home/aliyun]</span><br><span class="line">$free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          20         481           0           1         480</span><br><span class="line">Swap:            15           0          15</span><br><span class="line"></span><br><span class="line">对有问题的机器执行：</span><br><span class="line"># echo 1024 &gt; /proc/sys/vm/nr_hugepages</span><br><span class="line">可以看到内存恢复正常了 </span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# free -g</span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            503          10         492           0           0         490</span><br><span class="line">Swap:            15          12           3</span><br><span class="line">root@uos15:/u02/backup_15/leo/benchmark/run# cat /proc/meminfo </span><br><span class="line">MemTotal:       528031512 kB</span><br><span class="line">MemFree:        516106832 kB</span><br><span class="line">MemAvailable:   514454408 kB</span><br><span class="line">VmallocTotal:   135290290112 kB</span><br><span class="line">VmallocUsed:           0 kB</span><br><span class="line">VmallocChunk:          0 kB</span><br><span class="line">Percpu:            81920 kB</span><br><span class="line">AnonHugePages:    313344 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">ShmemPmdMapped:        0 kB</span><br><span class="line">HugePages_Total:    1024</span><br><span class="line">HugePages_Free:     1024</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:         2097152 kB</span><br></pre></td></tr></table></figure>
-<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">24条32G的内存条，总内存768G</span><br><span class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</span><br><span class="line">  Size: 32 GB</span><br><span class="line">…………</span><br><span class="line">  Size: 32 GB</span><br><span class="line">  Size: 32 GB</span><br><span class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</span><br><span class="line">24</span><br><span class="line"></span><br><span class="line"># cat /boot/grub/grub.cfg  |grep 512</span><br><span class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br><span class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br></pre></td></tr></table></figure>
-<p>​    </p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
-<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/01/13/kubernetes 卷和volume/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2663,7 +2448,7 @@ while (1) {
       
         
           
-            <h1 id="如何在工作中学习-2019V2版"><a href="#如何在工作中学习-2019V2版" class="headerlink" title="如何在工作中学习-2019V2版"></a>如何在工作中学习-2019V2版</h1><p><a href="2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/">2018版简单一些，可以看这里</a>，2019版加入了一些新的理解和案例，目的是想要让文章中所说的不是空洞的口号，而是可以具体执行的命令，拉平对读者的要求。</p>
+            <h1 id="如何在工作中学习-2019V2版"><a href="#如何在工作中学习-2019V2版" class="headerlink" title="如何在工作中学习-2019V2版"></a>如何在工作中学习-2019V2版</h1><p><a href="https://plantegg.github.io/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/" target="_blank" rel="noopener">2018版简单一些，可以看这里</a>，2019版加入了一些新的理解和案例，目的是想要让文章中所说的不是空洞的口号，而是可以具体执行的命令，拉平对读者的要求。</p>
 <blockquote>
 <p>先说一件值得思考的事情：高考的时候大家都是一样的教科书，同一个教室，同样的老师辅导，时间精力基本差不多，可是最后别人考的是清华北大或者一本，而你的实力只能考个三本，为什么？ 当然这里主要是智商的影响，那么其他因素呢？智商解决的问题能不能后天用其他方式来补位一下？</p>
 </blockquote>
@@ -2738,7 +2523,7 @@ while (1) {
 <li>…………</li>
 </ul>
 <p>这些问题都是一步步在扩大ssh的外延，让这个钉子变成一个巨大的桩。</p>
-<p>然后就会学习到一些<a href="2018/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82SSH--SSH%E8%8A%B1%E5%BC%8F%E7%8E%A9%E6%B3%95/">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
+<p>然后就会学习到一些<a href="https://plantegg.github.io/2018/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82SSH--SSH%E8%8A%B1%E5%BC%8F%E7%8E%A9%E6%B3%95/" target="_blank" rel="noopener">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
 <p>这基本都还是ssh的本质范围，像ansible、git在底层都是依赖ssh来通讯的，你会发现学、调试xshell、ansible和git简直太容易了。</p>
 <p>另外理解了ssh的秘钥对，也就理解了非对称加密，同时也很容易理解https流程（SSL），同时知道对称和非对称加密各自的优缺点，SSL为什么需要用到这两种加密算法了。</p>
 <p>你看一个简单日常的知识我们只要沿着它用钉子精神，深挖细挖你就会发现知识之间的连接，这个小小的知识点成为你知识体系的一根结实的柱子。</p>
@@ -3590,7 +3375,7 @@ __wake_up_common
 <p>如果不开启SO_REUSEPORT模式，那么即使有一个进程在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
 <p><strong>单worker同时会处理多个连接上的所有请求</strong>，accept_mutex 只是控制连接创建的时候哪个worker来accept，避免建连接惊群。连接建立好后这个连接的所有请求就一直会在这个worker上（当然还有其它连接的请求也在这个worker上）。SO_REUSEPORT只是不让worker去抢accept了，改成内核无差别轮询派发。如果这个时候某个连接一直是很耗CPU的请求（比如gzip），会导致这个worker比价卡顿，如果这个gzip能切走也还是可以照顾到别的连接的请求的。</p>
 <p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
-<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
+<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="https://plantegg.github.io/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" target="_blank" rel="noopener">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
 <p>用图形展示大概如下：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
 <p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲</p>
@@ -3788,7 +3573,7 @@ ep_ptable_queue_proc
 <p>拥塞窗口相关文章比较多，他们跟带宽紧密相关，所以大家比较好判断，反而是接收、发送窗口一旦出现瓶颈，就没这么好判断了。</p>
 <p>先明确一下：<strong>文章标题中所说的Buffer指的是sysctl中的 rmem或者wmem，如果是代码中指定的话对应着SO_SNDBUF或者SO_RCVBUF，从TCP的概念来看对应着发送窗口或者接收窗口</strong></p>
 <p>最后补充各种场景下的传输案例，一站式将影响传输速度的各种原因都拿下，值得收藏。</p>
-<p>本文主要分析rt、buffer如何影响TCP的传输性能，更多其他因素影响TCP性能的案例见：<a href="2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">TCP传输速度案例分析</a></p>
+<p>本文主要分析rt、buffer如何影响TCP的传输性能，更多其他因素影响TCP性能的案例见：<a href="https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/" target="_blank" rel="noopener">TCP传输速度案例分析</a></p>
 <h1 id="TCP性能和发送接收Buffer的关系"><a href="#TCP性能和发送接收Buffer的关系" class="headerlink" title="TCP性能和发送接收Buffer的关系"></a>TCP性能和发送接收Buffer的关系</h1><p>先从碰到的一个实际问题看起：</p>
 <blockquote>
 <p>应用通过专线跨网络访问云上的服务，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这太慢了，不正常。</p>
@@ -5304,7 +5089,7 @@ public BufferedOutputStream(OutputStream out) {
       
         
           
-            <h1 id="就是要你懂TCP队列–通过实战案例来展示问题"><a href="#就是要你懂TCP队列–通过实战案例来展示问题" class="headerlink" title="就是要你懂TCP队列–通过实战案例来展示问题"></a>就是要你懂TCP队列–通过实战案例来展示问题</h1><p>详细理论和实践部分可以看<a href="2117/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">这篇</a></p>
+            <h1 id="就是要你懂TCP队列–通过实战案例来展示问题"><a href="#就是要你懂TCP队列–通过实战案例来展示问题" class="headerlink" title="就是要你懂TCP队列–通过实战案例来展示问题"></a>就是要你懂TCP队列–通过实战案例来展示问题</h1><p>详细理论和实践部分可以看<a href="https://plantegg.github.io/2117/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/" target="_blank" rel="noopener">这篇</a></p>
 <p>再写这篇原因是，即使我在上篇文章里将这个问题阐述的相当清晰，但是当我再次碰到这个问题居然还是费了一些周折，所以想再次总结下。</p>
 <h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
 <p>使用其他团队的WEBShell 调试问题的时候非常卡，最开始怀疑是定时任务导致压力大，然后重启Server端的Tomcat就恢复了，当时该应用的开发同学看到机器磁盘、cpu、内存、gc等都正常，实在不知道为什么会这么卡</p>
@@ -6017,6 +5802,280 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
 
 
     
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="url">就是要你懂抓包--WireShark之命令行版tshark</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T15:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/tcpdump/" itemprop="url" rel="index">
+                    <span itemprop="name">tcpdump</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="玩转TShark（Wireshark的命令行版）"><a href="#玩转TShark（Wireshark的命令行版）" class="headerlink" title="玩转TShark（Wireshark的命令行版）"></a>玩转TShark（Wireshark的命令行版）</h1><p>在我感叹Wireshark图形界面的强大时候，有时候也抱怨有点慢，或者感叹下要是有命令行界面版该多好啊，实际上TShark就是WireShark的命令行版，WireShark的功能基本都有，还能组合grep/awk等编程处理分析抓包文件。</p>
+<p>下面让我们通过一些例子来学习TShark的常用功能，所有用到的<em>.cap/</em>.pcap等都是通过tcpdump抓到的包。请收藏好，下次碰到类似问题直接用文章中的命令跑一下。</p>
+<h2 id="wireshark不再展示协议内容"><a href="#wireshark不再展示协议内容" class="headerlink" title="wireshark不再展示协议内容"></a>wireshark不再展示协议内容</h2><p>比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 </p>
+<p>配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos</p>
+<p>如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。</p>
+<h3 id="tcp-segment-of-a-reassembled-pdu"><a href="#tcp-segment-of-a-reassembled-pdu" class="headerlink" title="tcp segment of a reassembled pdu"></a>tcp segment of a reassembled pdu</h3><p>这个提示是指，wireshark需要将多个tcp协议包重新组合成特定协议内容（比如MySQL，HTTP），但是因为包缺失（或者每个包大小截断了）导致reassembled失败。实际上wireshark已经成功检测到该协议，只是在解析这个协议的时候缺失包导致解析不好。</p>
+<p>这个时候可以试试将指定协议的reassembled属性关掉</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1fc544dcd6e064f967481472f6688be9.png" alt="image.png"></p>
+<p><a href="https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html" target="_blank" rel="noopener">PDU：Protocol Data Unit</a></p>
+<blockquote>
+<p>If the reassembly is successful, the TCP segment containing the last part of the packet will show the packet.<br>The reassembly might fail if some TCP segments are missing.</p>
+</blockquote>
+<p><a href="https://osqa-ask.wireshark.org/questions/58186/tcp-segment-of-a-reassembled-pdu" target="_blank" rel="noopener">TCP segment of a reassembled PDU </a> means that:</p>
+<ol>
+<li>Wireshark/TShark thinks it knows what protocol is running atop TCP in that TCP segment;</li>
+<li>that TCP segment doesn’t contain all of a “protocol data unit” (PDU) for that higher-level protocol, i.e. a packet or protocol message for that higher-level protocol, and doesn’t contain the last part of that PDU, so it’s trying to reassemble the multiple TCP segments containing that higher-level PDU.</li>
+</ol>
+<h2 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">#parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query &apos;port 8507&apos;</span><br><span class="line"></span><br><span class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y &quot; ((tcp.port eq 4444 )  )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#query time</span><br><span class="line">sudo tshark -i eth0 -Y &quot; ((tcp.port eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟生成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M </span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br></pre></td></tr></table></figure>
+<h2 id="分析mysql的每个SQL响应时间"><a href="#分析mysql的每个SQL响应时间" class="headerlink" title="分析mysql的每个SQL响应时间"></a>分析mysql的每个SQL响应时间</h2><p>应用有输出的日志显示DB慢，DB监控到的日志显示自己很快，经常扯皮，如果直接在应用机器的网卡抓包，然后分析到每个SQL的响应时间，那么DB、网络都可以甩锅了（有时候应用统计的时间包含了应用自身的时间、取连接的时间等）</p>
+<pre><code>tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1
+</code></pre><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">34143	1475902394.645073000	0.000342000	10.100.53.17	3306	40383	10.100.10.213	0.000153000	2273	0	</span><br><span class="line">34145	1475902394.645333000	0.000260000	10.100.53.17	3306	40383	10.100.10.213	0.000253000	2273	77	</span><br><span class="line">34150	1475902394.645537000	0.000204000	10.100.53.17	3306	40383	10.100.10.213	0.000146000	2273	0	</span><br><span class="line">34151	1475902394.645706000	0.000169000	10.100.53.17	3306	40383	10.100.10.213	0.000169000	2273	11	</span><br><span class="line">34153	1475902394.645737000	0.000031000	10.100.10.213	40383	3306	10.100.53.17	0.000031000	2273	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34161	1475902394.646390000	0.000158000	10.100.53.17	3306	40383	10.100.10.213	0.000653000	2273	11	</span><br><span class="line">34162	1475902394.646418000	0.000028000	10.100.10.213	40383	3306	10.100.53.17	0.000028000	2273	22	START TRANSACTION</span><br><span class="line">34164	1475902394.646713000	0.000295000	10.100.53.17	3306	40383	10.100.10.213	0.000295000	2273	11	</span><br><span class="line">34166	1475902394.646776000	0.000063000	10.100.10.213	40383	3306	10.100.53.17	0.000063000	2273	46	select AUTO_SEQ_t_order.nextval from dual</span><br><span class="line">34194	1475902394.651468000	0.000909000	10.100.53.17	3306	40383	10.100.10.213	0.004692000	2273	100	</span><br><span class="line">34195	1475902394.651782000	0.000314000	10.100.10.213	40383	3306	10.100.53.17	0.000314000	2273	576	insert into t_order (`out_order_no`,`pk_order`,`uid`,`ytid`,`platform`,`origin_price`,`price`,`partner_id`,`ip`,`sources`,`pay_state`,`type`,`product_type`,`device`,`extension`,`spm`,`ext2`,`createtime`,`pay_channel`,`use_ytid`,`updatetime`) values (&apos;2016100822003361672230261573284&apos;,&apos;261573284&apos;,&apos;336167223&apos;,&apos;336167223&apos;,&apos;1&apos;,&apos;500&apos;,&apos;500&apos;,&apos;100000&apos;,&apos;42.49.141.142&apos;,&apos;2&apos;,&apos;1&apos;,&apos;1&apos;,&apos;2&apos;,&apos;3&apos;,&apos;&#123;\&quot;showid\&quot;:\&quot;286083\&quot;,\&quot;play_url\&quot;:\&quot;http:\\/\\/v.youku.com\\/v_show\\/id_XMTczOTM5NjU1Mg==.html\&quot;,\&quot;permit_duration\&quot;:172800&#125;&apos;,&apos;&apos;,&apos;&apos;,&apos;2016-10-08 12:53:14&apos;,&apos;201&apos;,&apos;0&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34196	1475902394.653275000	0.001493000	10.100.53.17	3306	40383	10.100.10.213	0.001493000	2273	19	</span><br><span class="line">34197	1475902394.653410000	0.000135000	10.100.10.213	40383	3306	10.100.53.17	0.000135000	2273	370	insert into t_order_product (`fk_order`,`product_id`,`origin_price`,`price`,`discount`,`deliver_state`,`product_url`,`product_name`,`amount`,`ytid`,`sub_product_id`,`createtime`) values (&apos;2016100822003361672230261573284&apos;,&apos;4000010000&apos;,&apos;500&apos;,&apos;500&apos;,&apos;0&apos;,&apos;1&apos;,&apos;http://vip.youku.com&apos;,&apos;���������������������2:���������������&apos;,&apos;1&apos;,&apos;336167223&apos;,&apos;286083&apos;,&apos;2016-10-08 12:53:14&apos;)</span><br><span class="line">34198	1475902394.658326000	0.004916000	10.100.53.17	3306	40383	10.100.10.213	0.004916000	2273	19	</span><br><span class="line">34199	1475902394.658407000	0.000081000	10.100.10.213	40383	3306	10.100.53.17	0.000081000	2273	11	commit</span><br><span class="line">34200	1475902394.659626000	0.001219000	10.100.53.17	3306	40383	10.100.10.213	0.001219000	2273	11	</span><br><span class="line">34201	1475902394.659811000	0.000185000	10.100.10.213	40383	3306	10.100.53.17	0.000185000	2273	22	START TRANSACTION</span><br><span class="line">34202	1475902394.660054000	0.000243000	10.100.53.17	3306	40383	10.100.10.213	0.000243000	2273	11	</span><br><span class="line">34203	1475902394.660126000	0.000072000	10.100.10.213	40383	3306	10.100.53.17	0.000072000	2273	125	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) FOR UPDATE</span><br><span class="line">34209	1475902394.661970000	0.001844000	10.100.53.17	3306	40383	10.100.10.213	0.001844000	2273	2214	</span><br><span class="line">34211	1475902394.662069000	0.000099000	10.100.10.213	40383	3306	10.100.53.17	0.000089000	2273	122	update t_order set `pay_state`=&apos;2&apos;,`updatetime`=&apos;2016-10-08 12:53:14&apos; where pk_order=&apos;261573284&apos; and ytid=&apos;336167223&apos;</span><br><span class="line">34213	1475902394.662917000	0.000848000	10.100.53.17	3306	40383	10.100.10.213	0.000848000	2273	19	</span><br><span class="line">34216	1475902394.663049000	0.000088000	10.100.10.213	40383	3306	10.100.53.17	0.000132000	2273	11	commit</span><br><span class="line">34225	1475902394.664204000	0.000264000	10.100.53.17	3306	40383	10.100.10.213	0.001155000	2273	11	</span><br><span class="line">34226	1475902394.664269000	0.000065000	10.100.10.213	40383	3306	10.100.53.17	0.000065000	2273	115	SELECT *  FROM  t_order where ( out_order_no = &apos;2016100822003361672230261573284&apos; ) AND ( ytid = &apos;336167223&apos; ) </span><br><span class="line">34235	1475902394.665694000	0.000061000	10.100.53.17	3306	40383	10.100.10.213	0.001425000	2273	2214	</span><br><span class="line">34354	1475902394.681464000	0.000157000	10.100.53.17	3306	40383	10.100.10.213	0.000187000	2273	0	</span><br><span class="line">34174	1475902394.648046000	0.001123000	10.100.53.19	3306	33471	10.100.10.213	0.000151000	2275	0	</span><br><span class="line">34176	1475902394.648331000	0.000285000	10.100.53.19	3306	33471	10.100.10.213	0.000278000	2275	77	</span><br><span class="line">34179	1475902394.648482000	0.000151000	10.100.53.19	3306	33471	10.100.10.213	0.000127000	2275	0	</span><br><span class="line">34180	1475902394.648598000	0.000116000	10.100.53.19	3306	33471	10.100.10.213	0.000116000	2275	11	</span><br><span class="line">34181	1475902394.648606000	0.000008000	10.100.10.213	33471	3306	10.100.53.19	0.000008000	2275	21	SET NAMES &apos;utf8&apos;</span><br><span class="line">34182	1475902394.648846000	0.000240000	10.100.53.19	3306	33471	10.100.10.213	0.000240000	2275	11	</span><br><span class="line">34183	1475902394.648885000	0.000039000	10.100.10.213	33471	3306	10.100.53.19	0.000039000	2275	380	select pk_auto_renew_account as account_id,fk_user as uid,platform,ytid,fk_member_conf_id as member_id,fk_product_id as product_id,price,fk_pay_channel as pay_channel,renew_type,fk_order,fk_auto_renew_subscribe_log as fk_subscribe_log,state,memo,nexttime,createtime,updatetime from t_auto_renew_account where ( ytid = &apos;354295193&apos; ) AND ( platform = &apos;1&apos; ) AND ( state &lt;&gt; &apos;3&apos; )</span><br><span class="line">34184	1475902394.650040000	0.001155000	10.100.53.19	3306	33471	10.100.10.213	0.001155000	2275	1727	</span><br><span class="line">34189	1475902394.650559000	0.000519000	10.100.53.19	3306	33471	10.100.10.213	0.000198000	2275	0</span><br></pre></td></tr></table></figure>
+<p>或者：<br>    tshark -r gege_drds.pcap -Y “ ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )” -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </p>
+<p>这个命令跑出来，倒数第四列基本就是rt</p>
+<pre><code>967     1548148159.346612000    0.000442000     192.168.4.18    3306    44026   192.168.100.30  0.005255000     17      1576    0.005255000
+969     1548148159.346826000    0.000214000     192.168.4.18    3306    44090   192.168.100.30  0.005425000     15      1576    0.005425000
+973     1548148159.347428000    0.000602000     192.168.4.18    3306    44070   192.168.100.30  0.005517000     8       2500    0.005517000
+979     1548148159.348640000    0.001212000     192.168.4.18    3306    44048   192.168.100.30  0.005517000     22      2462    0.005517000
+981     1548148159.348751000    0.000111000     192.168.4.18    3306    44066   192.168.100.30  0.005855000     21      2692    0.005855000
+983     1548148159.348844000    0.000093000     192.168.4.18    3306    44046   192.168.100.30  0.004589000     3       2692    0.004589000
+985     1548148159.348981000    0.000137000     192.168.4.18    3306    44012   192.168.100.30  0.004885000     19      2443    0.004885000
+990     1548148159.349293000    0.000312000     192.168.4.18    3306    44074   192.168.100.30  0.005923000     5       2692    0.005923000
+994     1548148159.349671000    0.000378000     192.168.4.18    3306    44080   192.168.100.30  0.004889000     4       2730    0.004889000
+1009    1548148159.350591000    0.000920000     192.168.4.18    3306    44022   192.168.100.30  0.004187000     14      1448    0.004187000
+1010    1548148159.350592000    0.000001000     192.168.4.18    3306    44022   192.168.100.30  0.000001000     14      1052    
+1013    1548148159.350790000    0.000198000     192.168.4.18    3306    44002   192.168.100.30  0.005998000     0       1576    0.005998000
+1026    1548148159.352207000    0.001417000     192.168.4.18    3306    44026   192.168.100.30  0.005348000     17      1448    0.005348000
+1027    1548148159.352217000    0.000010000     192.168.4.18    3306    44026   192.168.100.30  0.000010000     17      1052    
+1036    1548148159.352973000    0.000756000     192.168.4.18    3306    44090   192.168.100.30  0.005940000     15      2500    0.005940000
+1041    1548148159.353683000    0.000710000     192.168.4.18    3306    44070   192.168.100.30  0.005190000     8       2692    0.005190000
+1043    1548148159.353737000    0.000054000     192.168.4.18    3306    44066   192.168.100.30  0.004635000     21      1448    0.004635000
+1044    1548148159.353749000    0.000012000     192.168.4.18    3306    44066   192.168.100.30  0.000012000     21      128     
+1051    1548148159.354289000    0.000540000     192.168.4.18    3306    44046   192.168.100.30  0.004911000     3       1576    0.004911000
+1054    1548148159.354511000    0.000222000     192.168.4.18    3306    44080   192.168.100.30  0.004515000     4       1576    0.004515000
+1055    1548148159.354530000    0.000019000     192.168.4.18    3306    44074   192.168.100.30  0.004909000     5       1576    0.004909000
+1065    1548148159.355412000    0.000882000     192.168.4.18    3306    44012   192.168.100.30  0.005217000     19      2692    0.005217000
+1067    1548148159.355496000    0.000084000     192.168.4.18    3306    44048   192.168.100.30  0.005231000     22      2610    0.005231000
+1072    1548148159.356111000    0.000615000     192.168.4.18    3306    44052   192.168.100.30  0.005830000     24      2730    0.005830000
+1076    1548148159.356545000    0.000434000     192.168.4.18    3306    44022   192.168.100.30  0.005615000     14      2692    0.005615000
+1079    1548148159.357012000    0.000467000     192.168.4.18    3306    44002   192.168.100.30  0.005966000     0       2462    0.005966000
+1082    1548148159.357235000    0.000223000     192.168.4.18    3306    44072   192.168.100.30  0.004817000     23      2692    0.004817000
+1093    1548148159.359244000    0.002009000     192.168.4.18    3306    44070   192.168.100.30  0.005188000     8       1576    0.005188000
+</code></pre><h4 id="MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】"><a href="#MySQL响应时间直方图【第八列的含义–-Time-since-previous-frame-in-this-TCP-stream-seconds】" class="headerlink" title="MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】"></a>MySQL响应时间直方图【第八列的含义– Time since previous frame in this TCP stream: seconds】</h4><pre><code>tshark -r gege_drds.pcap -Y &quot;mysql.query or (tcp.srcport==3306  and tcp.len&gt;60)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk &apos;BEGIN {sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0} {rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;} END{printf &quot;-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n&quot; , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;}&apos;
+
+ -------------
+3ms:    145037 
+10ms:    78811 
+30ms:    7032 
+50ms:    2172 
+100ms:    1219 
+300ms:    856 
+500ms:    449 
+1000ms:118
+&gt;1s:    0
+-------------
+avg: 0.005937 
+</code></pre><p><strong>对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</strong></p>
+<h3 id="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"><a href="#有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥" class="headerlink" title="有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥"></a>有时候应用说修改库存的代码都加了事务，但是数据库里库存对不上，这锅压力好大，抓个包看看应用发过来的SQL是啥</h3><p>开发测试环境上通过如下命令也可以直接用tshark抓包分析SQL语句：</p>
+<pre><code>sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;
+</code></pre><p>这样就直接看到发出的SQL是否是autocommit=1了</p>
+<h2 id="按http-response分析响应时间"><a href="#按http-response分析响应时间" class="headerlink" title="按http response分析响应时间"></a>按http response分析响应时间</h2><p>tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y “http.request or http.response” -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">54087	1475902398.264070000	0.000549000	10.100.188.59	10.100.39.212	3577		100	Continue</span><br><span class="line">54089	1475902398.264325000	0.000255000	10.100.39.212	10.100.188.59	3577	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54130	1475902398.269529000	0.003113000	10.100.188.59	10.100.39.212	3577		200	OK</span><br><span class="line">54104	1475902398.266175000	0.001774000	10.100.188.59	10.100.37.32	3578		100	Continue</span><br><span class="line">54108	1475902398.266416000	0.000241000	10.100.37.32	10.100.188.59	3578	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54150	1475902398.271960000	0.001209000	10.100.188.59	10.100.37.32	3578		200	OK</span><br><span class="line">54143	1475902398.270437000	0.000908000	10.100.188.59	10.100.37.31	3581		100	Continue</span><br><span class="line">54145	1475902398.270751000	0.000314000	10.100.37.31	10.100.188.59	3581	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54171	1475902398.275876000	0.003916000	10.100.188.59	10.100.37.31	3581		200	OK</span><br><span class="line">54180	1475902398.278597000	0.002721000	10.103.10.12	10.100.188.59	3583	http://premium.api.vip.youku.com/trade/query_preorder_paystate.json		</span><br><span class="line">54197	1475902398.283177000	0.004580000	10.100.188.59	10.103.10.12	3583		200	OK</span><br><span class="line">54208	1475902398.283758000	0.000581000	10.100.188.59	10.100.10.88	3585		100	Continue</span><br><span class="line">54211	1475902398.283981000	0.000223000	10.100.10.88	10.100.188.59	3585	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54235	1475902398.288862000	0.000508000	10.100.188.59	10.100.10.88	3585		200	OK</span><br><span class="line">54226	1475902398.286716000	0.002735000	10.100.188.59	10.100.37.30	3587		100	Continue</span><br><span class="line">54232	1475902398.288354000	0.001638000	10.100.37.30	10.100.188.59	3587	http://premium.api.vip.youku.com/account/get_auto_renew_account_by_id		</span><br><span class="line">54269	1475902398.293808000	0.000205000	10.100.188.59	10.100.37.30	3587		200	OK</span><br></pre></td></tr></table></figure>
+<h2 id="分析包的总概览"><a href="#分析包的总概览" class="headerlink" title="分析包的总概览"></a>分析包的总概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">$ capinfos rsb2.cap </span><br><span class="line">File name:           rsb2.cap</span><br><span class="line">File type:           Wireshark/tcpdump/... - pcap</span><br><span class="line">File encapsulation:  Ethernet</span><br><span class="line">Packet size limit:   file hdr: 65535 bytes</span><br><span class="line">Number of packets:   510 k</span><br><span class="line">File size:           143 MB</span><br><span class="line">Data size:           135 MB</span><br><span class="line">Capture duration:    34 seconds</span><br><span class="line">Start time:          Tue Jun  7 11:15:31 2016</span><br><span class="line">End time:            Tue Jun  7 11:16:05 2016</span><br><span class="line">Data byte rate:      3997 kBps</span><br><span class="line">Data bit rate:       31 Mbps</span><br><span class="line">Average packet size: 265.62 bytes</span><br><span class="line">Average packet rate: 15 kpackets/sec</span><br><span class="line">SHA1:                a8367d0d291eab6ba78732d092ae72a5305756a2</span><br><span class="line">RIPEMD160:           ec991772819f316d2f629745d4b58fb861e41fc6</span><br><span class="line">MD5:                 53975139fa49581eacdb42bd967cbd58</span><br><span class="line">Strict time order:   False</span><br></pre></td></tr></table></figure>
+<h2 id="分析每两个IP之间的流量"><a href="#分析每两个IP之间的流量" class="headerlink" title="分析每两个IP之间的流量"></a>分析每两个IP之间的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,ip&apos; </span><br><span class="line">================================================================================</span><br><span class="line">IPv4 Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">100.98.50.214        &lt;-&gt; 10.117.41.213            425     60647     544    350182     969    410829     0.856983000        88.7073</span><br><span class="line">10.252.138.13        &lt;-&gt; 10.117.41.213            381    131639     451     45706     832    177345     3.649894000        79.5370</span><br><span class="line">10.168.127.178       &lt;-&gt; 10.117.41.213            335    118164     390     39069     725    157233     3.456698000        81.2639</span><br><span class="line">10.168.246.105       &lt;-&gt; 10.117.41.213            435     23490     271     14634     706     38124     0.000000000        89.7614</span><br><span class="line">10.117.49.244        &lt;-&gt; 10.117.41.213            452     24408     221     11934     673     36342     0.289990000        89.6024</span><br><span class="line">100.97.197.0         &lt;-&gt; 10.117.41.213             45      4226     107      7310     152     11536     0.538867000        88.0736</span><br><span class="line">100.97.196.0         &lt;-&gt; 10.117.41.213             48      4576     102      6960     150     11536     0.524268000        89.0840</span><br><span class="line">100.97.196.128       &lt;-&gt; 10.117.41.213             39      3462      90      6116     129      9578     0.573839000        88.0728</span><br><span class="line">100.97.197.128       &lt;-&gt; 10.117.41.213             27      1998      81      5562     108      7560     1.071232000        87.0382</span><br><span class="line">100.98.148.129       &lt;-&gt; 10.117.41.213             55      3630      37      2442      92      6072     0.571963000        86.7362</span><br><span class="line">================================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="分析每个会话的流量"><a href="#分析每个会话的流量" class="headerlink" title="分析每个会话的流量"></a>分析每个会话的流量</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;conv,tcp&apos; </span><br><span class="line">================================================================================</span><br><span class="line">TCP Conversations</span><br><span class="line">Filter:&lt;No Filter&gt;</span><br><span class="line">                                               |       &lt;-      | |       -&gt;      | |     Total     |    Relative    |   Duration   |</span><br><span class="line">                                               | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |</span><br><span class="line">10.117.41.213:33362  &lt;-&gt; 100.98.50.214:3306       143    107183     108     17345     251    124528     9.556973000        79.9993</span><br><span class="line">10.117.41.213:32695  &lt;-&gt; 100.98.50.214:3306       131     95816     118     17843     249    113659     3.464596000        54.7814</span><br><span class="line">10.117.41.213:33737  &lt;-&gt; 100.98.50.214:3306       107     67199      82     11842     189     79041    69.539519000        13.0781</span><br><span class="line">10.117.41.213:33736  &lt;-&gt; 100.98.50.214:3306        58     37851      31      4895      89     42746    69.539133000         8.2015</span><br><span class="line">10.117.41.213:33735  &lt;-&gt; 100.98.50.214:3306        51     37654      27      3338      78     40992    69.538573000        20.0257</span><br><span class="line">10.117.41.213:33681  &lt;-&gt; 100.98.50.214:3306        22      2367      15      2480      37      4847    58.237482000         0.0082</span><br><span class="line">10.252.138.13:17926  &lt;-&gt; 10.117.41.213:3306        13      3454      17      1917      30      5371    77.462089000         0.2816</span><br><span class="line">10.168.127.178:21250 &lt;-&gt; 10.117.41.213:3306        13      4926      17      2267      30      7193    77.442197000         0.6282</span><br><span class="line">10.252.138.13:17682  &lt;-&gt; 10.117.41.213:3306        13      5421      17      2267      30      7688    34.945805000         0.7274</span><br><span class="line">10.168.127.178:21001 &lt;-&gt; 10.117.41.213:3306        18      9872      11      1627      29     11499    21.220800000        35.0242</span><br><span class="line">10.252.138.13:17843  &lt;-&gt; 10.117.41.213:3306        13      4453      15      1510      28      5963    59.176447000        10.8169</span><br><span class="line">10.168.127.178:20927 &lt;-&gt; 10.117.41.213:3306        12      4414      15      1510      27      5924    13.686763000         0.1860</span><br><span class="line">10.252.138.13:17481  &lt;-&gt; 10.117.41.213:3306        11      4360      16      1564      27      5924     3.649894000         0.1810</span><br><span class="line">10.252.138.13:17928  &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.467248000         0.6720</span><br><span class="line">10.168.127.178:21241 &lt;-&gt; 10.117.41.213:3306        11      3077      15      1461      26      4538    77.376858000         0.4669</span><br><span class="line">10.168.127.178:21201 &lt;-&gt; 10.117.41.213:3306        12      3971      14      2571      26      6542    64.890147000         5.4010</span><br><span class="line">10.168.127.178:21184 &lt;-&gt; 10.117.41.213:3306        12      6775      14      1794      26      8569    64.073021000         5.6804</span><br><span class="line">10.252.138.13:17545  &lt;-&gt; 10.117.41.213:3306        11      4379      15      1510      26      5889    13.940379000         0.1845</span><br><span class="line">10.168.127.178:20815 &lt;-&gt; 10.117.41.213:3306        11      4360      15      1510      26      5870     3.456698000         0.1901</span><br><span class="line">10.252.138.13:17864  &lt;-&gt; 10.117.41.213:3306        12      2985      12      1129      24      4114    59.855131000         9.7005</span><br><span class="line">10.252.138.13:17820  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    49.537379000         0.1669</span><br><span class="line">10.252.138.13:17757  &lt;-&gt; 10.117.41.213:3306        11      6006      13      1740      24      7746    45.507148000         0.7587</span><br><span class="line">10.252.138.13:17677  &lt;-&gt; 10.117.41.213:3306        11      5529      13      1740      24      7269    34.806484000         0.5017</span><br><span class="line">10.168.127.178:21063 &lt;-&gt; 10.117.41.213:3306        11      3848      13      1390      24      5238    29.902032000         0.0133</span><br><span class="line">10.252.138.13:17516  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725    11.505585000         0.1494</span><br><span class="line">10.252.138.13:17507  &lt;-&gt; 10.117.41.213:3306        11      3570      13      1424      24      4994     9.652955000         0.0151</span><br><span class="line">10.252.138.13:17490  &lt;-&gt; 10.117.41.213:3306        11      5985      13      1740      24      7725     4.865639000         0.1275</span><br></pre></td></tr></table></figure>
+<h2 id="分析每个包的response-time"><a href="#分析每个包的response-time" class="headerlink" title="分析每个包的response time"></a>分析每个包的response time</h2><blockquote>
+<p>$ tshark -r rsb2.cap  -o tcp.calculate_timestamps:true -T fields  -e frame.number -e frame.time_epoch -e ip.src -e ip.dst  -e tcp.stream  -e tcp.len   -e tcp.analysis.initial_rtt  -e tcp.time_delta </p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">1481	1465269331.308138000	100.98.199.36	10.25.92.13	302	0		0.002276000</span><br><span class="line">1482	1465269331.308186000	10.25.92.13	    100.98.199.36	361	11	0.000063000</span><br><span class="line">1483	1465269331.308209000	100.98.199.36	10.25.92.13	496	0		0.004950000</span><br><span class="line">1484	1465269331.308223000	100.98.199.36	10.25.92.13	513	0		0.000000000</span><br><span class="line">1485	1465269331.308238000	100.98.199.36	10.25.92.13	326	0		0.055424000</span><br><span class="line">1486	1465269331.308246000	100.98.199.36	10.25.92.13	514	0		0.000000000</span><br><span class="line">1487	1465269331.308261000	10.25.92.71	    10.25.92.13	48	0		0.000229000</span><br><span class="line">1488	1465269331.308277000	100.98.199.36	10.25.92.13	254	0		0.055514000</span><br><span class="line">1489	1465269331.308307000	100.98.199.36	10.25.92.13	292	0		0.002096000</span><br><span class="line">1490	1465269331.308383000	100.98.199.36	10.25.92.13	308	0		0.055406000</span><br><span class="line">1491	1465269331.308403000	100.98.199.36	10.25.92.13	75	0		0.041664000</span><br><span class="line">1492	1465269331.308421000	100.98.199.36	10.25.92.13	291	0		0.001973000</span><br><span class="line">1493	1465269331.308532000	100.98.199.36	10.25.92.13	509	0		0.002100000</span><br><span class="line">1494	1465269331.308567000	100.98.199.36	10.25.92.13	123	0		0.041560000</span><br><span class="line">1495	1465269331.308576000	100.98.199.36	10.25.92.13	232	11		0.063317000</span><br><span class="line">1496	1465269331.308584000	100.98.199.36	10.25.92.13	465	655		0.018121000</span><br><span class="line">1497	1465269331.308626000	100.98.199.36	10.25.92.13	61	655		0.042409000</span><br><span class="line">1498	1465269331.308637000	100.98.199.36	10.25.92.13	146	0		0.001520000</span><br><span class="line">1499	1465269331.308639000	100.98.199.36	10.25.92.13	510	0		0.001460000</span><br><span class="line">1500	1465269331.308645000	100.98.199.36	10.25.92.13	237	11		0.063273000</span><br></pre></td></tr></table></figure>
+<h2 id="分析有问题的包、概览"><a href="#分析有问题的包、概览" class="headerlink" title="分析有问题的包、概览"></a>分析有问题的包、概览</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">$ tshark -r retrans.cap -q -z &apos;expert,note&apos;</span><br><span class="line"></span><br><span class="line">Errors (22)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          22  Malformed              MySQL  Malformed Packet (Exception occurred)</span><br><span class="line"></span><br><span class="line">Warns (749)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">         538   Sequence                TCP  ACKed segment that wasn&apos;t captured (common at capture start)</span><br><span class="line">         192   Sequence                TCP  Connection reset (RST)</span><br><span class="line">          19   Sequence                TCP  Previous segment not captured (common at capture start)</span><br><span class="line"></span><br><span class="line">Notes (1162)</span><br><span class="line">=============</span><br><span class="line">   Frequency      Group           Protocol  Summary</span><br><span class="line">          84   Sequence                TCP  TCP keep-alive segment</span><br><span class="line">         274   Sequence                TCP  Duplicate ACK (#1)</span><br><span class="line">          37   Sequence                TCP  ACK to a TCP keep-alive segment</span><br><span class="line">          23   Sequence                TCP  This frame is a (suspected) retransmission</span><br><span class="line">         262   Sequence                TCP  Duplicate ACK (#2)</span><br><span class="line">         259   Sequence                TCP  Duplicate ACK (#3)</span><br><span class="line">         141   Sequence                TCP  Duplicate ACK (#4)</span><br><span class="line">          69   Sequence                TCP  Duplicate ACK (#5)</span><br><span class="line">           7   Sequence                TCP  Duplicate ACK (#6)</span><br><span class="line">           5   Sequence                TCP  This frame is a (suspected) spurious retransmission</span><br><span class="line">           1   Sequence                TCP  Duplicate ACK (#7)</span><br></pre></td></tr></table></figure>
+<h2 id="分析rtt、丢包、deplicate等等"><a href="#分析rtt、丢包、deplicate等等" class="headerlink" title="分析rtt、丢包、deplicate等等"></a>分析rtt、丢包、deplicate等等</h2><blockquote>
+<p>$ tshark -r retrans.cap -q -z io,stat,1,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”,”MIN(tcp.window_size)tcp.window_size”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  2 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</span><br><span class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1         |2      |3      |4      |5      |6      |                   |</span><br><span class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</span><br><span class="line">|-------------------------------------------------------------|                   |</span><br><span class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</span><br><span class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</span><br><span class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</span><br><span class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</span><br><span class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</span><br><span class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</span><br><span class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</span><br><span class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</span><br><span class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</span><br><span class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</span><br><span class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</span><br><span class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</span><br><span class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</span><br><span class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</span><br><span class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</span><br><span class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</span><br></pre></td></tr></table></figure>
+<h2 id="分析丢包、duplicate-ack"><a href="#分析丢包、duplicate-ack" class="headerlink" title="分析丢包、duplicate ack"></a>分析丢包、duplicate ack</h2><blockquote>
+<p>$ tshark -r retrans.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission”,”COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission”,”COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack”,”COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">===================================================================================</span><br><span class="line">| IO Statistics                                                                   |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Duration: 89.892365 secs                                                        |</span><br><span class="line">| Interval:  5 secs                                                               |</span><br><span class="line">|                                                                                 |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</span><br><span class="line">|     2: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</span><br><span class="line">|     3: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</span><br><span class="line">|     4: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</span><br><span class="line">|---------------------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3      |4      |                                      |</span><br><span class="line">| Interval | COUNT | COUNT | COUNT | COUNT |                                      |</span><br><span class="line">|------------------------------------------|                                      |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |     0 |     0 |     1 |                                      |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |     0 |     0 |     0 |                                      |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |     0 |     0 |     4 |                                      |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 |     0 |     0 |     5 |                                      |</span><br><span class="line">| 20 &lt;&gt; 25 |     3 |     0 |    67 |     2 |                                      |</span><br><span class="line">| 25 &lt;&gt; 30 |     2 |     0 |    58 |     1 |                                      |</span><br><span class="line">| 30 &lt;&gt; 35 |     0 |     0 |   112 |     0 |                                      |</span><br><span class="line">| 35 &lt;&gt; 40 |     1 |     0 |   156 |     0 |                                      |</span><br><span class="line">| 40 &lt;&gt; 45 |     0 |     0 |   127 |     2 |                                      |</span><br><span class="line">| 45 &lt;&gt; 50 |     1 |     0 |    91 |     0 |                                      |</span><br><span class="line">| 50 &lt;&gt; 55 |     0 |     0 |    63 |     0 |                                      |</span><br><span class="line">| 55 &lt;&gt; 60 |     0 |     0 |    65 |     2 |                                      |</span><br><span class="line">| 60 &lt;&gt; 65 |     2 |     0 |    41 |     0 |                                      |</span><br><span class="line">| 65 &lt;&gt; 70 |     3 |     0 |    34 |     2 |                                      |</span><br><span class="line">| 70 &lt;&gt; 75 |     7 |     0 |    55 |     0 |                                      |</span><br><span class="line">| 75 &lt;&gt; 80 |     3 |     0 |    68 |     0 |                                      |</span><br><span class="line">| 80 &lt;&gt; 85 |     1 |     0 |    46 |     0 |                                      |</span><br><span class="line">| 85 &lt;&gt; Dur|     0 |     0 |    30 |     0 |                                      |</span><br><span class="line">===================================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="分析rtt-时间"><a href="#分析rtt-时间" class="headerlink" title="分析rtt 时间"></a>分析rtt 时间</h2><blockquote>
+<p>$ tshark -r ~/ali/metrics/tcpdump/rsb2.cap -q -z io,stat,1,”MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”,”AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line">========================================================</span><br><span class="line">| IO Statistics                                        |</span><br><span class="line">|                                                      |</span><br><span class="line">| Duration: 33.914454 secs                             |</span><br><span class="line">| Interval:  1 secs                                    |</span><br><span class="line">|                                                      |</span><br><span class="line">| Col 1: MIN(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     2: MAX(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|     3: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt |</span><br><span class="line">|------------------------------------------------------|</span><br><span class="line">|          |1         |2         |3         |          |</span><br><span class="line">| Interval |    MIN   |    MAX   |    AVG   |          |</span><br><span class="line">|-------------------------------------------|          |</span><br><span class="line">|  0 &lt;&gt;  1 | 0.000005 | 0.248840 | 0.009615 |          |</span><br><span class="line">|  1 &lt;&gt;  2 | 0.000004 | 0.458952 | 0.009601 |          |</span><br><span class="line">|  2 &lt;&gt;  3 | 0.000002 | 0.251274 | 0.009340 |          |</span><br><span class="line">|  3 &lt;&gt;  4 | 0.000006 | 0.290993 | 0.010843 |          |</span><br><span class="line">|  4 &lt;&gt;  5 | 0.000004 | 0.390800 | 0.008995 |          |</span><br><span class="line">|  5 &lt;&gt;  6 | 0.000008 | 0.407525 | 0.011133 |          |</span><br><span class="line">|  6 &lt;&gt;  7 | 0.000004 | 0.239225 | 0.008763 |          |</span><br><span class="line">|  7 &lt;&gt;  8 | 0.000003 | 0.177203 | 0.009211 |          |</span><br><span class="line">|  8 &lt;&gt;  9 | 0.000007 | 0.265505 | 0.010294 |          |</span><br><span class="line">|  9 &lt;&gt; 10 | 0.000007 | 0.354278 | 0.008475 |          |</span><br><span class="line">| 10 &lt;&gt; 11 | 0.000005 | 5.337388 | 0.011211 |          |</span><br><span class="line">| 11 &lt;&gt; 12 | 0.000004 | 0.320651 | 0.008231 |          |</span><br><span class="line">| 12 &lt;&gt; 13 | 0.000008 | 0.272029 | 0.008526 |          |</span><br><span class="line">| 13 &lt;&gt; 14 | 0.000005 | 0.663421 | 0.014589 |          |</span><br><span class="line">| 14 &lt;&gt; 15 | 0.000005 | 0.277754 | 0.009128 |          |</span><br><span class="line">| 15 &lt;&gt; 16 | 0.000002 | 0.260320 | 0.010388 |          |</span><br><span class="line">| 16 &lt;&gt; 17 | 0.000006 | 0.429298 | 0.009155 |          |</span><br><span class="line">| 17 &lt;&gt; 18 | 0.000005 | 0.668089 | 0.010008 |          |</span><br><span class="line">| 18 &lt;&gt; 19 | 0.000005 | 0.452897 | 0.009574 |          |</span><br><span class="line">| 19 &lt;&gt; 20 | 0.000006 | 0.850698 | 0.010345 |          |</span><br><span class="line">| 20 &lt;&gt; 21 | 0.000007 | 0.270671 | 0.012368 |          |</span><br><span class="line">| 21 &lt;&gt; 22 | 0.000005 | 0.295439 | 0.008660 |          |</span><br><span class="line">| 22 &lt;&gt; 23 | 0.000008 | 0.710938 | 0.010321 |          |</span><br><span class="line">| 23 &lt;&gt; 24 | 0.000003 | 0.269014 | 0.010238 |          |</span><br><span class="line">| 24 &lt;&gt; 25 | 0.000005 | 0.287966 | 0.009604 |          |</span><br><span class="line">| 25 &lt;&gt; 26 | 0.000009 | 0.661160 | 0.010807 |          |</span><br><span class="line">| 26 &lt;&gt; 27 | 0.000006 | 0.310515 | 0.009439 |          |</span><br><span class="line">| 27 &lt;&gt; 28 | 0.000003 | 0.346298 | 0.011302 |          |</span><br><span class="line">| 28 &lt;&gt; 29 | 0.000004 | 0.375117 | 0.008333 |          |</span><br><span class="line">| 29 &lt;&gt; 30 | 0.000006 | 1.323647 | 0.008799 |          |</span><br><span class="line">| 30 &lt;&gt; 31 | 0.000006 | 0.283616 | 0.010187 |          |</span><br><span class="line">| 31 &lt;&gt; 32 | 0.000007 | 0.649273 | 0.008613 |          |</span><br><span class="line">| 32 &lt;&gt; 33 | 0.000004 | 0.440265 | 0.010663 |          |</span><br><span class="line">| 33 &lt;&gt; Dur| 0.000004 | 0.337023 | 0.011477 |          |</span><br><span class="line">========================================================</span><br></pre></td></tr></table></figure>
+<h2 id="计算window-size"><a href="#计算window-size" class="headerlink" title="计算window size"></a>计算window size</h2><blockquote>
+<p>$ tshark -r rsb-single2.cap -q -z io,stat,5,”COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission”,”AVG(tcp.window_size) tcp.window_size”,”MAX(tcp.window_size) tcp.window_size”,”MIN(tcp.window_size) tcp.window_size”</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">=========================================================================</span><br><span class="line">| IO Statistics                                                         |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Duration: 30.776061 secs                                              |</span><br><span class="line">| Interval:  5 secs                                                     |</span><br><span class="line">|                                                                       |</span><br><span class="line">| Col 1: COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission |</span><br><span class="line">|     2: AVG(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     3: MAX(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|     4: MIN(tcp.window_size) tcp.window_size                           |</span><br><span class="line">|-----------------------------------------------------------------------|</span><br><span class="line">|          |1      |2      |3       |4     |                            |</span><br><span class="line">| Interval | COUNT |  AVG  |   MAX  |  MIN |                            |</span><br><span class="line">|------------------------------------------|                            |</span><br><span class="line">|  0 &lt;&gt;  5 |     0 |  4753 |  15744 |   96 |                            |</span><br><span class="line">|  5 &lt;&gt; 10 |     0 |  8067 | 431616 |   96 |                            |</span><br><span class="line">| 10 &lt;&gt; 15 |     0 |  5144 |  18688 |   96 |                            |</span><br><span class="line">| 15 &lt;&gt; 20 |     0 | 11225 | 611072 |   81 |                            |</span><br><span class="line">| 20 &lt;&gt; 25 |     0 |  5104 |  24448 |   96 |                            |</span><br><span class="line">| 25 &lt;&gt; 30 |     0 | 10103 | 506880 |   96 |                            |</span><br><span class="line">| 30 &lt;&gt; Dur|     0 |  5716 |  12423 |   96 |                            |</span><br><span class="line">=========================================================================</span><br></pre></td></tr></table></figure>
+<h2 id="有用的命令（这些命令也都是安装WireShark就装好了的）："><a href="#有用的命令（这些命令也都是安装WireShark就装好了的）：" class="headerlink" title="有用的命令（这些命令也都是安装WireShark就装好了的）："></a>有用的命令（这些命令也都是安装WireShark就装好了的）：</h2><blockquote>
+<p>capinfos rsb2.cap</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,ip”   分析流量总况</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,tcp”  分析每一个连接的流量、rtt、响应时间、丢包率、重传率等等</p>
+</blockquote>
+<blockquote>
+<p>editcap -c 100000 ./rsb2.cap  rsb00.cap  //把大文件rsb2.cap按每个文件100000个package切成小文件</p>
+</blockquote>
+<h2 id="常用排错过滤条件"><a href="#常用排错过滤条件" class="headerlink" title="常用排错过滤条件:"></a>常用排错过滤条件:</h2><p>对于排查网络延时/应用问题有一些过滤条件是非常有用的：</p>
+<ul>
+<li>tcp.analysis.lost_segment：表明已经在抓包中看到不连续的序列号。报文丢失会造成重复的ACK，这会导致重传。</li>
+<li>tcp.analysis.duplicate_ack：显示被确认过不止一次的报文。大量的重复ACK是TCP端点之间高延时的迹象。</li>
+<li>tcp.analysis.retransmission：显示抓包中的所有重传。如果重传次数不多的话还是正常的，过多重传可能有问题。这通常意味着应用性能缓慢和/或用户报文丢失。</li>
+<li>tcp.analysis.window_update：将传输过程中的TCP window大小图形化。如果看到窗口大小下降为零，这意味着发送方已经退出了，并等待接收方确认所有已传送数据。这可能表明接收端已经不堪重负了。</li>
+<li>tcp.analysis.bytes_in_flight：某一时间点网络上未确认字节数。未确认字节数不能超过你的TCP窗口大小（定义于最初3此TCP握手），为了最大化吞吐量你想要获得尽可能接近TCP窗口大小。如果看到连续低于TCP窗口大小，可能意味着报文丢失或路径上其他影响吞吐量的问题。</li>
+<li>tcp.analysis.ack_rtt：衡量抓取的TCP报文与相应的ACK。如果这一时间间隔比较长那可能表示某种类型的网络延时（报文丢失，拥塞，等等）。</li>
+</ul>
+<h2 id="抓包常用命令"><a href="#抓包常用命令" class="headerlink" title="抓包常用命令"></a>抓包常用命令</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#tshark 解析MySQL协议</span><br><span class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query</span><br><span class="line"></span><br><span class="line">#用tcpdump抓取并保存包：</span><br><span class="line">sudo tcpdump -i eth0 port 3306 -w drds.cap</span><br><span class="line"></span><br><span class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span><br><span class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos;   -G 3 -W 5 -Z root</span><br><span class="line"></span><br><span class="line">#每隔30分钟��成一个包并压缩</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_%Y-%m-%d_%H:%M:%S.pcap&apos; -G 1800 -W 48 -Zroot -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#file size 1000M</span><br><span class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w &apos;dump_&apos; -C 1000 -W 300 -Z root -z gzip &amp;</span><br><span class="line"></span><br><span class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span><br><span class="line">sudo tshark -i any -f &apos;port 8527&apos; -s 0 -l -w - |strings</span><br><span class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;ip.addr==11.163.182.137&quot; -d tcp.port==3306,mysql -T fields -e mysql.query &apos;port 3306&apos;</span><br><span class="line">sudo tshark -i eth0 -R &quot;tcp.srcport==62877&quot; -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query &apos;port 3001&apos;</span><br><span class="line"></span><br><span class="line">#如果RDS开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</span><br><span class="line"></span><br><span class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y &quot; tcp.analysis.retransmission &quot;  -T fields-e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</span><br><span class="line"></span><br><span class="line">#分析MySQL rt，倒数第四列基本就是rt</span><br><span class="line">tshark -r gege_drds.pcap -Y &quot; ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt</span><br><span class="line"></span><br><span class="line">#或者排序一下</span><br><span class="line">tshark -r 213_php.cap -Y &quot;mysql.query or (  tcp.srcport==3306)&quot; -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</span><br></pre></td></tr></table></figure>
+<h2 id="一个案例"><a href="#一个案例" class="headerlink" title="一个案例"></a>一个案例</h2><blockquote>
+<p>问题：客户现场不管怎么样增加应用机器，tps就是上不去，同时增加机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪） 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各个环节都尝试过增加服务器（或提升配置），但是问题一直得不到解决    </p>
+</blockquote>
+<p>tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</p>
+<p>下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png" alt="image.png"></p>
+<p><strong> 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 </strong></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
+<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
+<h2 id="其它工具-packetdrill"><a href="#其它工具-packetdrill" class="headerlink" title="其它工具 packetdrill"></a>其它工具 packetdrill</h2><p><a href="https://github.com/google/packetdrill" target="_blank" rel="noopener">https://github.com/google/packetdrill</a></p>
+<p><a href="https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw</a></p>
+<p><a href="http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html" target="_blank" rel="noopener">http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html</a></p>
+<p><a href="https://segmentfault.com/a/1190000019193928" target="_blank" rel="noopener">https://segmentfault.com/a/1190000019193928</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
   </section>
 
   
@@ -6064,7 +6123,7 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">116</span>
+                <span class="site-state-item-count">115</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
