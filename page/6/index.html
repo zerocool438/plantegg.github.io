@@ -923,7 +923,7 @@ tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  
 <p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
 <h3 id="通过ss和netstat所观察到的状态"><a href="#通过ss和netstat所观察到的状态" class="headerlink" title="通过ss和netstat所观察到的状态"></a>通过ss和netstat所观察到的状态</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png" alt="image.png"></p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png" alt="image.png"></p>
-<p><a href="https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
+<p><a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
 <h2 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下 </p>
 <p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
 <pre><code>Fri May  5 13:50:23 CST 2017
@@ -1004,7 +1004,7 @@ server5
 <p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
 <p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">案例三：诡异的幽灵连接，全连接队列满后4.9内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
 <blockquote>
-<p>commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071<br>Author: Eric Dumazet <a href="mailto:&#x65;&#x64;&#x75;&#x6d;&#97;&#122;&#101;&#116;&#x40;&#103;&#x6f;&#x6f;&#x67;&#x6c;&#x65;&#x2e;&#x63;&#x6f;&#109;" target="_blank" rel="noopener">&#x65;&#x64;&#x75;&#x6d;&#97;&#122;&#101;&#116;&#x40;&#103;&#x6f;&#x6f;&#x67;&#x6c;&#x65;&#x2e;&#x63;&#x6f;&#109;</a><br>Date:   Thu Oct 27 00:27:57 2016</p>
+<p>commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071<br>Author: Eric Dumazet <a href="mailto:&#x65;&#x64;&#x75;&#x6d;&#97;&#122;&#101;&#x74;&#x40;&#103;&#x6f;&#x6f;&#103;&#108;&#x65;&#x2e;&#99;&#111;&#109;" target="_blank" rel="noopener">&#x65;&#x64;&#x75;&#x6d;&#97;&#122;&#101;&#x74;&#x40;&#103;&#x6f;&#x6f;&#103;&#108;&#x65;&#x2e;&#99;&#111;&#109;</a><br>Date:   Thu Oct 27 00:27:57 2016</p>
 <pre><code>tcp/dccp: drop SYN packets if accept queue is full
 
 Per listen(fd, backlog) rules, there is really no point accepting a SYN,
