@@ -113,7 +113,7 @@
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5b498ed88c3233977a592f924affc43a.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png">
-<meta property="og:updated_time" content="2021-06-30T13:41:29.012Z">
+<meta property="og:updated_time" content="2021-07-20T07:01:46.916Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="就是要你懂负载均衡--lvs和转发模式">
 <meta name="twitter:description" content="基础知识的力量–lvs和转发模式 本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。  大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。 如果我们能从网络包">
@@ -564,8 +564,7 @@ dip： destination
 <p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
 <p>案例:</p>
 <p>主机房通过bgp协议发送/27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
-<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。</p>
-<p>根据路由最小匹配原则，默认情况下，外部的访问流量会优先选择主机房发布的/27 明细路由，从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
 <h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
 <h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
@@ -587,7 +586,8 @@ dip： destination
 <h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
 <p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
 <p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/106276" target="_blank" rel="noopener">云服务ALB接入，后端依赖内核模块及接口使用指南</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/" target="_blank" rel="noopener">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
+<p><a href="https://www.atatech.org/articles/106276" target="_blank" rel="noopener">云服务ALB接入，后端依赖内核模块及接口使用指南</a></p>
 <p><a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">程序员的网络知识 – 一个网络包的旅程</a></p>
 <p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="noopener">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
 <p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="noopener">https://yizhi.ren/2019/05/03/lvs/</a></p>
@@ -728,7 +728,7 @@ dip： destination
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">116</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -750,7 +750,7 @@ dip： destination
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">217</span>
+                <span class="site-state-item-count">218</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

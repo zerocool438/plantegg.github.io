@@ -444,6 +444,242 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021/07/19/CPU性能和CACHE/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/07/19/CPU性能和CACHE/" itemprop="url">CPU性能和CACHE</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-07-19T12:30:03+08:00">
+                2021-07-19
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2021/07/19/CPU性能和CACHE/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2021/07/19/CPU性能和CACHE/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="CPU性能和CACHE"><a href="#CPU性能和CACHE" class="headerlink" title="CPU性能和CACHE"></a>CPU性能和CACHE</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
+<p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
+<p>大的方面主要是从这几个疑问来写这些文章：</p>
+<ul>
+<li>同样程序为什么CPU跑到800%还不如CPU跑到200%快？</li>
+<li>IPC背后的原理和和程序效率的关系？</li>
+<li>为什么数据库领域都爱把NUMA关了，这对吗？</li>
+<li>几个国产芯片的性能到底怎么样？</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<h2 id="CPU中为什么要L1-L2等各级cache"><a href="#CPU中为什么要L1-L2等各级cache" class="headerlink" title="CPU中为什么要L1/L2等各级cache"></a>CPU中为什么要L1/L2等各级cache</h2><p>因为CPU的速度和访问内存速度差异太大，也就导致了所谓的 <strong>内存墙</strong></p>
+<p>cpu的速度大概50-60%每年的增长率，内存只有7%每年增长率：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/476909_1_En_15_Fig3_HTML.png" alt="A 1000× Improvement of the Processor-Memory Gap | SpringerLink"></p>
+<h2 id="CPU中的cache变迁历史"><a href="#CPU中的cache变迁历史" class="headerlink" title="CPU中的cache变迁历史"></a>CPU中的cache变迁历史</h2><p>80486(1989), 8K的L1 cache第一次被集成在CPU中:</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/42gg2.png" alt="486 motherboard with CPU location and 2nd level cache marked"></p>
+<p><strong>80686</strong>(1995) ，<a href="https://superuser.com/questions/196143/where-exactly-l1-l2-and-l3-caches-located-in-computer" target="_blank" rel="noopener">L2被放入到CPU的Package</a>上，可以看到L2大小和一个Die差不多:</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/eAvLK.png" alt="Picture of a pentium Pro CPU, 256KB cache model"></p>
+<p>以酷睿为例，现在的CPU集成了L1/L2/L3等各级CACHE，<strong>CACHE面积能占到CPU的一半</strong>:</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4Z1nU.png" alt="modernCPUwithL3.png"></p>
+<p>从上图可以看到L3的大小快到die的一半，L1/L2由每个core独享，L3是所有core共享，3级CACHE总面积跟所有core差不多大了。</p>
+<h2 id="cache对CPU性能的影响"><a href="#cache对CPU性能的影响" class="headerlink" title="cache对CPU性能的影响"></a>cache对CPU性能的影响</h2><p>CPU访问内存是非常慢的，所以我们在CPU中增加了多级缓存来<strong>匹配</strong>CPU和内存的速度。主频这20年基本都没怎么做高了，但是工艺提升了两个数量级，工艺提升的能力主要给了cache，从而整体CPU性能提升了很多。</p>
+<h3 id="缓存对Oceanbase-，MySQL-ODPS的性能影响"><a href="#缓存对Oceanbase-，MySQL-ODPS的性能影响" class="headerlink" title="缓存对Oceanbase ，MySQL, ODPS的性能影响"></a>缓存对Oceanbase ，MySQL, ODPS的性能影响</h3><p>以下测试数据主要来源于真实的业务场景：OB/MySQL/ODPS</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bb29ac99-3645-4482-8473-c55b190af777.png" alt="img"></p>
+<p>x86 Skylake之前，L1 I/D 32KB, L2 256KB, L3 2.5MB/core， 2.5MB/core的L3（LLC）芯片面积相当于1/2 CPU core 的尺寸</p>
+<ol>
+<li>关闭L3（2.5MB），关闭L2（256KB），此时性能CPI（越小越好）是4.25</li>
+<li>关闭L3，打开L2（256KB），此时性能CPI为2.23</li>
+<li>关闭L3，打开L2同时增加256KB，L2尺寸到512KB，性能CPI为1.38</li>
+<li>打开L3（2.5MB），打开L2（256KB），性能为1.28 ，该状态就是intel CPU出厂的状态</li>
+<li>打开L3，增加到16MB，打开L2（256KB），性能为1.25 </li>
+</ol>
+<p>上面的数据显示当L3关闭之后，从case 3 开始，L2仅仅增加256KB，L2芯片面积相对于CPU core 增加 5%(0.5 /2.5M <em> 025M)，性能相对于case 2 提升1.61倍（2.23/1.38），而使用case 4 ,L3 2.5MB打开，相对于case 3，增加2.3MB（2.5MB - 256KB）,芯片面积相对于CPU core 增加 46%（0.5/2.5M </em> 2.3M）， 而性能仅仅提升 1.07倍（1.38/1.28），所以14年给Intel提议需要增加L2尺寸降低L3尺寸，这些数据促使Intel开始重新考虑对于数据中心缓存新的设计。</p>
+<p>2014年的 Broadwell 的第五代智能酷睿处理器，是 Haswell 的 14nm 升级版（$1745.00 - $1749.00）：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210719102039296.png" alt="image-20210719102039296"></p>
+<p>E5一个Die有16个物理core（上面截图是两个Core），所以每core的L3大小：40M/16=2.5M/core</p>
+<p>2015年则推出 SkyLake 架构的Platinum 8269CY（$4702.00）, 每core的L3大小：36M/26=1.38M/core：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210719102112331.png" alt="image-20210719102112331"></p>
+<p>Intel 2015年 发表论文<a href="https://people.csail.mit.edu/emer/papers/2015.02.hpca.cache_hierarchy.pdf" target="_blank" rel="noopener">《High Performing Cache Hierarchies for Server Workloads》</a>证明了阿里提出的建议的正确性，从Skylake架构开始将L2 cache 由 256KB 升级到 1MB， L3由2.5MB /core 压缩到 1.375MB / core， Intel之所以没有完全去掉L3的原因是希望这样设计的CPU对于 使用 CPU2006的workload性能仍然能够做到不受影响。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210716102624566.png" alt="image-20210716102624566"></p>
+<p>上图是不同业务场景下，CPI 随cache大小的变化，可以看到随着cache增加性能基本不增加了。</p>
+<h3 id="CPU-L2-Last-Level-Cache-LLC-缓存的演变"><a href="#CPU-L2-Last-Level-Cache-LLC-缓存的演变" class="headerlink" title="CPU L2, Last Level Cache (LLC) 缓存的演变"></a>CPU L2, Last Level Cache (LLC) 缓存的演变</h3><p>Last Level Cache(L3) 在2016年之前都是2MB/core 或者 2.5MB/core, 这个原因取决于在此之前行业都是使用CPU2006作为设计CPU的benchmark，如下图所示：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/141f4ccd-37ce-41e5-b404-101e6b9acf5d.png" alt="img"></p>
+<p>根据上图中CPU2006的MPKI数据显示如果LLC在4MB的时候非常好，LLC在2.5MB之后MKPI提升10%性能只有1～3%的提升，2.5MB LLC cache是 CPU core 1/2 的芯片面积，因此若将LLC 由2.5MB升级到4MB，换算成CPU core的芯片面积是增长30%（1/2 * 1.5M/2.5M），但性能仅仅提升最多3%，这就是为什么基于CPU2006的benchmark条件下，intel将LLC设定为2~2.5MB的原因。</p>
+<p>最后再附加几个Latency数据，让大家比较起来更有体感一些</p>
+<h2 id="各级IO延迟数字"><a href="#各级IO延迟数字" class="headerlink" title="各级IO延迟数字"></a>各级IO延迟数字</h2><p><a href="http://www.webstersystems.co.uk/threads.htm" target="_blank" rel="noopener">各级cache的Latency</a>：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cycle_times.jpg" alt="Cycle times"></p>
+<p>2012 年延迟数字对比表</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210702161817496.png" alt="image-20210702161817496"></p>
+<p>一个比较有体感的比较：如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。</p>
+<p>当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-hierarchy-1.jpg" alt="Memory Hierarchy"></p>
+<p><a href="https://colin-scott.github.io/personal_website/research/interactive_latency.html" target="_blank" rel="noopener">推荐从这里看延时，拖动时间轴可以看到随着技术、工艺的改变Latency每一年的变化</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210613123006681.png" alt="image-20210613123006681"></p>
+<p>查看cpu cache数据</p>
+<pre><code>cat /proc/cpuinfo |grep -i cache
+</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png" alt="image.png"></p>
+<h3 id="L1C、L2C、L3C、DDR-的Latency测试数据"><a href="#L1C、L2C、L3C、DDR-的Latency测试数据" class="headerlink" title="L1C、L2C、L3C、DDR 的Latency测试数据"></a>L1C、L2C、L3C、DDR 的Latency测试数据</h3><p><a href="https://topic.atatech.org/articles/100065" target="_blank" rel="noopener">下图从左至右响应时间分别是L1C、L2C、L3C、DDR</a>，可以看出这四个Latency变化还是非常明显的，泾渭分明。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/58286da947132f269cb26ff3eda25c68.png" alt="img"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511160107225.png" alt="image-20210511160107225"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png" alt="image.png"></p>
+<h2 id="为什么CACHE比内存快？"><a href="#为什么CACHE比内存快？" class="headerlink" title="为什么CACHE比内存快？"></a>为什么CACHE比内存快？</h2><p>首先肯定是距离的原因，另外工艺不同导致的速度差异也很大，从上面可以看到一块4000刀的CPU有一半的面积是cache，也就是40M CACHE花了2000刀，如果用来买内存条能卖一大堆吧。</p>
+<p>接下来说下CACHE（SRAM) 和内存（DRAM）的工艺差异</p>
+<h3 id="SRAM（Static-Random-Access-Memory，静态随机存取存储器）的芯片"><a href="#SRAM（Static-Random-Access-Memory，静态随机存取存储器）的芯片" class="headerlink" title="SRAM（Static Random-Access Memory，静态随机存取存储器）的芯片"></a>SRAM（Static Random-Access Memory，静态随机存取存储器）的芯片</h3><p>CPU Cache 用的是一种叫作 SRAM（Static Random-Access Memory，静态随机存取存储器）的芯片。</p>
+<p>SRAM 之所以被称为”静态”存储器，是因为只要处在通电状态，里面的数据就可以保持存在。而一旦断电，里面的数据就会丢失了。在 SRAM 里面，一个比特的数据，需要 6～8 个晶体管。所以 SRAM 的存储密度不高。同样的物理空间下，能够存储的数据有限。不过，因为 SRAM 的电路简单，所以访问速度非常快。</p>
+<p>L1和L2一般是SRAM， L1的容量通常比L2小，容量大的SRAM访问时间就越长，同样制程和设计的情况下，<strong>访问延时与容量的开方大致是成正比</strong>的。</p>
+<p>另外工作原理不同速度差异也不一样，L1就是讲究快，比如L1是N路组相联，N路阻相联的意思就是N个Cache单元同时读取数据（有点类似RAID0）。</p>
+<p>L3用的还是SRAM，但是在考虑换成STT-MRAM，这样容量更大。</p>
+<h3 id="DRAM（Dynamic-Random-Access-Memory，动态随机存取存储器）的芯片"><a href="#DRAM（Dynamic-Random-Access-Memory，动态随机存取存储器）的芯片" class="headerlink" title="DRAM（Dynamic Random Access Memory，动态随机存取存储器）的芯片"></a>DRAM（Dynamic Random Access Memory，动态随机存取存储器）的芯片</h3><p>为磁芯存储器画上句号的是集成电路随机存储器件。1966年，IBM Thomas J. Watson研究中心的Dr. Robert H. Dennard(人物照如下)开发出了单个单元的动态随机存储器DRAM，DRAM每个单元包含一个开关晶体管和一个电容，利用电容中的电荷存储数据。因为电容中的电荷会泄露，需要每个周期都进行刷新重新补充电量，所以称其为动态随机存储器。</p>
+<p>内存用的芯片和 Cache 有所不同，它用的是一种叫作 DRAM（Dynamic Random Access Memory，动态随机存取存储器）的芯片，比起 SRAM 来说，它的密度更高，有更大的容量，而且它也比 SRAM 芯片便宜不少。</p>
+<p>动态随机存取存储器（DRAM）是一种半导体存储器，主要的作用原理是利用电容内存储电荷的多寡来代表一个二进制比特（bit）是1还是0。由于<strong>在现实中晶体管会有漏电电流的现象</strong>，导致电容上所存储的电荷数量并不足以正确的判别数据，而导致数据毁损。因此对于DRAM来说，周期性地充电是一个无可避免的要件。由于这种需要定时刷新的特性，因此被称为“动态”存储器。相对来说，静态存储器（SRAM）只要存入数据后，纵使不刷新也不会丢失记忆。</p>
+<p>DRAM 的一个比特，只需要一个晶体管和一个电容就能存储。所以，DRAM 在同样的物理空间下，能够存储的数据也就更多，也就是存储的”密度”更大。DRAM 的数据访问电路和刷新电路都比 SRAM 更复杂，所以访问延时也就更长。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png" alt="img"></p>
+<p>SRAM是比<strong>DRAM</strong>更为昂贵，但更为快速、非常低功耗（特别是在空闲状态）。 因此<strong>SRAM</strong>首选用于带宽要求高，或者功耗要求低，或者二者兼而有之。 <strong>SRAM</strong>比起<strong>DRAM</strong>更为容易控制，也更是随机访问。 由于复杂的内部结构，<strong>SRAM</strong>比<strong>DRAM</strong>的占用面积更大，因而不适合用于更高储存密度低成本的应用，如PC内存。</p>
+<h3 id="SRAM和DRAM原理比较"><a href="#SRAM和DRAM原理比较" class="headerlink" title="SRAM和DRAM原理比较"></a>SRAM和DRAM原理比较</h3><p><a href="https://mp.weixin.qq.com/s?__biz=MzI2NDYwMDAxOQ==&amp;mid=2247483772&amp;idx=1&amp;sn=d7c188247b9851f7985676e2f9dd9a0e&amp;chksm=eaab61c0dddce8d62bdb521de1ada13142264882feae1ff06d6dcd81430a0063377e4b34cedb&amp;scene=178&amp;cur_album_id=1368835510680272898#rd" target="_blank" rel="noopener">简单说DRAM只有一个晶体管和一个电容，SRAM就复杂多了，需要6个晶体管</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210603114550646.png" alt="What is the difference between SRAM and DRAM"></p>
+<p>详细比较：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/maxresdefault.jpg" alt="Difference Between SRAM and DRAM - YouTube"></p>
+<h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片(FT2500">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/209957" target="_blank" rel="noopener">数据中心CPU探索和分析</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021/06/23/做了一道数学几何题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -927,6 +1163,14 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br></pre></td><td class="code"><pre><span class="line"># sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -a ./memory_bound</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &apos;system wide&apos;:</span><br><span class="line"></span><br><span class="line">    36,162,872,212      branch-instructions                                           (14.21%)</span><br><span class="line">       586,644,153      branch-misses             #    1.62% of all branches          (12.95%)</span><br><span class="line">     4,632,787,085      bus-cycles                                                    (14.40%)</span><br><span class="line">       476,189,785      cache-misses              #   17.714 % of all cache refs      (14.38%)</span><br><span class="line">     2,688,284,129      cache-references                                              (14.35%)</span><br><span class="line">   258,946,713,506      cpu-cycles                                                    (17.93%)</span><br><span class="line">   181,069,328,200      instructions              #    0.70  insn per cycle           (21.51%)</span><br><span class="line">   456,889,428,341      ref-cycles                                                    (22.31%)</span><br><span class="line">     3,928,434,098      L1-dcache-load-misses     #    7.46% of all L1-dcache hits    (14.21%)</span><br><span class="line">    52,656,559,902      L1-dcache-loads                                               (14.31%)</span><br><span class="line">    26,711,751,387      L1-dcache-stores                                              (14.30%)</span><br><span class="line">     2,618,739,340      L1-icache-load-misses                                         (18.05%)</span><br><span class="line">       154,326,888      LLC-load-misses           #    8.60% of all LL-cache hits     (19.84%)</span><br><span class="line">     1,795,112,198      LLC-loads                                                     (9.81%)</span><br><span class="line">        66,802,375      LLC-store-misses                                              (10.19%)</span><br><span class="line">       206,810,811      LLC-stores                                                    (11.16%)</span><br><span class="line">       586,120,789      branch-load-misses                                            (14.28%)</span><br><span class="line">    36,121,237,395      branch-loads                                                  (14.29%)</span><br><span class="line">       114,927,298      dTLB-load-misses          #    0.22% of all dTLB cache hits   (14.29%)</span><br><span class="line">    52,902,163,128      dTLB-loads                                                    (14.29%)</span><br><span class="line">         7,010,297      dTLB-store-misses                                             (14.29%)</span><br><span class="line">    26,587,353,417      dTLB-stores                                                   (18.00%)</span><br><span class="line">       106,209,281      iTLB-load-misses          #  174.17% of all iTLB cache hits   (19.33%)</span><br><span class="line">        60,978,626      iTLB-loads                                                    (21.53%)</span><br><span class="line">       117,197,042      node-load-misses                                              (19.71%)</span><br><span class="line">        35,764,508      node-loads                                                    (11.65%)</span><br><span class="line">        57,655,994      node-store-misses                                             (7.80%)</span><br><span class="line">        11,563,328      node-stores                                                   (9.45%)</span><br><span class="line"></span><br><span class="line">      16.700731355 seconds time elapsed</span><br><span class="line">      </span><br><span class="line"># sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -a ./cpu_bound</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &apos;system wide&apos;:</span><br><span class="line"></span><br><span class="line">    43,013,055,562      branch-instructions                                           (14.33%)</span><br><span class="line">       436,722,063      branch-misses             #    1.02% of all branches          (11.58%)</span><br><span class="line">     3,154,327,457      bus-cycles                                                    (14.31%)</span><br><span class="line">       306,977,772      cache-misses              #   17.837 % of all cache refs      (14.42%)</span><br><span class="line">     1,721,062,233      cache-references                                              (14.39%)</span><br><span class="line">   176,119,834,487      cpu-cycles                                                    (17.98%)</span><br><span class="line">   276,038,539,571      instructions              #    1.57  insn per cycle           (21.55%)</span><br><span class="line">   309,334,354,268      ref-cycles                                                    (22.31%)</span><br><span class="line">     2,551,915,790      L1-dcache-load-misses     #    6.78% of all L1-dcache hits    (13.12%)</span><br><span class="line">    37,638,319,334      L1-dcache-loads                                               (14.32%)</span><br><span class="line">    19,132,537,445      L1-dcache-stores                                              (15.73%)</span><br><span class="line">     1,834,976,400      L1-icache-load-misses                                         (18.90%)</span><br><span class="line">       131,307,343      LLC-load-misses           #   11.46% of all LL-cache hits     (19.94%)</span><br><span class="line">     1,145,964,874      LLC-loads                                                     (16.60%)</span><br><span class="line">        45,561,247      LLC-store-misses                                              (8.11%)</span><br><span class="line">       140,236,535      LLC-stores                                                    (9.60%)</span><br><span class="line">       423,294,349      branch-load-misses                                            (14.27%)</span><br><span class="line">    46,645,623,485      branch-loads                                                  (14.28%)</span><br><span class="line">        73,377,533      dTLB-load-misses          #    0.19% of all dTLB cache hits   (14.28%)</span><br><span class="line">    37,905,428,246      dTLB-loads                                                    (15.69%)</span><br><span class="line">         4,969,973      dTLB-store-misses                                             (17.21%)</span><br><span class="line">    18,729,947,580      dTLB-stores                                                   (19.71%)</span><br><span class="line">        72,073,313      iTLB-load-misses          #  167.86% of all iTLB cache hits   (20.60%)</span><br><span class="line">        42,935,532      iTLB-loads                                                    (19.16%)</span><br><span class="line">       112,306,453      node-load-misses                                              (15.35%)</span><br><span class="line">        37,239,267      node-loads                                                    (7.44%)</span><br><span class="line">        37,455,335      node-store-misses                                             (10.00%)</span><br><span class="line">         8,134,155      node-stores                                                   (8.87%)</span><br><span class="line"></span><br><span class="line">      10.838808208 seconds time elapsed</span><br></pre></td></tr></table></figure>
 <h3 id="飞腾-1"><a href="#飞腾-1" class="headerlink" title="飞腾"></a>飞腾</h3><p>ipc 大概是intel的30%，加上主频也要差一些，</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">#time perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses -a ./cpu_bound</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &apos;system wide&apos;:</span><br><span class="line"></span><br><span class="line">       10496356859      branch-misses                                                 (37.60%)</span><br><span class="line">     2813170983911      bus-cycles                                                    (37.58%)</span><br><span class="line">       17604745519      cache-misses              #    3.638 % of all cache refs      (37.55%)</span><br><span class="line">      483878256161      cache-references                                              (37.54%)</span><br><span class="line">     2818545529083      cpu-cycles                                                    (43.78%)</span><br><span class="line">     1280497827941      instructions              #    0.45  insns per cycle          (43.78%)</span><br><span class="line">       17623592806      L1-dcache-load-misses     #    3.65% of all L1-dcache hits    (43.78%)</span><br><span class="line">      482429613337      L1-dcache-loads                                               (41.83%)</span><br><span class="line">       17604561232      L1-dcache-store-misses                                        (37.53%)</span><br><span class="line">      484126081882      L1-dcache-stores                                              (37.52%)</span><br><span class="line">       17774514325      L1-icache-load-misses                                         (37.50%)</span><br><span class="line">      641046300400      L1-icache-loads                                               (37.50%)</span><br><span class="line">       10574973722      branch-load-misses                                            (39.45%)</span><br><span class="line">      273851009656      branch-loads                                                  (43.76%)</span><br><span class="line">        9457594390      dTLB-load-misses                                              (43.77%)</span><br><span class="line">        1813954093      iTLB-load-misses                                              (43.77%)</span><br><span class="line"></span><br><span class="line">      31.172754504 seconds time elapsed</span><br><span class="line"></span><br><span class="line">real	0m31.284s</span><br><span class="line">user	0m31.096s</span><br><span class="line">sys	0m0.165s</span><br></pre></td></tr></table></figure>
+<h2 id="ARM-和-X86的总结"><a href="#ARM-和-X86的总结" class="headerlink" title="ARM 和 X86的总结"></a>ARM 和 X86的总结</h2><p>对比硬件：</p>
+<p>ARM：泰山ARM 双路 128核心64核心/路），2.5G，4指令/周期，8个内存通道/路，mips体系架构。<br>X86: intel 8163服务器 双路 48核心（24核心/路），2.5GHZ， 6指令/周期，96smt， 6个内存通道</p>
+<p>用 Geabase(C++)  测试所得 ARM是X86 性能的1.36倍，接近理论值的1.4倍</p>
+<p>理论值的计算公式：</p>
+<blockquote>
+<p>CPU性能验证公式：频率 x 核数 x 发射数/周期 x 1.3/1.5(smt2/smt4) (smt是指超线程数量)</p>
+</blockquote>
+<p>ARM 优势的来源主要是工艺领先一代(7nm VS 14nm)</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>对纯CPU 运算场景，并发不超过物理core时，比如Prime运算，比如DRDS(CPU bound，IO在网络，可以加并发弥补)<ul>
 <li>海光的IPC能保持稳定；</li>
@@ -941,6 +1185,9 @@
 </li>
 <li>海光zen1的AMD 架构，每个core只有一个fpu，综上在多个场景下HT基本上都可以忽略</li>
 <li>飞腾2500性能比较差</li>
+<li>国产CPU：飞腾、鲲鹏、龙芯、申威、海光(AMD授权)、兆芯(威盛via 授权x86)</li>
+<li>CPU性能验证公式：频率 x 核数 x 发射数/周期 x 1.3/1.5(smt2/smt4) (smt是指超线程数量)</li>
+<li>大吞吐量计算由多核CPU数量决定，多核CPU数量由制程工艺决定，制程工艺由资本决定，制程工艺资本由主流消费电子决定, 摩尔定律仍在持续</li>
 </ul>
 <h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
 <p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
@@ -1173,7 +1420,7 @@
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg" alt="img"></p>
 <h3 id="Die和core"><a href="#Die和core" class="headerlink" title="Die和core"></a>Die和core</h3><p>One die with multiple cores，下图是一个Die内部图:</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/xCqqv.jpg" alt="enter image description here"></p>
-<p>CPU Package containing 2 separate DIEs:</p>
+<p>将两个Die封装成一块CPU(core多，成本低):</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/dataf1-1372099277050.jpg" alt="data f1"></p>
 <p>第4代酷睿（Haswell）的die：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210601162558479.png" alt="image-20210601162558479"></p>
@@ -1196,15 +1443,44 @@
 <p>多个core加上L3等组成一个Die：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-ht-hierarchy-2.jpg" alt="img"></p>
 <h2 id="多核和多个CPU"><a href="#多核和多个CPU" class="headerlink" title="多核和多个CPU"></a>多核和多个CPU</h2><p>如果要实现一台48core的计算能力的服务器，可以有如下三个方案</p>
-<h4 id="方案1：一个大Die集成48core："><a href="#方案1：一个大Die集成48core：" class="headerlink" title="方案1：一个大Die集成48core："></a>方案1：一个大Die集成48core：<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png" alt="Intel Skylake SP Mesh Architecture Conceptual Diagram"></h4><h4 id="方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core"><a href="#方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core" class="headerlink" title="方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core"></a><a href="https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/" target="_blank" rel="noopener">方案2</a>：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602165525641.png" alt="image-20210602165525641"></p>
+<h3 id="方案1：一个大Die集成48core："><a href="#方案1：一个大Die集成48core：" class="headerlink" title="方案1：一个大Die集成48core："></a>方案1：一个大Die集成48core：<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png" alt="Intel Skylake SP Mesh Architecture Conceptual Diagram"></h3><h3 id="方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core"><a href="#方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core" class="headerlink" title="方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core"></a><a href="https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/" target="_blank" rel="noopener">方案2</a>：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602165525641.png" alt="image-20210602165525641"></p>
 <p>四个Die之间的连接方法：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602172555232.png" alt="image-20210602172555232"></p>
 <p>上图最下面的方案为<a href="https://venturebeat.com/2017/03/28/intel-moves-tech-forward-by-putting-two-chips-in-a-single-package/" target="_blank" rel="noopener">Intel采用的EMIB</a>（Embedded Multi-die Interconnect Bridge）方案，cost 最低。中间的方案是使用“硅中介层”(Interposer，AMD采用的方案)。这意味着你能在两枚主要芯片的下面放置和使用第三枚芯片。这枚芯片的目的是使得多个设备的连接更加容易，但是也带来了更高的成本。</p>
-<h4 id="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："><a href="#方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：" class="headerlink" title="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："></a>方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602171352551.png" alt="image-20210602171352551"></p>
+<h3 id="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："><a href="#方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：" class="headerlink" title="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："></a>方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602171352551.png" alt="image-20210602171352551"></p>
 <p>三者的比较：</p>
 <p>性能肯定是大Die最好，但是良品率地，成本高；</p>
 <p>方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和<strong>内存</strong></p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602170727459.png" alt="image-20210602170727459"></p>
+<h2 id="主频睿频超频"><a href="#主频睿频超频" class="headerlink" title="主频睿频超频"></a>主频睿频超频</h2><p>因为能耗导致CPU的主频近些年基本不怎么提升了，不是技术上不能提升，是性价比不高. </p>
+<p>在提升主频之外可以提升性能的有：提升跳转预测率，增加Decoded Cache，增加每周期的并发读个数，增加执行通道，增加ROB， RS，Read &amp; Write buffer等等，当然增加core数量也是提升整体性能的王道。另外就是优化指令所需要的时钟周期、增加并行度更好的指令等等指令集相关的优化。</p>
+<h3 id="指令集优化-AVX-Advanced-Vector-Extension，高级矢量扩展指令集"><a href="#指令集优化-AVX-Advanced-Vector-Extension，高级矢量扩展指令集" class="headerlink" title="指令集优化 AVX(Advanced Vector Extension，高级矢量扩展指令集)"></a>指令集优化 AVX(Advanced Vector Extension，高级矢量扩展指令集)</h3><p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
+<p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
+<p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>
+<blockquote>
+<p>2013 年， 英特尔 发布了<strong>AVX</strong>-<strong>512 指令</strong>集，其<strong>指令</strong>宽度扩展为512bit，每个时钟周期内可打包32 次双精度或64 次单精度浮点运算，因此在图像/ 音视频处理、数据分析、科学计算、数据加密和压缩和 深度学习 等应用场景中，会带来更强大的性能表现，理论上浮点性能翻倍，整数计算则增加约33% 的性能。</p>
+</blockquote>
+<p>Linus Torvalds ：</p>
+<blockquote>
+<p>AVX512 有很明显的缺点。我宁愿看到那些晶体管被用于其他更相关的事情。即使同样是用于进行浮点数学运算（通过 GPU 来做，而不是通过 AVX512 在 CPU 上），或者直接给我更多的核心（有着更多单线程性能，而且没有 AVX512 这样的垃圾），就像 AMD 所做的一样。</p>
+<p>我希望通过常规的整数代码来达到自己能力的极限，而不是通过 AVX512 这样的功率病毒来达到最高频率（因为人们最终还是会拿它来做 memory-to-memory copy），还占据了核心的很大面积。</p>
+</blockquote>
+<p>所以今天的2.6G单核skylake，能秒掉20年前2.6G的酷睿, 尤其是复杂场景。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094527563.png" alt="image-20210715094527563"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094637227.png" alt="image-20210715094637227"></p>
+<p>CPU能耗公式：</p>
+<blockquote>
+<p>P = C V<em>V </em> f</p>
+</blockquote>
+<p>C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。</p>
+<p>所以最终能耗和f频率是 f^3 的指数关系。</p>
+<p>即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。光刻机加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715100609552.png" alt="image-20210715100609552"></p>
+<p><strong>主频=外频×倍频系数</strong></p>
+<p>不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。</p>
+<p>超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。</p>
+<p>睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000.jpeg" alt="img"></p>
 <h2 id="多core通讯和NUMA"><a href="#多core通讯和NUMA" class="headerlink" title="多core通讯和NUMA"></a>多core通讯和NUMA</h2><h3 id="uma下cpu访问内存"><a href="#uma下cpu访问内存" class="headerlink" title="uma下cpu访问内存"></a>uma下cpu访问内存</h3><p>早期core不多统一走北桥总线访问内存，对所有core时延统一</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/numa-fsb-3.png" alt="x86 UMA"></p>
 <h3 id="NUMA"><a href="#NUMA" class="headerlink" title="NUMA"></a>NUMA</h3><p>如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。</p>
@@ -1234,10 +1510,10 @@
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg" alt="Broadwell Ring V Skylake Mesh DRAM Example"></p>
 <p>上图左边的是ring bus，从一个ring里面访问另一个ring里面的内存控制器。最坏情况下是那条绿线，拐了一个大圈才到达内存控制器，需要310个cycle。而在Mesh网络中则路径缩短很多。</p>
 <p>Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计带来复杂性的增加，从而对Die的大小带来了负面影响</p>
+<p>CPU的总线为铜薄膜，虽然摩尔定律使单位面积晶体管的密度不断增加，但是对于连接导线的电阻却没有明显的下降，导线的RC延迟几乎决定现有CPU性能，因此数据传输在CPU的角度来看是个极为沉重的负担。 虽然2D-mesh为数据提供了更多的迁移路径减少了数据堵塞，但也同样为数据一致性带来更多问题，例如过去ring-bus 结构下对于存在于某个CPU私用缓存的数据争抢请求只有两个方向（左和右）， 但是在2D-mesh环境下会来自于4个方向（上，下，左，右）</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602104851803.png" alt="image-20210602104851803"></p>
 <h3 id="uncore"><a href="#uncore" class="headerlink" title="uncore"></a>uncore</h3><p>“<strong>Uncore</strong>“ is a term used by <a href="https://en.wikipedia.org/wiki/Intel" target="_blank" rel="noopener">Intel</a> to describe the functions of a <a href="https://en.wikipedia.org/wiki/Microprocessor" target="_blank" rel="noopener">microprocessor</a> that are not in the core, but which must be closely connected to the core to achieve high performance.<a href="https://en.wikipedia.org/wiki/Uncore#cite_note-modular_uncore-1" target="_blank" rel="noopener">[1]</a> It has been called “<strong>system agent</strong>“ since the release of the <a href="https://en.wikipedia.org/wiki/Sandy_Bridge" target="_blank" rel="noopener">Sandy Bridge</a> <a href="https://en.wikipedia.org/wiki/Microarchitecture" target="_blank" rel="noopener">microarchitecture</a>.<a href="https://en.wikipedia.org/wiki/Uncore#cite_note-sandybridge-2" target="_blank" rel="noopener">[2]</a></p>
 <p>The core contains the components of the processor involved in executing instructions, including the <a href="https://en.wikipedia.org/wiki/Arithmetic_logic_unit" target="_blank" rel="noopener">ALU</a>, <a href="https://en.wikipedia.org/wiki/Floating_point_unit" target="_blank" rel="noopener">FPU</a>, <a href="https://en.wikipedia.org/wiki/L1_cache" target="_blank" rel="noopener">L1</a> and <a href="https://en.wikipedia.org/wiki/L2_cache" target="_blank" rel="noopener">L2 cache</a>. Uncore functions include <a href="https://en.wikipedia.org/wiki/Intel_QuickPath_Interconnect" target="_blank" rel="noopener">QPI</a> controllers, <a href="https://en.wikipedia.org/wiki/L3_cache" target="_blank" rel="noopener">L3 cache</a>, <a href="https://en.wikipedia.org/wiki/Memory_coherence" target="_blank" rel="noopener">snoop agent</a> <a href="https://en.wikipedia.org/wiki/Instruction_pipeline" target="_blank" rel="noopener">pipeline</a>, on-die <a href="https://en.wikipedia.org/wiki/Memory_controller" target="_blank" rel="noopener">memory controller</a>, on-die <a href="https://en.wikipedia.org/wiki/PCI_Express_Root_Complex" target="_blank" rel="noopener">PCI Express Root Complex</a>, and <a href="https://en.wikipedia.org/wiki/Thunderbolt_(interface" target="_blank" rel="noopener">Thunderbolt controller</a>).<a href="https://en.wikipedia.org/wiki/Uncore#cite_note-thunderbolt-3" target="_blank" rel="noopener">[3]</a> Other bus controllers such as <a href="https://en.wikipedia.org/wiki/Serial_Peripheral_Interface_Bus" target="_blank" rel="noopener">SPI</a> and <a href="https://en.wikipedia.org/wiki/Low_Pin_Count" target="_blank" rel="noopener">LPC</a> are part of the <a href="https://en.wikipedia.org/wiki/Chipset" target="_blank" rel="noopener">chipset</a>.<a href="https://en.wikipedia.org/wiki/Uncore#cite_note-Anandtech:_Nehalem:_The_Unwritten_Chapters-4" target="_blank" rel="noopener">[4]</a></p>
-<h3 id="LLC-Miss"><a href="#LLC-Miss" class="headerlink" title="LLC Miss"></a>LLC Miss</h3><h4 id="Metric-Description"><a href="#Metric-Description" class="headerlink" title="Metric Description"></a>Metric Description</h4><p>The LLC (last-level cache) is the last, and longest-latency, level in the memory hierarchy before main memory (DRAM). Any memory requests missing here must be serviced by local or remote DRAM, with significant latency. The LLC Miss metric shows a ratio of cycles with outstanding LLC misses to all cycles.</p>
 <h2 id="一些Intel-CPU-NUMA结构参考"><a href="#一些Intel-CPU-NUMA结构参考" class="headerlink" title="一些Intel CPU NUMA结构参考"></a>一些Intel CPU NUMA结构参考</h2><p>Intel Xeon Platinum 8163（Skylake）阿里云第四代服务器采用的CPU，Skylake架构，主频2.5GHz，计算性能问题。8163这款型号在intel官网上并没有相关信息，应该是阿里云向阿里云定制的，与之相近的Intel Xeon Platinum 8168，价格是$5890，约合￥38900元。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br></pre></td><td class="code"><pre><span class="line">lscpu:</span><br><span class="line">      Architecture:        x86_64</span><br><span class="line">      CPU op-mode(s):      32-bit, 64-bit</span><br><span class="line">      Byte Order:          Little Endian</span><br><span class="line">      CPU(s):              96</span><br><span class="line">      On-line CPU(s) list: 0-95</span><br><span class="line">      Thread(s) per core:  2</span><br><span class="line">      Core(s) per socket:  24</span><br><span class="line">      Socket(s):           2</span><br><span class="line">      NUMA node(s):        4</span><br><span class="line">      Vendor ID:           GenuineIntel</span><br><span class="line">      CPU family:          6</span><br><span class="line">      Model:               85</span><br><span class="line">      Model name:          Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz</span><br><span class="line">      Stepping:            6</span><br><span class="line">      CPU MHz:             2400.000</span><br><span class="line">      CPU max MHz:         3900.0000</span><br><span class="line">      CPU min MHz:         1000.0000</span><br><span class="line">      BogoMIPS:            4800.00</span><br><span class="line">      Virtualization:      VT-x</span><br><span class="line">      L1d cache:           32K</span><br><span class="line">      L1i cache:           32K</span><br><span class="line">      L2 cache:            1024K</span><br><span class="line">      L3 cache:            36608K</span><br><span class="line">      NUMA node0 CPU(s):   0-3,7-9,13-15,19,20,48-51,55-57,61-63,67,68</span><br><span class="line">      NUMA node1 CPU(s):   4-6,10-12,16-18,21-23,52-54,58-60,64-66,69-71</span><br><span class="line">      NUMA node2 CPU(s):   24-27,31-33,37-39,43,44,72-75,79-81,85-87,91,92</span><br><span class="line">      NUMA node3 CPU(s):   28-30,34-36,40-42,45-47,76-78,82-84,88-90,93-95</span><br><span class="line">      </span><br><span class="line"> Model: 85</span><br><span class="line"> Model name: Intel(R) Xeon(R) Platinum 8268 CPU @ 2.90GHz</span><br><span class="line"> Stepping: 6</span><br><span class="line"> CPU MHz: 3252.490</span><br><span class="line"> BogoMIPS: 5800.00</span><br><span class="line"> Virtualization: VT-x</span><br><span class="line"> L1d cache: 32K</span><br><span class="line"> L1i cache: 32K</span><br><span class="line"> L2 cache: 1024K</span><br><span class="line"> L3 cache: 36608K</span><br><span class="line"> NUMA node0 CPU(s):</span><br><span class="line"> 0,4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92</span><br><span class="line"> NUMA node1 CPU(s):</span><br><span class="line"> 1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61,65,69,73,77,81,85,89,93</span><br><span class="line"> NUMA node2 CPU(s):</span><br><span class="line"> 2,6,10,14,18,22,26,30,34,38,42,46,50,54,58,62,66,70,74,78,82,86,90,94</span><br><span class="line"> NUMA node3 CPU(s):</span><br><span class="line"> 3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63,67,71,75,79,83,87,91,95   </span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">  lscpu:</span><br><span class="line"> Architecture: x86_64</span><br><span class="line"> CPU op-mode(s): 32-bit, 64-bit</span><br><span class="line"> Byte Order: Little Endian</span><br><span class="line"> CPU(s): 192</span><br><span class="line"> On-line CPU(s) list: 0-191</span><br><span class="line"> Thread(s) per core: 1</span><br><span class="line"> Core(s) per socket: 24</span><br><span class="line"> Socket(s): 8 //每个物理CPU 24个物理core，这24个core应该是分布在2个Die中</span><br><span class="line"> NUMA node(s): 16</span><br><span class="line"> Vendor ID: GenuineIntel</span><br><span class="line"> CPU family: 6</span><br><span class="line"> Model: 85</span><br><span class="line"> Model name: Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz</span><br><span class="line"> Stepping: 7</span><br><span class="line"> CPU MHz: 2400.000</span><br><span class="line"> CPU max MHz: 3900.0000</span><br><span class="line"> CPU min MHz: 1000.0000</span><br><span class="line"> BogoMIPS: 4800.00</span><br><span class="line"> Virtualization: VT-x</span><br><span class="line"> L1d cache: 32K</span><br><span class="line"> L1i cache: 32K</span><br><span class="line"> L2 cache: 1024K</span><br><span class="line"> L3 cache: 36608K</span><br><span class="line"> NUMA node0 CPU(s): 0-3,7-9,13-15,19,20</span><br><span class="line"> NUMA node1 CPU(s): 4-6,10-12,16-18,21-23</span><br><span class="line"> NUMA node2 CPU(s): 24-27,31-33,37-39,43,44</span><br><span class="line"> NUMA node3 CPU(s): 28-30,34-36,40-42,45-47</span><br><span class="line"> NUMA node4 CPU(s): 48-51,55,56,60-62,66-68</span><br><span class="line"> NUMA node5 CPU(s): 52-54,57-59,63-65,69-71</span><br><span class="line"> NUMA node6 CPU(s): 72-75,79-81,85-87,91,92</span><br><span class="line"> NUMA node7 CPU(s): 76-78,82-84,88-90,93-95</span><br><span class="line"> NUMA node8 CPU(s): 96-99,103,104,108-110,114-116</span><br><span class="line"> NUMA node9 CPU(s): 100-102,105-107,111-113,117-119</span><br><span class="line"> NUMA node10 CPU(s): 120-123,127,128,132-134,138-140</span><br><span class="line"> NUMA node11 CPU(s): 124-126,129-131,135-137,141-143</span><br><span class="line"> NUMA node12 CPU(s): 144-147,151-153,157-159,163,164</span><br><span class="line"> NUMA node13 CPU(s): 148-150,154-156,160-162,165-167</span><br><span class="line"> NUMA node14 CPU(s): 168-171,175-177,181-183,187,188</span><br><span class="line"> NUMA node15 CPU(s): 172-174,178-180,184-186,189-191</span><br><span class="line"> </span><br><span class="line"> //v62</span><br><span class="line"> #lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                104</span><br><span class="line">On-line CPU(s) list:   0-103</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    26</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 85</span><br><span class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</span><br><span class="line">Stepping:              7</span><br><span class="line">CPU MHz:               3200.097</span><br><span class="line">CPU max MHz:           3800.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              4998.89</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              1024K</span><br><span class="line">L3 cache:              36608K</span><br><span class="line">NUMA node0 CPU(s):     0-25,52-77</span><br><span class="line">NUMA node1 CPU(s):     26-51,78-103</span><br><span class="line"></span><br><span class="line">//2016Intel开始出售Intel Xeon E5-2682 v4。 这是一种基于Broadwell架构的桌面处理器，主要为办公系统而设计。 它具有16 核心和32 数据流并使用, 售价约为7000人民币</span><br><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                64</span><br><span class="line">On-line CPU(s) list:   0-63</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    16</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 79</span><br><span class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</span><br><span class="line">Stepping:              1</span><br><span class="line">CPU MHz:               2499.902</span><br><span class="line">CPU max MHz:           3000.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              5000.06</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              256K</span><br><span class="line">L3 cache:              40960K</span><br><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3</span><br></pre></td></tr></table></figure>
 <h3 id="intel-架构迭代"><a href="#intel-架构迭代" class="headerlink" title="intel 架构迭代"></a><a href="https://jcf94.com/2018/02/13/2018-02-13-intel/" target="_blank" rel="noopener">intel 架构迭代</a></h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png" alt="Intel processor roadmap"></p>
@@ -1256,18 +1532,6 @@
 <p>感觉Broadwell前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是<strong>Ring bus到Mesh</strong>）</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602154509596.png" alt="image-20210602154509596"></p>
 <h3 id="不同的架构下的参数"><a href="#不同的架构下的参数" class="headerlink" title="不同的架构下的参数"></a>不同的架构下的参数</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fb522be7aa65158778b7ea825207.png" alt="image.png"></p>
-<h2 id="主频睿频超频"><a href="#主频睿频超频" class="headerlink" title="主频睿频超频"></a>主频睿频超频</h2><p><strong>主频=外频×倍频系数</strong></p>
-<p>不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。</p>
-<p>超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。</p>
-<p>睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000.jpeg" alt="img"></p>
-<p>CPU能耗公式：</p>
-<blockquote>
-<p>P = C V<em>V </em> f</p>
-</blockquote>
-<p>C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。</p>
-<p>所以最终能耗和f频率是 f^3 的指数关系。</p>
-<p>即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。<del>另外要不要考虑光速不可超越的影响，也就是1GHz电信号智能传播30cm， 10GHz的话电信号只能传播3cm，也就是Die的大小不能超过3cm。当然这个推论简化了很多其他因素</del></p>
 <h2 id="UEFI和Bios"><a href="#UEFI和Bios" class="headerlink" title="UEFI和Bios"></a>UEFI和Bios</h2><p><strong>UEFI</strong>，全称Unified Extensible Firmware Interface，即“统一的可扩展固件接口”，是一种详细描述全新类型接口的标准，是适用于电脑的标准固件接口，旨在代替BIOS（基本输入/输出系统）</p>
 <p>电脑中有一个BIOS设置，它主要负责开机时检测硬件功能和引导操作系统启动的功能。而UEFI则是用于操作系统自动从预启动的操作环境，加载到一种操作系统上从而节省开机时间。</p>
 <p>UEFI启动是一种新的主板引导项，它被看做是bios的继任者。UEFI最主要的特点是图形界面，更利于用户对象图形化的操作选择。</p>
@@ -1515,27 +1779,13 @@
 <p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
 <p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
 <p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
-<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU访问内存是非常慢的，所以我们在CPU中增加了3级缓存，并且每次CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）</p>
-<p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。</p>
-<p>这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
+<p>CPU为什么要CACHE，请看这篇</p>
+<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）</p>
+<p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
 <p>处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了<a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="noopener"> MESI 协议</a>，以及 MESIF 协议。</p>
-<h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，<br>还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。<br>随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
+<h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
 <p>cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。</p>
 <p>显而易见的是一旦cache失效就需要访问内存重新从内存中读取数据到CPU cache中，这个过程会很慢。</p>
-<h2 id="各级IO延迟数字"><a href="#各级IO延迟数字" class="headerlink" title="各级IO延迟数字"></a>各级IO延迟数字</h2><p>2012 年延迟数字对比表</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210702161817496.png" alt="image-20210702161817496"></p>
-<p>一个比较有体感的比较：如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。</p>
-<p>当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-hierarchy-1.jpg" alt="Memory Hierarchy"></p>
-<p><a href="https://colin-scott.github.io/personal_website/research/interactive_latency.html" target="_blank" rel="noopener">推荐从这里看延时，拖动时间轴可以看到每一年的变化</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210613123006681.png" alt="image-20210613123006681"></p>
-<p>查看cpu cache数据</p>
-<pre><code>cat /proc/cpuinfo |grep -i cache
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png" alt="image.png"></p>
-<h3 id="L1C、L2C、L3C、DDR-的Latency"><a href="#L1C、L2C、L3C、DDR-的Latency" class="headerlink" title="L1C、L2C、L3C、DDR 的Latency"></a>L1C、L2C、L3C、DDR 的Latency</h3><p><a href="https://topic.atatech.org/articles/100065" target="_blank" rel="noopener">下图从左至右响应时间分别是L1C、L2C、L3C、DDR</a>，可以看出这四个Latency变化还是非常明显的，泾渭分明。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/58286da947132f269cb26ff3eda25c68.png" alt="img"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511160107225.png" alt="image-20210511160107225"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png" alt="image.png"></p>
 <h2 id="查看-cache-line"><a href="#查看-cache-line" class="headerlink" title="查看 cache_line"></a>查看 cache_line</h2><p>如下 Linux <code>getconf</code> 命令的输出，除了 <code>*_LINESIZE</code> 指示了系统的 Cache Line 的大小是 64 字节外，还给出了 Cache 类别，大小。 其中 <code>*_ASSOC</code> 则指示了该 Cache 是几路关联 (Way Associative) 的。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">$sudo getconf -a |grep CACHE</span><br><span class="line">LEVEL1_ICACHE_SIZE                 32768</span><br><span class="line">LEVEL1_ICACHE_ASSOC                8</span><br><span class="line">LEVEL1_ICACHE_LINESIZE             64</span><br><span class="line">LEVEL1_DCACHE_SIZE                 32768</span><br><span class="line">LEVEL1_DCACHE_ASSOC                8</span><br><span class="line">LEVEL1_DCACHE_LINESIZE             64</span><br><span class="line">LEVEL2_CACHE_SIZE                  262144</span><br><span class="line">LEVEL2_CACHE_ASSOC                 4</span><br><span class="line">LEVEL2_CACHE_LINESIZE              64</span><br><span class="line">LEVEL3_CACHE_SIZE                  3145728</span><br><span class="line">LEVEL3_CACHE_ASSOC                 12</span><br><span class="line">LEVEL3_CACHE_LINESIZE              64</span><br><span class="line">LEVEL4_CACHE_SIZE                  0</span><br><span class="line">LEVEL4_CACHE_ASSOC                 0</span><br><span class="line">LEVEL4_CACHE_LINESIZE              0</span><br></pre></td></tr></table></figure>
 <h2 id="cache-line-影响性能的案例"><a href="#cache-line-影响性能的案例" class="headerlink" title="cache_line 影响性能的案例"></a>cache_line 影响性能的案例</h2><p>如下两个循环执行次数循环2是循环1的十六分之一。但是在x86和arm下执行时间都是循环2是循环1的四分之一左右。</p>
@@ -1593,7 +1843,7 @@
 <p>可以看到最终时间差了100倍，IPC差了8倍，从指令数来看加锁后指令数会略多，但是加锁造成了stall（即使没有实际竞争）。</p>
 <p>上述代码如果是在：Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz 上运行，差距要小很多，也可以看出intel x86芯片优化比较好。不加锁的循环X86比ARM要慢一点点是因为ARM芯片的主频是2.6G，要高一点点。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#java test.LockBenchmark  //x86</span><br><span class="line">Time spent is 20135ms without lock</span><br><span class="line">start runIncrementWithLock.</span><br><span class="line">Time spent is 13056ms with lock</span><br></pre></td></tr></table></figure>
-<p><strong>此时对应的IPC分别是3.99和1.</strong></p>
+<p><strong>此时Intel CPU上对应的IPC分别是3.99和1.</strong></p>
 <p>这里加锁和不加锁最终性能差了将近2个数量级，但是IPC只差了8倍，另外的差异在加锁后增加了很多的指令、函数调用等。如果两个函数都增加每个循环里面的指令数量，那么他们的时间差距会缩小。如果增加的指令是乘法、除法会大幅降低IPC</p>
 <p>比如代码改成如下：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line">#cat LockBenchmark.java</span><br><span class="line">package test;</span><br><span class="line"></span><br><span class="line">import java.util.concurrent.atomic.AtomicLong;</span><br><span class="line">import java.util.concurrent.locks.Lock;</span><br><span class="line">import java.util.concurrent.locks.ReentrantLock;</span><br><span class="line"></span><br><span class="line">public class LockBenchmark&#123;</span><br><span class="line">    public static void runIncrement()</span><br><span class="line">    &#123;</span><br><span class="line">        long counter = 0;</span><br><span class="line">        long max  = 500000000L;</span><br><span class="line">				double sum =100.0;</span><br><span class="line">        long start = System.currentTimeMillis();</span><br><span class="line">        while (counter &lt; max) &#123;</span><br><span class="line">            counter++;</span><br><span class="line">						sum=3.251;</span><br><span class="line">						for(int i=0; i&lt;10; ++i)&#123;</span><br><span class="line">							sum += sum*3.75/3;</span><br><span class="line">						&#125;</span><br><span class="line">        &#125;</span><br><span class="line">        long end = System.currentTimeMillis();</span><br><span class="line">        System.out.println(&quot;Time spent is &quot; + (end-start) + &quot;ms without lock:&quot;+sum);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    public static void runIncrementWithLock()</span><br><span class="line">    &#123;</span><br><span class="line">        Lock lock = new ReentrantLock();</span><br><span class="line">        long counter = 0;</span><br><span class="line">				double sum=100.0;</span><br><span class="line">        long max = 500000000L;</span><br><span class="line">        long start = System.currentTimeMillis();</span><br><span class="line">        while (counter &lt; max) &#123;</span><br><span class="line">            if (lock.tryLock())&#123;</span><br><span class="line">		    			counter++;</span><br><span class="line">							sum=3.253;</span><br><span class="line">							for(int i=0; i&lt;10; ++i)&#123;</span><br><span class="line">								sum += sum*3.75/3;</span><br><span class="line">							&#125;</span><br><span class="line">              lock.unlock();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        long end = System.currentTimeMillis();</span><br><span class="line">        System.out.println(&quot;Time spent is &quot; + (end-start) + &quot;ms with lock:&quot;+sum);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    public static void main(String[] args) &#123;</span><br><span class="line">        runIncrement();</span><br><span class="line">	    	System.out.println(&quot;start runIncrementWithLock.&quot;);</span><br><span class="line">        runIncrementWithLock();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
@@ -1636,7 +1886,7 @@
 <p>学过体系结构的同学都应该知道，缓存一制性协议MESI只能保证cache line粒度的一致性。同时访问两个cache lines不是常见操作，为保证split lock的原子性，设计硬件时使用特殊逻辑（冷路径）来处理：<strong>锁住整个访存总线，阻止其它逻辑cpu访存</strong>。</p>
 <p>从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1.png" alt="img"></p>
-<h2 id="分支预测案例"><a href="#分支预测案例" class="headerlink" title="分支预测案例"></a>分支预测案例</h2><p>这个案例循环次数一样多：</p>
+<h2 id="分支预测案例"><a href="#分支预测案例" class="headerlink" title="分支预测案例"></a>分支预测案例</h2><p>这个案例总循环次数一样多，但是里外循环次数不一样：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">#include &quot;stdio.h&quot;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;time.h&gt;</span><br><span class="line"></span><br><span class="line">long timediff(clock_t t1, clock_t t2) &#123;</span><br><span class="line">    long elapsed;</span><br><span class="line">    elapsed = ((double)t2 - t1) / CLOCKS_PER_SEC * 1000;</span><br><span class="line">    return elapsed;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">int main(int argc, char *argv[])</span><br><span class="line">&#123;</span><br><span class="line">    int j=0;</span><br><span class="line">    int k=0;</span><br><span class="line">    int c=0;</span><br><span class="line">    clock_t start=clock();</span><br><span class="line">    for(j=0; j&lt;100000; j++)&#123;</span><br><span class="line">        for(k=0; k&lt;1000; k++)&#123;</span><br><span class="line">					for(c=0; c&lt;100; c++)&#123;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">    &#125;</span><br><span class="line">    clock_t end =clock();</span><br><span class="line">    printf(&quot;%lu\n&quot;, timediff(start,end));    //case1</span><br><span class="line"></span><br><span class="line">    start=clock();</span><br><span class="line">    for(j=0; j&lt;100; j++)&#123;</span><br><span class="line">        for(k=0; k&lt;1000; k++)&#123;</span><br><span class="line">					for(c=0; c&lt;100000; c++)&#123;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">    &#125;</span><br><span class="line">    end =clock();</span><br><span class="line">    printf(&quot;%lu\n&quot;, timediff(start,end));   //case2</span><br><span class="line">    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>x86_64下的执行结果，确实是case2略快</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#taskset -c 0 ./for_prediction.out</span><br><span class="line">25560</span><br><span class="line">23420</span><br><span class="line"></span><br><span class="line">#taskset -c 0 ./for_prediction.out</span><br><span class="line">25510</span><br><span class="line">23410</span><br></pre></td></tr></table></figure>
@@ -1896,7 +2146,7 @@ Performance counter stats for &apos;system wide&apos;:
 <p>ARM芯片基本不做超线程，另外请思考为什么有了应用层的多线程切换还需要CPU层面的超线程？</p>
 </blockquote>
 <p><strong>超线程(Hyper-Threading)物理实现</strong>: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。</p>
-<p>CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%</p>
+<p>CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样，阿里的OB/MySQL/ODPS业务经验是提升35%），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%</p>
 <h3 id="超线程如何查看"><a href="#超线程如何查看" class="headerlink" title="超线程如何查看"></a>超线程如何查看</h3><p>如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT。</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png" alt="image.png"></p>
 <p>physical id对应socket，也就是物理上购买到的一块CPU； core id对应着每个物理CPU里面的一个物理core，同一个phyiscal id下core id一样说明开了HT</p>
@@ -1905,6 +2155,20 @@ Performance counter stats for &apos;system wide&apos;:
 <p>对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210513130252565.png" alt="image-20210513130252565"></p>
 <p>以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)</p>
+<h2 id="主频和性价比"><a href="#主频和性价比" class="headerlink" title="主频和性价比"></a>主频和性价比</h2><p>拿Intel 在数据中心计算的大核CPU IvyBridge与当时用于 存储系列的小核CPU Avoton（ATOM）, 分别测试阿里巴巴(Oceanbase ，MySQL, ODPS)的workload，得到性能吞吐如下：</p>
+<p>Intel 大小CPU 核心                   阿里 Workload Output(QPS)</p>
+<p>Avoton(8 cores) 2.4GHZ                 10K on single core</p>
+<p>Ivy Bridge(2650 v2 disable HT) 2.6GHZ      20K on single core</p>
+<p>Ivy Bridge(2650 v2 enable HT) 2.4GHZ       25K on single core</p>
+<p>Ivy Bridge(2650 v2 enable HT) 2.6GHZ       27K on single core</p>
+<ol>
+<li>超线程等于将一个大核CPU 分拆成两个小核，Ivy Bridge的数据显示超线程给 Ivy Bridge <strong>1.35倍</strong>(27K/20K) 的提升</li>
+<li>现在我们分别评判 两种CPU对应的性能密度 (performance/core die size) ，该数据越大越好，根据我们的计算和测量发现：Avoton(包含L1D, L1I, and L2 per core)大约是 3~4平方毫米，Ivy Bridge (包含L1D, L1I, L2 )大约是12~13平方毫米, L3/core是 6~7平方毫米, 所以 Ivy Bridge 单核心的芯片面积需要18 ~ 20平方毫米。基于上面的数据我们得到的 Avoton core的性能密度为 2.5 (10K/4sqmm)，而Ivy Bridge的性能密度是1.35 (27K/20sqmm)，因此相同的芯片面积下 Avoton 的性能是 Ivy Bridge的 <strong>1.85倍</strong>(2.5/1.35).</li>
+<li>从功耗的角度看性能的提升的对比数据，E5-2650v2(Ivy Bridge) 8core TDP 90w， Avoton 8 core TDP 20瓦， 性能/功耗 Avoton 是 10K QPS/20瓦， Ivy Bridge是 27KQPS/90瓦， 因此 相同的功耗下 Avoton是 Ivy Bridge的 <strong>1.75倍</strong>（10K QPS/20）/ （27KQPS/95）</li>
+<li>从价格方面再进行比较，E5-2650v2(Ivy Bridge) 8core 官方价格是1107美元， Avoton 8 core官方价格是171美元。性能/价格 Avoton是 10KQPS/171美元，Ivy Bridge 是 27KQPS/1107美元， 因此相同的美元 Avoton的性能是 Ivy Bridge 的<strong>2.3倍（</strong>1 10KQPS/171美元）/ （27KQPS/1107美元）</li>
+</ol>
+<p>从以上结论可以看到在数据中心的场景下，由于指令数据相关性较高，同时由于内存访问的延迟更多，因此复杂的CPU体系结构并不能获得相应性能提升，该原因导致我们需要的是更多的小核CPU，以此达到高吞吐量的能力，因此2014年我们向Intel提出需要将物理CPU的超线程由 2个升级到4个/8个， 或者直接将用更多的小核CPU增加服务器的吞吐能力，最新数据表明Intel 会在大核CPU中引入4个超线程，和在相同的芯片面积下引入更多的小核CPU。</p>
+<p>预测：为了减少数据中心的功耗，我们需要提升单位面积下的计算密度，因此将来会引入Rack Computing的计算模式，每台服务器将会有4～5百个CPU core，如果使用4个CPU socket，每台机器将会达到～1000个CPU core，结合Compute Express Link (CXL), 一个机架内允许16台服务器情况下，可以引入共享内存，那么一个进程可以运行在上万个CPU core中，这样复杂环境下，我们需要对于这样的软件环境做出更多的布局和优化。</p>
 <h2 id="perf-top-和-pause-的案例"><a href="#perf-top-和-pause-的案例" class="headerlink" title="perf top 和 pause 的案例"></a><a href="https://topic.atatech.org/articles/85549" target="_blank" rel="noopener">perf top 和 pause 的案例</a></h2><p>在Skylake的架构中，将pause由10个时钟周期增加到了140个时钟周期。主要用在spin lock当中因为spin loop多线程竞争差生的内存乱序而引起的性能下降。pause的时钟周期高过了绝大多数的指令cpu cycles，那么当我们利用perf top统计cpu 性能的时候，pause会有什么影响呢？我们可以利用一段小程序来测试一下.</p>
 <p>测试机器：<br>CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程</p>
 <p>案例：</p>
@@ -2883,6 +3147,16 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/376c93772606e5e237231ede0da64c0c.png" alt="img"></p>
 <p>海光其产品规格如下，产品相对密集，但是产品之间差异化很小，频率总体接近。</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bad3d840f2d5017c50b77d47d4292eef.png" alt="img"></p>
+<p>AMD授权Zen IP给海光的操作是先成立合资公司，授权给合资公司基于Zen 研发新的 CPU，而且转让给中国的所有信息都符合美国出口法规<strong>。</strong>天津海光和AMD成立的合资公司可以修改AMD的CPU核，变相享有X86授权，而海光公司可以通过购买合资公司研发的CPU核，开发服务器CPU，不过仅仅局限于中国市场。</p>
+<p>AMD与国内公司A成立合资公司B，合资公司B由AMD控股，负责开发CPU核（其实就是拿AMD现成的内核），然后公司A购买合资公司B开发的CPU核，以此为基础开发CPU，最终实现ARM卖IP核的翻版。</p>
+<h4 id="海光与AMD-的-Ryzen-EPYC-比较"><a href="#海光与AMD-的-Ryzen-EPYC-比较" class="headerlink" title="海光与AMD 的 Ryzen/EPYC 比较"></a>海光与AMD 的 Ryzen/EPYC 比较</h4><p>由于在 Zen 1 的基础上进行了大量的修改，海光 CPU 可以不用简单地称之为换壳 AMD 处理器了。但其性能相比同代原版 CPU 略差：整数性能基本相同，浮点性能显著降低——普通指令吞吐量只有基准水平的一半。海光 CPU 的随机数生成机制也被修改，加密引擎已被替换，不再对常见的 AES 指令进行加速，但覆盖了其他面向国内安全性的指令如 SM2、SM3 和 SM4。</p>
+<h5 id="相同"><a href="#相同" class="headerlink" title="相同"></a>相同</h5><p>与 AMD 的 Ryzen/EPYC 相比，海光处理器究竟有哪些不同？总体而言，核心布局是相同的，缓存大小、TLB 大小和端口分配都相同，在基础级别上两者没有差异。CPU 仍然是 64KB 四路 L1 指令缓存，32KB 八路 L1 数据缓存，512KB 八路 L2 缓存以及 8MB 十六路 L3 缓存，与 Zen 1 核心完全相同。</p>
+<h5 id="不同"><a href="#不同" class="headerlink" title="不同"></a>不同</h5><p><strong>加密方式变化</strong></p>
+<p>在 Linux 内核升级中有关加密变化的信息已经明示。这些更新围绕 AMD 虚拟化功能（SEV）的安全加密进行。通常对于 EPYC 处理器来说，SEV 由 AMD 定义的加密协议控制，在这种情况下为 RSA、ECDSA、ECDH、SHA 和 AES。</p>
+<p>但在海光 Dhyana 处理器中，SEV 被设计为使用 SM2、SM3 和 SM4 算法。在更新中有关 SM2 的部分声明道，这种算法基于椭圆曲线加密法，且需要其他私钥/公钥交换；SM3 是一种哈希算法，类似于 SHA-256；而 SM4 是类似于 AES-128 的分组密码算法。为支持这些算法所需的额外功能，其他指令也被加入到了 Linux 内核中。在说明文件中指出，这些算法已在 Hygon Dhyana Plus 处理器上成功进行测试，也已在 AMD 的 EPYC CPU 上成功测试。</p>
+<p>此外，海光与 AMD 原版芯片最大的设计区别在于<strong>吞吐</strong>量，尽管整数性能相同，但海光芯片对于某些浮点指令并未做流水线处理，这意味着吞吐量和延迟都减小了：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-6077478.jpeg" alt="img"></p>
+<p>这些对于最基础的任务来说也会有所影响，降低吞吐量的设计会让 CPU 在并行计算时性能受限。另外一个最大的变化，以及 Dhyana 与服务器版的「Dhyana Plus」版本之间的不同在于随机数生成的能力。</p>
 <h2 id="验证是否是上下游的瓶颈"><a href="#验证是否是上下游的瓶颈" class="headerlink" title="验证是否是上下游的瓶颈"></a>验证是否是上下游的瓶颈</h2><p>需要先分析问题是否在LVS调用后端的多个MySQL集群上。</p>
 <p>先写一个简单的测试程序：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line">#cat Test.java</span><br><span class="line">import java.sql.Connection;</span><br><span class="line">import java.sql.DriverManager;</span><br><span class="line">import java.sql.ResultSet;</span><br><span class="line">import java.sql.SQLException;</span><br><span class="line">import java.sql.Statement;</span><br><span class="line">/*</span><br><span class="line"> * 目录：/home/admin/jdbc</span><br><span class="line"> *</span><br><span class="line"> * 编译：</span><br><span class="line"> *  javac -cp /home/admin/lib/*:. Test.java</span><br><span class="line"> *</span><br><span class="line"> *  运行：</span><br><span class="line"> *   java -cp /home/admin/MySQL-server/lib/*:. Test &quot;jdbc:mysql://172.16.160.1:4261/qc_pay_0xwd_0002&quot; &quot;myhhzi0d&quot; &quot;jOXaC1Lbif-k&quot; &quot;select count(*) from pay_order where user_id=1169257092557639682 and order_no=&apos;201909292111250000102&apos;&quot; &quot;100&quot;</span><br><span class="line"> *   */</span><br><span class="line">public class Test &#123;</span><br><span class="line"></span><br><span class="line">    public static void main(String args[]) throws NumberFormatException, InterruptedException, ClassNotFoundException &#123;</span><br><span class="line">        Class.forName(&quot;com.mysql.jdbc.Driver&quot;);</span><br><span class="line">        String url = args[0];</span><br><span class="line">        String user = args[1];</span><br><span class="line">        String pass = args[2];</span><br><span class="line">        String sql = args[3];</span><br><span class="line">        String interval = args[4];</span><br><span class="line">        try &#123;</span><br><span class="line">            Connection conn = DriverManager.getConnection(url, user, pass);</span><br><span class="line">            while (true) &#123;</span><br><span class="line">                long start = System.currentTimeMillis();</span><br><span class="line">                for(int i=0; i&lt;1000; ++i)&#123;</span><br><span class="line">                    Statement stmt = conn.createStatement();</span><br><span class="line">                    ResultSet rs = stmt.executeQuery(sql);</span><br><span class="line">                    while (rs.next()) &#123;</span><br><span class="line">                    &#125;</span><br><span class="line">                    rs.close();</span><br><span class="line">                    stmt.close();</span><br><span class="line">                    Thread.sleep(Long.valueOf(interval));</span><br><span class="line">                &#125;</span><br><span class="line">                long end = System.currentTimeMillis();</span><br><span class="line">                System.out.println(&quot;rt : &quot; + (end - start));</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; catch (SQLException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
@@ -4792,214 +5066,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/11/18/TCP连接为啥互串了/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/11/18/TCP连接为啥互串了/" itemprop="url">活久见，TCP连接互串了</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-18T17:30:03+08:00">
-                2020-11-18
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/11/18/TCP连接为啥互串了/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/18/TCP连接为啥互串了/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="活久见，TCP连接互串了"><a href="#活久见，TCP连接互串了" class="headerlink" title="活久见，TCP连接互串了"></a>活久见，TCP连接互串了</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>应用每过一段时间总是会抛出几个连接异常的错误，需要查明原因。</p>
-<p>排查后发现是TCP连接互串了，这个案例实在是很珍惜，所以记录一下。</p>
-<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>业务结构： 应用-&gt;MySQL(10.112.61.163)</p>
-<p>在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dd657fee9d961a786c05e8d3cccbc297.png" alt="image.png"></p>
-<p>粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）</p>
-<p>于是我过滤了一下端口61902上的所有包：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png" alt="image.png"></p>
-<p>可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。</p>
-<p>明明他们应该是两个连接：</p>
-<blockquote>
-<p> 61902-&gt;10.141.16.0:3306</p>
-<p> 61902-&gt;10.112.61.163:3269</p>
-</blockquote>
-<p>他们虽然用的本地ip端口（61902）是一样的， 但是根据四元组不一样，还是不同的TCP连接，所以应该是不会互相干扰的。但是实际看起来<strong>seq、id都重复了</strong>，不会有这么巧，非常像是TCP互串了。</p>
-<h2 id="分析原因"><a href="#分析原因" class="headerlink" title="分析原因"></a>分析原因</h2><p>10.141.16.0 这个ip看起来像是lvs的ip，查了一下系统，果然是lvs，然后这个lvs 后面的rs就是10.112.61.163</p>
-<p>那么这个连结构就是10.141.16.0:3306：</p>
-<blockquote>
-<p>应用 -&gt; lvs(10.141.16.0:3306)-&gt; 10.112.61.163:3269  跟应用直接连MySQL是一回事了</p>
-</blockquote>
-<p>所以这里的疑问就变成了：<strong>10.141.16.0 这个IP的3306端口为啥能知道 10.112.61.163:3269端口的seq和id，也许是TCP连接串了</strong></p>
-<p>接着往下排查</p>
-<h3 id="先打个岔，分析下这里的LVS的原理"><a href="#先打个岔，分析下这里的LVS的原理" class="headerlink" title="先打个岔，分析下这里的LVS的原理"></a><a href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">先打个岔，分析下这里的LVS的原理</a></h3><p>这里使用的是 full NAT模型(full NetWork Address Translation-全部网络地址转换)</p>
-<p>基本流程（类似NAT）：</p>
-<ol>
-<li>client发出请求（sip 200.200.200.2 dip 200.200.200.1）</li>
-<li>请求包到达lvs，lvs修改请求包为<strong>（sip 200.200.200.1， dip rip）</strong> 注意这里sip/dip都被修改了</li>
-<li>请求包到达rs， rs回复（sip rip，dip 200.200.200.1）</li>
-<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
-<li>lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client</li>
-</ol>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"></p>
-<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
-<p>本来这个模型下都是正常的，但是为了Real Server能拿到client ip，也就是Real Server记录来源ip的时候希望记录的是client ip而不是LVS ip。这个时候LVS会将client ip放在tcp的options里面，然后在RealServer机器的内核里面将options中的client ip取出替换掉 lvs ip。所以Real Server上感知到的对端ip就是client ip。</p>
-<p>回包的时候RealServer上的内核模块同样将目标地址从client ip改成lvs ip，同时将client ip放入options中。</p>
-<h2 id="回到问题"><a href="#回到问题" class="headerlink" title="回到问题"></a>回到问题</h2><p>看完理论，再来分析这两个连接的行为</p>
-<p>fulnat模式下连接经过lvs到达mysql后，mysql上看到的连接信息是，cip+port，也就是在MySQL上的连接</p>
-<p><strong>lvs-ip:port -&gt; 10.112.61.163:3269  被修改成了 </strong>client-ip:61902 **-&gt; 10.112.61.163:3269</p>
-<p>那么跟不走LVS的连接：</p>
-<p><strong>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) 完全重复了。</strong></p>
-<p>MySQL端看到的两个连接四元组一模一样了：</p>
-<blockquote>
-<p>10.112.61.163:3269 -&gt; client-ip:61902 (走LVS，本来应该是lvs ip的，但是被替换成了client ip) </p>
-<p>10.112.61.163:3269 -&gt; client-ip:61902 (直连) </p>
-</blockquote>
-<p>这个时候应用端看到的还是两个连接：</p>
-<blockquote>
-<p>client-ip:61902 -&gt; 10.141.16.0:3306 （走LVS） </p>
-<p>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) </p>
-</blockquote>
-<p>总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了。</p>
-<p>实际两个连接建立的情况：</p>
-<blockquote>
-<p> 和mysqlserver的61902是04:22建起来的，和lvs的61902端口 是42:10建起来的，和lvs的61902建起来之后马上就出问题了</p>
-</blockquote>
-<h2 id="问题出现的条件"><a href="#问题出现的条件" class="headerlink" title="问题出现的条件"></a>问题出现的条件</h2><ul>
-<li>fulnat模式的LVS，RS上装有slb_toa内核模块（RS上会将LVS ip还原成client ip）</li>
-<li>client端正好重用一个相同的本地端口分别和RS以及LVS建立了两个连接</li>
-</ul>
-<p>这个时候这两个连接在MySQL端就会变成一个，然后两个连接的内容互串，必然导致rst</p>
-<p>这个问题还挺有意思的，估计没几个程序员一辈子能碰上一次。推荐另外一个好玩的连接：<a href="/2020/07/01/如何创建一个自己连自己的TCP连接/">如何创建一个自己连自己的TCP连接</a></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">就是要你懂负载均衡–lvs和转发模式</a></p>
-<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="noopener">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-<p><a href="https://github.com/kubernetes/kubernetes/issues/81775" target="_blank" rel="noopener">no route to host</a></p>
-<p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">另一种形式的tcp连接互串，新连接重用了time_wait的port，导致命中lvs内核表中的维护的旧连接发给了老的realserver</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5047,7 +5113,7 @@ sudo ip tcp_metrics delete 100.118.58.7
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">116</span>
+                <span class="site-state-item-count">117</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5069,7 +5135,7 @@ sudo ip tcp_metrics delete 100.118.58.7
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">217</span>
+                <span class="site-state-item-count">218</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
