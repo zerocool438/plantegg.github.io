@@ -292,6 +292,185 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/" itemprop="url">一次春节大促性能压测不达标的瓶颈推演</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-23T11:30:03+08:00">
+                2020-11-23
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Performance/" itemprop="url" rel="index">
+                    <span itemprop="name">Performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/11/23/一次春节大促性能压测不达标的瓶颈推演/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="一次春节大促性能压测不达标的瓶颈推演"><a href="#一次春节大促性能压测不达标的瓶颈推演" class="headerlink" title="一次春节大促性能压测不达标的瓶颈推演"></a>一次春节大促性能压测不达标的瓶颈推演</h1><p>本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>联通通过PTS来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
+<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， DRDS rt 5ms，QPS 10万+</p>
+<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个机器运行tomcat在9108端口上） -&gt; slb -&gt; drds集群 -&gt; RDS集群</p>
+<p>性能不达标，怀疑DRDS或者RDS性能不行，作为数据库需要自证清白，所以从RDS和DRDS开始分析问题在哪里。</p>
+<p>略过一系列在DRDS、RDS上分析数据和监控图表都证明DRDS和RDS没问题。</p>
+<p>在明确给出证据DRDS和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
+<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到DRDS的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到DRDS的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到DRDS的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到DRDS的一个连接分析：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
+<p>DRDS每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 = 6万 ， 跟压测看到基本一致</p>
+<p>300个app，每个app 10个连接到DRDS</p>
+<p>如果300个app上的并发压力不够的话就没法将3000个连接跑满，所以看到的QPS是5万。</p>
+<p><strong>从300个app可以计算得到这个集群能支持的tps： 300*10（10个连接）* 1000/15(每秒钟每个连接能处理的请求数）=20万个tps （关键分析能力）</strong></p>
+<h2 id="9108的HTTP服务端口上的抓包分析"><a href="#9108的HTTP服务端口上的抓包分析" class="headerlink" title="9108的HTTP服务端口上的抓包分析"></a>9108的HTTP服务端口上的抓包分析</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e239a12a1c3612263736256c8efc06e4.png" alt="image.png"></p>
+<p>9108服务的每个HTTP response差不多都是15ms（<strong>这个响应时间基本符合预期</strong>），一个HTTP连接上在45秒的抓包时间范围只收到23个HTTP Request。</p>
+<p>统计9108端口在45秒总共收到的HTTP请求数量是6745（如下图），也就是每个app每秒钟收到的请求是150个，300*150=4.5万（理论值，300个app可能压力分布不一样？），<strong>从这里看app收到的压力还不够</strong></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6a289d1bba1e875d215032b6fdc7b084.png" alt="image.png"></p>
+<p>因为app监控确实（后来发现是不会看），所以从抓包分析http响应时间也基本得到15ms的rt关键结论</p>
+<h2 id="从http应用容器上的netstat统计来看，也是压力端回复太慢"><a href="#从http应用容器上的netstat统计来看，也是压力端回复太慢" class="headerlink" title="从http应用容器上的netstat统计来看，也是压力端回复太慢"></a>从http应用容器上的netstat统计来看，也是压力端回复太慢</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/938ce314d19b47cba99e2a09c753f606.png" alt="image.png"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack</p>
+<h2 id="ARMS监控分析9108端口上的RT"><a href="#ARMS监控分析9108端口上的RT" class="headerlink" title="ARMS监控分析9108端口上的RT"></a>ARMS监控分析9108端口上的RT</h2><p>后来PTS的同学说ARMS可以捞到监控数据，如下是对rt时间降序排</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a479bad250c03aee41d58850afab9c14.png" alt="image.png"></p>
+<p>中的rt平均时间，可以看到http的rt确实14.4ms，表现非常平稳，从这个监控也发现实际app是330个而不是用户自己描述的300个，这也就是为什么实际是tps是5万，但是按300个去算的话tps是4.5万</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2f3b76be63d331510eb6f2cecd91747f.png" alt="image.png"></p>
+<p>5分钟时间，QPS是5万+，HTTP的平均rt是15ms， HTTP的最大rt才79ms，和前面抓包分析一致。</p>
+<h2 id="从后端分析的总结"><a href="#从后端分析的总结" class="headerlink" title="从后端分析的总结"></a>从后端分析的总结</h2><p><strong>从9108端口响应时间15ms来看是符合预期的，为什么PTS看到的RT是900ms+，所以压力还没有打到APP上（也就是9108端口）</strong></p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>最后发现是 eip 带宽不足，只有200M，调整到1G后 tps 也翻了5倍到了25万。</p>
+<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; drds -&gt; RDS</p>
+<p>这个案例有意思的地方是可以通过抓包就能分析出集群能扛的QPS20万（实际只有5万），那么可以把这个分析原则在每个角色上挨个分析一下，来看瓶颈出在了哪个环节。</p>
+<p>应用端看到的rt是900ms，从后段开始往前面应用端来撸，看看每个环节的rt数据。</p>
+<h2 id="教训"><a href="#教训" class="headerlink" title="教训"></a>教训</h2><ul>
+<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; drds -&gt; RDS </li>
+<li>压不上去得从发压力端开始往后端撸，撸每个产品的rt，每个产品给出自己的rt来自证清白</li>
+<li>应用有arms的话学会看arms对平均rt和QPS的统计，不要纠结个别请求的rt抖动，看平均rt</li>
+<li>通过抓包完全可以分析出来系统能扛多少并发，以及可能的瓶颈位置</li>
+</ul>
+<p>一包在手 万事无忧</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/TCP连接为啥互串了/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1092,6 +1271,11 @@
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png" style="zoom:50%;"></p>
 <p>针对这种情况，需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。<strong>需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。</strong></p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;"></p>
+<p>三个watermark的计算方法：</p>
+<p>watermark[min] = vm.min_free_kbytes换算为page单位即可，假设为vm.min_free_kbytes。</p>
+<p>watermark[low] = watermark[min] * 5 / 4</p>
+<p>watermark[high] = watermark[min] * 3 / 2</p>
+<p>比如默认 vm.min_free_kbytes = 65536是64K，很容易导致应用的毛刺，可以适当改大</p>
 <p>或者禁止： vm.swappiness  来避免swapped来减少延迟</p>
 <h3 id="direct-IO"><a href="#direct-IO" class="headerlink" title="direct IO"></a>direct IO</h3><p>绕过page cache，直接读写硬盘</p>
 <h2 id="cache回收"><a href="#cache回收" class="headerlink" title="cache回收"></a>cache回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
@@ -1415,6 +1599,13 @@
 <li>Mapping：占用内存的文件，[anon] 为已分配的内存，[stack] 为程序堆栈</li>
 </ul>
 <h3 id="proc-pid"><a href="#proc-pid" class="headerlink" title="/proc/pid/"></a>/proc/pid/</h3><p><code>/proc/[pid]/</code> 下面与进程内存相关的文件主要有<code>maps , smaps, status</code>。<br>maps： 文件可以查看某个进程的代码段、栈区、堆区、动态库、内核区对应的虚拟地址<br>smaps: 显示每个分区更详细的内存占用数据<br>status: 包含了所有CPU活跃的信息，该文件中的所有值都是从系统启动开始累计到当前时刻</p>
+<h2 id="Java内存使用分析"><a href="#Java内存使用分析" class="headerlink" title="Java内存使用分析"></a><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/troubleshoot/tooldescr007.html" target="_blank" rel="noopener">Java内存使用分析</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br></pre></td><td class="code"><pre><span class="line">创建1000个线程，ss为2M</span><br><span class="line">java -XX:NativeMemoryTracking=detail -Xms10g -Xmx10g -Xmn5g -XX:ReservedCodeCacheSize=512m -XX:MetaspaceSize=512m -XX:MaxMetaspaceSize=512m -XX:MaxDirectMemorySize=1g -Xss2048K ThreadPoolExample</span><br><span class="line"></span><br><span class="line">分析结果：</span><br><span class="line">#jcmd 81849 VM.native_memory summary</span><br><span class="line">81849:</span><br><span class="line"></span><br><span class="line">Native Memory Tracking:</span><br><span class="line"></span><br><span class="line">Total: reserved=14737064KB, committed=13157168KB</span><br><span class="line">-                 Java Heap (reserved=10485760KB, committed=10485760KB)</span><br><span class="line">                            (mmap: reserved=10485760KB, committed=10485760KB)</span><br><span class="line"></span><br><span class="line">-                     Class (reserved=1102016KB, committed=50112KB)</span><br><span class="line">                            (classes #416)</span><br><span class="line">                            (malloc=45248KB #1420)</span><br><span class="line">                            (mmap: reserved=1056768KB, committed=4864KB)</span><br><span class="line"></span><br><span class="line">										//committed 已向OS提请分配，实际要到使用时page fault才会实际分配物理内存并在RSS中反应出来</span><br><span class="line">-                    Thread (reserved=2134883KB, committed=2134883KB)//reserved还没分配,不能访问</span><br><span class="line">                            (thread #1070) //1000个应用线程，加70个JVM native线程</span><br><span class="line">                            (stack: reserved=2128820KB, committed=2128820KB) //需要2G多点</span><br><span class="line">                            (malloc=3500KB #5390)</span><br><span class="line">                            (arena=2563KB #2138)</span><br><span class="line"></span><br><span class="line">-                      Code (reserved=532612KB, committed=4620KB)</span><br><span class="line">                            (malloc=132KB #528)</span><br><span class="line">                            (mmap: reserved=532480KB, committed=4488KB)</span><br><span class="line"></span><br><span class="line">-                        GC (reserved=430421KB, committed=430421KB)</span><br><span class="line">                            (malloc=50737KB #235)</span><br><span class="line">                            (mmap: reserved=379684KB, committed=379684KB)</span><br><span class="line"></span><br><span class="line">-                  Compiler (reserved=137KB, committed=137KB)</span><br><span class="line">                            (malloc=6KB #53)</span><br><span class="line">                            (arena=131KB #3)</span><br><span class="line"></span><br><span class="line">-                  Internal (reserved=48901KB, committed=48901KB)</span><br><span class="line">                            (malloc=48869KB #14030)</span><br><span class="line">                            (mmap: reserved=32KB, committed=32KB)</span><br><span class="line"></span><br><span class="line">-                    Symbol (reserved=1479KB, committed=1479KB)</span><br><span class="line">                            (malloc=959KB #110)</span><br><span class="line">                            (arena=520KB #1)</span><br><span class="line"></span><br><span class="line">-    Native Memory Tracking (reserved=608KB, committed=608KB)</span><br><span class="line">                            (malloc=193KB #2556)</span><br><span class="line">                            (tracking overhead=415KB)</span><br><span class="line"></span><br><span class="line">-               Arena Chunk (reserved=248KB, committed=248KB)</span><br><span class="line">                            (malloc=248KB)</span><br></pre></td></tr></table></figure>
+<p>We can see two types of memory:</p>
+<ul>
+<li><strong>Reserved</strong> — the size which is guaranteed to be available by a host’s OS (but still not allocated and cannot be accessed by JVM) — it’s just a promise</li>
+<li><strong>Committed</strong> — already taken, accessible, and allocated by JVM</li>
+</ul>
+<h3 id="page-fault"><a href="#page-fault" class="headerlink" title="page fault"></a>page fault</h3><p>内核给用户态申请的内存，默认都只是一段虚拟地址空间而已，并没有分配真正的物理内存。在第一次读写的时候才触发物理内存的分配，这个过程叫做page fault。那么，为了访问到真正的物理内存，page fault的时候，就需要更新对应的page table了。</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="noopener">https://www.atatech.org/articles/66885</a></p>
 <p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1087455</a></p>
 <p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
@@ -4269,6 +4460,7 @@ LISTEN    0     511              *:8085           *:*
 <p>每年固定资产投资不应超过GDP的60%。如果GDP有1万亿元，固定资产投资达到1.3万亿元甚至1.5万亿元，一年两年可以，长远就会不可持续。固定资产投资不超过GDP的60%，再按“房地产投资不超过固定资产投资的25%”，也符合“房地产投资不超过GDP六分之一”这一基本逻辑。</p>
 <p>大陆31个省会城市和直辖市中，房地产投资连续多年占GDP 60%以上的有5个，占40%以上的有16个，显然偏高</p>
 <blockquote>
+<p>房地产17-18w亿,大概8.5w亿是直接留给卖地的地方政府<br>之后3-4w亿是各种建筑商供应商的辛苦钱<br>还有1w亿+流向的银行贷款的利息<br>1w亿+是各种非银金融机构,如信托和平安保险等<br>之后又是一轮税收,然后才是房地产商和房地产人<br>搞死房地产也许容易,但是你得指条明路,让这些人找到新地方做业务活着啊..</p>
 <p><a href="http://m.fangchan.com/data/13/2020-03-09/6642690492314489641.html#:~:text=该报告显示%3A,、19.3%和18.8%。" target="_blank" rel="noopener">上海易居房地产研究院3月9日发布《2019年区域房地产依赖度》。该报告显示</a>:房地产开发投资占GDP比重可以用来衡量当地经济对房地产的依赖程度，占比越高，说明经济对房地产的依赖度越高。2019年，房地产开发投资占GDP比重排名前三位的省市分别是海南、天津和重庆，占比分别为25.2%、19.3%和18.8%。</p>
 <p>2020年杭州市GDP总量达到16106亿元，比2019年增长3.9%</p>
 <p>有15个城市去年房地产开发投资额超过1000亿元，其中超过2000亿元的共8个，分别是杭州、郑州、广州、武汉、成都、南京、西安和昆明，杭州、郑州、广州三城更是超过了3000亿元。杭州以3397.27亿元在26城中位居榜首</p>
@@ -5043,183 +5235,6 @@ LISTEN    0     511              *:8085           *:*
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/24/如何制作本地yum repository/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/24/如何制作本地yum repository/" itemprop="url">如何制作本地yum repository</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-24T17:30:03+08:00">
-                2020-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2020/01/24/如何制作本地yum repository/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/01/24/如何制作本地yum repository/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何制作本地yum-repository"><a href="#如何制作本地yum-repository" class="headerlink" title="如何制作本地yum repository"></a>如何制作本地yum repository</h1><p>某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。</p>
-<h2 id="收集所有rpm包"><a href="#收集所有rpm包" class="headerlink" title="收集所有rpm包"></a>收集所有rpm包</h2><p>创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">-rwxr-xr-x 1 root root  73K 7月  12 14:22 audit-libs-python-2.8.4-4.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root 295K 7月  12 14:22 checkpolicy-2.5-8.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  23M 7月  12 14:22 containerd.io-1.2.2-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  26K 7月  12 14:22 container-selinux-2.9-4.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  37K 7月  12 14:22 container-selinux-2.74-1.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  14M 7月  12 14:22 docker-ce-cli-18.09.0-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  29K 7月  12 14:22 docker-ce-selinux-17.03.2.ce-1.el7.centos.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-2.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-1.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 154K 7月  12 14:23 PyYAML-3.10-11.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  29K 7月  12 14:23 python-six-1.9.0-2.el7.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 397K 7月  12 14:23 python-setuptools-0.9.8-7.el7.noarch.rpm</span><br></pre></td></tr></table></figure>
-<p>收集方法：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">//先安装yum工具</span><br><span class="line">yum install yum-utils -y</span><br><span class="line">//将 ansible 依赖包都下载下来</span><br><span class="line">repoquery --requires --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible</span><br><span class="line">//将ansible rpm自己下载回来</span><br><span class="line">yumdownloader --destdir=/tmp/ansible --resolve ansible</span><br><span class="line">//验证一下依赖关系是完整的</span><br><span class="line">//repotrack ansible</span><br></pre></td></tr></table></figure>
-<h2 id="创建仓库索引"><a href="#创建仓库索引" class="headerlink" title="创建仓库索引"></a>创建仓库索引</h2><p>需要安装工具 yum install createrepo -y：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"># createrepo ./public_yum/</span><br><span class="line">Spawning worker 0 with 6 pkgs</span><br><span class="line">Spawning worker 1 with 6 pkgs</span><br><span class="line">Spawning worker 23 with 5 pkgs</span><br><span class="line">Workers Finished</span><br><span class="line">Saving Primary metadata</span><br><span class="line">Saving file lists metadata</span><br><span class="line">Saving other metadata</span><br><span class="line">Generating sqlite DBs</span><br><span class="line">Sqlite DBs complete</span><br></pre></td></tr></table></figure>
-<p>会在yum文件夹下生成一个索引文件夹 repodata</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">drwxr-xr-x 2 root root 4.0K 7月  12 14:25 repodata</span><br><span class="line">[root@az1-drds-79 yum]# ls repodata/</span><br><span class="line">5e15c62fec1fe43c6025ecf4d370d632f4b3f607500016e045ad94b70f87bac3-filelists.xml.gz</span><br><span class="line">7a314396d6e90532c5c534567f9bd34eee94c3f8945fc2191b225b2861ace2b6-other.xml.gz</span><br><span class="line">ce9dce19f6b426b8856747b01d51ceaa2e744b6bbd5fbc68733aa3195f724590-primary.xml.gz</span><br><span class="line">ee33b7d79e32fe6ad813af92a778a0ec8e5cc2dfdc9b16d0be8cff6a13e80d99-filelists.sqlite.bz2</span><br><span class="line">f7e8177e7207a4ff94bade329a0f6b572a72e21da106dd9144f8b1cdf0489cab-primary.sqlite.bz2</span><br><span class="line">ff52e1f1859790a7b573d2708b02404eb8b29aa4b0c337bda83af75b305bfb36-other.sqlite.bz2</span><br><span class="line">repomd.xml</span><br></pre></td></tr></table></figure>
-<h2 id="生成iso镜像文件"><a href="#生成iso镜像文件" class="headerlink" title="生成iso镜像文件"></a>生成iso镜像文件</h2><p>非必要步骤，如果需要带到客户环境可以先生成iso，不过不够灵活。</p>
-<p>也可以不用生成iso，直接在drds.repo中指定 createrepo 的目录也可以，记得要先执行 yum clean all和yum update </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#mkisofs -r -o docker_ansible.iso ./yum/</span><br><span class="line">I: -input-charset not specified, using utf-8 (detected in locale settings)</span><br><span class="line">Using PYTHO000.RPM;1 for  /python-httplib2-0.7.7-3.el7.noarch.rpm (python-httplib2-0.9.1-3.el7.noarch.rpm)</span><br><span class="line">Using MARIA006.RPM;1 for  /mariadb-5.5.56-2.el7.x86_64.rpm (mariadb-libs-5.5.56-2.el7.x86_64.rpm)</span><br><span class="line">Using LIBTO001.RPM;1 for  /libtomcrypt-1.17-25.el7.x86_64.rpm (libtomcrypt-1.17-26.el7.x86_64.rpm)</span><br><span class="line">  6.11% done, estimate finish Sun Jul 12 14:26:47 2020</span><br><span class="line"> 97.60% done, estimate finish Sun Jul 12 14:26:48 2020</span><br><span class="line">Total translation table size: 0</span><br><span class="line">Total rockridge attributes bytes: 14838</span><br><span class="line">Total directory bytes: 2048</span><br><span class="line">Path table size(bytes): 26</span><br><span class="line">Max brk space used 21000</span><br><span class="line">81981 extents written (160 MB)</span><br></pre></td></tr></table></figure>
-<h2 id="将-生成的-iso挂载到目标机器上"><a href="#将-生成的-iso挂载到目标机器上" class="headerlink" title="将 生成的 iso挂载到目标机器上"></a>将 生成的 iso挂载到目标机器上</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># mkdir /mnt/iso</span><br><span class="line"># mount ./docker_ansible.iso /mnt/iso</span><br><span class="line">mount: /dev/loop0 is write-protected, mounting read-only</span><br></pre></td></tr></table></figure>
-<h2 id="配置本地-yum-源"><a href="#配置本地-yum-源" class="headerlink" title="配置本地 yum 源"></a>配置本地 yum 源</h2><p>yum repository不是必须要求iso挂载，直接指向rpm文件夹（必须要有 createrepo 建立索引了）也可以</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/yum.repos.d/drds.repo </span><br><span class="line">[drds]</span><br><span class="line">name=drds Extra Packages for Enterprise Linux 7 - $basearch</span><br><span class="line">enabled=1</span><br><span class="line">failovermethod=priority</span><br><span class="line">baseurl=file:///mnt/repo #baseurl=http://192.168.1.91:8000/ 本地内网</span><br><span class="line">priority=1  #添加priority=1，数字越小优先级越高，也可以修改网络源的priority的值</span><br><span class="line">gpgcheck=0</span><br><span class="line">#gpgkey=file:///mnt/cdrom/RPM-GPG-KEY-CentOS-5    #注：这个你cd /mnt/cdrom/可以看到这个key，这里仅仅是个例子， 因为gpgcheck是0 ，所以gpgkey不需要了</span><br></pre></td></tr></table></figure>
-<p>到此就可以在没有网络环境的机器上直接：yum install ansible docker -y 了 </p>
-<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>测试的话可以指定repo 源： yum install ansible –enablerepo=drds （drds 优先级最高）</p>
-<p>本地会cache一些rpm的版本信息，可以执行 yum clean all 得到一个干净的测试环境</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">yum clean all</span><br><span class="line">yum list</span><br><span class="line">yum deplist ansible</span><br></pre></td></tr></table></figure>
-<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="noopener">Yum commands error “pycurl.so: undefined symbol”</a></p>
-<h2 id="xargs-作用"><a href="#xargs-作用" class="headerlink" title="xargs 作用"></a>xargs 作用</h2><p><code>xargs</code>命令的作用，是将标准输入转为命令行参数。因为有些命令是不接受标准输入的，比如echo</p>
-<p><code>xargs</code>的作用在于，大多数命令（比如<code>rm</code>、<code>mkdir</code>、<code>ls</code>）与管道一起使用时，都需要<code>xargs</code>将标准输入转为命令行参数。</p>
-<h2 id="dnf-使用"><a href="#dnf-使用" class="headerlink" title="dnf 使用"></a>dnf 使用</h2><p><strong>DNF</strong> 是新一代的rpm软件包管理器。他首先出现在 Fedora 18 这个发行版中。而最近，它取代了yum，正式成为 Fedora 22 的包管理器。</p>
-<p>DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》</p>
-<p>DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：</p>
-<ol>
-<li>在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。</li>
-<li>在 DNF 中没有判断哪个包提供了指定依赖的 resolvedep 命令。</li>
-<li>在 DNF 中没有用来列出某个软件依赖包的 deplist 命令。</li>
-<li>当你在 DNF 中排除了某个软件库，那么该操作将会影响到你之后所有的操作，不像在 YUM 下那样，你的排除操作只会咋升级和安装软件时才起作用。</li>
-</ol>
-<h2 id="安装yum源"><a href="#安装yum源" class="headerlink" title="安装yum源"></a>安装yum源</h2><p>安装7.70版本curl yum源</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm</span><br></pre></td></tr></table></figure>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html" target="_blank" rel="noopener">xargs 命令教程</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5267,7 +5282,7 @@ LISTEN    0     511              *:8085           *:*
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">118</span>
+                <span class="site-state-item-count">119</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5289,7 +5304,7 @@ LISTEN    0     511              *:8085           *:*
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">220</span>
+                <span class="site-state-item-count">223</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
