@@ -292,6 +292,503 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/16/SystemStap/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/09/16/SystemStap/" itemprop="url">SystemStap、BCC、bpftrace</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-16T12:30:03+08:00">
+                2019-09-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2019/09/16/SystemStap/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/09/16/SystemStap/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="SystemStap、BCC、bpftrace"><a href="#SystemStap、BCC、bpftrace" class="headerlink" title="SystemStap、BCC、bpftrace"></a>SystemStap、BCC、bpftrace</h1><p>Linux <code>4.4+</code> 支持 <code>eBPF</code>。基于 <code>eBPF</code> 可以将任何<strong>内核函数调用</strong>转换成<strong>可带任何 数据</strong>的<strong>用户空间事件</strong>。<code>bcc</code> 作为一个更上层的工具使这个过程更加方便。内核探测 代码用 C 写，数据处理代码用 Python。</p>
+<p>从 Linux 3.15 开始，BPF 被扩展成了 eBPF，extended BPF 的缩写。它<strong>从 2 个 32bit 寄存器扩展到了 10 个 64bit 寄存器，并增加了后向跳转</strong>。Linux 3.18 中又进行了进一 步扩展，将它从网络子系统中移出来，并添加了 maps 等工具。为了保证安全性又引入了一 个检测器，用于验证内存访问的合法性和可能的代码路径。如果检测器不能推断出程序会在 有限的步骤内结束，就会拒绝程序的注入（内核）。</p>
+<p>SystemTap 是一个 tracing 系统，<strong>简单来说，它提供了一种领域特定语言（DSL），代码编译成内核模块，然后热加 载到运行中的内核</strong>。但<strong>出于安全考虑，一些生产系统禁止动态模块加载</strong>，例如我研究 eBPF 时所用的系统就不允许。</p>
+<p><code>perf</code> 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。<code>perf</code> 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。<strong>可以把它想象成开销更低，但功能更强大的 <code>strace</code></strong>。 本文只会使用非常简单的 <code>perf</code> 命令。想了解更多，强烈建议访问 <a href="http://www.brendangregg.com/perf.html" target="_blank" rel="noopener">Brendan Gregg</a>的博客。</p>
+<h2 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h2><p>sudo stap-prep //安装好systemtap所有依赖的（debugfs等等）</p>
+<p>执行安装内核debug等等需要的一些包，然后才能运行systemtap</p>
+<pre><code># 简单的脚本，打印4s内所有进程打开了哪些文件
+#!/usr/bin/stap
+probe begin
+{
+    log(&quot;begin to probe&quot;)
+}
+
+probe syscall.open
+{
+    printf (&quot;%s(%d) open (%s)\n&quot;, execname(), pid(), argstr)
+}
+
+probe timer.ms(4000) # after 4 seconds
+{
+    exit ()
+}
+
+probe end
+{
+    log(&quot;end to probe&quot;)
+}
+</code></pre><p>主要需要两个包[“kernel-debuginfo”, “kernel-debuginfo-common”]<br>建议不要从yum装，可能会和内核小版本不同导致无法使用</p>
+<p>1 获取内核的参数<br>uname -r</p>
+<p>2 从下面的链接中取找对应内核的包</p>
+<p><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807" target="_blank" rel="noopener">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807</a><br><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805" target="_blank" rel="noopener">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805</a></p>
+<p>如果小版本不对导致装不上的话，加上–nodeps 参数<br>rpm -ivh kernel-debuginfo-2.6.32-220.23.2.ali878.el6.x86_64.rpm –nodeps</p>
+<pre><code>#验证安装是否成功
+sudo stap -v -e &apos;probe begin{printf(&quot;Hello, World&quot;); exit();}&apos;
+</code></pre><h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/<br>stap 部分源代码：  /usr/share/systemtap/tapset/linux/</p>
+<ul>
+<li>sudo ./socktop -N 20  //每个进程的流量，取最多的20个</li>
+<li>sudo stap netfilter_summary.stp -c “sleep 1” //每对IP之间的流量信息</li>
+<li>stap tcp_connections.stp -c “sleep 1” //每个进来的新连接</li>
+<li>sudo stap latencytap.stp –all-modules -w -t -x 38730 //监控进程38730最慢的内核操作</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">#! /usr/bin/env stap</span><br><span class="line"></span><br><span class="line">#################################################################</span><br><span class="line"># tcp_retransmit.stp</span><br><span class="line"># Author: Yang Bingwu (detailyang) &lt;detailyang@gmail.com&gt;</span><br><span class="line"># This systemtap script will prints the tcp retransmission packet</span><br><span class="line">#################################################################</span><br><span class="line"></span><br><span class="line">global record%</span><br><span class="line">global cwnd_record%</span><br><span class="line"></span><br><span class="line">probe begin &#123;</span><br><span class="line">log(&quot;Printing tcp retransmission&quot;)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">#probe kernel.function(&quot;tcp_retransmit_skb&quot;) &#123;</span><br><span class="line">#probe kernel.function(&quot;tcp_xmit_retransmit_queue&quot;) &#123;</span><br><span class="line">probe kernel.function(&quot;tcp_may_send_now&quot;) &#123;</span><br><span class="line">	#print_usyms(ubacktrace())</span><br><span class="line">	</span><br><span class="line">	print_backtrace()</span><br><span class="line"></span><br><span class="line">	#sudo stap tcp_retransmission.stp -x 19317  19317 is pid</span><br><span class="line">	if (pid() == target()) &#123;</span><br><span class="line"></span><br><span class="line">  rto = tcp_get_info_rto($sk)</span><br><span class="line">  snd_cwnd = tcp_get_info_snd_cwnd($sk)</span><br><span class="line">  saddr   = format_ipaddr(__ip_sock_saddr($sk), __ip_sock_family($sk))</span><br><span class="line">  daddr   = format_ipaddr(__ip_sock_daddr($sk), __ip_sock_family($sk))</span><br><span class="line">  sport   = __tcp_sock_sport($sk)</span><br><span class="line">  dport   = __tcp_sock_dport($sk)</span><br><span class="line">  lastrto = record[saddr, sport, daddr, dport]</span><br><span class="line">  lastcwnd = cwnd_record[saddr, sport, daddr, dport]</span><br><span class="line">  state = tcp_ts_get_info_state($sk)</span><br><span class="line">  </span><br><span class="line">  if (lastrto != rto) &#123;</span><br><span class="line">   if (lastrto) &#123;</span><br><span class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d -&gt; %d (ms)\n&quot;, saddr, sport,</span><br><span class="line">    daddr, dport, tcp_sockstate_str(state), lastrto/1000, rto/1000)</span><br><span class="line">   &#125; else &#123;</span><br><span class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d (ms)\n&quot;, saddr, sport,</span><br><span class="line">    daddr, dport, tcp_sockstate_str(state), rto/1000)</span><br><span class="line">   &#125;</span><br><span class="line">  </span><br><span class="line">printf(&quot;%s:%d =&gt; %s:%d STATE:%s snd_cwnd: %d -&gt; %d\n&quot;, saddr, sport, daddr, dport, tcp_sockstate_str(state), snd_cwnd, lastcwnd);</span><br><span class="line">		&#125;</span><br><span class="line"></span><br><span class="line">		record[saddr, sport, daddr, dport] = rto</span><br><span class="line">		cwnd_record[saddr, sport, daddr, dport] = snd_cwnd</span><br><span class="line"></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><a href="https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp" target="_blank" rel="noopener">https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp</a></p>
+<h2 id="案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"><a href="#案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞" class="headerlink" title="案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"></a>案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞</h2><pre><code>#!/usr/bin/env stap
+# 使用方式： stap delay.stp -g  --all-modules -x 7222   只对7222进程进行延迟hack
+
+# 延迟多少ms
+global DELAY = 100;
+global quit = 0;
+global found;
+
+probe begin {
+    warn(sprintf(&quot;Tracing pid %d ...\\n&quot;, target()))
+}
+
+# 如果想要针对mysql的写入，可以将下面换成
+#probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;sync_binlog_file&quot;).call
+probe syscall.write.return {
+      if (pid() == target() &amp;&amp; !quit ) {
+          mdelay( DELAY );
+          printf(&quot;write delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
+    }
+}
+</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​     </p>
+<pre><code># 任务持续时间
+probe timer.s(20) {
+    if (!found) {
+        warn(&quot;No backtraces found. Quitting now...\n&quot;)
+        exit()
+    } else {
+        warn(&quot;Time&apos;s up. Quitting now...(it may take a while)\n&quot;)
+        quit = 1
+    }
+}
+</code></pre><p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
+<pre><code>%{
+#undef STP_OVERLOAD
+#include &lt;linux/delay.h&gt;
+%}
+
+function mdelay(ms:long) %{
+  mdelay(THIS-&gt;ms);
+%}
+</code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="noopener">使用Systemtap生成Flame Graph(火焰图) </a></p>
+<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
+<h2 id="网络包大小分布"><a href="#网络包大小分布" class="headerlink" title="网络包大小分布"></a>网络包大小分布</h2><pre><code>bpftrace -e &apos;tracepoint:net:net_dev_queue{
+@txsize=hist(args-&gt;len);
+@txstat=stats(args-&gt;len);
+}
+
+tracepoint:net:netif_receive_skb
+{
+    @rxsize=hist(args-&gt;len);
+    @rxstat=stats(args-&gt;len);
+}&apos;
+</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
+<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
+<h2 id="网络连接创建rt？"><a href="#网络连接创建rt？" class="headerlink" title="网络连接创建rt？"></a>网络连接创建rt？</h2><pre><code># ./tools/bcc/tcpconnlat
+PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
+1935   java         4  10.81.177.14     100.100.110.2    80    0.21
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1930   java         4  10.81.177.14     100.100.110.2    80    0.23
+1914   java         4  10.81.177.14     100.100.110.2    80    0.26
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.04
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1778   java         4  10.81.177.14     100.100.17.97    8000  1.62
+1915   java         4  10.81.177.14     100.100.110.2    80    0.20
+1944   java         4  10.81.177.14     100.100.110.2    80    0.23
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+1823   java         4  10.81.177.14     100.100.110.2    80    9.58
+1928   java         4  10.81.177.14     100.100.110.2    80    9.61
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+1796   java         4  10.81.177.14     100.100.110.2    80    0.27
+1949   java         4  10.81.177.14     100.100.110.2    80    0.22
+1795   java         4  10.81.177.14     100.100.110.2    80    0.26
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
+1916   java         4  10.81.177.14     100.100.110.2    80    3.70
+1929   java         4  10.81.177.14     100.100.110.2    80    3.73
+7059   java         4  127.0.0.1        127.0.0.1        3406  0.05
+7059   java         4  127.0.0.1        127.0.0.1        3406  0.02
+948    java         4  10.81.177.14     100.100.110.2    80    0.27
+1917   java         4  10.81.177.14     100.100.110.2    80    0.20
+1934   java         4  10.81.177.14     100.100.110.2    80    0.22
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
+6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
+</code></pre><h2 id="TCP队列实时查看"><a href="#TCP队列实时查看" class="headerlink" title="TCP队列实时查看"></a>TCP队列实时查看</h2><p>bpftrace工具包</p>
+<pre><code>cat tcpsynbl_example.txt
+Demonstrations of tcpsynbl, the Linux bpftrace/eBPF version.
+</code></pre><p>​<br>​    This tool shows the TCP SYN backlog size during SYN arrival as a histogram.<br>​    This lets you see how close your applications are to hitting the backlog limit<br>​    and dropping SYNs (causing performance issues with SYN retransmits). For<br>​    example:<br>​<br>​    # ./tcpsynbl.bt<br>​    Attaching 4 probes…<br>​    Tracing SYN backlog size. Ctrl-C to end.<br>​    ^C<br>​    @backlog[backlog limit]: histogram of backlog size</p>
+<p>​<br>​    @backlog[500]:<br>​    [0]                 2266 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​    [1]                    3 |                                                    |<br>​    [2, 4)                 1 |                                                    |</p>
+<pre><code>$sudo bpftrace ./tcpsynbl.bt
+Attaching 4 probes...
+Tracing SYN backlog size. Ctrl-C to end.
+
+^C
+@backlog[backlog limit]: histogram of backlog size
+</code></pre><p>​<br>​    @backlog[10]:<br>​    [0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​<br>​    @backlog[256]:<br>​    [0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|</p>
+<p>或者 bpftrace tcpaccept.bt</p>
+<pre><code>cat tcpaccept_example.txt 
+Demonstrations of tcpaccept, the Linux bpftrace/eBPF version.
+</code></pre><p>​<br>​    This tool traces the kernel function accepting TCP socket connections (eg, a<br>​    passive connection via accept(); not connect()). Some example output (IP<br>​    addresses changed to protect the innocent):<br>​<br>​    # ./tcpaccept<br>​    Tracing tcp accepts. Hit Ctrl-C to end.<br>​    TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL<br>​    00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128<br>​    00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128<br>​    00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128</p>
+<p>​<br>​    This output shows three connections, an IPv4 connections to PID 1463622, a “redis-server”<br>​    process listening on port 6379, and one IPv6 connection to a “thread.rb” process<br>​    listening on port 8000. The remote address and port are also printed, and the accept queue<br>​    current size as well as maximum size are shown.<br>​<br>​    The overhead of this tool should be negligible, since it is only tracing the<br>​    kernel function performing accept. It is not tracing every packet and then<br>​    filtering.<br>​<br>    This tool only traces successful TCP accept()s. Connection attempts to closed<br>    ports will not be shown (those can be traced via other functions).</p>
+<pre><code>There is another version of this tool in bcc: https://github.com/iovisor/bcc
+</code></pre><p>最后一列就是backlog最大大小和已经多少</p>
+<h2 id="DNS-域名解析时间"><a href="#DNS-域名解析时间" class="headerlink" title="DNS 域名解析时间"></a>DNS 域名解析时间</h2><pre><code>$sudo ./gethostlatency 
+TIME      PID    COMM                  LATms HOST
+15:40:01  10549  sendmail               0.19 localhost
+15:40:03  1782   java                   0.11 iZbp143cmod4v59cgon4zwZ
+15:40:13  10580  ping                   0.98 abck.akksda
+15:40:18  1823   java                   0.12 iZbp143cmod4v59cgon4zwZ
+</code></pre><p>可以明显抓到ping但是nslookup抓不到（因为nslookup 不调用 getaddrinfo/gethostbyname)</p>
+<h2 id="统计线程执行时间排名"><a href="#统计线程执行时间排名" class="headerlink" title="统计线程执行时间排名"></a>统计线程执行时间排名</h2><pre><code>$sudo stap thread-times.stp -T 5
+        comm   tid   %user %kernel (of 19997 ticks)
+        java 30474  20.06%   0.75%
+   swapper/0     0   0.00%   2.55%
+   swapper/2     0   0.00%   2.00%
+   swapper/3     0   0.00%   1.49%
+        java 19500   0.38%   0.72%
+        java 19501   0.35%   0.64%
+        java 19503   0.34%   0.65%
+        java 19496   0.28%   0.69%
+        java 19497   0.28%   0.67%
+        java 19502   0.31%   0.61%
+        java 19498   0.30%   0.58%
+        java 19499   0.26%   0.52%
+   swapper/1     0   0.00%   0.75%
+        java 20004   0.45%   0.18%
+        java 19995   0.40%   0.19%
+        java 20061   0.43%   0.16%
+        java 20066   0.41%   0.17%
+        java 20083   0.44%   0.13%
+        java 20027   0.41%   0.16%
+        java 20195   0.43%   0.13%
+</code></pre><p>如上java线程执行消耗在用户态和内核态的CPU占比，根据tid可以到jstack中对应，相当于是将top命令中的线程消耗CPU做了累积，分清了用户态和内核态</p>
+<h2 id="内核函数执行时间"><a href="#内核函数执行时间" class="headerlink" title="内核函数执行时间"></a>内核函数执行时间</h2><pre><code>$sudo ./funclatency &apos;c:connect&apos;
+Tracing 1 functions for &quot;c:connect&quot;... Hit Ctrl-C to end.
+^C
+
+Function = [unknown] [10997] 
+     nsecs               : count     distribution
+         0 -&gt; 1          : 0        |                                        |
+         2 -&gt; 3          : 0        |                                        |
+         4 -&gt; 7          : 0        |                                        |
+         8 -&gt; 15         : 0        |                                        |
+        16 -&gt; 31         : 0        |                                        |
+        32 -&gt; 63         : 0        |                                        |
+        64 -&gt; 127        : 0        |                                        |
+       128 -&gt; 255        : 0        |                                        |
+       256 -&gt; 511        : 0        |                                        |
+       512 -&gt; 1023       : 0        |                                        |
+      1024 -&gt; 2047       : 0        |                                        |
+      2048 -&gt; 4095       : 0        |                                        |
+      4096 -&gt; 8191       : 4        |****************************************|
+      8192 -&gt; 16383      : 2        |********************                    |
+     16384 -&gt; 32767      : 1        |**********                              |
+
+Function = connect [10999]  //telnet 连不上 tcp retry 
+     nsecs               : count     distribution
+         0 -&gt; 1          : 0        |                                        |
+         2 -&gt; 3          : 0        |                                        |
+         4 -&gt; 7          : 0        |                                        |
+         8 -&gt; 15         : 0        |                                        |
+        16 -&gt; 31         : 0        |                                        |
+        32 -&gt; 63         : 0        |                                        |
+        64 -&gt; 127        : 0        |                                        |
+       128 -&gt; 255        : 0        |                                        |
+       256 -&gt; 511        : 0        |                                        |
+       512 -&gt; 1023       : 0        |                                        |
+      1024 -&gt; 2047       : 0        |                                        |
+      2048 -&gt; 4095       : 0        |                                        |
+      4096 -&gt; 8191       : 3        |****************************************|
+      8192 -&gt; 16383      : 2        |**************************              |
+     16384 -&gt; 32767      : 1        |*************                           |
+</code></pre><h2 id="磁盘"><a href="#磁盘" class="headerlink" title="磁盘"></a>磁盘</h2><pre><code>15:49:40 loadavg: 0.07 0.04 0.05 1/1008 11533
+
+PID    COMM             D MAJ MIN DISK       I/O  Kbytes  AVGms
+10784  kworker/u8:0     W 254 0   vda         31     140   2.41
+416    jbd2/vda1-8      W 254 0   vda          2     100   0.93
+Detaching...
+
+[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
+$df -lh
+Filesystem      Size  Used Avail Use% Mounted on
+devtmpfs        3.8G     0  3.8G   0% /dev
+tmpfs           3.9G     0  3.9G   0% /dev/shm
+tmpfs           3.9G  620K  3.9G   1% /run
+tmpfs           3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/vda1        99G  5.1G   89G   6% /
+tmpfs           779M     0  779M   0% /run/user/0
+tmpfs           779M     0  779M   0% /run/user/1000
+
+[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
+$sudo ./biotop 5 1
+</code></pre><p> 或者</p>
+<pre><code>$sudo stap iostats.stp -T 5
+starting probe
+
+                                       read     read             write    write
+            name     open     read   KB tot    B avg    write   KB tot    B avg
+            java        8   125797     5406       44   251673    44337      180
+              ps      754      784      319      417        6       29     5105
+            grep       39       27       73     2781        9       42     4891
+              wc       10        6       17     2979        1        0        2
+       AliYunDun       43       53        9      175        0        0        0
+              sh        8        4        3      880        0        0        0
+             fio       20       20        2      136        5        0       81
+            sshd        0        6        0       70        6        0      121
+ AliYunDunUpdate        2        4        0       75        0        0        0
+   systemd-udevd        1        4        0       65        0        0        0
+    DragoonAgent        0        0        0        0        1        0      100
+          stapio        0       27        0        1        1        0       15
+  aliyun-service        0       25        0        0        0        0        0
+</code></pre><h2 id="fs-latency"><a href="#fs-latency" class="headerlink" title="fs latency"></a>fs latency</h2><pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# stap fslatency-nd.stp 1 1
+Tracing FS sync reads and writes... Output every 1 secs.
+
+Thu Sep 19 07:48:54 2019 FS latency (ns):
+
+FS call: __vfs_read()
+ value |-------------------------------------------------- count
+   128 |                                                       0
+   256 |                                                       0
+   512 |                                                       2
+  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  12423
+  2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@          10330
+  4096 |@@                                                   514
+  8192 |@@@@@@                                              1624
+ 16384 |@                                                    273
+ 32768 |                                                      48
+ 65536 |                                                       1
+131072 |                                                       0
+262144 |                                                       0
+
+FS call: __vfs_write()
+ value |-------------------------------------------------- count
+    64 |                                                       0
+   128 |                                                       0
+   256 |                                                     169
+   512 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  32549
+  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@                          16276
+  2048 |                                                     469
+  4096 |                                                     385
+  8192 |                                                     439
+ 16384 |                                                     100
+ 32768 |                                                       5
+ 65536 |                                                       1
+131072 |                                                       0
+262144 |                                                       0
+</code></pre><p>读写时间分布：<br>    [root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./rwtime-nd.stp java<br>    Tracing read/write syscalls for processes named “java”… Hit Ctrl-C to end.<br>    ^C<br>    syscall read latency (ns):<br>     value |————————————————– count<br>       128 |                                                       0<br>       256 |                                                       0<br>       512 |@                                                   3129<br>      1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  85897<br>      2048 |@@@@@@@@@@@@@@@                                    26032<br>      4096 |                                                     386<br>      8192 |                                                    1142<br>     16384 |                                                      63<br>     32768 |                                                       3<br>     65536 |                                                       1<br>    131072 |                                                       1<br>    262144 |                                                       0<br>    524288 |                                                       0</p>
+<pre><code>syscall write latency (ns):
+  value |-------------------------------------------------- count
+    256 |                                                        0
+    512 |                                                        0
+   1024 |                                                     1720
+   2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  104247
+   4096 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  105507
+   8192 |@@@@@@@@                                            17768
+  16384 |@                                                    3715
+  32768 |                                                      353
+  65536 |                                                       44
+ 131072 |                                                        0
+ 262144 |                                                        3
+ 524288 |                                                        0
+1048576 |                                                        0
+</code></pre><p>SLOW FS READ AND WRITE</p>
+<pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./fsslower-nd.stp 5
+Tracing FS sync reads and writes slower than 5 ms... Hit Ctrl-C to end.
+TIME     PID    COMM             FUNC           SIZE     LAT(ms)
+07:55:13 30941  grep             __vfs_read     32768         18
+07:55:13 30942  grep             __vfs_read     32768          5
+07:55:13 30943  grep             __vfs_read     32768         23
+07:55:13 30944  wc               __vfs_read     16384         24
+07:55:13 1102   java             __vfs_read     8192          39
+07:55:13 1102   java             __vfs_read     8192          40
+</code></pre><h2 id="cache"><a href="#cache" class="headerlink" title="cache"></a>cache</h2><pre><code>$sudo ./cachestat -T 5 1
+TIME         HITS   MISSES  DIRTIES HITRATIO   BUFFERS_MB  CACHED_MB
+16:01:10     6297        0       52  100.00%           31        652
+</code></pre><h2 id="中断发生，主要是网卡"><a href="#中断发生，主要是网卡" class="headerlink" title="中断发生，主要是网卡"></a>中断发生，主要是网卡</h2><pre><code># sudo stap interrupts-by-dev.stp -c &apos;sleep 1&apos;
+  DEVICE      NUMBER OF INTERRUPTS 
+    virtio2-req.0 :      1
+ virtio0-output.0 :      2
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      2
+ virtio0-output.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+ virtio0-output.0 :      1
+  virtio0-input.0 :      1
+</code></pre><h2 id="futex"><a href="#futex" class="headerlink" title="futex"></a>futex</h2><pre><code>$sudo stap futexes.stp  -T 1
+java[4457] lock 0x7f5da0bbd548 contended 1 times, 1 avg us
+java[4457] lock 0x7f5d23c46188 contended 1 times, 27 avg us
+java[4457] lock 0x7f5d52f3f154 contended 1 times, 1945 avg us
+java[4457] lock 0x7f5da06a03f0 contended 1 times, 20 avg us
+java[4457] lock 0x7f5da2baad54 contended 1 times, 267 avg us
+java[4457] lock 0x7f5d23a8d574 contended 1 times, 60130 avg us
+java[4457] lock 0x7f5d23c30154 contended 1 times, 664 avg us
+java[4457] lock 0x7f5d23c5e1b4 contended 3 times, 70979 avg us
+java[4457] lock 0x7f5d23bc3154 contended 1 times, 4342 avg us
+java[4457] lock 0x7f5da2b897b4 contended 1 times, 70190 avg us
+java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
+</code></pre><h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect" target="_blank" rel="noopener">https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect</a></p>
+<p>Demo集锦：<a href="https://github.com/openresty/openresty-systemtap-toolkit/blob/master/README-CN.markdown" target="_blank" rel="noopener">openresty systemtap demo</a></p>
+<p><a href="https://yq.aliyun.com/articles/174916" target="_blank" rel="noopener">SystemTap原理、安装、入门、脚本语言及技巧</a></p>
+<p><a href="https://yq.aliyun.com/articles/697679" target="_blank" rel="noopener">eBCC性能分析最佳实践–开启性能分析新篇章</a></p>
+<p><a href="http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/" target="_blank" rel="noopener">eBPF 内核探测：如何将任意系统调用转换成事件（2016）</a></p>
+<p><a href="http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/" target="_blank" rel="noopener">使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/12/logback日志异步化输出对性能的影响/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2654,8 +3151,8 @@ rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 &quot;vmstat 10&quot; 2&gt;&amp;1 &gt;/dev/null &amp;</span><br></pre></td></tr></table></figure>
 <p>上面的 1.1.1.1 是你在境外的一台服务器，已经做好了免密登陆（免密见后面，要不你每次还得输一下密码），这句话的意思就是在本地启动一个38080的端口，上面收到的任何东西都会转发给 1.1.1.1:22（做了ssh加密），1.1.1.1:22 会解密收到的东西，然后把他们转发给google之类的网站（比如你要访问的是google），结果依然通过原路返回</p>
 <p>127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
-<p>原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png" alt="undefined"> </p>
+<p><img src="/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
+<p>原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：<br><img src="/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png" alt="undefined"> </p>
 <h3 id="科学上网之http特殊代理"><a href="#科学上网之http特殊代理" class="headerlink" title="科学上网之http特殊代理"></a>科学上网之http特殊代理</h3><p>前面所说的代理是socks5代理，一般浏览器都有插件支持，但是比如你的docker（或者其他程序）需要通过http去拉取镜像就会出现如下错误：</p>
 <pre><code>Sending build context to Docker daemon 8.704 kB
 Step 1 : FROM k8s.gcr.io/kube-cross:v1.10.1-1
@@ -2690,7 +3187,7 @@ UserKnownHostsFile /dev/null
 <p>加了如上参数后的登录过程就有这样的东东(默认没有，这是debug信息)：   </p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">debug1: setting up multiplex master socket</span><br><span class="line">debug3: muxserver_listen: temporary control path   /home/ren/tmp/ssh_mux_10.16.*.*_22_corp.86g3C34vy36tvCtn</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug1: channel 0: new [/home/ren/tmp/ssh_mux_10.16.*.*_22_corp]</span><br><span class="line">debug3: muxserver_listen: mux listener channel 0 fd 3</span><br><span class="line">debug1: control_persist_detach: backgrounding master process</span><br><span class="line">debug2: control_persist_detach: background process is 15154</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug1: forking to background</span><br><span class="line">debug1: Entering interactive session.</span><br><span class="line">debug2: set_control_persist_exit_time: schedule exit in 259200 seconds</span><br><span class="line">debug1: multiplexing control connection</span><br></pre></td></tr></table></figure>
 <p> /home/ren/tmp/ssh_mux_10.16.<em>.</em>_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时</p>
-<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
+<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
 <h2 id="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"><a href="#我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？" class="headerlink" title="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"></a>我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？</h2><p>比如有一批客户机房的机器IP都是192.168.<em>.</em>, 然后需要走跳板机100.10.1.2才能访问到，那么我希望以后<strong>在笔记本上直接 ssh 192.168.1.5 就能直接连上</strong></p>
 <pre><code>$ cat /etc/ssh/ssh_config
 
@@ -2722,7 +3219,7 @@ debug1: Control socket &quot;/home/ren/tmp/ssh_mux_10.16.1.*_22_corp&quot; does 
 debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.16.1.* 22
 </code></pre><p>本来我的笔记本跟 10.16.1.<em> 是不通的(ping 不通），但是ssh可以直接连上，实际ssh登录过程中自动走跳板机139.</em>.<em>.</em> 就连上了</p>
 <p>-vvv 参数是debug，把ssh登录过程的日志全部打印出来。 </p>
-<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
+<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
 <h3 id="实现过程："><a href="#实现过程：" class="headerlink" title="实现过程："></a>实现过程：</h3><ol>
 <li>先ssh到线上跳板机：login1.cm10.<em>**</em></li>
 <li>复制 ~/.ssh/id_dsa.pub 和 ~/.ssh/id_dsa到你的笔记本的~/.ssh/ 下</li>
@@ -2733,7 +3230,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </ol>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Host 11.239.*.*</span><br><span class="line">ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p</span><br></pre></td></tr></table></figure>
 <p><strong>第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号</strong><br>这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
+<p><img src="/images/oss/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
 <h2 id="将隔离环境中的web端口映射到本地"><a href="#将隔离环境中的web端口映射到本地" class="headerlink" title="将隔离环境中的web端口映射到本地"></a>将隔离环境中的web端口映射到本地</h2><p>远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.149.1.132:8083， ssh账号是：aliyun</p>
@@ -2743,7 +3240,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <pre><code>ssh -CNfL 0.0.0.0:8089:10.149.1.132:8083 root@100.67.210.73 -p 54900
 </code></pre><p>这表示在本地启动一个8088的端口，将这个8088端口映射到10.149.1.132的8083端口上，用的ssh账号是aliyun</p>
 <p>然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png" alt="image.png"></p>
+<p><img src="/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png" alt="image.png"></p>
 <p>反过来，<strong>也可以让隔离环境机器通过代理上网，比如安装yum</strong></p>
 <h2 id="为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录"><a href="#为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录" class="headerlink" title="为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录"></a>为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录</h2><p>先了解如下知识点，在 ~/.ssh/config 配置文件中：</p>
 <pre><code>GSSAPIAuthentication=no
@@ -2753,10 +3250,10 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h2 id="批量打通所有机器之间的ssh登录免密码"><a href="#批量打通所有机器之间的ssh登录免密码" class="headerlink" title="批量打通所有机器之间的ssh登录免密码"></a>批量打通所有机器之间的ssh登录免密码</h2><p><strong>Expect在集团是禁止的，我只用于打通我自己通过docker创建的容器</strong></p>
 <p>ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/authorized_keys 里面。可以手工复制粘贴，也可以 ssh-copy-id 等</p>
 <p>如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/S9jLW7B.png" alt></p>
+<p><img src="/images/951413iMgBlog/S9jLW7B.png" alt></p>
 <p>这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。</p>
 <p>再在外面写一个循环对每个IP执行如下操作：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4SZcnvc.png" alt></p>
+<p><img src="/images/951413iMgBlog/4SZcnvc.png" alt></p>
 <p>if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。</p>
 <p>for循环部分一次把生成的密钥对和authorized_keys复制到所有机器上，这样所有机器之间都不需要输入密码就能互相登陆了（当然本机也不需要输入密码登录所有机器）</p>
 <p>最后一行代码： </p>
@@ -2792,6 +3289,20 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>在SSH的<strong>身份验证阶段，SSH只支持服务端保留公钥，客户端保留私钥的方式，</strong>所以方式只有两种：客户端生成密钥对，将公钥分发给服务端；服务端生成密钥对，将私钥分发给客户端。只不过出于安全性和便利性，一般都是客户端生成密钥对并分发公钥（阿里云服务器秘钥对–服务器将一对密钥中的公钥放在 authorized_keys, 私钥给client登陆用）</p>
 <p>服务器上的 /etc/ssh/ssh_host* 是用来验证服务器身份的秘钥对（对应client的 known_hosts), <strong>在主机验证阶段，服务端持有的是私钥，客户端保存的是来自于服务端的公钥。注意，这和身份验证阶段密钥的持有方是相反的。</strong></p>
 <p>SSH支持多种身份验证机制，<strong>它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password</strong>，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。</p>
+<h3 id="ssh-提示信息"><a href="#ssh-提示信息" class="headerlink" title="ssh 提示信息"></a>ssh 提示信息</h3><p>可以用一下脚本生成一个彩色文件</p>
+<p>Basic colors are numbered:</p>
+<ul>
+<li>1 – Red</li>
+<li>2 – Green</li>
+<li>3 – Yellow</li>
+<li>4 – Blue</li>
+<li>5 – Magenta</li>
+<li>6 – Cyan</li>
+<li>7 – White</li>
+</ul>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash">!/bin/sh</span></span><br><span class="line">export TERM=xterm-256color</span><br><span class="line"></span><br><span class="line">read one five fifteen rest &lt; /proc/loadavg</span><br><span class="line">echo "$(tput setaf 2)</span><br><span class="line">Kernel: `uname -v | awk -v OFS=' ' '&#123;print $4, $5&#125;'`</span><br><span class="line">                                                                                                                                   </span><br><span class="line">        \\   ^__^</span><br><span class="line">         \\  (oo)\\_______</span><br><span class="line">            (__)\\       )\\\/\\</span><br><span class="line">                ||----w |</span><br><span class="line">                ||     ||</span><br><span class="line"></span><br><span class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</span><br><span class="line"></span><br><span class="line">有任何需要请联系 ** 多谢!</span><br><span class="line"></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput setaf 4)Load Averages......: <span class="variable">$&#123;one&#125;</span>, <span class="variable">$&#123;five&#125;</span>, <span class="variable">$&#123;fifteen&#125;</span> (1, 5, 15 min)</span></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput setaf 5)</span></span><br><span class="line"> ______________</span><br><span class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</span><br><span class="line"></span><br><span class="line">有任何需要请联系 ** 多谢!</span><br><span class="line"> --------------</span><br><span class="line">        \\   ^__^</span><br><span class="line">         \\  (oo)\\_______</span><br><span class="line">            (__)\\       )\\\/\\</span><br><span class="line">                ||----w |</span><br><span class="line">                ||     ||</span><br><span class="line"></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput sgr0)<span class="string">"</span></span></span><br></pre></td></tr></table></figure>
+<p>以上脚本运行结果</p>
+<p><img src="/images/951413iMgBlog/image-20210902224011450.png" alt="image-20210902224011450"></p>
 <h3 id="验证秘钥对"><a href="#验证秘钥对" class="headerlink" title="验证秘钥对"></a>验证秘钥对</h3><p><strong>-y</strong> Read a private OpenSSH format file and print an OpenSSH public key to stdout.</p>
 <blockquote>
 <p>cd ~/.ssh/ ; ssh-keygen -y -f id_rsa | cut -d’ ‘ -f 2  ;  cut -d’ ‘ -f 2 id_rsa.pub</p>
@@ -2825,7 +3336,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>目标还不确定，所以叫动态转发</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -D 3000 tunnel-host -N</span><br></pre></td></tr></table></figure>
 <p>注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。<code>-N</code>参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/202466eed33b16c0471016f1c5e574ab.png" alt="image.png"></p>
+<p><img src="/images/oss/202466eed33b16c0471016f1c5e574ab.png" alt="image.png"></p>
 <p>下面是 ssh 隧道建立后的一个<strong>使用实例</strong>。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">curl -x socks5://localhost:3000 http://www.example.com</span><br><span class="line">or</span><br><span class="line">curl --socks5-hostname localhost:3000 https://www.twitter.com</span><br></pre></td></tr></table></figure>
 <p>上面命令中，curl 的<code>-x</code>参数指定代理服务器，即通过 SOCKS5 协议的本地<code>3000</code>端口，访问<code>http://www.example.com</code>。</p>
@@ -2849,8 +3360,8 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>上面命令中，<code>-L</code>参数表示本地转发，<code>local-port</code>是本地端口，<code>target-host</code>是你想要访问的目标服务器，<code>target-port</code>是目标服务器的端口，<code>tunnel-host</code>是 SSH 跳板机。</p>
 <p>举例来说，现在有一台 SSH 跳板机<code>tunnel-host</code>，我们想要通过这台机器，在本地<code>2121</code>端口与目标网站<code>www.example.com</code>的80端口之间建立 SSH 隧道，就可以写成下面这样。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -L 7001:www.example.com:389 tunnel-host -N</span><br></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png" alt="image.png"></p>
+<p><img src="/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png" alt="image.png"></p>
 <p>然后，访问本机的8080端口，就是访问<code>www.example.com</code>的80端口.</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ curl http://localhost:8080</span><br></pre></td></tr></table></figure>
 <p>注意，<strong>本地端口转发采用 HTTP 协议，不用转成 SOCKS5 协议</strong>。</p>
@@ -4230,8 +4741,8 @@ tcp0 28 server:22    client-1:51708  ESTABLISHED
 tcp0  0 server:2376  client-1:60269 ESTABLISHED
 </code></pre><p> **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
 <h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Recv-Q</span><br><span class="line">Established: The count of bytes not copied by the user program connected to this socket.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</span><br><span class="line"></span><br><span class="line">Send-Q</span><br><span class="line">Established: The count of bytes not acknowledged by the remote host.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog.</span><br></pre></td></tr></table></figure>
-<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
-<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><p><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
 <p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
 <p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
 <h2 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h2><p>所有统计信息基本都有</p>
@@ -5425,233 +5936,11 @@ IPv4 路由表
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/12/26/网络丢包/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/12/26/网络丢包/" itemprop="url">网络丢包</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-26T16:30:03+08:00">
-                2018-12-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-              <span class="post-comments-count">
-                <span class="post-meta-divider">|</span>
-                <span class="post-meta-item-icon">
-                  <i class="fa fa-comment-o"></i>
-                </span>
-                <a href="/2018/12/26/网络丢包/#comments" itemprop="discussionUrl">
-                  <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/12/26/网络丢包/" itemprop="commentCount"></span>
-                </a>
-              </span>
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络丢包"><a href="#网络丢包" class="headerlink" title="网络丢包"></a>网络丢包</h1><h2 id="查看网卡是否丢包，一般是ring-buffer太小"><a href="#查看网卡是否丢包，一般是ring-buffer太小" class="headerlink" title="查看网卡是否丢包，一般是ring buffer太小"></a>查看网卡是否丢包，一般是ring buffer太小</h2><pre><code>ethtool -S eth0 | grep rx_ | grep errors
-</code></pre><p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer(由网卡驱动直接在内核中分配的内存，并存放数据包，供内核软中断的时候读取)，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
-<h2 id="查看ring-buffer的大小设置"><a href="#查看ring-buffer的大小设置" class="headerlink" title="查看ring buffer的大小设置"></a>查看ring buffer的大小设置</h2><pre><code>ethtool ‐g eth0  
-</code></pre><h2 id="Socket-buffer太小导致的丢包（一般不多见）"><a href="#Socket-buffer太小导致的丢包（一般不多见）" class="headerlink" title="Socket buffer太小导致的丢包（一般不多见）"></a>Socket buffer太小导致的丢包（一般不多见）</h2><p>内核收到包后，会给对应的socket，每个socket会有 sk_rmem_alloc/sk_wmem_alloc/sk_omem_alloc、sk_rcvbuf(bytes)来存放包</p>
-<p>When sk_rmem_alloc &gt;<br>sk_rcvbuf the TCP stack will call a routine which “collapses” the receive queue</p>
-<p>查看collapses:</p>
-<pre><code>netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
-17671 packets pruned from receive queue because of socket buffer overrun
-18671 packets pruned from receive queue because of socket buffer overrun
-</code></pre><p>测试发现在小包情况下，这两个值相对会增大且比较快。增大 net.ipv4.tcp_rmem 和 net.core.rmem_max、net.core.rmem_default 后没什么效果 – 需要进一步验证</p>
-<h2 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h2><p>sysctl net.core.netdev_budget //默认300， The default value of the budget is 300. This will<br>cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU<br>如果 /proc/net/softnet_stat 第三列一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值<br>net/core/dev.c-&gt;net_rx_action 函数中会按netdev_budget 执行softirq，budget每次执行都要减少，一直到没有了，就退出softirq</p>
-<p>一般默认软中断只绑定在CPU0上，如果包的数量巨大的话会导致 CPU0利用率 100%（主要是si），这个时候可以检查文件 /proc/net/softnet_stat 的第三列 或者 RX overruns 是否在持续增大</p>
-<h2 id="net-core-netdev-max-backlog"><a href="#net-core-netdev-max-backlog" class="headerlink" title="net.core.netdev_max_backlog"></a>net.core.netdev_max_backlog</h2><p>enqueue_to_backlog函数中，会对CPU的softnet_data 实例中的接收队列（input_pkt_queue）进行判断，如果队列中的数据长度超过netdev_max_backlog ，那么数据包将直接丢弃，这就产生了丢包。</p>
-<p>参数net.core.netdev_max_backlog指定的，默认大小是 1000。</p>
-<p>netdev_max_backlog 接收包队列（网卡收到还没有进行协议的处理队列），每个cpu core一个队列,如果/proc/net/softnet_stat第二列增加就表示这个队列溢出了，需要改大。 </p>
-<blockquote>
-<p>/proc/net/softnet_stat：（第一列和第三列的关系？）<br>The 1st column is the number of frames received by the interrupt handler. （第一列是中断处理程序接收的帧数）<br>The 2nd column is the number of frames dropped due to netdev_max_backlog being exceeded. netdev_max_backlog<br>The 3rd column is the number of times ksoftirqd ran out of netdev_budget or CPU time when there was still work to be done   net.core.netdev_budget</p>
-</blockquote>
-<h2 id="rp-filter"><a href="#rp-filter" class="headerlink" title="rp_filter"></a>rp_filter</h2><p><a href="https://www.yuque.com/plantegg/weyi1s/uc7a5g" target="_blank" rel="noopener">https://www.yuque.com/plantegg/weyi1s/uc7a5g</a></p>
-<h2 id="关于ifconfig的种种解释"><a href="#关于ifconfig的种种解释" class="headerlink" title="关于ifconfig的种种解释"></a>关于ifconfig的种种解释</h2><ul>
-<li>RX errors: 表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
-<li>RX dropped: 表示数据包已经进入了 Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。</li>
-<li>RX overruns: 表示了 fifo 的 overruns，这是由于 Ring Buffer(aka Driver Queue) 传输的 IO 大于 kernel 能够处理的 IO 导致的，而 Ring Buffer 则是指在发起 IRQ 请求之前的那块 buffer。很明显，overruns 的增大意味着数据包没到 Ring Buffer 就被网卡物理层给丢弃了，而 CPU 无法及时地处理中断是造成 Ring Buffer 满的原因之一，上面那台有问题的机器就是因为 interruprs 分布的不均匀(都压在 core0)，没有做 affinity 而造成的丢包。</li>
-<li>RX frame: 表示 misaligned 的 frames。</li>
-</ul>
-<p><strong>dropped数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</strong></p>
-<p>txqueuelen:1000 对应着qdisc队列的长度（发送队列和网卡关联着）</p>
-<p>而对应的接收队列由内核参数来设置： </p>
-<pre><code>net.core.netdev_max_backlog
-</code></pre><p>Adapter buffer defaults are commonly set to a smaller size than the maximum//网卡进出队列大小调整 ethtool -G eth rx 8192 tx 8192</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5478d28fb7aaba3adeb4260bc15c0c65.png" alt="image.png"></p>
-<h2 id="核心流程"><a href="#核心流程" class="headerlink" title="核心流程"></a>核心流程</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48fb8755f8e96b8df58c6c537650b81b.png" alt="image.png"></p>
-<p>接收数据包是一个复杂的过程，涉及很多底层的技术细节，但大致需要以下几个步骤：</p>
-<ol>
-<li>网卡收到数据包。</li>
-<li>将数据包从网卡硬件缓存转移到服务器内存中。</li>
-<li>通知内核处理。</li>
-<li>经过TCP/IP协议逐层处理。</li>
-<li>应用程序通过read()从socket buffer读取数据。</li>
-</ol>
-<h2 id="通过Dropwatch来查看丢包点"><a href="#通过Dropwatch来查看丢包点" class="headerlink" title="通过Dropwatch来查看丢包点"></a>通过Dropwatch来查看丢包点</h2><p>dropwatch -l kas (-l 加载符号表） // 丢包点位置等于 ip_rcv地址+ cf(偏移量）</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/04283745fd082003e5f77e78a55e0d67.png" alt="image.png"></p>
-<p>一个典型的接收包调用堆栈：</p>
-<pre><code>0xffffffff8157af10 : tcp_may_send_now+0x0/0x160 [kernel]
-0xffffffff815765f8 : tcp_fastretrans_alert+0x868/0xb50 [kernel]
-0xffffffff8157729d : tcp_ack+0x8bd/0x12c0 [kernel]
-0xffffffff81578295 : tcp_rcv_established+0x1d5/0x750 [kernel]
-0xffffffff81582bca : tcp_v4_do_rcv+0x10a/0x340 [kernel]
-0xffffffff81584411 : tcp_v4_rcv+0x831/0x9f0 [kernel]
-0xffffffff8155e114 : ip_local_deliver_finish+0xb4/0x1f0 [kernel]
-0xffffffff8155e3f9 : ip_local_deliver+0x59/0xd0 [kernel]
-0xffffffff8155dd8d : ip_rcv_finish+0x7d/0x350 [kernel]
-0xffffffff8155e726 : ip_rcv+0x2b6/0x410 [kernel]
-0xffffffff81522d42 : __netif_receive_skb_core+0x582/0x7d0 [kernel]
-0xffffffff81522fa8 : __netif_receive_skb+0x18/0x60 [kernel]
-0xffffffff81523c7e : process_backlog+0xae/0x180 [kernel]
-0xffffffff81523462 : net_rx_action+0x152/0x240 [kernel]
-0xffffffff8107dfff : __do_softirq+0xef/0x280 [kernel]
-0xffffffff8163f61c : call_softirq+0x1c/0x30 [kernel]
-0xffffffff81016fc5 : do_softirq+0x65/0xa0 [kernel]
-0xffffffff8107d254 : local_bh_enable_ip+0x94/0xa0 [kernel]
-0xffffffff81634f4b : _raw_spin_unlock_bh+0x1b/0x40 [kernel]
-0xffffffff8150d968 : release_sock+0x118/0x170 [kernel]
-</code></pre><h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
-</ul>
-<h2 id="iptables和tcpdump"><a href="#iptables和tcpdump" class="headerlink" title="iptables和tcpdump"></a>iptables和tcpdump</h2><blockquote>
-<p>sudo iptables -A INPUT -p tcp –destination-port 8089 -j DROP</p>
-</blockquote>
-<p>tcpdump 是直接从网卡驱动拿包，也就是包还没进入内核tcpdump就拿到了，而iptables是工作在内核层，也就是即使被DROP还是能tcpdump到8089的packet。</p>
-<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd" target="_blank" rel="noopener">https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd</a></p>
-<p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener">http://blog.hyfather.com/blog/2013/03/04/ifconfig/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><span class="space">&hellip;</span><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -5694,7 +5983,7 @@ IPv4 路由表
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">120</span>
+                <span class="site-state-item-count">121</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5716,7 +6005,7 @@ IPv4 路由表
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">223</span>
+                <span class="site-state-item-count">224</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
