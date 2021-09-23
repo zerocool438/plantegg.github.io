@@ -103,7 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制 12# cat /proc/sys/net/ipv4/ip_local_port_range 10000	65535 port range的上限是65535，所以也经常看到这个">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:updated_time" content="2021-06-18T08:31:52.193Z">
+<meta property="og:updated_time" content="2021-09-23T01:51:33.970Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底一台服务器上最多能创建多少个TCP连接">
 <meta name="twitter:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制 12# cat /proc/sys/net/ipv4/ip_local_port_range 10000	65535 port range的上限是65535，所以也经常看到这个">
@@ -418,7 +418,18 @@
 <p>但如果我只是个client端，只需要连接server建立连接，也就不需要bind，直接调connect就可以了，这个时候只要保证四元组唯一就行。</p>
 <p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
 <p><strong>是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？</strong></p>
-<h2 id="TCP-SO-REUSEADDR"><a href="#TCP-SO-REUSEADDR" class="headerlink" title="TCP SO_REUSEADDR"></a>TCP SO_REUSEADDR</h2><p>SO_REUSEADDR 主要解决的是重用TIME_WAIT状态的port, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
+<h2 id="TCP-SO-REUSEADDR"><a href="#TCP-SO-REUSEADDR" class="headerlink" title="TCP SO_REUSEADDR"></a>TCP SO_REUSEADDR</h2><p>文档描述：</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; SO_REUSEADDR      Indicates that the rules used in validating addresses supplied      in a bind(2) call should allow reuse of local addresses.  For      AF_INET sockets this means that a socket may bind, except when      there is an active listening socket bound to the address.      When the listening socket is bound to INADDR_ANY with a spe‐      cific port then it is not possible to bind to this port for      any local address.  Argument is an integer boolean flag.</span><br><span class="line">&gt;</span><br></pre></td></tr></table></figure>
+</blockquote>
+<p>从这段文档中我们可以知道三个事：</p>
+<ol>
+<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是说，两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
+<li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
+<li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
+</ol>
+<p>SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect同一个远程的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用</p>
+<p>SO_REUSEADDR 还可以重用TIME_WAIT状态的port, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
 <blockquote>
 <p>What exactly does SO_REUSEADDR do?</p>
 <p>This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.</p>

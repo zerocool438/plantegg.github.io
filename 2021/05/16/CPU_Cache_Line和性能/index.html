@@ -103,6 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="CPU 性能和Cache Line为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章">
 <meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210914175307651.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png">
@@ -111,11 +112,11 @@
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111244550.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512133536939.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512132121856.png">
-<meta property="og:updated_time" content="2021-09-09T05:22:41.444Z">
+<meta property="og:updated_time" content="2021-09-23T01:51:34.187Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU 性能和Cache Line">
 <meta name="twitter:description" content="CPU 性能和Cache Line为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章">
-<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png">
+<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210914175307651.png">
 
 
 
@@ -428,6 +429,8 @@
 <p>显而易见的是一旦cache失效就需要访问内存重新从内存中读取数据到CPU cache中，这个过程会很慢。</p>
 <h2 id="查看-cache-line"><a href="#查看-cache-line" class="headerlink" title="查看 cache_line"></a>查看 cache_line</h2><p>如下 Linux <code>getconf</code> 命令的输出，除了 <code>*_LINESIZE</code> 指示了系统的 Cache Line 的大小是 64 字节外，还给出了 Cache 类别，大小。 其中 <code>*_ASSOC</code> 则指示了该 Cache 是几路关联 (Way Associative) 的。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">$sudo getconf -a |grep CACHE</span><br><span class="line">LEVEL1_ICACHE_SIZE                 32768</span><br><span class="line">LEVEL1_ICACHE_ASSOC                8</span><br><span class="line">LEVEL1_ICACHE_LINESIZE             64</span><br><span class="line">LEVEL1_DCACHE_SIZE                 32768</span><br><span class="line">LEVEL1_DCACHE_ASSOC                8</span><br><span class="line">LEVEL1_DCACHE_LINESIZE             64</span><br><span class="line">LEVEL2_CACHE_SIZE                  262144</span><br><span class="line">LEVEL2_CACHE_ASSOC                 4</span><br><span class="line">LEVEL2_CACHE_LINESIZE              64</span><br><span class="line">LEVEL3_CACHE_SIZE                  3145728</span><br><span class="line">LEVEL3_CACHE_ASSOC                 12</span><br><span class="line">LEVEL3_CACHE_LINESIZE              64</span><br><span class="line">LEVEL4_CACHE_SIZE                  0</span><br><span class="line">LEVEL4_CACHE_ASSOC                 0</span><br><span class="line">LEVEL4_CACHE_LINESIZE              0</span><br></pre></td></tr></table></figure>
+<p>比如，对于下面的FT2500 ARM芯片下，L1D是32K，是因为32K=256*2*64（64就是cache_line大小，16个int）, 这32K是256个组，每组2行（x86一般是每组8行），每行就是一个cache_line</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210914175307651.png" alt="image-20210914175307651"></p>
 <h2 id="cache-line-影响性能的案例"><a href="#cache-line-影响性能的案例" class="headerlink" title="cache_line 影响性能的案例"></a>cache_line 影响性能的案例</h2><p>如下两个循环执行次数循环2是循环1的十六分之一。但是在x86和arm下执行时间都是循环2是循环1的四分之一左右。</p>
 <p>之所以执行时间不是十六分之一是因为循环一重用了cache_line. </p>
 <p>Xeon(R) Platinum 8260跑这个程序的性能是鲲鹏920的2倍左右。</p>
@@ -556,6 +559,7 @@
 <p><a href="http://igoro.com/archive/gallery-of-processor-cache-effects/" target="_blank" rel="noopener">Gallery of Processor Cache Effects</a></p>
 <p><a href="https://coolshell.cn/articles/10249.html" target="_blank" rel="noopener">7个示例科普CPU CACHE</a></p>
 <p><a href="https://coolshell.cn/articles/20793.html" target="_blank" rel="noopener">与程序员相关的CPU缓存知识</a></p>
+<p><a href="http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj" target="_blank" rel="noopener">Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?</a> 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share</p>
 
       
     </div>

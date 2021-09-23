@@ -132,7 +132,7 @@
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910180305752.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910181820803.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910181909962.png">
-<meta property="og:updated_time" content="2021-09-13T11:54:57.757Z">
+<meta property="og:updated_time" content="2021-09-23T01:51:33.907Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="飞腾ARM芯片-FT2500的性能测试">
 <meta name="twitter:description" content="飞腾ARM芯片-FT2500的性能测试ARM ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）  ARM 芯片厂家查看厂家  #cat /proc/cpuinfo |grep implementer CPU imp">
@@ -551,6 +551,8 @@
 <p>执行绑核，将一个进程限制在2个numa内，因为进程需要16core，理论上用8core的进程性能会更好</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png" alt="img"></p>
 <p>可以看到IPC从0.08提升到了0.22，实际能到0.27，对应的业务测试QPS也是原来的4倍。 </p>
+<p>用numactl 在启动的时候绑定cpu在 node0、1上，优先使用node0、1的内存，不够再用其它node的内存</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --defaults-file=/polarx/xcluster3308/my.cnf  --basedir=/u01/xcluster80_current  --datadir=/polarx/xcluster3308/data  --plugin-dir=/u01/xcluster80/lib/plugin  --user=mysql  --log-error=/polarx/xcluster3308/log/alert.log  --open-files-limit=615350  --pid-file=/polarx/xcluster3308/run/mysql.pid  --socket=/polarx/xcluster3308/run/mysql.sock  --cluster-info=11.158.239.200:11308@1  --mysqlx-port=13308  --port=3308</span><br></pre></td></tr></table></figure>
 <h3 id="网卡队列调整"><a href="#网卡队列调整" class="headerlink" title="网卡队列调整"></a>网卡队列调整</h3><p>这批机器默认都是双网卡做bond，但是两块网卡是HA，默认网卡队列是60，基本都跑在前面60个core上</p>
 <p>将MySQL网卡队列从60个改成6个后MySQL性能提升大概10%</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426085534983.png" alt="image-20210426085534983"></p>
@@ -564,6 +566,10 @@
 <p>如果上面两个进程在没有刷日志的场景下时候对应的IPC两者基本一样：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910181909962.png" alt="image-20210910181909962"></p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT2500上的业务按node绑核后性能提升了几倍，但是离Intel x86还有很大的距离</p>
+<p>用循环跑多个nop指令在飞腾2500下IPC只能跑到1，据说这是因为nop指令被扔掉了，所以一直在跑跳转循环判断；</p>
+<p>对寄存器变量进行++运算，IPC是0.5； </p>
+<p>用如下代码能将IPC跑到2.49，也是我能跑出来的最高IPC了，去掉nop那行，IPC是1.99</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">register unsigned i=0;</span><br><span class="line">    for (i=0;i&lt;(1u&lt;&lt;31);i++) &#123;</span><br><span class="line">            __asm__ (&quot;nop&quot;); </span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
 <h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
 <p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
 <p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
