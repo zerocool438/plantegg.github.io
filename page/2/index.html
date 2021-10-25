@@ -566,7 +566,7 @@
           
             <h1 id="一个有意思的问题"><a href="#一个有意思的问题" class="headerlink" title="一个有意思的问题"></a>一个有意思的问题</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">$mysql -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot;</span><br><span class="line">+--------+</span><br><span class="line">| 100024 |</span><br><span class="line">+--------+</span><br><span class="line"></span><br><span class="line">$mysql -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot; | cat</span><br><span class="line">100024</span><br><span class="line"></span><br><span class="line">$mysql -t -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot; | cat</span><br><span class="line">+--------+</span><br><span class="line">| 100024 |</span><br><span class="line">+--------+</span><br></pre></td></tr></table></figure>
 <p>如上第一和第二个语句，<strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？ 语句三加上 -t后再经过管道，也有制表符了。</p>
-<p><a href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254" target="_blank" rel="noopener">这里也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理</p>
+<p><a href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254" target="_blank" rel="noopener">stackoverflow上也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理。所以接下来我们来分析下这是为什么</p>
 <h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>strace看看第一个语句：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/086f6cd952d2b91eae7eda6d576765f8.png" alt="image.png"></p>
 <p>再对比下第二个语句的strace：</p>
@@ -577,11 +577,11 @@
 <p>第4行和第6行两个类型就是导致mysql client选择了不同的输出内容</p>
 <h2 id="误解"><a href="#误解" class="headerlink" title="误解"></a>误解</h2><p>所以这个问题不是： </p>
 <blockquote>
-<p>​       <strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？</p>
+<p><strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？</p>
 </blockquote>
 <p>而是：</p>
 <blockquote>
-<p>​        <strong>mysql client 可以检测到不同的输出目标然后输出不同的内容吗？</strong> 管道或者重定向是一个应用能感知的输出目标吗？</p>
+<p><strong>mysql client 可以检测到不同的输出目标然后输出不同的内容吗？</strong> 管道或者重定向是一个应用能感知的输出目标吗？</p>
 </blockquote>
 <p>误解：觉得管道写在后面，mysql client不应该知道后面是管道，mysql client输出内容到stdout，然后os将stdout的内容重定向给管道。</p>
 <p>实际上mysql是可以检测（detect）输出目标的，如果是管道类的非交互输出那么没必要徒增一些制表符；如果是交互式界面那么就输出一些制表符好看一些。</p>
@@ -771,7 +771,7 @@
 <li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
 <li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
 </ol>
-<p>SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect同一个远程的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用</p>
+<p>SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用</p>
 <p>SO_REUSEADDR 还可以重用TIME_WAIT状态的port, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
 <blockquote>
 <p>What exactly does SO_REUSEADDR do?</p>
@@ -1395,7 +1395,7 @@
 <p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
 <h3 id="thread-pool-size过小的案例"><a href="#thread-pool-size过小的案例" class="headerlink" title="thread_pool_size过小的案例"></a>thread_pool_size过小的案例</h3><p>应用出现大量1秒超时报错：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
-<p>分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。</p>
+<p>分析代码，这个报错是是数据库连接池在创建到MySQL的连接后或者从连接池取一个连接给业务使用前会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。</p>
 <p>继续分析MySQL的参数：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
 <p>可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。</p>
@@ -1404,17 +1404,17 @@
 <h3 id="MySQL-ping和MySQL协议相关知识"><a href="#MySQL-ping和MySQL协议相关知识" class="headerlink" title="MySQL ping和MySQL协议相关知识"></a>MySQL ping和MySQL协议相关知识</h3><blockquote>
 <p><a href="https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368" target="_blank" rel="noopener">Ping</a> use the JDBC method <a href="http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int" target="_blank" rel="noopener">Connection.isValid(int timeoutInSecs)</a>). Digging into the MySQL Connector/J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.</p>
 </blockquote>
-<p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte</p>
+<p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会testOnBorrow，所以每个连接使用前都会先做ping。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">public class MySQLPingPacket implements CommandPacket &#123;</span><br><span class="line">    private final WriteBuffer buffer = new WriteBuffer();</span><br><span class="line">    public MySQLPingPacket() &#123;</span><br><span class="line">        buffer.writeByte((byte) 0x0e);</span><br><span class="line">    &#125;</span><br><span class="line">    public int send(final OutputStream os) throws IOException &#123;</span><br><span class="line">        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number</span><br><span class="line">        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1</span><br><span class="line">        os.flush();</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
-<p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）</p>
+<p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这个问题的本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。</p>
 <p>MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，当然这个设计带来的问题就是多个池子中的任务不能均衡了。</p>
 <p>同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。</p>
 <p><strong>类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，如果这个worker上的某个连接有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。</strong></p>
 <p>Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。</p>
 <p>一包在手，万事无忧</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/36343" target="_blank" rel="noopener">https://www.atatech.org/articles/36343</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/36343" target="_blank" rel="noopener">记一次诡异的数据库故障的排查过程</a></p>
 <p><a href="http://mysql.taobao.org/monthly/2016/02/09/" target="_blank" rel="noopener">http://mysql.taobao.org/monthly/2016/02/09/</a></p>
 <p><a href="https://dbaplus.cn/news-11-1989-1.html" target="_blank" rel="noopener">https://dbaplus.cn/news-11-1989-1.html</a></p>
 
@@ -2193,6 +2193,7 @@
 <p><a href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html" target="_blank" rel="noopener">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
 <p><a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html" target="_blank" rel="noopener">鸟哥 journald 介绍</a></p>
 <p><a href="https://mp.weixin.qq.com/s/OR2XB4J76haGc1THeq7WQg" target="_blank" rel="noopener">说出来你可能不信，内核这家伙在内存的使用上给自己开了个小灶！</a></p>
+<p><a href="https://zhengheng.me/2018/08/27/socket-use-slab-dentry/" target="_blank" rel="noopener">socket 与 slab dentry</a></p>
 
           
         
@@ -3643,6 +3644,8 @@
 <p>正常后的抓包, 注意这里drequest的est ip 和reply的 src ip终于一致了：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">//request</span><br><span class="line">00:16:3e:02:06:1e &gt; ee:ff:ff:ff:ff:ff, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 57971, offset 0, flags [DF], proto IPIP (4), length 104)</span><br><span class="line">    192.168.0.111 &gt; 192.168.3.110: (tos 0x0, ttl 64, id 18953, offset 0, flags [DF], proto ICMP (1), length 84)</span><br><span class="line">    10.122.124.128 &gt; 10.122.17.64: ICMP echo request, id 22001, seq 4, length 64</span><br><span class="line">    </span><br><span class="line">//reply    </span><br><span class="line">ee:ff:ff:ff:ff:ff &gt; 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 2565, offset 0, flags [none], proto IPIP (4), length 104)</span><br><span class="line">    192.168.3.110 &gt; 192.168.0.111: (tos 0x0, ttl 64, id 26374, offset 0, flags [none], proto ICMP (1), length 84)</span><br><span class="line">    10.122.17.64 &gt; 10.122.124.128: ICMP echo reply, id 22001, seq 4, length 64</span><br></pre></td></tr></table></figure>
 <p>总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。</p>
+<h2 id="清理"><a href="#清理" class="headerlink" title="清理"></a><a href="https://serverfault.com/questions/247767/cannot-delete-gre-tunnel" target="_blank" rel="noopener">清理</a></h2><p>calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ip link set dev tunl0 name tunl0_fallback</span><br></pre></td></tr></table></figure>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://morven.life/notes/networking-3-ipip/" target="_blank" rel="noopener">https://morven.life/notes/networking-3-ipip/</a></p>
 <p><a href="https://www.cnblogs.com/bakari/p/10564347.html" target="_blank" rel="noopener">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
 <p><a href="https://www.cnblogs.com/goldsunshine/p/10701242.html" target="_blank" rel="noopener">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
@@ -3845,7 +3848,15 @@
 <p>或者：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">ErrorMessage:</span><br><span class="line">Code:[DBUtilErrorCode-07], Description:[读取数据库数据失败. 请检查您的配置的 column/table/where/querySql或者向 DBA 寻求帮助.].  - 执行的SQL为:/*+TDDL(&#123;&apos;extra&apos;:&#123;&apos;MERGE_UNION&apos;:&apos;false&apos;&#125;,&apos;type&apos;:&apos;direct&apos;,&apos;vtab&apos;:&apos;C_CONS&apos;,&apos;dbid&apos;:&apos;EASDB_1514548807024CGYFEASDB_ROQH_0005_RDS&apos;,&apos;realtabs&apos;:[&apos;C_CONS&apos;]&#125;)*/select CONS_ID,CUST_ID,USERFLAG,CONS_NO,CONS_NAME,CUST_QUERY_NO,TMP_PAY_RELA_NO,ORGN_CONS_NO,CONS_SORT_CODE,ELEC_ADDR,TRADE_CODE,ELEC_TYPE_CODE,CONTRACT_CAP,RUN_CAP,SHIFT_NO,LODE_ATTR_CODE,VOLT_CODE,HEC_INDUSTRY_CODE,HOLIDAY,BUILD_DATE,PS_DATE,CANCEL_DATE,DUE_DATE,NOTIFY_MODE,SETTLE_MODE,STATUS_CODE,ORG_NO,RRIO_CODE,CHK_CYCLE,LAST_CHK_DATE,CHECKER_NO,POWEROFF_CODE,TRANSFER_CODE,MR_SECT_NO,NOTE_TYPE_CODE,TMP_FLAG,TMP_DATE,DATA_SRC,USER_EATTR,SHARD_NO,INSERT_TIME from C_CONS  具体错误信息为：Communications link failure</span><br><span class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</span><br><span class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago.</span><br><span class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</span><br><span class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)</span><br><span class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</span><br><span class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</span><br><span class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:377)</span><br><span class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:1036)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3427)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3327)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3814)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:870)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.nextRow(MysqlIO.java:1928)</span><br><span class="line">	at com.mysql.jdbc.RowDataDynamic.nextRecord(RowDataDynamic.java:378)</span><br><span class="line">	at com.mysql.jdbc.RowDataDynamic.next(RowDataDynamic.java:358)</span><br><span class="line">	at com.mysql.jdbc.ResultSetImpl.next(ResultSetImpl.java:6337)</span><br><span class="line">	at com.alibaba.datax.plugin.rdbms.reader.CommonRdbmsReader$Task.startRead(CommonRdbmsReader.java:275)</span><br><span class="line">	at com.alibaba.datax.plugin.reader.drdsreader.DrdsReader$Task.startRead(DrdsReader.java:148)</span><br><span class="line">	at com.alibaba.datax.core.taskgroup.runner.ReaderRunner.run(ReaderRunner.java:62)</span><br><span class="line">	at java.lang.Thread.run(Thread.java:834)</span><br><span class="line">Caused by: java.io.EOFException: Can not read response from server. Expected to read 258 bytes, read 54 bytes before connection was unexpectedly lost.</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:2914)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3387)</span><br><span class="line">	... 11 more</span><br></pre></td></tr></table></figure>
 <h2 id="一些其他的-Timeout"><a href="#一些其他的-Timeout" class="headerlink" title="一些其他的 Timeout"></a>一些其他的 Timeout</h2><p>connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间，默认值0，表示不设置超时，单位毫秒，建议30000。 JDBC驱动连接属性</p>
-<p>socketTimeout：表示客户端和MySQL数据库建立socket后，读写socket时的等待的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。 JDBC驱动连接属性</p>
+<p>socketTimeout：JDBC参数，表示客户端发送请求给MySQL数据库后block在read的等待数据的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。要特别注意socketTimeout仅仅是指等待socket数据时间，如果在传输数据那么这个值就没有用了。<a href="https://docs.oracle.com/javase/7/docs/api/java/net/SocketOptions.html#SO_TIMEOUT" target="_blank" rel="noopener">socketTimeout通过mysql-connector中的NativeProtocol最终设置在socketOptions上</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211024171459127.png" alt="image-20211024171459127"></p>
+<blockquote>
+<p>static final int SO_TIMEOUT</p>
+<p>Set a timeout on blocking Socket operations:</p>
+<p> ServerSocket.accept();<br> SocketInputStream.read();<br> DatagramSocket.receive();</p>
+<p>The option must be set prior to entering a blocking operation to take effect. If the timeout expires and the operation would continue to block, <strong>java.io.InterruptedIOException</strong> is raised. The Socket is not closed in this case.</p>
+<p>Valid for all sockets: SocketImpl, DatagramSocketImpl</p>
+</blockquote>
 <p>Statement Timeout：用来限制statement的执行时长，timeout的值通过调用JDBC的java.sql.Statement.setQueryTimeout(int timeout) API进行设置。不过现在开发者已经很少直接在代码中设置，而多是通过框架来进行设置。</p>
 <p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_max_execution_time" target="_blank" rel="noopener"><code>max_execution_time</code></a>：The execution timeout for <a href="https://dev.mysql.com/doc/refman/5.7/en/select.html" target="_blank" rel="noopener"><code>SELECT</code></a> statements, in milliseconds. If the value is 0, timeouts are not enabled.  MySQL 属性，可以set修改，一般用来设置一个查询最长不超过多少秒，避免一个慢查询一直在跑，跟statement timeout对应。</p>
 <table>
@@ -3882,7 +3893,7 @@
 </tr>
 </tbody>
 </table>
-<p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="noopener"><code>wait_timeout</code></a> The number of seconds the server waits for activity on a noninteractive connection before closing it. MySQL 属性，一般设置tcp keepalive后这个值基本不会超时。</p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="noopener"><code>wait_timeout</code></a> The number of seconds the server waits for activity on a noninteractive connection before closing it. MySQL 属性，一般设置tcp keepalive后这个值基本不会超时（这句话存疑 202110）。</p>
 <p>On thread startup, the session <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="noopener"><code>wait_timeout</code></a> value is initialized from the global <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="noopener"><code>wait_timeout</code></a> value or from the global <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout" target="_blank" rel="noopener"><code>interactive_timeout</code></a> value, depending on the type of client (as defined by the <code>CLIENT_INTERACTIVE</code> connect option to <a href="https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html" target="_blank" rel="noopener"><code>mysql_real_connect()</code></a>). See also <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout" target="_blank" rel="noopener"><code>interactive_timeout</code></a>.</p>
 <table>
 <thead>
@@ -3934,7 +3945,7 @@
 <h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>设置JDBC参数不合理（queryTimeout=10s，socketTimeout=10s），会导致在异常情况下，第二条get获得了第一条的结果，拿到了错误的数据，数据库则表现正常</p>
 <p>socketTimeout触发后，连接抛CommunicationsException（严重异常，触发后连接应该断开）, 但JDBC会检查请求是否被cancle了，如果cancle就会抛出MySQLTimeoutException异常，这是一个普通异常，连接会被重新放回连接池重用（导致下一个获取这个连接的线程可能会得到前一个请求的response）。</p>
 <p>queryTimeout（queryTimeoutKillsConnection=True–来强制关闭连接）会触发启动一个新的连接向server发送 kill id的命令，<strong>MySQL5.7增加了max_statement_time/max_execution_time来做到在server上直接检测到这种查询，然后结束掉</strong>。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/122079" target="_blank" rel="noopener">https://www.atatech.org/articles/122079</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/122079" target="_blank" rel="noopener">MySQL JDBC StreamResult通信原理浅析</a></p>
 
           
         

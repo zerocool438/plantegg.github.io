@@ -105,7 +105,7 @@
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/086f6cd952d2b91eae7eda6d576765f8.png">
 <meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/984bcce23ff8766b52fdede8ff3eadec.png">
-<meta property="og:updated_time" content="2021-06-30T13:41:29.024Z">
+<meta property="og:updated_time" content="2021-10-25T01:30:14.498Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="一个有意思的问题">
 <meta name="twitter:description" content="一个有意思的问题问题描述123456789101112$mysql -N -h127.0.0.1 -e &amp;quot;select id from sbtest1 limit 1&amp;quot;+--------+| 100024 |+--------+$mysql -N -h127.0.0.1 -e &amp;quot;select id from sbtest1 limit 1&amp;quot; | cat100">
@@ -398,7 +398,7 @@
       
         <h1 id="一个有意思的问题"><a href="#一个有意思的问题" class="headerlink" title="一个有意思的问题"></a>一个有意思的问题</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">$mysql -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot;</span><br><span class="line">+--------+</span><br><span class="line">| 100024 |</span><br><span class="line">+--------+</span><br><span class="line"></span><br><span class="line">$mysql -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot; | cat</span><br><span class="line">100024</span><br><span class="line"></span><br><span class="line">$mysql -t -N -h127.0.0.1 -e &quot;select id from sbtest1 limit 1&quot; | cat</span><br><span class="line">+--------+</span><br><span class="line">| 100024 |</span><br><span class="line">+--------+</span><br></pre></td></tr></table></figure>
 <p>如上第一和第二个语句，<strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？ 语句三加上 -t后再经过管道，也有制表符了。</p>
-<p><a href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254" target="_blank" rel="noopener">这里也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理</p>
+<p><a href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254" target="_blank" rel="noopener">stackoverflow上也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理。所以接下来我们来分析下这是为什么</p>
 <h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>strace看看第一个语句：</p>
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/086f6cd952d2b91eae7eda6d576765f8.png" alt="image.png"></p>
 <p>再对比下第二个语句的strace：</p>
@@ -409,11 +409,11 @@
 <p>第4行和第6行两个类型就是导致mysql client选择了不同的输出内容</p>
 <h2 id="误解"><a href="#误解" class="headerlink" title="误解"></a>误解</h2><p>所以这个问题不是： </p>
 <blockquote>
-<p>​       <strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？</p>
+<p><strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？</p>
 </blockquote>
 <p>而是：</p>
 <blockquote>
-<p>​        <strong>mysql client 可以检测到不同的输出目标然后输出不同的内容吗？</strong> 管道或者重定向是一个应用能感知的输出目标吗？</p>
+<p><strong>mysql client 可以检测到不同的输出目标然后输出不同的内容吗？</strong> 管道或者重定向是一个应用能感知的输出目标吗？</p>
 </blockquote>
 <p>误解：觉得管道写在后面，mysql client不应该知道后面是管道，mysql client输出内容到stdout，然后os将stdout的内容重定向给管道。</p>
 <p>实际上mysql是可以检测（detect）输出目标的，如果是管道类的非交互输出那么没必要徒增一些制表符；如果是交互式界面那么就输出一些制表符好看一些。</p>

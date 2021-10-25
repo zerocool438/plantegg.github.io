@@ -2863,6 +2863,10 @@ avg: 0.005937
 <p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png" alt="image.png"></p>
 <h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png" alt="image.png"></p>
 <h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png" alt="image.png"></p>
+<h2 id="tcprstat"><a href="#tcprstat" class="headerlink" title="tcprstat"></a>tcprstat</h2><p>推荐一个快速统计rt的<a href="https://github.com/Lowercases/tcprstat" target="_blank" rel="noopener">工具tcprstat</a>，实测在CPU打满的高压力情况下会丢失大量请求数据，但是作为统计平均值这问题不大。支持http、mysql协议等。实际测试在每秒2万个SQL的时候，对于一台4C的机器，只能采集到70%的请求。</p>
+<p>或者看这个<a href="https://github.com/y123456yz/tcprstat" target="_blank" rel="noopener">支持设置RT阈值的统计改进版</a></p>
+<p>tcprstat 统计抓包离线文件</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># -l 166.100.128.148  向目标端口80发起请求的地址</span><br><span class="line"># -p 80  发出response端口</span><br><span class="line"># -t 10 间隔10s一次汇总统计</span><br><span class="line"># -f 后面的分位置可以随便指定（90%、95%、99%等）</span><br><span class="line">tcprstat -r pts.pcap -p 80 -l 166.100.128.148 -t 10 -f &quot;%T\t%n\t%M\t%m\t%a\t%h\t%S\t%95M\t%90a\t%95S\t%99M\t%99a\t%90S\n&quot;</span><br></pre></td></tr></table></figure>
 <h2 id="其它工具-packetdrill"><a href="#其它工具-packetdrill" class="headerlink" title="其它工具 packetdrill"></a>其它工具 packetdrill</h2><p><a href="https://github.com/google/packetdrill" target="_blank" rel="noopener">https://github.com/google/packetdrill</a></p>
 <p><a href="https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw</a></p>
 <p><a href="http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html" target="_blank" rel="noopener">http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html</a></p>
@@ -4543,7 +4547,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <blockquote>
 <ol>
 <li>sshd_config里要打开<code>AllowTcpForwarding</code>选项，否则<code>-R</code>远程端口转发会失败。</li>
-<li>默认转发到远程主机上的端口绑定的是<code>127.0.0.1</code>，如要绑定<code>0.0.0.0</code>需要打开sshd_config里的<code>GatewayPorts</code>选项。这个选项如果由于权限没法打开也有办法，可配合<code>ssh -L</code>将端口绑定到<code>0.0.0.0</code>，聪明的你应该能想到办法，呵呵。</li>
+<li>默认转发到远程主机上的端口绑定的是<code>127.0.0.1</code>，<a href="https://serverfault.com/questions/997124/ssh-r-binds-to-127-0-0-1-only-on-remote" target="_blank" rel="noopener">如要绑定<code>0.0.0.0</code>需要打开sshd_config里的<code>GatewayPorts</code>选项(然后ssh -R 后加上*:port )</a>。这个选项如果由于权限没法打开也有办法，可配合<code>ssh -L</code>将端口绑定到<code>0.0.0.0</code>，聪明的你应该能想到办法，呵呵。</li>
 </ol>
 </blockquote>
 <p><strong>三个转发模式的比较：</strong></p>
@@ -4578,6 +4582,9 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><a href="https://robotmoon.com/ssh-tunnels/" target="_blank" rel="noopener">https://robotmoon.com/ssh-tunnels/</a></p>
 <p><a href="https://blog.gwlab.page/vpn-over-ssh-the-socks-proxy-8a8d7bdc7028" target="_blank" rel="noopener">通过SSH动态转发来建立Socks代以及各种场景应用案例</a></p>
 <p><a href="https://daniel.haxx.se/blog/2020/05/26/curl-ootw-socks5/" target="_blank" rel="noopener">https://daniel.haxx.se/blog/2020/05/26/curl-ootw-socks5/</a></p>
+<p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="noopener">SSH Performance</a></p>
+<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="noopener">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="noopener">一行代码解决scp在Internet传输慢的问题</a></p>
 
           
         
