@@ -1268,7 +1268,7 @@
 <p><strong>单元（Cell）、页面（Page）、块（Block）</strong>。当今的主流 SSD 是基于 NAND 的，它将数字位存储在单元中。每个 SSD 单元可以存储一位或多位。对单元的每次擦除都会降低单元的寿命，所以单元只能承受一定数量的擦除。单元存储的位数越多，制造成本就越少，SSD 的容量也就越大，但是耐久性（擦除次数）也会降低。</p>
 <p>一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。</p>
 <p>多个页面组合成块。一个块的典型大小为 512KB 或 1MB，也就是大约 128 或 256 页。<strong>块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210915090731401.png" alt="image-20210915090731401"></p>
+<p><img src="/images/951413iMgBlog/image-20210915090731401.png" alt="image-20210915090731401"></p>
 <p><strong>擦除速度相对很慢，通常为几毫秒</strong>。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。</p>
 <h3 id="SSD原理"><a href="#SSD原理" class="headerlink" title="SSD原理"></a>SSD原理</h3><p>对于 SSD 硬盘，类似SRAM（CPU cache）它是由一个电容加上一个电压计组合在一起，记录了一个或者多个比特。能够记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。</p>
 <p>但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。</p>
@@ -1322,18 +1322,18 @@
 </table>
 <p>NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。</p>
 <p><a href="https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf" target="_blank" rel="noopener">高端SSD会选取MLC</a>（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210603161822079.png" alt="image-20210603161822079"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg" alt="slc-mlc-tlc-buckets"></p>
+<p><img src="/images/951413iMgBlog/image-20210603161822079.png" alt="image-20210603161822079"></p>
+<p><img src="/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg" alt="slc-mlc-tlc-buckets"></p>
 <p>NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB</p>
 <p>对于TLC NAND （每个NAND cell存储3 bits的信息），下面列出了每种操作的典型耗时的范围：</p>
 <p>​      读操作（Tread）    ：      50-100us，</p>
 <p>​      写操作（Tprog）    ：     500us-5ms，</p>
 <p>​      擦除操作（Terase） ：      2-10ms。</p>
 <p>SSD的基本结构：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210915090459823.png" alt="image-20210915090459823"></p>
+<p><img src="/images/951413iMgBlog/image-20210915090459823.png" alt="image-20210915090459823"></p>
 <p>SSD内部使用写缓存。写缓存主要用来降低写延迟。当写请求发送给SSD时，写数据会被先保存在写缓存，此时SSD会直接发送确认消息通知主机端写请求已完成，实现最低的写延迟。SSD固件在后台会异步的定期把写缓存中的数据通过写操作命令刷回给NAND颗粒。为了满足写操作的持久化语义，SSD内有大容量电容保证写缓存中数据的安全。当紧急断电情况发生时，固件会及时把写缓存中的数据写回NAND颗粒. 也就是紧急断电后还能通过大电容供电来维持最后的落盘。</p>
 <p><a href="https://www.bilibili.com/read/cv4139832" target="_blank" rel="noopener">以海康威视E200P为例</a>，PCB上的硬件PLP掉电保护电路从D200Pro的10个钽电容+6个电感，简化为6个钽电容+6个电感。钽电容来自Panasonic，单颗47uF，6个钽电容并联可以为SSD提供几十毫秒的放电时间，让SSD把处理中的数据写入NAND中并更新映射表。这样的硬件PLP电路对比普通的家用产品要强悍很多。 </p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp" alt="img"></p>
+<p><img src="/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp" alt="img"></p>
 <h4 id="为什么断电后SSD不丢数据"><a href="#为什么断电后SSD不丢数据" class="headerlink" title="为什么断电后SSD不丢数据"></a>为什么断电后SSD不丢数据</h4><p>SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。</p>
 <p>比如标准要求SSD：温度在30度的情况下，数据要能保持52周。</p>
 <h3 id="写入放大（Write-Amplification-or-WA"><a href="#写入放大（Write-Amplification-or-WA" class="headerlink" title="写入放大（Write Amplification, or WA)"></a>写入放大（Write Amplification, or WA)</h3><p>这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 / 擦除（P/E）周期，所以写入放大效用会缩短 SSD 的寿命。</p>
@@ -1342,7 +1342,7 @@
 <h3 id="耗损平衡-Wear-Leveling"><a href="#耗损平衡-Wear-Leveling" class="headerlink" title="耗损平衡 (Wear Leveling)"></a>耗损平衡 (Wear Leveling)</h3><p>对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P/E 周期的典型数目是十万次；对于 MLC 块，P/E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。</p>
 <p>##性能比较</p>
 <p>正好有机会用到一个san存储设备，跑了一把性能数据，记录一下</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png" alt="image.png"></p>
+<p><img src="/images/oss/d57a004c846e193126ca01398e394319.png" alt="image.png"></p>
 <p>所使用的测试命令：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br></pre></td></tr></table></figure>
 <p>ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排除了其他因素的干扰。</p>
@@ -1357,7 +1357,7 @@
 <li><p>san比本地sas机械盘性能要好，这也许取决于san的网络传输性能和san存储中的设备（比如用的ssd而不是机械盘）</p>
 </li>
 </ul>
-<h2 id="NVMe-SSD-和-HDD的性能比较"><a href="#NVMe-SSD-和-HDD的性能比较" class="headerlink" title="NVMe SSD 和 HDD的性能比较"></a>NVMe SSD 和 HDD的性能比较</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png" alt="image.png"></p>
+<h2 id="NVMe-SSD-和-HDD的性能比较"><a href="#NVMe-SSD-和-HDD的性能比较" class="headerlink" title="NVMe SSD 和 HDD的性能比较"></a>NVMe SSD 和 HDD的性能比较</h2><p><img src="/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png" alt="image.png"></p>
 <p>表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。</p>
 <p><strong>HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。</strong></p>
 <h2 id="磁盘类型查看"><a href="#磁盘类型查看" class="headerlink" title="磁盘类型查看"></a>磁盘类型查看</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$cat /sys/block/vda/queue/rotational</span><br><span class="line">1  //1表示旋转，非ssd，0表示ssd</span><br><span class="line"></span><br><span class="line">或者</span><br><span class="line">lsblk -d -o name,rota,size,label,uuid</span><br></pre></td></tr></table></figure>
@@ -1429,7 +1429,7 @@
 <p>NVMe SSD以及SATA SSD当buffered=0的条件下latency均为2-3us,  NVMe SSD latency参考文章第一个表格， 和本次NVMe测试结果一致.  </p>
 <p>ESSD的latency基本是13-16us。</p>
 <p>以上NVMe SSD测试数据是在测试过程中还有mysql在全力导入数据的情况下，用fio测试所得。所以空闲情况下测试结果会更好。</p>
-<h3 id="HDD性能测试数据"><a href="#HDD性能测试数据" class="headerlink" title="HDD性能测试数据"></a>HDD性能测试数据</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png" alt="img"></p>
+<h3 id="HDD性能测试数据"><a href="#HDD性能测试数据" class="headerlink" title="HDD性能测试数据"></a>HDD性能测试数据</h3><p><img src="/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png" alt="img"></p>
 <p>从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，<del>应该是cache、磁盘阵列在起作用。</del></p>
 <p>SATA硬盘，10K转</p>
 <p>万转机械硬盘组成RAID5阵列，在顺序条件最好的情况下，带宽可以达到1GB/s以上，平均延时也非常低，最低只有20多us。但是在随机IO的情况下，机械硬盘的短板就充分暴露了，零点几兆的带宽，将近5ms的延迟，IOPS只有200左右。其原因是因为</p>
@@ -1446,7 +1446,7 @@
 <h2 id="rq-affinity"><a href="#rq-affinity" class="headerlink" title="rq_affinity"></a>rq_affinity</h2><p>参考<a href="https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll" target="_blank" rel="noopener">aliyun测试文档</a> , rq_affinity增加2的commit： git show 5757a6d76c</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">function RunFio</span><br><span class="line">&#123;</span><br><span class="line"> numjobs=$1   # 实例中的测试线程数，例如示例中的10</span><br><span class="line"> iodepth=$2   # 同时发出I/O数的上限，例如示例中的64</span><br><span class="line"> bs=$3        # 单次I/O的块文件大小，例如示例中的4k</span><br><span class="line"> rw=$4        # 测试时的读写策略，例如示例中的randwrite</span><br><span class="line"> filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device</span><br><span class="line"> nr_cpus=`cat /proc/cpuinfo |grep &quot;processor&quot; |wc -l`</span><br><span class="line"> if [ $nr_cpus -lt $numjobs ];then</span><br><span class="line">     echo “Numjobs is more than cpu cores, exit!”</span><br><span class="line">     exit -1</span><br><span class="line"> fi</span><br><span class="line"> let nu=$numjobs+1</span><br><span class="line"> cpulist=&quot;&quot;</span><br><span class="line"> for ((i=1;i&lt;10;i++))</span><br><span class="line"> do</span><br><span class="line">     list=`cat /sys/block/your_device/mq/*/cpu_list | awk &apos;&#123;if(i&lt;=NF) print $i;&#125;&apos; i=&quot;$i&quot; | tr -d &apos;,&apos; | tr &apos;\n&apos; &apos;,&apos;`</span><br><span class="line">     if [ -z $list ];then</span><br><span class="line">         break</span><br><span class="line">     fi</span><br><span class="line">     cpulist=$&#123;cpulist&#125;$&#123;list&#125;</span><br><span class="line"> done</span><br><span class="line"> spincpu=`echo $cpulist | cut -d &apos;,&apos; -f 2-$&#123;nu&#125;`</span><br><span class="line"> echo $spincpu</span><br><span class="line"> fio --ioengine=libaio --runtime=30s --numjobs=$&#123;numjobs&#125; --iodepth=$&#123;iodepth&#125; --bs=$&#123;bs&#125; --rw=$&#123;rw&#125; --filename=$&#123;filename&#125; --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split</span><br><span class="line">&#125;</span><br><span class="line">echo 2 &gt; /sys/block/your_device/queue/rq_affinity</span><br><span class="line">sleep 5</span><br><span class="line">RunFio 10 64 4k randwrite filename</span><br></pre></td></tr></table></figure>
 <p>对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png" alt="image-20210607113709945"></p>
+<p><img src="/images/951413iMgBlog/image-20210607113709945.png" alt="image-20210607113709945"></p>
 <h2 id="LVM性能对比"><a href="#LVM性能对比" class="headerlink" title="LVM性能对比"></a>LVM性能对比</h2><p>磁盘信息</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#lsblk</span><br><span class="line">NAME         MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT</span><br><span class="line">sda            8:0    0 223.6G  0 disk</span><br><span class="line">├─sda1         8:1    0     3M  0 part</span><br><span class="line">├─sda2         8:2    0     1G  0 part /boot</span><br><span class="line">├─sda3         8:3    0    96G  0 part /</span><br><span class="line">├─sda4         8:4    0    10G  0 part /tmp</span><br><span class="line">└─sda5         8:5    0 116.6G  0 part /home</span><br><span class="line">nvme0n1      259:4    0   2.7T  0 disk</span><br><span class="line">└─nvme0n1p1  259:5    0   2.7T  0 part</span><br><span class="line">  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds</span><br><span class="line">nvme1n1      259:0    0   2.7T  0 disk</span><br><span class="line">└─nvme1n1p1  259:2    0   2.7T  0 part /u02</span><br><span class="line">nvme2n1      259:1    0   2.7T  0 disk</span><br><span class="line">└─nvme2n1p1  259:3    0   2.7T  0 part</span><br><span class="line">  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds</span><br></pre></td></tr></table></figure>
 <p>单块nvme SSD盘跑mysql server，运行sysbench导入测试数据</p>
@@ -2376,11 +2376,12 @@ Mem:          7515       1115       6400          0        189        492
 -/+ buffers/cache:        432       7082
 Swap:            0          0          0
 </code></pre><p>其中，<a href="https://spongecaptain.cool/SimpleClearFileIO/1.%20page%20cache.html" target="_blank" rel="noopener">cached 列表示当前的页缓存（Page Cache）占用量</a>，buffers 列表示当前的块缓存（buffer cache）占用量。用一句话来解释：<strong>Page Cache 用于缓存文件的页数据，buffer cache 用于缓存块设备（如磁盘）的块数据。</strong>页是逻辑上的概念，因此 Page Cache 是与文件系统同级的；块是物理上的概念，因此 buffer cache 是与块设备驱动程序同级的。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
+<p><img src="/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
 <p><strong>上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。</strong></p>
 <h2 id="free"><a href="#free" class="headerlink" title="free"></a>free</h2><p>free是从 /proc/meminfo 读取数据然后展示：</p>
 <blockquote>
 <p>buff/cache = Buffers + Cached + SReclaimable</p>
+<p>Buffers + Cached + SwapCached = Active(file) + Inactive(file) + Shmem + SwapCached</p>
 </blockquote>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i &quot;buff|cach|SReclai&quot;</span><br><span class="line">Buffers:          817764 kB</span><br><span class="line">Cached:         76629252 kB</span><br><span class="line">SwapCached:            0 kB</span><br><span class="line">SReclaimable:    7202264 kB</span><br><span class="line">[root@az1-drds-79 ~]# free -k</span><br><span class="line">             total       used       free     shared    buffers     cached</span><br><span class="line">Mem:      97267672   95522336    1745336          0     817764   76629352</span><br><span class="line">-/+ buffers/cache:   18075220   79192452</span><br><span class="line">Swap:            0          0          0</span><br></pre></td></tr></table></figure>
 <p>在内核启动时，物理页面将加入到伙伴系统 （Buddy System）中，用户申请内存时分配，释放时回收。为了照顾慢速设备及兼顾多种 workload，Linux 将页面类型分为匿名页（Anon Page）和文件页 （Page Cache），及 swapness，使用 Page Cache 缓存文件 （慢速设备），通过 swap cache 和 swapness 交由用户根据负载特征决定内存不足时回收二者的比例。</p>
@@ -2872,6 +2873,12 @@ test.x86_64.rpm
 <h2 id="kubeadm"><a href="#kubeadm" class="headerlink" title="kubeadm"></a>kubeadm</h2><p>初始化集群的时候第一看kubelet能否起来（cgroup配置），第二就是看kubelet静态起pod，kubelet参数指定yaml目录，然后kubelet拉起这个目录下的所有yaml。</p>
 <p>kubeadm启动集群就是如此。kubeadm生成证书、etcd.yaml等yaml、然后拉起kubelet，kubelet拉起etcd、apiserver等pod，kubeadm init 的时候主要是在轮询等待apiserver的起来。</p>
 <p>可以通过kubelet –v 256来看详细日志，kubeadm本身所做的事情并不多，所以日志没有太多的信息，主要是等待轮询apiserver的拉起</p>
+<h3 id="Kubeadm-config"><a href="#Kubeadm-config" class="headerlink" title="Kubeadm config"></a>Kubeadm config</h3><p>Init 可以指定仓库以及版本</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kubeadm init --image-repository=registry:5000/registry.aliyuncs.com/google_containers --kubernetes-version=v1.14.6  --pod-network-cidr=10.244.0.0/16</span><br></pre></td></tr></table></figure>
+<p>查看并修改配置</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">sudo kubeadm config view &gt; kubeadm-config.yaml</span><br><span class="line">edit kubeadm-config.yaml and replace k8s.gcr.io with your repo</span><br><span class="line">sudo kubeadm upgrade apply --config kubeadm-config.yaml</span><br><span class="line"></span><br><span class="line">kubeadm config images pull --config="/root/kubeadm-config.yaml"</span><br><span class="line"></span><br><span class="line">kubectl get cm -n kube-system kubeadm-config -o yaml</span><br></pre></td></tr></table></figure>
+<p>pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash">cat /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf</span></span><br><span class="line">ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS --pod_infra_container_image=registry:5000/registry.aliyuncs.com/google_containers/pause:3.1</span><br></pre></td></tr></table></figure>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://kubernetes.io/zh/docs/reference/kubectl/cheatsheet/" target="_blank" rel="noopener">https://kubernetes.io/zh/docs/reference/kubectl/cheatsheet/</a></p>
 
           
@@ -3188,7 +3195,7 @@ test.x86_64.rpm
 <p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
 <p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
 <h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="noopener">https://access.redhat.com/solutions/30316</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
+<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
 <p>如上图去掉 admin nproc限制就可以了</p>
 <p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@i22h08323 /home/admin]</span><br><span class="line">#ulimit -u</span><br><span class="line">unlimited</span><br></pre></td></tr></table></figure>
@@ -3224,7 +3231,7 @@ test.x86_64.rpm
 <h2 id="No-route-to-host"><a href="#No-route-to-host" class="headerlink" title="No route to host"></a>No route to host</h2><p>如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题</p>
 <p>可以停掉防火墙验证,或者添加端口到防火墙:</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#firewall-cmd --permanent --add-port=8090/tcp</span><br><span class="line">success</span><br><span class="line">#firewall-cmd --reload</span><br></pre></td></tr></table></figure>
-<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
+<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
 <p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficientS</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$cat /etc/pam.d/crond </span><br><span class="line">#</span><br><span class="line"># The PAM configuration file for the cron daemon</span><br><span class="line">#</span><br><span class="line">#</span><br><span class="line"># No PAM authentication called, auth modules not needed</span><br><span class="line">account    required   pam_access.so</span><br><span class="line">account    include    system-auth</span><br><span class="line">session    required   pam_loginuid.so //required 改成 sufficient</span><br><span class="line">session    include    system-auth</span><br><span class="line">auth       include    system-auth</span><br></pre></td></tr></table></figure>
 <p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
@@ -3321,14 +3328,14 @@ test.x86_64.rpm
 </tr>
 </tbody>
 </table>
-<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
+<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
 <h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
-<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
+<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
 <p>因为 /etc/localtime 是deleted状态</p>
-<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="noopener">sparse file</a></h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
+<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="noopener">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
 <p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。实际是写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
 <p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="noopener">而 ls -s 中的 -s就是只看实际大小</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
+<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
 <p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="noopener">图片来源</a></p>
 <p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="noopener">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
 <p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>

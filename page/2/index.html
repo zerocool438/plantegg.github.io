@@ -568,9 +568,9 @@
 <p>如上第一和第二个语句，<strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？ 语句三加上 -t后再经过管道，也有制表符了。</p>
 <p><a href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254" target="_blank" rel="noopener">stackoverflow上也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理。所以接下来我们来分析下这是为什么</p>
 <h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>strace看看第一个语句：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/086f6cd952d2b91eae7eda6d576765f8.png" alt="image.png"></p>
+<p><img src="/images/oss/086f6cd952d2b91eae7eda6d576765f8.png" alt="image.png"></p>
 <p>再对比下第二个语句的strace：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/984bcce23ff8766b52fdede8ff3eadec.png" alt="image.png"></p>
+<p><img src="/images/oss/984bcce23ff8766b52fdede8ff3eadec.png" alt="image.png"></p>
 <p>从上面两个strace比较来看，似乎mysql client能检测到要输出到命名管道（S_IFIFO ）还是character device（S_IFCHR），如果是命名管道的话就不要输出制表符了，如果是character device那么就输出ascii制表符。</p>
 <p><a href="https://linux.die.net/man/2/fstat64" target="_blank" rel="noopener">fstats里面对不同输出目标的说明</a>：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">printf(&quot;File type:                &quot;);</span><br><span class="line">   switch (sb.st_mode &amp; S_IFMT) &#123;</span><br><span class="line">    case S_IFBLK:  printf(&quot;block device\n&quot;);            break;</span><br><span class="line">    case S_IFCHR:  printf(&quot;character device\n&quot;);        break;</span><br><span class="line">    case S_IFDIR:  printf(&quot;directory\n&quot;);               break;</span><br><span class="line">    case S_IFIFO:  printf(&quot;FIFO/pipe\n&quot;);               break;</span><br><span class="line">    case S_IFLNK:  printf(&quot;symlink\n&quot;);                 break;</span><br><span class="line">    case S_IFREG:  printf(&quot;regular file\n&quot;);            break;</span><br><span class="line">    case S_IFSOCK: printf(&quot;socket\n&quot;);                  break;</span><br><span class="line">    default:       printf(&quot;unknown?\n&quot;);                break;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
@@ -1365,25 +1365,25 @@
 <p>5-28号现象复现，从监控图上CPU、内存、网络都没发现异常，MySQL侧查到的SQL依然执行很快，Tomcat侧记录12S执行时间，当时Tomcat节点的网络流量、CPU压力都很小。</p>
 <p>所以客户怀疑Tomcat有问题或者Tomcat上的代码写得有问题导致了这个问题，需要排查和解决掉。</p>
 <h2 id="Tomcat上抓包分析"><a href="#Tomcat上抓包分析" class="headerlink" title="Tomcat上抓包分析"></a>Tomcat上抓包分析</h2><h3 id="慢的连接"><a href="#慢的连接" class="headerlink" title="慢的连接"></a>慢的连接</h3><p>经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png" alt="image.png"></p>
+<p><img src="/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png" alt="image.png"></p>
 <p>以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。</p>
 <p>慢的SQL的response按时间排序基本都在3秒以上：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;"></p>
+<p><img src="/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;"></p>
 <p>或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询</p>
-<p>!<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;"></p>
+<p>!<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;"></p>
 <h3 id="快的连接"><a href="#快的连接" class="headerlink" title="快的连接"></a>快的连接</h3><p>同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d129dfe1a50b182f4d100ac7147f9099.png" alt="image.png"></p>
+<p><img src="/images/oss/d129dfe1a50b182f4d100ac7147f9099.png" alt="image.png"></p>
 <p>别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png" alt="image.png"></p>
+<p><img src="/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png" alt="image.png"></p>
 <h2 id="MySQL相关参数"><a href="#MySQL相关参数" class="headerlink" title="MySQL相关参数"></a>MySQL相关参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; show variables like &apos;%thread%&apos;;</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| Variable_name                              | Value           |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| innodb_purge_threads                       | 1               |</span><br><span class="line">| innodb_MySQL_thread_extra_concurrency        | 0               |</span><br><span class="line">| innodb_read_io_threads                     | 16              |</span><br><span class="line">| innodb_thread_concurrency                  | 0               |</span><br><span class="line">| innodb_thread_sleep_delay                  | 10000           |</span><br><span class="line">| innodb_write_io_threads                    | 16              |</span><br><span class="line">| max_delayed_threads                        | 20              |</span><br><span class="line">| max_insert_delayed_threads                 | 20              |</span><br><span class="line">| myisam_repair_threads                      | 1               |</span><br><span class="line">| performance_schema_max_thread_classes      | 50              |</span><br><span class="line">| performance_schema_max_thread_instances    | -1              |</span><br><span class="line">| pseudo_thread_id                           | 12882624        |</span><br><span class="line">| MySQL_is_dump_thread                         | OFF             |</span><br><span class="line">| MySQL_threads_running_ctl_mode               | SELECTS         |</span><br><span class="line">| MySQL_threads_running_high_watermark         | 50000           |</span><br><span class="line">| rocksdb_enable_thread_tracking             | OFF             |</span><br><span class="line">| rocksdb_enable_write_thread_adaptive_yield | OFF             |</span><br><span class="line">| rocksdb_signal_drop_index_thread           | OFF             |</span><br><span class="line">| thread_cache_size                          | 100             |</span><br><span class="line">| thread_concurrency                         | 10              |</span><br><span class="line">| thread_handling                            | pool-of-threads |</span><br><span class="line">| thread_pool_high_prio_mode                 | transactions    |</span><br><span class="line">| thread_pool_high_prio_tickets              | 4294967295      |</span><br><span class="line">| thread_pool_idle_timeout                   | 60              |</span><br><span class="line">| thread_pool_max_threads                    | 100000          |</span><br><span class="line">| thread_pool_oversubscribe                  | 10              |</span><br><span class="line">| thread_pool_size                           | 96              |</span><br><span class="line">| thread_pool_stall_limit                    | 30              |</span><br><span class="line">| thread_stack                               | 262144          |</span><br><span class="line">| threadpool_workaround_epoll_bug            | OFF             |</span><br><span class="line">| tokudb_cachetable_pool_threads             | 0               |</span><br><span class="line">| tokudb_checkpoint_pool_threads             | 0               |</span><br><span class="line">| tokudb_client_pool_threads                 | 0               |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">33 rows in set (0.00 sec)</span><br></pre></td></tr></table></figure>
 <h2 id="综上结论"><a href="#综上结论" class="headerlink" title="综上结论"></a>综上结论</h2><p>问题原因跟MySQL线程池比较相关，慢的连接总是慢，快的连接总是快。需要到MySQL Server下排查线程池相关参数。</p>
 <p>同一个慢的连接上的回包，所有 ack 就很快（OS直接回，不需要进到MySQL），但是set就很慢，基本理解只要进到MySQL的就慢了，所以排除了网络原因（流量本身也很小，也没看到乱序、丢包之类的）</p>
 <h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a>问题解决</h2><p>18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;"></p>
+<p><img src="/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;"></p>
 <p>当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）</p>
 <p>MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。</p>
 <p><em>这里表现出高 RT 而不是超时，原因是 MySQL 线程池有另一个参数 thread_pool_stall_limit 防止线程卡死．请求如果在分组内等待超过 thread_pool_stall_limit 时间没被处理，则会退回传统模式，创建新线程来处理请求．这个参数的默认值是 500ms。另外这个等待时间是不会被记录到MySQL的慢查询日志中的</em></p>
-<h2 id="Thread-Pool原理"><a href="#Thread-Pool原理" class="headerlink" title="Thread Pool原理"></a>Thread Pool原理</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png" alt="image.png"></p>
+<h2 id="Thread-Pool原理"><a href="#Thread-Pool原理" class="headerlink" title="Thread Pool原理"></a>Thread Pool原理</h2><p><img src="/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png" alt="image.png"></p>
 <p>MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。</p>
 <p>no-threads一般用于调试，生产环境一般用one-thread-per-connection方式。one-thread-per-connection 适合于低并发长连接的环境，而在高并发或大量短连接环境下，大量创建和销毁线程，以及线程上下文切换，会严重影响性能。另外 one-thread-per-connection 对于大量连接数扩展也会影响性能。</p>
 <p>为了解决上述问题，MariaDB、Percona、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。</p>
@@ -1394,19 +1394,19 @@
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
 <p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
 <h3 id="thread-pool-size过小的案例"><a href="#thread-pool-size过小的案例" class="headerlink" title="thread_pool_size过小的案例"></a>thread_pool_size过小的案例</h3><p>应用出现大量1秒超时报错：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
+<p><img src="/images/oss/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
 <p>分析代码，这个报错是是数据库连接池在创建到MySQL的连接后或者从连接池取一个连接给业务使用前会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。</p>
 <p>继续分析MySQL的参数：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
+<p><img src="/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
 <p>可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/114b5b71468b33128e76129bbc7fb8f4.png" alt="image.png"></p>
+<p><img src="/images/oss/114b5b71468b33128e76129bbc7fb8f4.png" alt="image.png"></p>
 <p>这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是给MySQL发一个ping指令，一般都很快，这个ping验证过程设置的是1秒超时，但是实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。</p>
 <h3 id="MySQL-ping和MySQL协议相关知识"><a href="#MySQL-ping和MySQL协议相关知识" class="headerlink" title="MySQL ping和MySQL协议相关知识"></a>MySQL ping和MySQL协议相关知识</h3><blockquote>
 <p><a href="https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368" target="_blank" rel="noopener">Ping</a> use the JDBC method <a href="http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int" target="_blank" rel="noopener">Connection.isValid(int timeoutInSecs)</a>). Digging into the MySQL Connector/J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.</p>
 </blockquote>
 <p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会testOnBorrow，所以每个连接使用前都会先做ping。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">public class MySQLPingPacket implements CommandPacket &#123;</span><br><span class="line">    private final WriteBuffer buffer = new WriteBuffer();</span><br><span class="line">    public MySQLPingPacket() &#123;</span><br><span class="line">        buffer.writeByte((byte) 0x0e);</span><br><span class="line">    &#125;</span><br><span class="line">    public int send(final OutputStream os) throws IOException &#123;</span><br><span class="line">        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number</span><br><span class="line">        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1</span><br><span class="line">        os.flush();</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
+<p><img src="/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
 <p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这个问题的本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。</p>
 <p>MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，当然这个设计带来的问题就是多个池子中的任务不能均衡了。</p>
@@ -2348,19 +2348,19 @@
 </blockquote>
 <p>零拷贝技术是指计算机执行操作时，<a href="https://zh.wikipedia.org/wiki/中央处理器" target="_blank" rel="noopener">CPU</a>不需要先将数据从某处<a href="https://zh.wikipedia.org/wiki/随机存取存储器" target="_blank" rel="noopener">内存</a>复制到另一个特定区域。这种技术通常用于通过网络传输文件时节省 CPU 和<a href="https://zh.wikipedia.org/wiki/内存带宽" target="_blank" rel="noopener">内存带宽</a>。</p>
 <p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 </p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
+<p><img src="/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
 <p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/NoOptimization.jpg" alt="NoOptimization"></p>
 <p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
 <p>零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
 <p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
 <p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
 <p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB/32KB）上下文切换。</p>
 <h2 id="read-write-和零拷贝优化"><a href="#read-write-和零拷贝优化" class="headerlink" title="read+write 和零拷贝优化"></a>read+write 和零拷贝优化</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(file, tmp_buf, len);</span><br><span class="line">write(socket, tmp_buf, len);</span><br></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20201104175056589.png" alt="image-20201104175056589"></p>
+<p><img src="/images/951413iMgBlog/image-20201104175056589.png" alt="image-20201104175056589"></p>
 <h3 id="通过mmap替换read优化一下"><a href="#通过mmap替换read优化一下" class="headerlink" title="通过mmap替换read优化一下"></a>通过mmap替换read优化一下</h3><p>用 <code>mmap()</code> 替换原先的 <code>read()</code>，<code>mmap()</code> 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
 <p>通过使用 <code>mmap()</code> 来代替 <code>read()</code>， 可以减少一次数据拷贝的过程。</p>
 <p>但这还不是最理想的零拷贝，因为首先仍然需要通过 CPU 把内核缓冲区的数据拷贝到 socket 缓冲区里，而且仍然需要 4 次上下文切换，因为系统调用还是 2 次；另外内存映射技术是一个开销很大的虚拟存储操作：这种操作需要修改页表以及用内核缓冲区里的文件数据汰换掉当前 TLB 里的缓存以维持虚拟内存映射的一致性。</p>
 <h3 id="sendfile"><a href="#sendfile" class="headerlink" title="sendfile"></a>sendfile</h3><p>在 Linux 内核版本 2.1 中，提供了一个专门发送文件的系统调用函数 <code>sendfile()</code>，函数形式如下：</p>
@@ -2368,7 +2368,7 @@
 <p>它的前两个参数分别是目的端和源端的文件描述符，后面两个参数是源端的偏移量和复制数据的长度，返回值是实际复制数据的长度。</p>
 <p>首先，它可以替代前面的 <code>read()</code> 和 <code>write()</code> 这两个系统调用，这样就可以减少一次系统调用，也就减少了 2 次上下文切换的开销。</p>
 <p>其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
 <p>当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。<code>sendfile()</code> 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。</p>
 <p>然而 <code>sendfile()</code> 本身是有很大问题的，从不同的角度来看的话主要是：</p>
 <ol>
@@ -2378,7 +2378,7 @@
 </ol>
 <h3 id="SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术"><a href="#SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术" class="headerlink" title="SG-DMA（The Scatter-Gather Direct Memory Access）技术"></a>SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术</h3><p>上一小节介绍的 <code>sendfile()</code> 技术已经把一次数据读写过程中的 CPU 拷贝的降低至只有 1 次了，但是人永远是贪心和不知足的，现在如果想要把这仅有的一次 CPU 拷贝也去除掉，有没有办法呢？</p>
 <p>当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter/gather – 分散/收集功能，并修改了 <code>sendfile()</code> 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
 <p>如果网卡支持 SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。</p>
 <p>这就是所谓的<strong>零拷贝（Zero-copy）技术，因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。</strong> 数据传输过程就再也没有 CPU 的参与了，也因此 CPU 的高速缓存再不会被污染了，也不再需要 CPU 来计算数据校验和了，CPU 可以去执行其他的业务计算任务，同时和 DMA 的 I/O 任务并行，此举能极大地提升系统性能。</p>
 <p>零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，<strong>只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。</strong></p>
@@ -2403,17 +2403,17 @@
 <p>非零拷贝代码：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">File.read(fileDesc, buf, len);</span><br><span class="line">Socket.send(socket, buf, len);</span><br></pre></td></tr></table></figure>
 <p>Traditional data copying approach：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure1.gif" alt="Traditional data copying approach"></p>
+<p><img src="/images/951413iMgBlog/figure1.gif" alt="Traditional data copying approach"></p>
 <p>Traditional context switches：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure2.gif" alt="Traditional context switches"></p>
+<p><img src="/images/951413iMgBlog/figure2.gif" alt="Traditional context switches"></p>
 <p>如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 <code>transferTo</code> 方法：</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Overridepublic</span> </span><br><span class="line"><span class="function"><span class="keyword">long</span> <span class="title">transferFrom</span><span class="params">(FileChannel fileChannel, <span class="keyword">long</span> position, <span class="keyword">long</span> count)</span> <span class="keyword">throws</span> IOException </span>&#123; </span><br><span class="line">    <span class="keyword">return</span> fileChannel.transferTo(position, count, socketChannel);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>Data copy with transferTo()</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure3.gif" alt="Data copy with transferTo()"></p>
+<p><img src="/images/951413iMgBlog/figure3.gif" alt="Data copy with transferTo()"></p>
 <p>Context switching with transferTo()：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure4.gif" alt="Context switching when using transferTo()"></p>
+<p><img src="/images/951413iMgBlog/figure4.gif" alt="Context switching when using transferTo()"></p>
 <p>Data copies when transferTo() and gather operations are used</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
+<p><img src="/images/951413iMgBlog/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
 <p>如果 Linux 系统支持 <code>sendfile()</code> 系统调用，那么 <code>transferTo()</code> 实际上最后就会使用到 <code>sendfile()</code> 系统调用函数。</p>
 <p>Nginx 也支持零拷贝技术，一般默认是开启零拷贝技术，这样有利于提高文件传输的效率，是否开启零拷贝技术的配置如下：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">...</span><br><span class="line">    sendfile on</span><br><span class="line">...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
@@ -3609,15 +3609,15 @@
 <blockquote>
 <p>cali-容器eth0-&gt;宿主机cali27dce37c0e8-&gt;tunl0-&gt;内核ipip模块封包-&gt;物理网卡（ipip封包后）—远程–&gt; 物理网卡-&gt;内核ipip模块解包-&gt;tunl0-&gt;cali-容器</p>
 </blockquote>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png" alt="image.png"></p>
+<p><img src="/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png" alt="image.png"></p>
 <p>Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。</p>
 <h2 id="calico-ipip网络不通"><a href="#calico-ipip网络不通" class="headerlink" title="calico ipip网络不通"></a>calico ipip网络不通</h2><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，部分节点之间不通。每台机器部署好calico网络后，会分配一个 /26 CIRD 子网（64个ip）。</p>
 <h3 id="案例1"><a href="#案例1" class="headerlink" title="案例1"></a>案例1</h3><p>目标机是10.122.127.128（宿主机ip 192.168.3.112），如果从10.122.17.64（宿主机ip 192.168.3.110） ping 10.122.127.128不通，查看10.122.127.128路由表：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</span><br><span class="line">10.122.17.64/26 via 10.122.127.128 dev tunl0  //这条路由不通</span><br><span class="line">[root@az3-k8s-13 ~]# ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</span><br><span class="line">RTNETLINK answers: File exists</span><br><span class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</span><br><span class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink //这样就通了</span><br></pre></td></tr></table></figure>
 <p>在10.122.127.128抓包如下，明显可以看到icmp request到了 tunl0网卡，tunl0网卡也回复了，但是回复包没有经过kernel ipip模块封装后发到eth1上：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d3111417ce646ca1475def5bea01e6b9.png" alt="image.png"></p>
+<p><img src="/images/oss/d3111417ce646ca1475def5bea01e6b9.png" alt="image.png"></p>
 <p>正常机器应该是这样，上图不正常的时候缺少红框中的reply：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9ea9041af1211b2a5b8de4e216044465.png" alt="image.png"></p>
+<p><img src="/images/oss/9ea9041af1211b2a5b8de4e216044465.png" alt="image.png"></p>
 <p>解决：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; </span><br><span class="line">ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</span><br></pre></td></tr></table></figure>
 <p>删除错误路由增加新的路由就可以了，新增路由的意思是从tunl0发给10.122.17.64/26的包下一跳是 192.168.3.110。</p>
@@ -3627,13 +3627,13 @@
 <h3 id="案例2"><a href="#案例2" class="headerlink" title="案例2"></a>案例2</h3><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，只有node2没有192.168.3.111这个ip，结果node2跟其他节点都不通：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">#calicoctl node status</span><br><span class="line">Calico process is running.</span><br><span class="line"></span><br><span class="line">IPv4 BGP status</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br><span class="line">| PEER ADDRESS  |     PEER TYPE     | STATE |   SINCE    |    INFO     |</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br><span class="line">| 192.168.0.111 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.112 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.113 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.114 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br></pre></td></tr></table></figure>
 <p>从node4 ping node2，然后在node2上抓包，可以看到 icmp request都发到了node2上，但是node2收到后没有发给tunl0：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16fda9322e9a59c37c11629acc611bf3.png" alt="image.png"></p>
+<p><img src="/images/oss/16fda9322e9a59c37c11629acc611bf3.png" alt="image.png"></p>
 <p>所以icmp没有回复，这里的问题在于<strong>kernel收到包后为什么不给tunl0</strong></p>
 <p>同样，在node2上ping node4，同时在node2上抓包，可以看到发给node4的request包和reply包：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png" alt="image.png"></p>
+<p><img src="/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png" alt="image.png"></p>
 <p>从request包可以看到src ip 是0.111， dest ip是 3.113，<strong>因为 node2 没有192.168.3.111这个ip</strong></p>
 <p>非常关键的我们看到node4的回复包 src ip 不是3.113，而是0.113（根据node4的路由就应该是0.113）</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5c7172e2422579eb99c66e881d47bf99.png" alt="image.png"></p>
+<p><img src="/images/oss/5c7172e2422579eb99c66e881d47bf99.png" alt="image.png"></p>
 <p>这就是问题所在，从node4过来的ipip包src ip都是0.113，实际这里ipip能认识的只是3.113. </p>
 <p>如果这个时候在3.113机器上把0.113网卡down掉，那么3.113上的：</p>
 <p>10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink 路由被自动删除，3.113将不再回复request。这是因为calico记录的node2的ip是192.168.0.111，所以会自动增加</p>
@@ -3792,7 +3792,7 @@
       
         
           
-            <h1 id="MySQL-JDBC-StreamResult-和-net-write-timeout"><a href="#MySQL-JDBC-StreamResult-和-net-write-timeout" class="headerlink" title="MySQL JDBC StreamResult 和 net_write_timeout"></a>MySQL JDBC StreamResult 和 net_write_timeout</h1><p>MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：</p>
+            <h1 id="MySQL-JDBC-StreamResult-和-net-write-timeout"><a href="#MySQL-JDBC-StreamResult-和-net-write-timeout" class="headerlink" title="MySQL JDBC StreamResult 和 net_write_timeout"></a>MySQL JDBC StreamResult 和 net_write_timeout</h1><h2 id="MySQL-JDBC-拉取数据的三种方式"><a href="#MySQL-JDBC-拉取数据的三种方式" class="headerlink" title="MySQL JDBC 拉取数据的三种方式"></a>MySQL JDBC 拉取数据的三种方式</h2><p>MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：</p>
 <ol>
 <li>简单模式，也就是默认模式，数据都先要从MySQL Server发到client的OS TCP buffer，然后JDBC把 OS buffer读取到JVM内存中，读取到JVM内存的过程中憋着不让client读取，全部读完再通知inputStream.read(). 数据大的话容易导致JVM OOM</li>
 <li><strong>useCursorFetch=true</strong>，配合FetchSize，也就是MySQL Server把查到的数据先缓存到本地磁盘，然后按照FetchSize挨个发给client。这需要占用MySQL很高的IOPS（先写磁盘缓存），其次每次Fetch需要一个RTT，效率不高。</li>
@@ -3840,22 +3840,24 @@
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>案例</strong>：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，知道MySQL  Server 触发 net_write_timeout，报异常</p>
+<p>首先可以尝试在 DRDS jdbcurl 配置 netTimeoutForStreamingResults 参数,设置为 0 可以使其一直等待,或设置一个合理的值(秒).</p>
+</blockquote>
 <p>从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery（）方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if (doStreaming &amp;&amp; this.connection.getNetTimeoutForStreamingResults() &gt; 0) &#123;  </span><br><span class="line">            java.sql.Statement stmt = null;  </span><br><span class="line">            try &#123;  </span><br><span class="line">                stmt = this.connection.createStatement();                    ((com.mysql.jdbc.StatementImpl)stmt).executeSimpleNonQuery(this.connection, &quot;SET net_write_timeout=&quot;   </span><br><span class="line">                        + this.connection.getNetTimeoutForStreamingResults());  </span><br><span class="line">            &#125; finally &#123;  </span><br><span class="line">                if (stmt != null) &#123;  </span><br><span class="line">                    stmt.close();  </span><br><span class="line">                &#125;  </span><br><span class="line">            &#125;  </span><br><span class="line">        &#125;</span><br></pre></td></tr></table></figure>
 <p>而 this.connection.getNetTimeoutForStreamingResults() 默认是600秒，或者在JDBC连接串种通过属性 netTimeoutForStreamingResults 来指定。</p>
 <p>一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png" alt></p>
+<p><img src="/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png" alt></p>
 <p>或者：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">ErrorMessage:</span><br><span class="line">Code:[DBUtilErrorCode-07], Description:[读取数据库数据失败. 请检查您的配置的 column/table/where/querySql或者向 DBA 寻求帮助.].  - 执行的SQL为:/*+TDDL(&#123;&apos;extra&apos;:&#123;&apos;MERGE_UNION&apos;:&apos;false&apos;&#125;,&apos;type&apos;:&apos;direct&apos;,&apos;vtab&apos;:&apos;C_CONS&apos;,&apos;dbid&apos;:&apos;EASDB_1514548807024CGYFEASDB_ROQH_0005_RDS&apos;,&apos;realtabs&apos;:[&apos;C_CONS&apos;]&#125;)*/select CONS_ID,CUST_ID,USERFLAG,CONS_NO,CONS_NAME,CUST_QUERY_NO,TMP_PAY_RELA_NO,ORGN_CONS_NO,CONS_SORT_CODE,ELEC_ADDR,TRADE_CODE,ELEC_TYPE_CODE,CONTRACT_CAP,RUN_CAP,SHIFT_NO,LODE_ATTR_CODE,VOLT_CODE,HEC_INDUSTRY_CODE,HOLIDAY,BUILD_DATE,PS_DATE,CANCEL_DATE,DUE_DATE,NOTIFY_MODE,SETTLE_MODE,STATUS_CODE,ORG_NO,RRIO_CODE,CHK_CYCLE,LAST_CHK_DATE,CHECKER_NO,POWEROFF_CODE,TRANSFER_CODE,MR_SECT_NO,NOTE_TYPE_CODE,TMP_FLAG,TMP_DATE,DATA_SRC,USER_EATTR,SHARD_NO,INSERT_TIME from C_CONS  具体错误信息为：Communications link failure</span><br><span class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</span><br><span class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago.</span><br><span class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</span><br><span class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)</span><br><span class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</span><br><span class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</span><br><span class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:377)</span><br><span class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:1036)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3427)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3327)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3814)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:870)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.nextRow(MysqlIO.java:1928)</span><br><span class="line">	at com.mysql.jdbc.RowDataDynamic.nextRecord(RowDataDynamic.java:378)</span><br><span class="line">	at com.mysql.jdbc.RowDataDynamic.next(RowDataDynamic.java:358)</span><br><span class="line">	at com.mysql.jdbc.ResultSetImpl.next(ResultSetImpl.java:6337)</span><br><span class="line">	at com.alibaba.datax.plugin.rdbms.reader.CommonRdbmsReader$Task.startRead(CommonRdbmsReader.java:275)</span><br><span class="line">	at com.alibaba.datax.plugin.reader.drdsreader.DrdsReader$Task.startRead(DrdsReader.java:148)</span><br><span class="line">	at com.alibaba.datax.core.taskgroup.runner.ReaderRunner.run(ReaderRunner.java:62)</span><br><span class="line">	at java.lang.Thread.run(Thread.java:834)</span><br><span class="line">Caused by: java.io.EOFException: Can not read response from server. Expected to read 258 bytes, read 54 bytes before connection was unexpectedly lost.</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:2914)</span><br><span class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3387)</span><br><span class="line">	... 11 more</span><br></pre></td></tr></table></figure>
 <h2 id="一些其他的-Timeout"><a href="#一些其他的-Timeout" class="headerlink" title="一些其他的 Timeout"></a>一些其他的 Timeout</h2><p>connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间，默认值0，表示不设置超时，单位毫秒，建议30000。 JDBC驱动连接属性</p>
 <p>socketTimeout：JDBC参数，表示客户端发送请求给MySQL数据库后block在read的等待数据的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。要特别注意socketTimeout仅仅是指等待socket数据时间，如果在传输数据那么这个值就没有用了。<a href="https://docs.oracle.com/javase/7/docs/api/java/net/SocketOptions.html#SO_TIMEOUT" target="_blank" rel="noopener">socketTimeout通过mysql-connector中的NativeProtocol最终设置在socketOptions上</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211024171459127.png" alt="image-20211024171459127"></p>
+<p><img src="/images/951413iMgBlog/image-20211024171459127.png" alt="image-20211024171459127"></p>
 <blockquote>
-<p>static final int SO_TIMEOUT</p>
-<p>Set a timeout on blocking Socket operations:</p>
+<p>static final int SO_TIMEOUT。 <strong>Set a timeout on blocking Socket operations</strong>:</p>
 <p> ServerSocket.accept();<br> SocketInputStream.read();<br> DatagramSocket.receive();</p>
 <p>The option must be set prior to entering a blocking operation to take effect. If the timeout expires and the operation would continue to block, <strong>java.io.InterruptedIOException</strong> is raised. The Socket is not closed in this case.</p>
-<p>Valid for all sockets: SocketImpl, DatagramSocketImpl</p>
 </blockquote>
 <p>Statement Timeout：用来限制statement的执行时长，timeout的值通过调用JDBC的java.sql.Statement.setQueryTimeout(int timeout) API进行设置。不过现在开发者已经很少直接在代码中设置，而多是通过框架来进行设置。</p>
 <p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_max_execution_time" target="_blank" rel="noopener"><code>max_execution_time</code></a>：The execution timeout for <a href="https://dev.mysql.com/doc/refman/5.7/en/select.html" target="_blank" rel="noopener"><code>SELECT</code></a> statements, in milliseconds. If the value is 0, timeouts are not enabled.  MySQL 属性，可以set修改，一般用来设置一个查询最长不超过多少秒，避免一个慢查询一直在跑，跟statement timeout对应。</p>

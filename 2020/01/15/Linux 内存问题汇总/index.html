@@ -103,12 +103,12 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="Linux 内存问题汇总本系列有如下几篇 Linux 内存问题汇总 Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 内存使用观察# free -m          total       used       free     shared    buffers     cached Mem:          7515">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png">
-<meta property="og:updated_time" content="2021-10-25T01:30:13.840Z">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/f8d944e2c7a8611384acb820c4471007.png">
+<meta property="og:updated_time" content="2021-10-26T13:10:32.082Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux 内存问题汇总">
 <meta name="twitter:description" content="Linux 内存问题汇总本系列有如下几篇 Linux 内存问题汇总 Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 内存使用观察# free -m          total       used       free     shared    buffers     cached Mem:          7515">
-<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/f8d944e2c7a8611384acb820c4471007.png">
 
 
 
@@ -407,11 +407,12 @@ Mem:          7515       1115       6400          0        189        492
 -/+ buffers/cache:        432       7082
 Swap:            0          0          0
 </code></pre><p>其中，<a href="https://spongecaptain.cool/SimpleClearFileIO/1.%20page%20cache.html" target="_blank" rel="noopener">cached 列表示当前的页缓存（Page Cache）占用量</a>，buffers 列表示当前的块缓存（buffer cache）占用量。用一句话来解释：<strong>Page Cache 用于缓存文件的页数据，buffer cache 用于缓存块设备（如磁盘）的块数据。</strong>页是逻辑上的概念，因此 Page Cache 是与文件系统同级的；块是物理上的概念，因此 buffer cache 是与块设备驱动程序同级的。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
+<p><img src="/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;"></p>
 <p><strong>上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。</strong></p>
 <h2 id="free"><a href="#free" class="headerlink" title="free"></a>free</h2><p>free是从 /proc/meminfo 读取数据然后展示：</p>
 <blockquote>
 <p>buff/cache = Buffers + Cached + SReclaimable</p>
+<p>Buffers + Cached + SwapCached = Active(file) + Inactive(file) + Shmem + SwapCached</p>
 </blockquote>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i &quot;buff|cach|SReclai&quot;</span><br><span class="line">Buffers:          817764 kB</span><br><span class="line">Cached:         76629252 kB</span><br><span class="line">SwapCached:            0 kB</span><br><span class="line">SReclaimable:    7202264 kB</span><br><span class="line">[root@az1-drds-79 ~]# free -k</span><br><span class="line">             total       used       free     shared    buffers     cached</span><br><span class="line">Mem:      97267672   95522336    1745336          0     817764   76629352</span><br><span class="line">-/+ buffers/cache:   18075220   79192452</span><br><span class="line">Swap:            0          0          0</span><br></pre></td></tr></table></figure>
 <p>在内核启动时，物理页面将加入到伙伴系统 （Buddy System）中，用户申请内存时分配，释放时回收。为了照顾慢速设备及兼顾多种 workload，Linux 将页面类型分为匿名页（Anon Page）和文件页 （Page Cache），及 swapness，使用 Page Cache 缓存文件 （慢速设备），通过 swap cache 和 swapness 交由用户根据负载特征决定内存不足时回收二者的比例。</p>

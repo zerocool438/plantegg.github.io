@@ -2101,11 +2101,11 @@ public BufferedOutputStream(OutputStream out) {
 <li>内核将数据从内核空间拷贝到用户空间</li>
 </ul>
 <h3 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h3><p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
+<p><img src="/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
 <p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
+<p><img src="/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
 <p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
+<p><img src="/images/oss/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
 <p>零拷贝就是操作系统提供的新函数(<strong>sendfile</strong>)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
 <p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
 <p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
@@ -2113,14 +2113,14 @@ public BufferedOutputStream(OutputStream out) {
 <h3 id="直接IO"><a href="#直接IO" class="headerlink" title="直接IO"></a>直接IO</h3><p>默认读写文件都会走 PageCache，但是如果是高并发的大文件读写，走PageCache的话效率不高，推荐用直接IO。比如MySQL INNODB自身实现了cache(buffer)来合并写和预读提升性能</p>
 <h3 id="同步阻塞IO"><a href="#同步阻塞IO" class="headerlink" title="同步阻塞IO"></a>同步阻塞IO</h3><p>用户线程发起read后让出CPU一直阻塞直到内核把网卡数据读到内核空间，然后再拷贝到用户空间，然后唤醒用户线程</p>
 <h3 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h3><p>用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
+<p><img src="/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
 <p><strong>阻塞和非阻塞指的是发起IO操作后是等待还是返回，同步和异步指的是应用程序与内核通信时数据从内核空间拷贝到用户空间的操作是内核主动触发（异步）还是应用程序触发（同步）</strong></p>
 <h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>一个进程虽然任一时刻只能处理一个请求，但是处理每个请求的事件时，耗时控制在 1 毫秒以内，这样 1 秒内就可以处理上千个请求，把时间拉长来看，多个请求复用了一个进程，这就是多路复用，这种思想很类似一个 CPU 并发多个进程，所以也叫做时分多路复用。</p>
 <p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
+<p><img src="/images/oss/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
+<p><img src="/images/oss/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
 <p>用户线程读取分成两步，用户线程先发起select调用（确认内核是否准备好数据），准备好后才调用read，将数据从内核空间读取到用户空间（read这里还是阻塞）。主要是一个select线程可以向内核查多个数据通道的状态</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png" alt="undefined"> </p>
+<p><img src="/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png" alt="undefined"> </p>
 <p><strong>IO多路复用和同步阻塞、非阻塞的区别主要是用户线程发起read的时机不一样，IO多路复用是等数据在内核空间准备好了再通过同步read去读取；而阻塞和非阻塞因为没法预先知道数据是否在内核空间准备好，所以早早触发了read然后等待，只是阻塞会一直等，而非阻塞是指触发read后不用等，反复read直到read到数据。</strong></p>
 <p>Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中的Selector，可以理解成通过Selector跳过了前面的阻塞和非阻塞，实际用户线程在数据Ready前没有触发read操作，数据到了才出发read操作。</p>
 <p>阻塞IO和NIO的主要区别是：NIO面对的是Buffer，可以做到读取完毕后再一次性处理；而阻塞IO面对的是流，只能边读取边处理</p>
@@ -2228,7 +2228,7 @@ public BufferedOutputStream(OutputStream out) {
 <p>新连接进来后NIOAcceptor.select 阻塞解除，执行accept逻辑，accept返回一个channel（对socket封装），设置channel TCP options，将这个channel和一个 NIOProcessor绑定（一个NIOProcessor可以绑定多个channel，反之一个channel只能绑定到一个NIOProcessor），同时将这个channel插入(offer)到NIOProcessor里面的NIOReactor的队列中,并唤醒NIOReactor的selector，将新连接注册到 NIOReactor的selector中(进行连接的mysql协议认证)。然后阻塞在这个selector等待事件中，等待读写事件的到来</p>
 <p>也就是只有Acceptor阶段会有惊群（但是上面的代码只有一个Acceptor，所以也没有惊群了），收发数据阶段因为Socket已经绑定到了一个固定的Thread，所以不会有惊群了，但是可能会存在某个Thread有慢处理导致新进来的请求长时间得不到响应。</p>
 <p>或者这种代码, 同时处理accept、read、write：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
+<p><img src="/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
 <p>Select 触发 read/write 堆栈： </p>
 <pre><code>&quot;Processor2-R&quot; #26 prio=5 os_prio=0 tid=0x00007fb76cc9a000 nid=0x4611 runnable [0x00007fb6dbdfc000]
    java.lang.Thread.State: RUNNABLE
@@ -2287,7 +2287,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>同步：端菜上桌过程必须是阻塞，异步相当于厨师将菜送到桌子上后通知你吃</li>
 </ul>
 <h3 id="Tomcat中的NIO-多路复用的实现"><a href="#Tomcat中的NIO-多路复用的实现" class="headerlink" title="Tomcat中的NIO+多路复用的实现"></a>Tomcat中的NIO+多路复用的实现</h3><p> NIOEndpoint组件实现了NIO和IO多路复用，IO多路复用指的是Poller通过Selector处理多个Socket（SocketChannel）</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
+<p><img src="/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
 <ul>
 <li>LimitLatch 是连接控制器，负责控制最大连接数，NIO模式下默认是10000，达到阈值后新连接被拒绝</li>
 <li>Acceptor 跑在一个单独的线程里，一旦有新连接进来accept方法返回一个SocketChannel对象，接着把SocketChannel对象封装在一个PollerEvent对象中，并将PollerEvent对象压入Poller的Queue里交给Poller处理。 Acceptor和Poller之间是典型的生产者-消费者模式</li>
@@ -2315,9 +2315,9 @@ serverSock.configureBlocking(true);
 <p>Select和epoll本质是为了IO多路复用（多个连接共用一个线程–监听是否连接有数据到达）。有报文进来的时候触发Select，Select轮询所有连接确认是哪个连接有报文进来了。连接过多放大了这种无用轮询。<br>epoll通过一颗红黑树维护所有连接，同时将有数据进来的连接通过回调更新到一个队列中，那么epoll每次检查的时候只需要检查队列而不是整个红黑树，效率大大提高了。</p>
 <p>事件驱动适合于I/O密集型服务，多进程或线程适合于CPU密集型服务<br>多路复用有很多种实现，在linux上，2.4内核前主要是select和poll，现在主流是epoll<br>select解决了一个线程监听多个socket的问题，但是因为依靠fd_set结构体记录所监控的socket，带来了能监听的socket数量有限（不超过1024）<br>poll在select的基础上解决了1024个的问题，但是还是要依次轮询这1024个socket，效率太低<br>epoll 异步非阻塞多路复用</p>
 <p>闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
+<p><img src="/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
 <h3 id="MySQL-Thread-Pool-带来的问题"><a href="#MySQL-Thread-Pool-带来的问题" class="headerlink" title="MySQL Thread Pool 带来的问题"></a>MySQL Thread Pool 带来的问题</h3><p>MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲–类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
+<p><img src="/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
 <p>连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。</p>
 <p><strong>MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
@@ -2327,18 +2327,18 @@ serverSock.configureBlocking(true);
 <p>每个线程消耗内存过多， 比如，64 位的 Linux 为每个线程的栈分配了 8MB 的内存，还预分配了 64MB 的内存作为堆内存池；切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
 <p>协程把内核态的切换工作交由用户态来完成</p>
 <h3 id="同步、异步、协程的比较"><a href="#同步、异步、协程的比较" class="headerlink" title="同步、异步、协程的比较"></a>同步、异步、协程的比较</h3><h4 id="同步调用"><a href="#同步调用" class="headerlink" title="同步调用"></a>同步调用</h4><p>切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
+<p><img src="/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
 <h4 id="改成异步化后："><a href="#改成异步化后：" class="headerlink" title="改成异步化后："></a>改成异步化后：</h4><p>把上图中本来由内核实现的请求切换工作，交由用户态的代码来完成就可以了，异步化编程通过应用层代码实现了请求切换，降低了切换成本和内存占用空间。异步化依赖于 IO 多路复用机制，比如 Linux 的 epoll 或者 Windows 上的 iocp，同时，必须把阻塞方法更改为非阻塞方法，才能避免内核切换带来的巨大消耗。Nginx、Redis 等高性能服务都依赖异步化实现了百万量级的并发。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/167657b454322840ae3a4204781f1bf5.png" alt="image.png"></p>
+<p><img src="/images/oss/167657b454322840ae3a4204781f1bf5.png" alt="image.png"></p>
 <p>然而，写异步化代码很容易出错。因为所有阻塞函数，都需要通过非阻塞的系统调用拆分成两个函数。虽然这两个函数共同完成一个功能，但调用方式却不同。第一个函数由你显式调用，第二个函数则由多路复用机制调用。这种方式违反了软件工程的内聚性原则，函数间同步数据也更复杂。特别是条件分支众多、涉及大量系统调用时，异步化的改造工作会非常困难。</p>
 <h4 id="用协程来实现"><a href="#用协程来实现" class="headerlink" title="用协程来实现"></a>用协程来实现</h4><p>协程与异步编程相似的地方在于，它们必须使用非阻塞的系统调用与内核交互，把切换请求的权力牢牢掌握在用户态的代码中。但不同的地方在于，协程把异步化中的两段函数，封装为一个阻塞的协程函数。这个函数执行时，会使调用它的协程无感知地放弃执行权，由协程框架切换到其他就绪的协程继续执行。当这个函数的结果满足后，协程框架再选择合适的时机，切换回它所在的协程继续执行。</p>
 <p><img src="https://static001.geekbang.org/resource/image/e4/57/e47ec54ff370cbda4528e285e3378857.jpg" alt="img"></p>
 <p>实际上，用户态的代码切换协程，与内核切换线程的原理是一样的。内核通过管理 CPU 的寄存器来切换线程，我们以最重要的栈寄存器和指令寄存器为例，看看协程切换时如何切换程序指令与内存。</p>
 <p>每个线程有独立的栈，而栈既保留了变量的值，也保留了函数的调用关系、参数和返回值，CPU 中的栈寄存器 SP 指向了当前线程的栈，而指令寄存器 IP 保存着下一条要执行的指令地址。因此，从线程 1 切换到线程 2 时，首先要把 SP、IP 寄存器的值为线程 1 保存下来，再从内存中找出线程 2 上一次切换前保存好的寄存器值，写入 CPU 的寄存器，这样就完成了线程切换。（其他寄存器也需要管理、替换，原理与此相同，不再赘述。）</p>
 <h3 id="协程的切换"><a href="#协程的切换" class="headerlink" title="协程的切换"></a>协程的切换</h3><p>协程的切换与此相同，只是把内核的工作转移到协程框架实现而已，下图是协程切换前的状态：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9a90497373211d65186a2a256212e3bf.png" alt="image.png"></p>
+<p><img src="/images/oss/9a90497373211d65186a2a256212e3bf.png" alt="image.png"></p>
 <p>从协程 1 切换到协程 2 后的状态如下图所示：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d997ee52fd79d752d1af9636ac6c858.png" alt="image.png"></p>
+<p><img src="/images/oss/0d997ee52fd79d752d1af9636ac6c858.png" alt="image.png"></p>
 <p>协程就是用户态的线程。然而，为了保证所有切换都在用户态进行，协程必须重新封装所有的阻塞系统调用，否则，一旦协程触发了线程切换，会导致这个线程进入休眠状态，进而其上的所有协程都得不到执行。比如，普通的 sleep 函数会让当前线程休眠，由内核来唤醒线程，而协程化改造后，sleep 只会让当前协程休眠，由协程框架在指定时间后唤醒协程。再比如，线程间的互斥锁是使用信号量实现的，而信号量也会导致线程休眠，协程化改造互斥锁后，同样由框架来协调、同步各协程的执行。</p>
 <p>非阻塞+epoll+同步编程 = 协程</p>
 <p>协程主要是将IO Wait等场景自动识别然后以非常小的代价切换到其它任务处理，一旦Wait完毕再切换回来。</p>
@@ -2350,7 +2350,7 @@ serverSock.configureBlocking(true);
 <p>操作系统调用不知道内部具体实现，代价包含：上下文切换（几百个指令？）、PageCache<br>语言自己调度（协程）一般是执行完，基于栈的切换只需要保存栈指针；一定是在同一个线程/进程内切换，各种Cache还有效。</p>
 <h2 id="多线程下的真正开销代价"><a href="#多线程下的真正开销代价" class="headerlink" title="多线程下的真正开销代价"></a>多线程下的真正开销代价</h2><p>系统调用开销其实不大，上下文切换同样也是<a href="https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S?spm=ata.13261165.0.0.675273b65vwzFO#L282" target="_blank" rel="noopener">数十条cpu指令可以完成</a></p>
 <p>多线程调度下的热点火焰图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
+<p><img src="/images/oss/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
 <p><strong>多线程下真正的开销来源于线程阻塞唤醒调度</strong>，系统调用和上下文切换伴随着多线程，所以导致大家一直认为系统调用和上下文切换过多导致了多线程慢。</p>
 <h3 id="以ajdk的Wisp2协程为例"><a href="#以ajdk的Wisp2协程为例" class="headerlink" title="以ajdk的Wisp2协程为例"></a>以ajdk的Wisp2协程为例</h3><p>对于很快的锁，Wisp2可以很好地解决，因为任务切换不频繁，最多也就CPU核数量的任务在切换，拿到锁的协程会很快执行完然后释放锁，所以其他协程再执行的时候容易拿到锁。</p>
 <p>但是对于像logback日志同步输出doAppend()的锁（比较慢，并发度高）Wisp2就基本无能为力了。</p>
@@ -4318,8 +4318,8 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 &quot;vmstat 10&quot; 2&gt;&amp;1 &gt;/dev/null &amp;</span><br></pre></td></tr></table></figure>
 <p>上面的 1.1.1.1 是你在境外的一台服务器，已经做好了免密登陆（免密见后面，要不你每次还得输一下密码），这句话的意思就是在本地启动一个38080的端口，上面收到的任何东西都会转发给 1.1.1.1:22（做了ssh加密），1.1.1.1:22 会解密收到的东西，然后把他们转发给google之类的网站（比如你要访问的是google），结果依然通过原路返回</p>
 <p>127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
-<p>原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png" alt="undefined"> </p>
+<p><img src="/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png" alt="image.png"></p>
+<p>原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：<br><img src="/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png" alt="undefined"> </p>
 <h3 id="科学上网之http特殊代理–利用ssh-本地转发是HTTP协议"><a href="#科学上网之http特殊代理–利用ssh-本地转发是HTTP协议" class="headerlink" title="科学上网之http特殊代理–利用ssh 本地转发是HTTP协议"></a>科学上网之http特殊代理–利用ssh 本地转发是HTTP协议</h3><p>前面所说的代理是socks5代理，一般浏览器都有插件支持，但是比如你的docker（或者其他程序）需要通过http去拉取镜像就会出现如下错误：</p>
 <pre><code>Sending build context to Docker daemon 8.704 kB
 Step 1 : FROM k8s.gcr.io/kube-cross:v1.10.1-1
@@ -4353,7 +4353,7 @@ UserKnownHostsFile /dev/null
 <p>加了如上参数后的登录过程就有这样的东东(默认没有，这是debug信息)：   </p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">debug1: setting up multiplex master socket</span><br><span class="line">debug3: muxserver_listen: temporary control path   /home/ren/tmp/ssh_mux_10.16.*.*_22_corp.86g3C34vy36tvCtn</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug3: fd 3 is O_NONBLOCK</span><br><span class="line">debug1: channel 0: new [/home/ren/tmp/ssh_mux_10.16.*.*_22_corp]</span><br><span class="line">debug3: muxserver_listen: mux listener channel 0 fd 3</span><br><span class="line">debug1: control_persist_detach: backgrounding master process</span><br><span class="line">debug2: control_persist_detach: background process is 15154</span><br><span class="line">debug2: fd 3 setting O_NONBLOCK</span><br><span class="line">debug1: forking to background</span><br><span class="line">debug1: Entering interactive session.</span><br><span class="line">debug2: set_control_persist_exit_time: schedule exit in 259200 seconds</span><br><span class="line">debug1: multiplexing control connection</span><br></pre></td></tr></table></figure>
 <p> /home/ren/tmp/ssh_mux_10.16.<em>.</em>_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时</p>
-<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
+<p>看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息<br><img src="/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif" alt="ssh-demo.gif"></p>
 <h2 id="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"><a href="#我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？" class="headerlink" title="我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？"></a>我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？</h2><p>比如有一批客户机房的机器IP都是192.168.<em>.</em>, 然后需要走跳板机100.10.1.2才能访问到，那么我希望以后<strong>在笔记本上直接 ssh 192.168.1.5 就能直接连上</strong></p>
 <pre><code>$ cat /etc/ssh/ssh_config
 
@@ -4385,7 +4385,7 @@ debug1: Control socket &quot;/home/ren/tmp/ssh_mux_10.16.1.*_22_corp&quot; does 
 debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.16.1.* 22
 </code></pre><p>本来我的笔记本跟 10.16.1.<em> 是不通的(ping 不通），但是ssh可以直接连上，实际ssh登录过程中自动走跳板机139.</em>.<em>.</em> 就连上了</p>
 <p>-vvv 参数是debug，把ssh登录过程的日志全部打印出来。 </p>
-<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
+<h2 id="ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器"><a href="#ssh-免打通、免登陆跳板机、免密码直接访问日常环境机器" class="headerlink" title="ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器"></a>ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器</h2><p>先来看效果图：<br><img src="/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif" alt="ssh_docker.gif"></p>
 <h3 id="实现过程："><a href="#实现过程：" class="headerlink" title="实现过程："></a>实现过程：</h3><ol>
 <li>先ssh到线上跳板机：login1.cm10.<em>**</em></li>
 <li>复制 ~/.ssh/id_dsa.pub 和 ~/.ssh/id_dsa到你的笔记本的~/.ssh/ 下</li>
@@ -4396,7 +4396,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </ol>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Host 11.239.*.*</span><br><span class="line">ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p</span><br></pre></td></tr></table></figure>
 <p><strong>第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号</strong><br>这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
+<p><img src="/images/oss/b4e460a501c21eac1e4104b9324910d3.png" alt="image.png"></p>
 <h2 id="将隔离环境中的web端口映射到本地（本地代理）"><a href="#将隔离环境中的web端口映射到本地（本地代理）" class="headerlink" title="将隔离环境中的web端口映射到本地（本地代理）"></a>将隔离环境中的web端口映射到本地（本地代理）</h2><p>远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.149.1.132:8083， ssh账号是：aliyun</p>
@@ -4406,7 +4406,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <pre><code>ssh -CNfL 0.0.0.0:8089:10.149.1.132:8083 root@100.67.210.73 -p 54900
 </code></pre><p>这表示在本地启动一个8088的端口，将这个8088端口映射到10.149.1.132的8083端口上，用的ssh账号是aliyun</p>
 <p>然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png" alt="image.png"></p>
+<p><img src="/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png" alt="image.png"></p>
 <p>反过来，<strong>也可以让隔离环境机器通过代理上网，比如安装yum</strong></p>
 <h2 id="为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录"><a href="#为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录" class="headerlink" title="为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录"></a>为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录</h2><p>先了解如下知识点，在 ~/.ssh/config 配置文件中：</p>
 <pre><code>GSSAPIAuthentication=no
@@ -4416,10 +4416,10 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h2 id="批量打通所有机器之间的ssh登录免密码"><a href="#批量打通所有机器之间的ssh登录免密码" class="headerlink" title="批量打通所有机器之间的ssh登录免密码"></a>批量打通所有机器之间的ssh登录免密码</h2><p><strong>Expect在集团是禁止的，我只用于打通我自己通过docker创建的容器</strong></p>
 <p>ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/authorized_keys 里面。可以手工复制粘贴，也可以 ssh-copy-id 等</p>
 <p>如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/S9jLW7B.png" alt></p>
+<p><img src="/images/951413iMgBlog/S9jLW7B.png" alt></p>
 <p>这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。</p>
 <p>再在外面写一个循环对每个IP执行如下操作：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4SZcnvc.png" alt></p>
+<p><img src="/images/951413iMgBlog/4SZcnvc.png" alt></p>
 <p>if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。</p>
 <p>for循环部分一次把生成的密钥对和authorized_keys复制到所有机器上，这样所有机器之间都不需要输入密码就能互相登陆了（当然本机也不需要输入密码登录所有机器）</p>
 <p>最后一行代码： </p>
@@ -4468,7 +4468,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </ul>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash">!/bin/sh</span></span><br><span class="line">export TERM=xterm-256color</span><br><span class="line"></span><br><span class="line">read one five fifteen rest &lt; /proc/loadavg</span><br><span class="line">echo "$(tput setaf 2)</span><br><span class="line">Kernel: `uname -v | awk -v OFS=' ' '&#123;print $4, $5&#125;'`</span><br><span class="line">                                                                                                                                   </span><br><span class="line">        \\   ^__^</span><br><span class="line">         \\  (oo)\\_______</span><br><span class="line">            (__)\\       )\\\/\\</span><br><span class="line">                ||----w |</span><br><span class="line">                ||     ||</span><br><span class="line"></span><br><span class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</span><br><span class="line"></span><br><span class="line">有任何需要请联系 ** 多谢!</span><br><span class="line"></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput setaf 4)Load Averages......: <span class="variable">$&#123;one&#125;</span>, <span class="variable">$&#123;five&#125;</span>, <span class="variable">$&#123;fifteen&#125;</span> (1, 5, 15 min)</span></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput setaf 5)</span></span><br><span class="line"> ______________</span><br><span class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</span><br><span class="line"></span><br><span class="line">有任何需要请联系 ** 多谢!</span><br><span class="line"> --------------</span><br><span class="line">        \\   ^__^</span><br><span class="line">         \\  (oo)\\_______</span><br><span class="line">            (__)\\       )\\\/\\</span><br><span class="line">                ||----w |</span><br><span class="line">                ||     ||</span><br><span class="line"></span><br><span class="line"><span class="meta">$</span><span class="bash">(tput sgr0)<span class="string">"</span></span></span><br></pre></td></tr></table></figure>
 <p>以上脚本运行结果</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210902224011450.png" alt="image-20210902224011450"></p>
+<p><img src="/images/951413iMgBlog/image-20210902224011450.png" alt="image-20210902224011450"></p>
 <h3 id="验证秘钥对"><a href="#验证秘钥对" class="headerlink" title="验证秘钥对"></a>验证秘钥对</h3><p><strong>-y</strong> Read a private OpenSSH format file and print an OpenSSH public key to stdout.</p>
 <blockquote>
 <p>cd ~/.ssh/ ; ssh-keygen -y -f id_rsa | cut -d’ ‘ -f 2  ;  cut -d’ ‘ -f 2 id_rsa.pub</p>
@@ -4502,7 +4502,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>需要访问的目标、端口还不确定，所以叫动态转发。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -D 4444 ssh-server -N</span><br></pre></td></tr></table></figure>
 <p>注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。<code>-N</code>参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210913143129749.png" alt="image-20210913143129749"></p>
+<p><img src="/images/951413iMgBlog/image-20210913143129749.png" alt="image-20210913143129749"></p>
 <p>下面是 ssh 隧道建立后的一个<strong>使用实例</strong>。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">curl -x socks5://localhost:4444 http://www.example.com</span><br><span class="line">or</span><br><span class="line">curl --socks5-hostname localhost:4444 https://www.twitter.com</span><br></pre></td></tr></table></figure>
 <p>上面命令中，curl 的<code>-x</code>参数指定代理服务器，即通过 SOCKS5 协议的本地<code>3000</code>端口，访问<code>http://www.example.com</code>。</p>
@@ -4524,7 +4524,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（ssh-server），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -L local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host</span><br></pre></td></tr></table></figure>
 <p>上面命令中，<code>-L</code>参数表示本地转发，<code>local-port</code>是本地端口，<code>target-host</code>是你想要访问的目标服务器，<code>target-port</code>是目标服务器的端口，<code>ssh-server</code>是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG" alt="img"></p>
+<p><img src="/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG" alt="img"></p>
 <p>上图对应的命令是：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ssh -L 53682:remote-server:53682 ssh-server</span><br></pre></td></tr></table></figure>
 <p>然后，访问本机的8080端口，就是访问<code>remote-server</code>的80端口.</p>
@@ -4537,7 +4537,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>由于本机无法访问内网 SSH 跳板机，就无法从外网发起 SSH 隧道，建立端口转发。必须反过来，从 SSH 跳板机发起隧道，建立端口转发，这时就形成了远程端口转发。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ssh -R 30.1.2.3:30081:166.100.64.1:3128 root@30.1.2.3 -p 2728</span><br></pre></td></tr></table></figure>
 <p>上面的命令，首先需要注意，<strong>不是在30.1.2.3 或者166.100.64.1 上执行的，而是找一台能联通 30.1.2.3 和166.100.64.1的机器来执行</strong>，在执行前Remote clients能连上 30.1.2.3 但是 30.1.2.3 和 166.100.64.1 不通，所以需要一个中介将 30.1.2.3 和166.100.64.1打通，这个中介就是下图中的MobaXterm所在的机器，命令在MobaXterm机器上执行</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210913163036410.png" alt="image-20210913163036410"></p>
+<p><img src="/images/951413iMgBlog/image-20210913163036410.png" alt="image-20210913163036410"></p>
 <p>执行上面的命令以后，跳板机30.1.2.3 到166.100.64.1的隧道已经建立了，这个隧道是依赖两边都能连通的MobaXterm机器。然后，就可以从Remote Client访问目标服务器了，即在Remote Client上执行下面的命令。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ curl http://30.1.2.3:30081</span><br></pre></td></tr></table></figure>
 <p>执行上面的命令以后，命令就会输出服务器 166.100.64.1 的3128端口返回的内容。</p>
@@ -4577,6 +4577,19 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </blockquote>
 <p>-Y表示是否使用代理，on表示使用代理。</p>
 <p>-e执行后面跟的命令，相当于在.wgetrc配置文件中添加了一条命令，将http_proxy设置为需要使用的代理服务器。</p>
+<h2 id="PKI-Public-Key-Infrastructure-证书"><a href="#PKI-Public-Key-Infrastructure-证书" class="headerlink" title="PKI (Public Key Infrastructure)证书"></a>PKI (Public Key Infrastructure)证书</h2><p>X.509 只是一种常用的证书格式，一般以PEM编码，PEM 编码的证书通常以 <strong><code>.pem</code>、<code>.crt</code> 或 <code>.cer</code></strong> 为后缀。再次提醒，这只是“通常”情况，实际上某些工具可能并不遵循这些惯例。通过pem证书可以访问需要认证的https服务(比如etcd、apiserver等)</p>
+<ul>
+<li><strong>ASN.1 用于定义数据类型</strong>，例如证书（certificate）和秘钥（key）——就像用 JSON 定义一个 request body —— X.509 用 ASN.1 定义。</li>
+<li>DER 是一组将 ASN.1 编码成二进制（比特和字节）的编码规则（encoding rules）。</li>
+<li>PKCS#7 and PKCS#12 是比 X.509 更大的数据结构（封装格式），也用 ASN.1 定义，其中能包含除了证书之外的其他东西。二者分别在 Java 和 Microsoft 产品中使用较多。</li>
+<li>DER 编码之后是二进制数据，不方便复制粘贴，因此大部分证书都是用 PEM 编码的，它用 base64 对 DER 进行编码，然后再加上自己的 label。</li>
+<li>私钥通常用是 PEM 编码的 PKCS#8 对象，但有时也会用密码来加密。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/step-certificate-inspect.png" alt="image"></p>
+<h3 id="公钥、私钥常见扩展名"><a href="#公钥、私钥常见扩展名" class="headerlink" title="公钥、私钥常见扩展名"></a>公钥、私钥常见扩展名</h3><ul>
+<li>公钥：<code>.pub</code> or <code>.pem</code>，</li>
+<li>私钥：<code>.prv,</code> <code>.key</code>, or <code>.pem</code>。</li>
+</ul>
 <h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="http://docs.corp-inc.com/pages/editpage.action?pageId=203555361" target="_blank" rel="noopener">http://docs.corp-inc.com/pages/editpage.action?pageId=203555361</a><br><a href="https://wiki.archlinux.org/index.php/SSH_keys_(%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87)" target="_blank" rel="noopener">https://wiki.archlinux.org/index.php/SSH_keys_(%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87)</a></p>
 <p><a href="https://wangdoc.com/ssh/key.html" target="_blank" rel="noopener">https://wangdoc.com/ssh/key.html</a></p>
 <p><a href="https://robotmoon.com/ssh-tunnels/" target="_blank" rel="noopener">https://robotmoon.com/ssh-tunnels/</a></p>
@@ -4585,6 +4598,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="noopener">SSH Performance</a></p>
 <p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="noopener">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
 <p><a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="noopener">一行代码解决scp在Internet传输慢的问题</a></p>
+<p><a href="https://www.cnxct.com/everything-about-pki-zh/" target="_blank" rel="noopener">关于证书（certificate）和公钥基础设施（PKI）的一切</a></p>
 
           
         
