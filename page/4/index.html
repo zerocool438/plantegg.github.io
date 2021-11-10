@@ -1188,18 +1188,8 @@ probe syscall.write.return {
           printf(&quot;write delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
     }
 }
-</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​     </p>
-<pre><code># 任务持续时间
-probe timer.s(20) {
-    if (!found) {
-        warn(&quot;No backtraces found. Quitting now...\n&quot;)
-        exit()
-    } else {
-        warn(&quot;Time&apos;s up. Quitting now...(it may take a while)\n&quot;)
-        quit = 1
-    }
-}
-</code></pre><p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
+</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​<br>​    # 任务持续时间<br>​    probe timer.s(20) {<br>​        if (!found) {<br>​            warn(“No backtraces found. Quitting now…\n”)<br>​            exit()<br>​        } else {<br>​            warn(“Time’s up. Quitting now…(it may take a while)\n”)<br>​            quit = 1<br>​        }<br>​    }</p>
+<p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
 <pre><code>%{
 #undef STP_OVERLOAD
 #include &lt;linux/delay.h&gt;
@@ -1209,9 +1199,16 @@ function mdelay(ms:long) %{
   mdelay(THIS-&gt;ms);
 %}
 </code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="noopener">使用Systemtap生成Flame Graph(火焰图) </a></p>
-<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
+<h2 id="案例3-追踪丢包"><a href="#案例3-追踪丢包" class="headerlink" title="案例3 追踪丢包"></a>案例3 追踪丢包</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">probe kernel.trace(&quot;kfree_skb&quot;)</span><br><span class="line">&#123;</span><br><span class="line"></span><br><span class="line">         printf(&quot;sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n&quot;,$skb-&gt;sk,$skb,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;rst,ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;seq),ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack_seq), symname($location));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png" alt="img"></p>
+<p>以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">probe kernel.statement(&quot;tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*&quot;)</span><br><span class="line">&#123;</span><br><span class="line">                  printf(&quot;source:%d,dest:%d,skb:%x,sk:%x,syn:%x,ack:%x,%x-%x,%s\n&quot;,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),$skb,$skb-&gt;sk,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest,pp())</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png" alt="img"></p>
+<p>以上输出对应的代码如下：</p>
+<p><img src="/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png" alt="img"></p>
+<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="/images/oss/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
+<p><img src="/images/oss/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
+<p><img src="/images/oss/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
 <h2 id="网络包大小分布"><a href="#网络包大小分布" class="headerlink" title="网络包大小分布"></a>网络包大小分布</h2><pre><code>bpftrace -e &apos;tracepoint:net:net_dev_queue{
 @txsize=hist(args-&gt;len);
 @txstat=stats(args-&gt;len);
@@ -1222,8 +1219,8 @@ tracepoint:net:netif_receive_skb
     @rxsize=hist(args-&gt;len);
     @rxstat=stats(args-&gt;len);
 }&apos;
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
-<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
+</code></pre><p><img src="/images/oss/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
+<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
 <h2 id="网络连接创建rt？"><a href="#网络连接创建rt？" class="headerlink" title="网络连接创建rt？"></a>网络连接创建rt？</h2><pre><code># ./tools/bcc/tcpconnlat
 PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
 1935   java         4  10.81.177.14     100.100.110.2    80    0.21
@@ -1272,9 +1269,8 @@ Tracing SYN backlog size. Ctrl-C to end.
 <pre><code>cat tcpaccept_example.txt 
 Demonstrations of tcpaccept, the Linux bpftrace/eBPF version.
 </code></pre><p>​<br>​    This tool traces the kernel function accepting TCP socket connections (eg, a<br>​    passive connection via accept(); not connect()). Some example output (IP<br>​    addresses changed to protect the innocent):<br>​<br>​    # ./tcpaccept<br>​    Tracing tcp accepts. Hit Ctrl-C to end.<br>​    TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL<br>​    00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128<br>​    00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128<br>​    00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128</p>
-<p>​<br>​    This output shows three connections, an IPv4 connections to PID 1463622, a “redis-server”<br>​    process listening on port 6379, and one IPv6 connection to a “thread.rb” process<br>​    listening on port 8000. The remote address and port are also printed, and the accept queue<br>​    current size as well as maximum size are shown.<br>​<br>​    The overhead of this tool should be negligible, since it is only tracing the<br>​    kernel function performing accept. It is not tracing every packet and then<br>​    filtering.<br>​<br>    This tool only traces successful TCP accept()s. Connection attempts to closed<br>    ports will not be shown (those can be traced via other functions).</p>
-<pre><code>There is another version of this tool in bcc: https://github.com/iovisor/bcc
-</code></pre><p>最后一列就是backlog最大大小和已经多少</p>
+<p>​<br>​    This output shows three connections, an IPv4 connections to PID 1463622, a “redis-server”<br>​    process listening on port 6379, and one IPv6 connection to a “thread.rb” process<br>​    listening on port 8000. The remote address and port are also printed, and the accept queue<br>​    current size as well as maximum size are shown.<br>​<br>​    The overhead of this tool should be negligible, since it is only tracing the<br>​    kernel function performing accept. It is not tracing every packet and then<br>​    filtering.<br>​<br>​    This tool only traces successful TCP accept()s. Connection attempts to closed<br>​    ports will not be shown (those can be traced via other functions).<br>​<br>    There is another version of this tool in bcc: <a href="https://github.com/iovisor/bcc" target="_blank" rel="noopener">https://github.com/iovisor/bcc</a></p>
+<p>最后一列就是backlog最大大小和已经多少</p>
 <h2 id="DNS-域名解析时间"><a href="#DNS-域名解析时间" class="headerlink" title="DNS 域名解析时间"></a>DNS 域名解析时间</h2><pre><code>$sudo ./gethostlatency 
 TIME      PID    COMM                  LATms HOST
 15:40:01  10549  sendmail               0.19 localhost
@@ -2278,6 +2274,39 @@ public BufferedOutputStream(OutputStream out) {
 114         }
 </code></pre><p>Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketChannel对Socket进行封装，是一个NIO的Socket超集，一个Select线程就能处理所有的SocketChannel（也就是所有的Socket）</p>
 <p>Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(多)selector形式</p>
+<h3 id="Channel"><a href="#Channel" class="headerlink" title="Channel"></a><a href="https://spongecaptain.cool/SimpleClearFileIO/5.%20Java%20ByteBuffer%E4%B8%8E%20Channel.html" target="_blank" rel="noopener">Channel</a></h3><p>Channel 类位于 java.nio.channels 包中，但并不是 Channel 仅仅支持 NIO，其分为两种类型：</p>
+<ul>
+<li>FileChannel：完全不支持 NIO；</li>
+<li>SocketChannel/ServerSocketChannel 等 Channel 默认情况下并不支持 NIO，只有显式地调用配置方法才能够进入非阻塞模式（<code>ServerSocketChannel.configBlocking(false)</code>）。</li>
+</ul>
+<p>下面主要以 SocketChannel 的角度来介绍 Channel 类。</p>
+<p>Channel 我们可以理解为对应于 BIO 中的 Socket，也可以理解为 Scoket.inputStream/SocketOutputStream。如果认为是流，那么我们做一个比较：</p>
+<ul>
+<li>传统 Socket：我们调用 Socket 的 <code>getInputStream()</code> 以及 <code>getOutputStream()</code> 进行数据的读和写。</li>
+<li>Channel：我们不再需要得到输入输出流进行读和写，而是通过 Channel 的 <code>read()</code> 以及 <code>write()</code> 方法进行读和写。</li>
+</ul>
+<p>Channel 如此实现也付出了代价（如下图所示）：</p>
+<ul>
+<li>读写模式需要调用 <code>flip()</code> 方法进行切换，读模式下调用 <code>write()</code> 试图进行写操作会报错。</li>
+<li>读写不再能够接受一个简单的字节数组，而是必须是封装了字节数组的 Buffer 类型。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20200516195346349.png" alt="image-20200516195346349"></p>
+<p>目前已知 Channel 的实现类有：</p>
+<ul>
+<li><p>FileChannel 一个用来写、读、映射和操作文件的通道。</p>
+</li>
+<li><p>DatagramChannel</p>
+</li>
+<li><p>SocketChannel</p>
+<p>SocketChannel 可以看做是具有非阻塞模式的 Socket。其可以运行在阻塞模式，也可以运行在非阻塞模式。其只能依靠 ByteBuffer 进行读写，而且是尽力读写，尽力的含义是：</p>
+<ul>
+<li>ByteBuffer 满了就不能再读了；</li>
+<li>即使此次 Socket 流没有传输完毕，但是一旦 Channel 中的数据读完了，那么就返回了，这就是非阻塞读。所以读的方法有 -1（EOF），0（Channel 中的数据读完了，但是整个数据流本身没有消耗完），其他整数，此次读的数据（因为 ByteBuffer 并不是每次都是空的，原来就有数据时只能够尽力装满）。</li>
+</ul>
+</li>
+<li><p>ServerSocketChannel 这个类似于 ServerSocket 起到的作用。</p>
+</li>
+</ul>
 <h3 id="一个比喻比较他们的不同"><a href="#一个比喻比较他们的不同" class="headerlink" title="一个比喻比较他们的不同"></a>一个比喻比较他们的不同</h3><p>打个不是极其恰当的比方：假如你去餐馆吃饭，厨师(内核)给你准备饭菜（数据）</p>
 <ul>
 <li>阻塞IO：老板，饭好了吗？于是你傻傻在窗口等着。等着厨师把饭做好给你。干等着，不能玩手机。</li>
@@ -2322,10 +2351,26 @@ serverSock.configureBlocking(true);
 <p><strong>MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
 <p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 单个Worker上有慢请求）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
-<h2 id="协程"><a href="#协程" class="headerlink" title="协程"></a><a href="https://blog.youxu.info/2014/12/04/coroutine/" target="_blank" rel="noopener">协程</a></h2><p>协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。</p>
-<h3 id="多进程和多线程优劣的比较"><a href="#多进程和多线程优劣的比较" class="headerlink" title="多进程和多线程优劣的比较"></a>多进程和多线程优劣的比较</h3><p>进程间内存难以共享，多线程可以共享内存；多进程内核管理成本高。</p>
+<h2 id="协程"><a href="#协程" class="headerlink" title="协程"></a><a href="https://blog.youxu.info/2014/12/04/coroutine/" target="_blank" rel="noopener">协程</a></h2><p>协程是一种轻量级的，用户态的执行单元。相比线程，它占用的内存非常少，在很多实现中（比如 Go 语言）甚至可以做到按需分配栈空间。</p>
+<p>它主要有三个特点：</p>
+<ul>
+<li>占用的资源更少 ;</li>
+<li>所有的切换和调度都发生在用户态;</li>
+<li>它的调度是协商式的，而不是抢占式的。</li>
+</ul>
+<p>协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。一般在协程中调用 yield_to 来主动把执行权从本协程让给另外一个协程。yield_to 机器码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">000000000040076d &lt;_Z8yield_toP9coroutineS0_&gt;:</span><br><span class="line">  40076d:       55                      push   %rbp</span><br><span class="line">  40076e:       48 89 e5                mov    %rsp,%rbp</span><br><span class="line">  400771:       48 89 7d f8             mov    %rdi,-0x8(%rbp)</span><br><span class="line">  400775:       48 89 75 f0             mov    %rsi,-0x10(%rbp)</span><br><span class="line">  400779:       48 8b 45 f0             mov    -0x10(%rbp),%rax</span><br><span class="line">  40077d:       48 8b 00                mov    (%rax),%rax</span><br><span class="line">  400780:       48 8b 55 f8             mov    -0x8(%rbp),%rdx</span><br><span class="line">  400784:       48 89 22                mov    %rsp,(%rdx)</span><br><span class="line">  400787:       48 89 c4                mov    %rax,%rsp</span><br><span class="line">  40078a:       5d                      pop    %rbp</span><br><span class="line">  40078b:       c3                      retq</span><br></pre></td></tr></table></figure>
+<p>yield_to 中，参数 old_co 指向老协程，co 则指向新的协程，也就是我们要切换过去执行的目标协程。</p>
+<p>这段代码的作用是，首先，把当前 rsp 寄存器的值存储到 old_co 的 stack_pointer 属性（第 9 行），并且把新的协程的 stack_pointer 属性更新到 rsp 寄存器（第 10 行），然后，retq 指令将会从栈上取出调用者的地址，并跳转回调用者继续执行（第 12 行）。</p>
+<p>当调用这一次 yield_to 时，rsp 寄存器刚好就会指向新的协程 co 的栈，接着就会执行”pop rbp”和”retq”这两条指令。这里你需要注意一下，栈的切换，并没有改变指令的执行顺序，因为栈指针存储在 rsp 寄存器中，当前执行到的指令存储在 IP 寄存器中，rsp 的切换并不会导致 IP 寄存器发生变化。</p>
+<p>这个协程切换过程并没有使用任何操作系统的系统调用，就实现了控制流的转移。也就是说，在同一个线程中，我们真正实现了两个执行单元。这两个执行单元并不像线程那样是抢占式地运行，而是相互主动协作式执行，所以，这样的执行单元就是协程。我们可以看到，协程的切换全靠本执行单元主动调用 yield_to 来把执行权让渡给其他协程。</p>
+<p><strong>每个协程都拥有自己的寄存器上下文和栈</strong>。协程调度切换时，将寄存器上下文和栈保存到其他地方（上述例子中，保存在 coroutine 对象中），在切回来的时候，恢复先前保存的寄存器上下文和栈。</p>
+<h3 id="多进程和多线程优劣的比较"><a href="#多进程和多线程优劣的比较" class="headerlink" title="多进程和多线程优劣的比较"></a>多进程和多线程优劣的比较</h3><p>把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。</p>
+<p>进程间内存难以共享，多线程可以共享内存；多进程内核管理成本高。</p>
 <p>每个线程消耗内存过多， 比如，64 位的 Linux 为每个线程的栈分配了 8MB 的内存，还预分配了 64MB 的内存作为堆内存池；切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
-<p>协程把内核态的切换工作交由用户态来完成</p>
+<p>协程把内核态的切换工作交由用户态来完成.</p>
+<p>目前主流语言基本上都选择了多线程作为并发设施，与线程相关的概念是抢占式多任务（Preemptive multitasking），而与协程相关的是协作式多任务。不管是进程还是线程，每次阻塞、切换都需要陷入系统调用 (system call)，先让 CPU 执行操作系统的调度程序，然后再由调度程序决定该哪一个进程 (线程) 继续执行。</p>
+<p>由于抢占式调度执行顺序无法确定，我们使用线程时需要非常小心地处理同步问题，而协程完全不存在这个问题。因为协作式的任务调度，是要用户自己来负责任务的让出的。如果一个任务不主动让出，其他任务就不会得到调度。这是协程的一个弱点，但是如果使用得当，这其实是一个可以变得很强大的优点。</p>
 <h3 id="同步、异步、协程的比较"><a href="#同步、异步、协程的比较" class="headerlink" title="同步、异步、协程的比较"></a>同步、异步、协程的比较</h3><h4 id="同步调用"><a href="#同步调用" class="headerlink" title="同步调用"></a>同步调用</h4><p>切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
 <p><img src="/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
 <h4 id="改成异步化后："><a href="#改成异步化后：" class="headerlink" title="改成异步化后："></a>改成异步化后：</h4><p>把上图中本来由内核实现的请求切换工作，交由用户态的代码来完成就可以了，异步化编程通过应用层代码实现了请求切换，降低了切换成本和内存占用空间。异步化依赖于 IO 多路复用机制，比如 Linux 的 epoll 或者 Windows 上的 iocp，同时，必须把阻塞方法更改为非阻塞方法，才能避免内核切换带来的巨大消耗。Nginx、Redis 等高性能服务都依赖异步化实现了百万量级的并发。</p>
@@ -4761,7 +4806,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
 <li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
 </ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
 <p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
 <p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
 <h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
@@ -4776,12 +4821,18 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
 <p>写数据除了记录redo-log之外在内存中还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</span><br></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<p><img src="/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
 <h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
 <h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
 <p>这是数据库优化的关键。</p>
 <h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
-<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性</p>
+<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性。</p>
+<p>MySQL 日志刷新策略通过 sync_binlog 参数进行配置，其有 3 个可选配置：</p>
+<ol>
+<li>sync_binlog=0：MySQL 应用将完全不负责日志同步到磁盘，将缓存中的日志数据刷新到磁盘全权交给操作系统来完成；</li>
+<li>sync_binlog=1：MySQL 应用在事务提交前将缓存区的日志刷新到磁盘；</li>
+<li>sync_binlog=N：当 N 不为 0 与 1 时，MySQL 在收集到 N 个日志提交后，才会将缓存区的日志同步到磁盘。</li>
+</ol>
 <h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
 <p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
 <p>redo-log和bin-log的比较：</p>
@@ -4793,7 +4844,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
 <p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
 <p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
-<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
 <p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
 <ol>
 <li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
@@ -4804,6 +4855,10 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </li>
 <li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
 </ol>
+<h3 id="组提交"><a href="#组提交" class="headerlink" title="组提交"></a>组提交</h3><p>在没有开启binlog时，Redo log的刷盘操作将会是最终影响MySQL TPS的瓶颈所在。为了缓解这一问题，MySQL使用了组提交，将多个刷盘操作合并成一个，如果说10个事务依次排队刷盘的时间成本是10，那么将这10个事务一次性一起刷盘的时间成本则近似于1。</p>
+<p>但是开启binlog后，binlog作为事务的协调者每次commit都需要落盘，这导致了Redo log的组提交失去了意义。</p>
+<p><img src="/images/951413iMgBlog/image-20211108152328424.png" alt="image-20211108152328424"></p>
+<p>Group Commit的方案中，其正确性的前提在于一个group内的事务没有并发冲突，因此即便并行也不会破坏事务的执行顺序。这个方案的局限性在于一个group 内的并行度仍然有限</p>
 <h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
 <ul>
 <li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。<strong>这时写性能跌0，这个场景对性能影响最大</strong>。</li>
@@ -4816,7 +4871,31 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
 <p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
 <p>表空间会刷进去没有提交的事务（比如大事务change buffer和redo-log都不够的时候），这个修改虽然在表空间中，但是通过可见性来控制是否可见。</p>
-<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="落盘"><a href="#落盘" class="headerlink" title="落盘"></a>落盘</h3><p>innodb_flush_method 参数目前有 6 种可选配置值：</p>
+<ol>
+<li>fdatasync；</li>
+<li>O_DSYNC</li>
+<li>O_DIRECT</li>
+<li>O_DIRECT_NO_FSYNC</li>
+<li>littlesync</li>
+<li>nosync</li>
+</ol>
+<p>其中，littlesync 与 nosync 仅仅用于内部性能测试，并不建议使用。</p>
+<ul>
+<li>fdatasync，即取值 0，这是默认配置值。对 log files 以及 data files 都采用 fsync 的方式进行同步；</li>
+<li>O_DSYNC，即取值 1。对 log files 使用 O_SYNC 打开与刷新日志文件，使用 fsync 来刷新 data files 中的数据；</li>
+<li>O_DIRECT，即取值 4。利用 Direct I/O 的方式打开 data file，并且每次写操作都通过执行 fsync 系统调用的方式落盘；</li>
+<li>O_DIRECT_NO_FSYNC，即取值 5。利用 Direct I/O 的方式打开 data files，但是每次写操作并不会调用 fsync 系统调用进行落盘；</li>
+</ul>
+<p><strong>为什么有 O_DIRECT 与 O_DIRECT_NO_FSYNC 配置的区别？</strong></p>
+<p>首先，我们需要理解更新操作落盘分为两个具体的子步骤：①文件数据更新落盘②文件元数据更新落盘。O_DIRECT 的在部分操作系统中会导致文件元数据不落盘，除非主动调用 fsync，为此，MySQL 提供了 O_DIRECT 以及 O_DIRECT_NO_FSYNC 这两个配置[5]。</p>
+<p>如果你确定在自己的操作系统上，即使不进行 fsync 调用，也能够确保文件元数据落盘，那么请使用 O_DIRECT_NO_FSYNC 配置，这对 MySQL 性能略有帮助。否则，请使用 O_DIRECT，不然文件元数据的丢失可能会导致 MySQL 运行错误。</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>在 MySQL/InnoDB 中，使用MVCC(Multi Version Concurrency Control) 来实现事务。每个事务修改数据之后，会创建一个新的版本，用事务id作为版本号；一行数据的多个版本会通过指针连接起来，通过指针即可遍历所有版本。</p>
+<p>当事务读取数据时，会根据隔离级别选择合适的版本。例如对于 Read Committed 隔离级别来说，每条SQL都会读取最新的已提交版本；而对于Repeatable Read来说，会在事务开始时选择已提交的最新版本，后续的每条SQL都会读取同一个版本的数据。</p>
+<p><img src="/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png" alt="img"></p>
+<p>Postgres用Old to New，INNODB使用的是New to Old, 即主表存最新的版本，用链表指向旧的版本。当读取最新版本数据时，由于索引直接指向了最新版本，因此较低；与之相反，读取旧版本的数据代价会随之增加，需要沿着链表遍历。</p>
+<p>INNODB中旧版本的数据存储于undo log中。这里的undo log起到了几个目的，一个是事务的回滚，事务回滚时从undo log可以恢复出原先的数据，另一个目的是实现MVCC，对于旧的事务可以从undo 读取旧版本数据。</p>
+<h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
 <h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
 <p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
 <p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
@@ -4838,7 +4917,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h3 id="可重复读、当前读以及行锁案例"><a href="#可重复读、当前读以及行锁案例" class="headerlink" title="可重复读、当前读以及行锁案例"></a>可重复读、当前读以及行锁案例</h3><p>案例表结构</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">mysql&gt; CREATE TABLE `t` (</span><br><span class="line">  `id` int(11) NOT NULL,</span><br><span class="line">  `k` int(11) DEFAULT NULL,</span><br><span class="line">  PRIMARY KEY (`id`)</span><br><span class="line">) ENGINE=InnoDB;</span><br><span class="line">insert into t(id, k) values(1,1),(2,2);</span><br></pre></td></tr></table></figure>
 <p>上表执行如下三个事务</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png" alt="img"></p>
 <blockquote>
 <p>begin/start transaction 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果你想要马上启动一个事务，可以使用 start transaction with consistent snapshot 这个命令。</p>
 <p>“start transaction with consistent snapshot; ”的意思是从这个语句开始，创建一个持续整个事务的一致性快照</p>
@@ -5045,13 +5124,16 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
 <p> 硬中断发生在哪一个核上，它发出的软中断就由哪个核来处理。可以通过加大网卡队列数，这样硬中断工作、软中断工作都会有更多的核心参与进来。</p>
 </blockquote>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f2d5399f-4fba-4159-9ce4-aefa78132a43.png" alt="img"></p>
-<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
-<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/640-20211027133622981" alt="Image"></p>
+<p>从上图可以看到tcpdump在协议栈之前，也就是netfilter过滤规则对tcpdump无效，发包则是反过来：</p>
+<p><img src="/images/951413iMgBlog/640-20211027133758754" alt="Image"></p>
+<p><img src="/images/oss/f2d5399f-4fba-4159-9ce4-aefa78132a43.png" alt="img"></p>
+<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="/images/oss/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="/images/oss/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
 <h3 id="DMA驱动部分流程图"><a href="#DMA驱动部分流程图" class="headerlink" title="DMA驱动部分流程图"></a>DMA驱动部分流程图</h3><p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="noopener">DMA是一个硬件逻辑</a>，数据传输到系统物理内存的过程中，全程不需要CPU的干预，除了占用总线之外(期间CPU不能使用总线)，没有任何额外开销。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8edd2edf-5ae9-4f96-83fb-cef367697661.png" alt="img"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/308138af-b3a6-4404-93eb-82dce612ba5b.png" alt="img"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
+<p><img src="/images/oss/8edd2edf-5ae9-4f96-83fb-cef367697661.png" alt="img"></p>
+<p><img src="/images/oss/308138af-b3a6-4404-93eb-82dce612ba5b.png" alt="img"></p>
+<p><img src="/images/oss/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
 <ol>
 <li>驱动在内存中分配一片缓冲区用来接收数据包，叫做sk_buffer;</li>
 <li>将上述缓冲区的地址和大小（即接收描述符），加入到rx ring buffer。描述符中的缓冲区地址是DMA使用的物理地址;</li>
@@ -5061,11 +5143,11 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>网卡将新数据包通过DMA直接写到sk_buffer中。</li>
 </ol>
 <h3 id="buffer和流控"><a href="#buffer和流控" class="headerlink" title="buffer和流控"></a>buffer和流控</h3><p>影响发送的速度的几个buffer和queue，接收基本一样</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/79e46270-de0d-48d5-99d8-90ced2964154.png" alt="img"></p>
+<p><img src="/images/oss/79e46270-de0d-48d5-99d8-90ced2964154.png" alt="img"></p>
 <h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p>软中断NET_TX_SOFTIRQ的处理函数为net_tx_action，NET_RX_SOFTIRQ的为net_rx_action</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<p><img src="/images/oss/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
 <p>在网络子系统初始化中为NET_RX_SOFTIRQ注册了处理函数net_rx_action。所以<code>net_rx_action</code>函数就会被执行到了。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
+<p><img src="/images/oss/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
 <p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
 <p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
 <p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt></p>
@@ -5085,15 +5167,16 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>进入发送 Ring Buffer tx</li>
 <li>驱动触发软中断 soft IRQ (NET_TX_SOFTIRQ)</li>
 </ol>
-<h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
-<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="/images/oss/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="/images/oss/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/640-5685512." alt="Image"></p>
 <p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
 <p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210714204347862.png" alt="image-20210714204347862"></p>
+<p><img src="/images/951413iMgBlog/image-20210714204347862.png" alt="image-20210714204347862"></p>
 <p>粗略汇总一下进出堆栈：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
+<p><img src="/images/oss/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
 <p><a href="http://docshare02.docshare.tips/files/21804/218043783.pdf" target="_blank" rel="noopener">http://docshare02.docshare.tips/files/21804/218043783.pdf</a> 中也有描述：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e26ce9ed-4075-4837-8064-ea4d4aef09b8.png" alt="img"></p>
+<p><img src="/images/oss/e26ce9ed-4075-4837-8064-ea4d4aef09b8.png" alt="img"></p>
 <h2 id="内核相关参数"><a href="#内核相关参数" class="headerlink" title="内核相关参数"></a>内核相关参数</h2><h3 id="Ring-Buffer"><a href="#Ring-Buffer" class="headerlink" title="Ring Buffer"></a>Ring Buffer</h3><p>Ring Buffer位于NIC和IP层之间，是一个典型的FIFO（先进先出）环形队列。Ring Buffer没有包含数据本身，而是包含了指向sk_buff（socket kernel buffers）的描述符。<br>可以使用ethtool -g eth0查看当前Ring Buffer的设置：</p>
 <pre><code>$sudo ethtool -g eth0
 Ring parameters for eth0:
@@ -5123,7 +5206,7 @@ TX:        512
 </code></pre><p>这是一台物理机，接收队列为4096，传输队列为512。接收队列已经调到了最大，传输队列还可以调大。<strong>队列越大丢包的可能越小，但数据延迟会增加</strong></p>
 <h4 id="调整-Ring-Buffer-队列数量"><a href="#调整-Ring-Buffer-队列数量" class="headerlink" title="调整 Ring Buffer 队列数量"></a>调整 Ring Buffer 队列数量</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">ethtool -l eth0</span><br><span class="line">Channel parameters for eth0:</span><br><span class="line">Pre-set maximums:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line">Current hardware settings:</span><br><span class="line">RX:             0</span><br><span class="line">TX:             0</span><br><span class="line">Other:          1</span><br><span class="line">Combined:       8</span><br><span class="line"></span><br><span class="line">sudo ethtool -L eth0 combined 8</span><br><span class="line">sudo ethtool -L eth0 rx 8</span><br></pre></td></tr></table></figure>
 <p>网卡多队列就是指的有多个RingBuffer，每个RingBufffer可以由一个core来处理</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
+<p><img src="/images/oss/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
 <h4 id="网卡各种统计数据查看"><a href="#网卡各种统计数据查看" class="headerlink" title="网卡各种统计数据查看"></a>网卡各种统计数据查看</h4><pre><code>ethtool -S eth0 | grep errors
 
 ethtool -S eth0 | grep rx_ | grep errors //查看网卡是否丢包，一般是ring buffer太小
@@ -5203,10 +5286,10 @@ tx-frame-high: 0
 <p>sysctl -a | grep net.core.netdev_budget<br>sysctl -w net.core.netdev_budget=400 //临时性增大</p>
 </blockquote>
 <p>早期的时候网卡一般是10Mb的，现在基本都是10Gb的了，还是每一次软中断、上下文切换只处理一个包的话代价太大，需要改进性能。于是引入的NAPI，一次软中断会poll很多packet</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
+<p><img src="/images/oss/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
 <p><a href="https://github.blog/2019-11-21-debugging-network-stalls-on-kubernetes/" target="_blank" rel="noopener">来源</a> This is much faster, but brings up another problem. What happens if we have so many packets to process that we spend all our time processing packets from the NIC, but we never have time to let the userspace processes actually drain those queues (read from TCP connections, etc.)? Eventually the queues would fill up, and we’d start dropping packets. To try and make this fair, the kernel limits the amount of packets processed in a given softirq context to a certain budget. Once this budget is exceeded, it wakes up a separate thread called <code>ksoftirqd</code> (you’ll see one of these in <code>ps</code> for each core) which processes these softirqs outside of the normal syscall/interrupt path. This thread is scheduled using the standard process scheduler, which already tries to be fair.</p>
 <p>于是在Poll很多packet的时候有可能网卡队列一直都有包，那么导致这个Poll动作无法结束，造成应用一直在卡住状态，于是可以通过netdev_max_backlog来设置Poll多少Packet后停止Poll以响应用户请求。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
+<p><img src="/images/oss/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
 <p>一旦出现slow syscall（如上图黄色部分慢）就会导致packet处理被延迟</p>
 <h4 id="netdev-max-backlog"><a href="#netdev-max-backlog" class="headerlink" title="netdev_max_backlog"></a>netdev_max_backlog</h4><p>The netdev_max_backlog is a queue within the Linux kernel where traffic is stored after reception from the NIC, but before processing by the protocol stacks (IP, TCP, etc). There is one backlog queue per CPU core. </p>
 <p>如果 /proc/net/softnet_stat 第二列一直在增加的话表示netdev backlog queue overflows. 需要增大 netdev_max_backlog</p>
@@ -5236,13 +5319,19 @@ tx-frame-high: 0
 </code></pre><p>如果 “pruning” 一直在增加很有可能是程序中调用了 setsockopt(SO_RCVBUF) 导致内核关闭了动态调整功能，或者压力大，缓存不够了。具体Case：<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a></p>
 <p>nstat也可以看到比较多的数据</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$nstat -z |grep -i drop</span><br><span class="line">TcpExtLockDroppedIcmps          0                  0.0</span><br><span class="line">TcpExtListenDrops               0                  0.0</span><br><span class="line">TcpExtTCPBacklogDrop            0                  0.0</span><br><span class="line">TcpExtPFMemallocDrop            0                  0.0</span><br><span class="line">TcpExtTCPMinTTLDrop             0                  0.0</span><br><span class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</span><br><span class="line">TcpExtTCPReqQFullDrop           0                  0.0</span><br><span class="line">TcpExtTCPOFODrop                0                  0.0</span><br><span class="line">TcpExtTCPZeroWindowDrop         0                  0.0</span><br><span class="line">TcpExtTCPRcvQDrop               0                  0.0</span><br></pre></td></tr></table></figure>
-<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
+<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
 <p>带参数版收包流程：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
-<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
+<p><img src="/images/oss/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
+<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="/images/oss/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
 <p>带参数版发包流程：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
+<p><img src="/images/oss/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
+<h2 id="网络包流转结构图"><a href="#网络包流转结构图" class="headerlink" title="网络包流转结构图"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;scene=21#wechat_redirect" target="_blank" rel="noopener">网络包流转结构图</a></h2><p>跨机器网络IO</p>
+<p><img src="/images/951413iMgBlog/640-20211027113522111" alt="Image"></p>
+<p>127.0.0.1(lo)本机网络 IO ，无需走到物理网卡，也不用进入RingBuffer驱动队列，但是还是要走内核协议栈，直接把 skb 传给接收协议栈（经过软中断）</p>
+<p><img src="/images/951413iMgBlog/640-20211027113545882" alt="Image"></p>
+<p>如果是同一台宿主机走虚拟bridge通信的话（同一宿主机下的不容docker容器通信）：</p>
+<p><img src="/images/951413iMgBlog/640-20211027123524056" alt="Image"></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="/images/oss/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
 <ol>
 <li>snat 就是要把 192.168.1.10和192.168.1.11的两个连接替换成宿主机的ip:port</li>
 <li>主要是在宿主机找可用port分别给这两个连接用</li>
@@ -5264,7 +5353,7 @@ tx-frame-high: 0
 </ul>
 <pre><code>sudo conntrack -L -d ip-addr
 </code></pre><p>来自：<a href="https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02" target="_blank" rel="noopener">https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02</a></p>
-<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
+<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="/images/oss/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
 <p>这个案例主要是讲述回包的逻辑，如果是tcp，那么用dest ip当自己的source ip，如果是UDP，无连接状态信息，那么会根据route来选择一块网卡(上面的IP) 来当source ip</p>
 <p>来自：<a href="http://cizixs.com/2017/08/21/docker-udp-issue" target="_blank" rel="noopener">http://cizixs.com/2017/08/21/docker-udp-issue</a><br>     <a href="https://github.com/moby/moby/issues/15127" target="_blank" rel="noopener">https://github.com/moby/moby/issues/15127</a></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener">The Missing Man Page for ifconfig–关于ifconfig的种种解释</a></p>
@@ -5427,16 +5516,16 @@ tx-frame-high: 0
         
           
             <h1 id="网络通不通是个大问题–半夜鸡叫"><a href="#网络通不通是个大问题–半夜鸡叫" class="headerlink" title="网络通不通是个大问题–半夜鸡叫"></a>网络通不通是个大问题–半夜鸡叫</h1><h2 id="半夜鸡叫"><a href="#半夜鸡叫" class="headerlink" title="半夜鸡叫"></a>半夜鸡叫</h2><p>凌晨啊，还有同学在为网络为什么不通的问题奋斗着：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557909424085-04a7111c-fee8-440f-ba22-411dd70cbba0.png" alt="undefined"> </p>
+<p><img src="/images/oss/1557909424085-04a7111c-fee8-440f-ba22-411dd70cbba0.png" alt="undefined"> </p>
 <p>问题描述大概如下：</p>
 <p>slb后面配了一台realserver(就叫172吧), 在172上通过curl <a href="http://127.0.0.1:80/" target="_blank" rel="noopener">http://127.0.0.1:80/</a> 是正常的(说明服务自身是正常的)<br>如果从开发同学的笔记本直接curl slb-ip 就卡住了，进一步发现如果从北京的办公网curl slb-ip就行，但是从杭州的curl slb-ip就不行。</p>
-<p>从杭州curl的时候在172上抓包如下：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557909749498-452acc94-f04b-48bf-803f-f1acb21dd4b2.png" alt="undefined"> </p>
+<p>从杭州curl的时候在172上抓包如下：<br><img src="/images/oss/1557909749498-452acc94-f04b-48bf-803f-f1acb21dd4b2.png" alt="undefined"> </p>
 <p>明显可以看到tcp握手包正确到达了172，但是172一直没有回复。也就是如果是杭州访问服务的话，服务端收到握手请求后直接扔掉没有任何回复（回想下哪些场景会扔包）</p>
 <h2 id="问题排查"><a href="#问题排查" class="headerlink" title="问题排查"></a>问题排查</h2><h3 id="先排除了iptables的问题"><a href="#先排除了iptables的问题" class="headerlink" title="先排除了iptables的问题"></a>先排除了iptables的问题</h3><pre><code>略过
 </code></pre><h3 id="route-的嫌疑"><a href="#route-的嫌疑" class="headerlink" title="route 的嫌疑"></a>route 的嫌疑</h3><p>因为北京可以杭州不行，明显是某些IP可以，于是检查route 表，解决问题的<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">必杀技(基础知识)都在这里</a></p>
 <p>发现杭州的ip和北京的ip确实命中了不同的路由规则，简单说就是172绑在eth0上，机器还有另外一块网卡eth1. 而回复杭州ip的时候要走eth1. 至于为什么没有从eth1回复等会再说</p>
 <p>知道原因就好说了，修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
-<p>所以到这里，问题描述如下：<br>    <img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557910281403-59a60a80-5edf-472d-827c-b2c8d6db903f.png" alt="undefined"> </p>
+<p>所以到这里，问题描述如下：<br>    <img src="/images/oss/1557910281403-59a60a80-5edf-472d-827c-b2c8d6db903f.png" alt="undefined"> </p>
 <p>机器有两块网卡，请求走eth0 进来(绿线)，然后走 eth1回复(路由决定的，红线)，但是实际没走eth1回复，像是丢包了。</p>
 <h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
 <h3 id="为什么5U的机器可以"><a href="#为什么5U的机器可以" class="headerlink" title="为什么5U的机器可以"></a>为什么5U的机器可以</h3><p>开发同学接着反馈，出问题的172是7U2的系统，但是还有一些5U7的机器完全正常，5U7的机器上也是两块网卡，route规则也是一样的。</p>
@@ -5447,7 +5536,7 @@ tx-frame-high: 0
 <p>​    0：不开启源地址校验。<br>​    1：开启严格的反向路径校验。对每个进来的数据包，校验其反向路径是否是最佳路径。如果反向路径不是最佳路径，则直接丢弃该数据包。<br>​    2：开启松散的反向路径校验。对每个进来的数据包，校验其源地址是否可达，即反向路径是否能通（通过任意网口），如果反向路径不通，则直接丢弃该数据包。</p>
 </blockquote>
 <p>那么对于这种丢包，可以打开日志：/proc/sys/net/ipv4/conf/eth0/log_martians 来监控到：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1557910737844-1ee231f0-1ddd-4dee-ac07-3b23f9659878.png" alt="undefined"> </p>
+<p><img src="/images/951413iMgBlog/1557910737844-1ee231f0-1ddd-4dee-ac07-3b23f9659878.png" alt="undefined"> </p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>本质原因就是服务器开启了 rp_filter 为1，严格校验进出包是否走同一块网卡，而如果请求从杭州机房发过来的话，回复包的路由走的是另外一块网卡，触发了内核的rp_filter扔包逻辑。</p>
 <p>改server的路由可以让杭州的包也走同一块网卡，就不扔掉了。当然将 rp_filter 改成0 关掉这个校验逻辑也可以完全避免这个扔包。</p>
 <p>从问题的解决思路来说，基本都可以认定是握手的时候服务器扔包了。只有知道 rp_filter 参数的内核老司机可以直接得出是这里的原因。如果对于一个新手的话还是得掌握如何推理分析得到原因。</p>

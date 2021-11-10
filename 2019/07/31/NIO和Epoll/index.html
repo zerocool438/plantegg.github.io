@@ -111,6 +111,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/5c03818e5fab6431a709753130be5897.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20200516195346349.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/0c09f7457cd7914fc26573d9a4625de4.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/80c19a50442290e7f79e97d94a585cc3.png">
@@ -120,7 +121,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/9a90497373211d65186a2a256212e3bf.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/0d997ee52fd79d752d1af9636ac6c858.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/7ece6c553c78927c7886f70c09d7e15b.png">
-<meta property="og:updated_time" content="2021-10-26T13:10:32.270Z">
+<meta property="og:updated_time" content="2021-11-10T10:22:02.849Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="NIO和epoll">
 <meta name="twitter:description" content="NIO、EPOLL和协程从IO说起用户线程发起IO操作后（比如读），网络数据读取过程分两步：  用户线程等待内核将数据从网卡拷贝到内核空间 内核将数据从内核空间拷贝到用户空间  零拷贝零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），">
@@ -594,6 +595,39 @@
 114         }
 </code></pre><p>Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketChannel对Socket进行封装，是一个NIO的Socket超集，一个Select线程就能处理所有的SocketChannel（也就是所有的Socket）</p>
 <p>Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(多)selector形式</p>
+<h3 id="Channel"><a href="#Channel" class="headerlink" title="Channel"></a><a href="https://spongecaptain.cool/SimpleClearFileIO/5.%20Java%20ByteBuffer%E4%B8%8E%20Channel.html" target="_blank" rel="noopener">Channel</a></h3><p>Channel 类位于 java.nio.channels 包中，但并不是 Channel 仅仅支持 NIO，其分为两种类型：</p>
+<ul>
+<li>FileChannel：完全不支持 NIO；</li>
+<li>SocketChannel/ServerSocketChannel 等 Channel 默认情况下并不支持 NIO，只有显式地调用配置方法才能够进入非阻塞模式（<code>ServerSocketChannel.configBlocking(false)</code>）。</li>
+</ul>
+<p>下面主要以 SocketChannel 的角度来介绍 Channel 类。</p>
+<p>Channel 我们可以理解为对应于 BIO 中的 Socket，也可以理解为 Scoket.inputStream/SocketOutputStream。如果认为是流，那么我们做一个比较：</p>
+<ul>
+<li>传统 Socket：我们调用 Socket 的 <code>getInputStream()</code> 以及 <code>getOutputStream()</code> 进行数据的读和写。</li>
+<li>Channel：我们不再需要得到输入输出流进行读和写，而是通过 Channel 的 <code>read()</code> 以及 <code>write()</code> 方法进行读和写。</li>
+</ul>
+<p>Channel 如此实现也付出了代价（如下图所示）：</p>
+<ul>
+<li>读写模式需要调用 <code>flip()</code> 方法进行切换，读模式下调用 <code>write()</code> 试图进行写操作会报错。</li>
+<li>读写不再能够接受一个简单的字节数组，而是必须是封装了字节数组的 Buffer 类型。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20200516195346349.png" alt="image-20200516195346349"></p>
+<p>目前已知 Channel 的实现类有：</p>
+<ul>
+<li><p>FileChannel 一个用来写、读、映射和操作文件的通道。</p>
+</li>
+<li><p>DatagramChannel</p>
+</li>
+<li><p>SocketChannel</p>
+<p>SocketChannel 可以看做是具有非阻塞模式的 Socket。其可以运行在阻塞模式，也可以运行在非阻塞模式。其只能依靠 ByteBuffer 进行读写，而且是尽力读写，尽力的含义是：</p>
+<ul>
+<li>ByteBuffer 满了就不能再读了；</li>
+<li>即使此次 Socket 流没有传输完毕，但是一旦 Channel 中的数据读完了，那么就返回了，这就是非阻塞读。所以读的方法有 -1（EOF），0（Channel 中的数据读完了，但是整个数据流本身没有消耗完），其他整数，此次读的数据（因为 ByteBuffer 并不是每次都是空的，原来就有数据时只能够尽力装满）。</li>
+</ul>
+</li>
+<li><p>ServerSocketChannel 这个类似于 ServerSocket 起到的作用。</p>
+</li>
+</ul>
 <h3 id="一个比喻比较他们的不同"><a href="#一个比喻比较他们的不同" class="headerlink" title="一个比喻比较他们的不同"></a>一个比喻比较他们的不同</h3><p>打个不是极其恰当的比方：假如你去餐馆吃饭，厨师(内核)给你准备饭菜（数据）</p>
 <ul>
 <li>阻塞IO：老板，饭好了吗？于是你傻傻在窗口等着。等着厨师把饭做好给你。干等着，不能玩手机。</li>
@@ -638,10 +672,26 @@ serverSock.configureBlocking(true);
 <p><strong>MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
 <p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 单个Worker上有慢请求）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
-<h2 id="协程"><a href="#协程" class="headerlink" title="协程"></a><a href="https://blog.youxu.info/2014/12/04/coroutine/" target="_blank" rel="noopener">协程</a></h2><p>协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。</p>
-<h3 id="多进程和多线程优劣的比较"><a href="#多进程和多线程优劣的比较" class="headerlink" title="多进程和多线程优劣的比较"></a>多进程和多线程优劣的比较</h3><p>进程间内存难以共享，多线程可以共享内存；多进程内核管理成本高。</p>
+<h2 id="协程"><a href="#协程" class="headerlink" title="协程"></a><a href="https://blog.youxu.info/2014/12/04/coroutine/" target="_blank" rel="noopener">协程</a></h2><p>协程是一种轻量级的，用户态的执行单元。相比线程，它占用的内存非常少，在很多实现中（比如 Go 语言）甚至可以做到按需分配栈空间。</p>
+<p>它主要有三个特点：</p>
+<ul>
+<li>占用的资源更少 ;</li>
+<li>所有的切换和调度都发生在用户态;</li>
+<li>它的调度是协商式的，而不是抢占式的。</li>
+</ul>
+<p>协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。一般在协程中调用 yield_to 来主动把执行权从本协程让给另外一个协程。yield_to 机器码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">000000000040076d &lt;_Z8yield_toP9coroutineS0_&gt;:</span><br><span class="line">  40076d:       55                      push   %rbp</span><br><span class="line">  40076e:       48 89 e5                mov    %rsp,%rbp</span><br><span class="line">  400771:       48 89 7d f8             mov    %rdi,-0x8(%rbp)</span><br><span class="line">  400775:       48 89 75 f0             mov    %rsi,-0x10(%rbp)</span><br><span class="line">  400779:       48 8b 45 f0             mov    -0x10(%rbp),%rax</span><br><span class="line">  40077d:       48 8b 00                mov    (%rax),%rax</span><br><span class="line">  400780:       48 8b 55 f8             mov    -0x8(%rbp),%rdx</span><br><span class="line">  400784:       48 89 22                mov    %rsp,(%rdx)</span><br><span class="line">  400787:       48 89 c4                mov    %rax,%rsp</span><br><span class="line">  40078a:       5d                      pop    %rbp</span><br><span class="line">  40078b:       c3                      retq</span><br></pre></td></tr></table></figure>
+<p>yield_to 中，参数 old_co 指向老协程，co 则指向新的协程，也就是我们要切换过去执行的目标协程。</p>
+<p>这段代码的作用是，首先，把当前 rsp 寄存器的值存储到 old_co 的 stack_pointer 属性（第 9 行），并且把新的协程的 stack_pointer 属性更新到 rsp 寄存器（第 10 行），然后，retq 指令将会从栈上取出调用者的地址，并跳转回调用者继续执行（第 12 行）。</p>
+<p>当调用这一次 yield_to 时，rsp 寄存器刚好就会指向新的协程 co 的栈，接着就会执行”pop rbp”和”retq”这两条指令。这里你需要注意一下，栈的切换，并没有改变指令的执行顺序，因为栈指针存储在 rsp 寄存器中，当前执行到的指令存储在 IP 寄存器中，rsp 的切换并不会导致 IP 寄存器发生变化。</p>
+<p>这个协程切换过程并没有使用任何操作系统的系统调用，就实现了控制流的转移。也就是说，在同一个线程中，我们真正实现了两个执行单元。这两个执行单元并不像线程那样是抢占式地运行，而是相互主动协作式执行，所以，这样的执行单元就是协程。我们可以看到，协程的切换全靠本执行单元主动调用 yield_to 来把执行权让渡给其他协程。</p>
+<p><strong>每个协程都拥有自己的寄存器上下文和栈</strong>。协程调度切换时，将寄存器上下文和栈保存到其他地方（上述例子中，保存在 coroutine 对象中），在切回来的时候，恢复先前保存的寄存器上下文和栈。</p>
+<h3 id="多进程和多线程优劣的比较"><a href="#多进程和多线程优劣的比较" class="headerlink" title="多进程和多线程优劣的比较"></a>多进程和多线程优劣的比较</h3><p>把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。</p>
+<p>进程间内存难以共享，多线程可以共享内存；多进程内核管理成本高。</p>
 <p>每个线程消耗内存过多， 比如，64 位的 Linux 为每个线程的栈分配了 8MB 的内存，还预分配了 64MB 的内存作为堆内存池；切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
-<p>协程把内核态的切换工作交由用户态来完成</p>
+<p>协程把内核态的切换工作交由用户态来完成.</p>
+<p>目前主流语言基本上都选择了多线程作为并发设施，与线程相关的概念是抢占式多任务（Preemptive multitasking），而与协程相关的是协作式多任务。不管是进程还是线程，每次阻塞、切换都需要陷入系统调用 (system call)，先让 CPU 执行操作系统的调度程序，然后再由调度程序决定该哪一个进程 (线程) 继续执行。</p>
+<p>由于抢占式调度执行顺序无法确定，我们使用线程时需要非常小心地处理同步问题，而协程完全不存在这个问题。因为协作式的任务调度，是要用户自己来负责任务的让出的。如果一个任务不主动让出，其他任务就不会得到调度。这是协程的一个弱点，但是如果使用得当，这其实是一个可以变得很强大的优点。</p>
 <h3 id="同步、异步、协程的比较"><a href="#同步、异步、协程的比较" class="headerlink" title="同步、异步、协程的比较"></a>同步、异步、协程的比较</h3><h4 id="同步调用"><a href="#同步调用" class="headerlink" title="同步调用"></a>同步调用</h4><p>切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
 <p><img src="/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
 <h4 id="改成异步化后："><a href="#改成异步化后：" class="headerlink" title="改成异步化后："></a>改成异步化后：</h4><p>把上图中本来由内核实现的请求切换工作，交由用户态的代码来完成就可以了，异步化编程通过应用层代码实现了请求切换，降低了切换成本和内存占用空间。异步化依赖于 IO 多路复用机制，比如 Linux 的 epoll 或者 Windows 上的 iocp，同时，必须把阻塞方法更改为非阻塞方法，才能避免内核切换带来的巨大消耗。Nginx、Redis 等高性能服务都依赖异步化实现了百万量级的并发。</p>
@@ -889,7 +939,7 @@ serverSock.configureBlocking(true);
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#NIO、EPOLL和协程"><span class="nav-number">1.</span> <span class="nav-text">NIO、EPOLL和协程</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#从IO说起"><span class="nav-number">1.1.</span> <span class="nav-text">从IO说起</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#零拷贝"><span class="nav-number">1.1.1.</span> <span class="nav-text">零拷贝</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#直接IO"><span class="nav-number">1.1.2.</span> <span class="nav-text">直接IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步阻塞IO"><span class="nav-number">1.1.3.</span> <span class="nav-text">同步阻塞IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步非阻塞IO"><span class="nav-number">1.1.4.</span> <span class="nav-text">同步非阻塞IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IO多路复用、Epoll"><span class="nav-number">1.1.5.</span> <span class="nav-text">IO多路复用、Epoll</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#epoll-JStack-堆栈"><span class="nav-number">1.1.5.1.</span> <span class="nav-text">epoll JStack 堆栈</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#一个比喻比较他们的不同"><span class="nav-number">1.1.6.</span> <span class="nav-text">一个比喻比较他们的不同</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Tomcat中的NIO-多路复用的实现"><span class="nav-number">1.1.7.</span> <span class="nav-text">Tomcat中的NIO+多路复用的实现</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Acceptor"><span class="nav-number">1.1.7.1.</span> <span class="nav-text">Acceptor</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Tomcat核心参数"><span class="nav-number">1.1.7.2.</span> <span class="nav-text">Tomcat核心参数</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#多路复用–多个socket共用同一个线程来读取socket中的数据"><span class="nav-number">1.1.8.</span> <span class="nav-text">多路复用–多个socket共用同一个线程来读取socket中的数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#MySQL-Thread-Pool-带来的问题"><span class="nav-number">1.1.9.</span> <span class="nav-text">MySQL Thread Pool 带来的问题</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#协程"><span class="nav-number">1.2.</span> <span class="nav-text">协程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#多进程和多线程优劣的比较"><span class="nav-number">1.2.1.</span> <span class="nav-text">多进程和多线程优劣的比较</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步、异步、协程的比较"><span class="nav-number">1.2.2.</span> <span class="nav-text">同步、异步、协程的比较</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#同步调用"><span class="nav-number">1.2.2.1.</span> <span class="nav-text">同步调用</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#改成异步化后："><span class="nav-number">1.2.2.2.</span> <span class="nav-text">改成异步化后：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#用协程来实现"><span class="nav-number">1.2.2.3.</span> <span class="nav-text">用协程来实现</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#协程的切换"><span class="nav-number">1.2.3.</span> <span class="nav-text">协程的切换</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#多线程下的真正开销代价"><span class="nav-number">1.3.</span> <span class="nav-text">多线程下的真正开销代价</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#以ajdk的Wisp2协程为例"><span class="nav-number">1.3.1.</span> <span class="nav-text">以ajdk的Wisp2协程为例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Node-js"><span class="nav-number">1.4.</span> <span class="nav-text">Node.js</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#比喻"><span class="nav-number">1.5.</span> <span class="nav-text">比喻</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章"><span class="nav-number">1.6.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#NIO、EPOLL和协程"><span class="nav-number">1.</span> <span class="nav-text">NIO、EPOLL和协程</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#从IO说起"><span class="nav-number">1.1.</span> <span class="nav-text">从IO说起</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#零拷贝"><span class="nav-number">1.1.1.</span> <span class="nav-text">零拷贝</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#直接IO"><span class="nav-number">1.1.2.</span> <span class="nav-text">直接IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步阻塞IO"><span class="nav-number">1.1.3.</span> <span class="nav-text">同步阻塞IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步非阻塞IO"><span class="nav-number">1.1.4.</span> <span class="nav-text">同步非阻塞IO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IO多路复用、Epoll"><span class="nav-number">1.1.5.</span> <span class="nav-text">IO多路复用、Epoll</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#epoll-JStack-堆栈"><span class="nav-number">1.1.5.1.</span> <span class="nav-text">epoll JStack 堆栈</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Channel"><span class="nav-number">1.1.6.</span> <span class="nav-text">Channel</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#一个比喻比较他们的不同"><span class="nav-number">1.1.7.</span> <span class="nav-text">一个比喻比较他们的不同</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Tomcat中的NIO-多路复用的实现"><span class="nav-number">1.1.8.</span> <span class="nav-text">Tomcat中的NIO+多路复用的实现</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Acceptor"><span class="nav-number">1.1.8.1.</span> <span class="nav-text">Acceptor</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Tomcat核心参数"><span class="nav-number">1.1.8.2.</span> <span class="nav-text">Tomcat核心参数</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#多路复用–多个socket共用同一个线程来读取socket中的数据"><span class="nav-number">1.1.9.</span> <span class="nav-text">多路复用–多个socket共用同一个线程来读取socket中的数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#MySQL-Thread-Pool-带来的问题"><span class="nav-number">1.1.10.</span> <span class="nav-text">MySQL Thread Pool 带来的问题</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#协程"><span class="nav-number">1.2.</span> <span class="nav-text">协程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#多进程和多线程优劣的比较"><span class="nav-number">1.2.1.</span> <span class="nav-text">多进程和多线程优劣的比较</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#同步、异步、协程的比较"><span class="nav-number">1.2.2.</span> <span class="nav-text">同步、异步、协程的比较</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#同步调用"><span class="nav-number">1.2.2.1.</span> <span class="nav-text">同步调用</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#改成异步化后："><span class="nav-number">1.2.2.2.</span> <span class="nav-text">改成异步化后：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#用协程来实现"><span class="nav-number">1.2.2.3.</span> <span class="nav-text">用协程来实现</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#协程的切换"><span class="nav-number">1.2.3.</span> <span class="nav-text">协程的切换</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#多线程下的真正开销代价"><span class="nav-number">1.3.</span> <span class="nav-text">多线程下的真正开销代价</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#以ajdk的Wisp2协程为例"><span class="nav-number">1.3.1.</span> <span class="nav-text">以ajdk的Wisp2协程为例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Node-js"><span class="nav-number">1.4.</span> <span class="nav-text">Node.js</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#比喻"><span class="nav-number">1.5.</span> <span class="nav-text">比喻</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章"><span class="nav-number">1.6.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
             
 
           </div>
