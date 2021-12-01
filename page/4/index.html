@@ -292,6 +292,257 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/10/31/epoll和惊群/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/10/31/epoll和惊群/" itemprop="url">epoll和惊群</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-10-31T12:30:03+08:00">
+                2019-10-31
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
+<h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
+<p>惊群的本质在于多个线程处理同一个事件。</p>
+<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
+<p>如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。</p>
+<p>连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）</p>
+<p>关键点：多个进程监听相同事件（或者说一个epoll有多个进程来处理）</p>
+<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
+<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read/write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
+<h2 id="无IO复用时Accept"><a href="#无IO复用时Accept" class="headerlink" title="无IO复用时Accept"></a>无IO复用时Accept</h2><blockquote>
+<p>无IO复用（就只能一个进程监听listen 端口）的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
+</blockquote>
+<p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"> <span class="comment">/* nr_exclusive的值默认设为1 */</span></span><br><span class="line"> <span class="meta">#<span class="meta-keyword">define</span> wake_up_interruptible_sync_poll(x, m)              \</span></span><br><span class="line">    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, <span class="number">1</span>, (<span class="keyword">void</span> *) (m))</span><br><span class="line"></span><br><span class="line">tcp_v4_rcv</span><br><span class="line">tcp_v4_do_rcv</span><br><span class="line">tcp_child_process</span><br><span class="line">sock_def_readable</span><br><span class="line">wake_up_interruptible_sync_poll</span><br><span class="line">__wake_up_common</span><br><span class="line"> <span class="comment">/* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */</span></span><br><span class="line">list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)</span><br><span class="line">    <span class="comment">/* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */</span></span><br><span class="line">    <span class="keyword">if</span> (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;</span><br><span class="line">       !--nr_exclusive)</span><br><span class="line">       <span class="keyword">break</span>;</span><br></pre></td></tr></table></figure>
+<p>sock中定义了几个I/O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
+<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
+<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
+<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
+<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//主进程中：</span></span><br><span class="line">ngx_init_cycle</span><br><span class="line">ngx_open_listening_sockets</span><br><span class="line">    socket</span><br><span class="line">    bind</span><br><span class="line">    <span class="built_in">listen</span></span><br><span class="line">    epoll_create</span><br><span class="line">    epoll_ctl</span><br><span class="line"></span><br><span class="line"><span class="comment">//子进程中：</span></span><br><span class="line">ngx_event_process_init</span><br><span class="line">ngx_prcocess_events_and_timers</span><br><span class="line">ngx_epoll_process_events</span><br><span class="line">    epoll_wait</span><br><span class="line">    rev-&gt;handler(rev) <span class="comment">// 对于listening socket，handler是ngx_event_accept</span></span><br></pre></td></tr></table></figure>
+<p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
+<pre><code>epoll_wait
+ep_poll
+    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
+    init_waitqueue_entry(&amp;wait, current) 
+    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
+    ...
+    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
+</code></pre><p>回调触发逻辑：</p>
+<pre><code>tcp_v4_rcv
+tcp_v4_do_rcv
+tcp_child_process
+sock_def_readable /* sock I/O 有数据可读事件 */
+wake_up_interruptible_sync_poll
+__wake_up_common
+    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
+    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
+        !--nr_exclusive)
+        break;
+</code></pre><p>那么这种情况下内核如何来解决惊群呢？ </p>
+<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
+<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
+<p>linux man文档中一段文字描述其作用：</p>
+<blockquote>
+<p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
+</blockquote>
+<p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
+<ul>
+<li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
+<li>每一个线程拥有自己的服务器套接字</li>
+<li>在服务器套接字上没有了锁的竞争</li>
+<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
+<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
+</ul>
+<p>其核心的实现主要有三点：</p>
+<ul>
+<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
+<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
+<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
+<ul>
+<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
+<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
+<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
+</ul>
+<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
+<p><img src="https://mmbiz.qpic.cn/mmbiz_png/yiaiaFLiaflYRTRy6F9YcnuFfYn7ESbWldtibYIVFRL84nRwtZuOgWYdOTI4BuRodRdR7LvWLlDXZl5cZ23l3AUgOQ/640?wx_fmt=png&amp;tp=webp&amp;wxfrom=5&amp;wx_lazy=1&amp;wx_co=1" alt></p>
+<p>对于Established socket的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。</p>
+<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept</p>
+<p><img src="/images/oss/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
+<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
+<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
+<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
+<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
+<p>如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
+<p>一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。</p>
+<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
+<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
+<p>用图形展示大概如下：</p>
+<p><img src="/images/oss/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
+<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲</p>
+<h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="noopener">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="noopener">comment</a></p>
+<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
+<h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
+<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">epoll_ctl</span><br><span class="line">ep_insert</span><br><span class="line">ep_ptable_queue_proc</span><br><span class="line">    <span class="comment">/* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */</span></span><br><span class="line">     * 注意，和标准accept的等待任务不同，这里并没有给等待任务设置WQ_FLAG_EXCLUSIVE。</span><br><span class="line">     */</span><br><span class="line">    init_waitqueue_func_entry(&amp;pwq-&gt;wait, ep_poll_callback);</span><br><span class="line">    <span class="comment">/* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */</span></span><br><span class="line">    <span class="keyword">if</span> (epi-&gt;event.events &amp; EPOLLEXCLUSIVE)</span><br><span class="line">        <span class="comment">/* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */</span></span><br><span class="line">        add_wait_queue_exclusive(whead, &amp;pwq-&gt;wait);</span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        <span class="comment">/* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */</span></span><br><span class="line">        add_wait_queue(whead, &amp;pwq-&gt;wait);</span><br></pre></td></tr></table></figure>
+<p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.<br>调用栈如下：</p>
+<pre><code>//  tcp_v4_do_rcv()
+//  --&gt;tcp_child_process()
+//  ---&gt;sock_def_readable()
+//  ----&gt;wake_up_interruptible_sync_poll()
+//  -----&gt;__wake_up_sync_key()
+</code></pre><p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
+<p><img src="https://blog.cloudflare.com/content/images/2017/10/worker2.png" alt></p>
+<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
+<p><img src="/images/oss/9bbf15909be8d1bffd3ee1958463c041.png" alt="image.png"></p>
+<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
+<h4 id="EPOLLEXCLUSIVE-带来的问题"><a href="#EPOLLEXCLUSIVE-带来的问题" class="headerlink" title="EPOLLEXCLUSIVE 带来的问题"></a>EPOLLEXCLUSIVE 带来的问题</h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
+<p><img src="/images/oss/6551777f24be3da9d2b41ceb20a2b040.png" alt="image.png"></p>
+<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
+<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
+<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
+<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
+<p><img src="https://blog.cloudflare.com/content/images/2017/10/sharedqueue.png" alt></p>
+<h3 id="比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT"><a href="#比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT" class="headerlink" title="比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
+<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/lyztyycode/article/details/78648798" target="_blank" rel="noopener">Linux惊群效应详解（最详细的了吧）</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/80837278" target="_blank" rel="noopener">再谈Linux epoll惊群问题的原因和解决方案</a></p>
+<p><a href="https://www.atatech.org/articles/117111" target="_blank" rel="noopener">epoll lifo引发的nginx “负载不均”</a> </p>
+<p><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="noopener">Why does one NGINX worker take all the load?</a></p>
+<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a> </p>
+<p><a href="https://www.atatech.org/articles/174248" target="_blank" rel="noopener">Gzip 导致 Nginx worker Hang 问题解法</a></p>
+<p><a href="https://www.atatech.org/articles/112471" target="_blank" rel="noopener">Socket多进程分发原理</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/107227145" target="_blank" rel="noopener">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
+<p><a href="https://my.oschina.net/alchemystar/blog/3008840" target="_blank" rel="noopener">https://my.oschina.net/alchemystar/blog/3008840</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2036,17 +2287,6 @@ public BufferedOutputStream(OutputStream out) {
 <li>用户线程等待内核将数据从网卡拷贝到内核空间</li>
 <li>内核将数据从内核空间拷贝到用户空间</li>
 </ul>
-<h3 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h3><p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝</p>
-<p><img src="/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg" alt></p>
-<p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：</p>
-<p><img src="/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png" alt="image.png"></p>
-<p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
-<p><img src="/images/oss/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
-<p>零拷贝就是操作系统提供的新函数(<strong>sendfile</strong>)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
-<p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
-<p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
-<p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB/32KB）上下文切换。</p>
-<h3 id="直接IO"><a href="#直接IO" class="headerlink" title="直接IO"></a>直接IO</h3><p>默认读写文件都会走 PageCache，但是如果是高并发的大文件读写，走PageCache的话效率不高，推荐用直接IO。比如MySQL INNODB自身实现了cache(buffer)来合并写和预读提升性能</p>
 <h3 id="同步阻塞IO"><a href="#同步阻塞IO" class="headerlink" title="同步阻塞IO"></a>同步阻塞IO</h3><p>用户线程发起read后让出CPU一直阻塞直到内核把网卡数据读到内核空间，然后再拷贝到用户空间，然后唤醒用户线程</p>
 <h3 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h3><p>用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间</p>
 <p><img src="/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
@@ -2079,87 +2319,9 @@ public BufferedOutputStream(OutputStream out) {
 
    Locked ownable synchronizers:
         - None
-</code></pre><p>Acceptor Select Java源代码：</p>
-<pre><code> 33     public NIOAcceptor(String name, int port, FrontendConnectionFactory factory, boolean online) throws IOException{
- 34         super.setName(name);
- 35         this.port = port;
- 36         this.factory = factory;
- 37         if (online) {
- 38             this.selector = Selector.open();
- 39             this.serverChannel = ServerSocketChannel.open();
- 40             this.serverChannel.socket().bind(new InetSocketAddress(port), 65535);
- 41             this.serverChannel.configureBlocking(false);
- 42             this.serverChannel.register(selector, SelectionKey.OP_ACCEPT);
- 43         }
- 44     }
- 45
- 46     public int getPort() {
- 47         return port;
- 48     }
- 49
- 50     public long getAcceptCount() {
- 51         return acceptCount;
- 52     }
- 53
- 54     public void setProcessors(NIOProcessor[] processors) {
- 55         this.processors = processors;
- 56     }
- 57
- 58     @Override
- 59     public void run() {
- 60         for (;;) {
- 61             ++acceptCount;
- 62             try {
- 63                 selector.select(1000L);
- 64                 Set&lt;SelectionKey&gt; keys = selector.selectedKeys();
- 65                 try {
- 66                     for (SelectionKey key : keys) {
- 67                         if (key.isValid() &amp;&amp; key.isAcceptable()) {
- 68                             accept();
- 69                         } else {
- 70                             key.cancel();
- 71                         }
- 72                     }
- 73                 } finally {
- 74                     keys.clear();
- 75                 }
- 76             } catch (Throwable e) {
- 77                 if (this.serverChannel != null &amp;&amp; this.serverChannel.isOpen()) {
- 78                     logger.warn(getName(), e);
- 79                 } else {
- 80                     long sleep = 1000;
- 81                     if (this.serverChannel == null) {
- 82                         sleep = 100;
- 83                     }
- 84
- 85                     try {
- 86                         Thread.sleep(sleep);
- 87                     } catch (InterruptedException e1) {
- 88                         // ignore
- 89                     }
- 90                 }
- 91             }
- 92         }
- 93        }
- 94
- 95     private void accept() {
- 96         SocketChannel channel = null;
- 97         try {
- 98             channel = serverChannel.accept();
- 99             channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-100             channel.configureBlocking(false);
-101             FrontendConnection c = factory.make(channel);
-102             c.setAccepted(true);
-103
-104             NIOProcessor processor = nextProcessor();
-105             c.setProcessor(processor);
-106             processor.postRegister(c);
-107         } catch (Throwable e) {
-108             closeChannel(channel);
-109             logger.info(getName(), e);
-110         }
-111     }
-</code></pre><p> 创建server(Listen端口)就是创建一个NIOAcceptor，监听在特定端口上，NIOAcceptor有多个（一般和core一致） NIOProcessor 线程，一个NIOProcessor 中还可以有一个 NIOReactor</p>
+</code></pre><p><a href="https://github.com/ApsaraDB/galaxysql/blob/main/polardbx-net/src/main/java/com/alibaba/polardbx/net/NIOAcceptor.java" target="_blank" rel="noopener">Acceptor Select Java源代码</a>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">33</span>     <span class="function"><span class="keyword">public</span> <span class="title">NIOAcceptor</span><span class="params">(String name, <span class="keyword">int</span> port, FrontendConnectionFactory factory, <span class="keyword">boolean</span> online)</span> <span class="keyword">throws</span> IOException</span>&#123;</span><br><span class="line"> <span class="number">34</span>         <span class="keyword">super</span>.setName(name);</span><br><span class="line"> <span class="number">35</span>         <span class="keyword">this</span>.port = port;</span><br><span class="line"> <span class="number">36</span>         <span class="keyword">this</span>.factory = factory;</span><br><span class="line"> <span class="number">37</span>         <span class="keyword">if</span> (online) &#123;</span><br><span class="line"> <span class="number">38</span>             <span class="keyword">this</span>.selector = Selector.open();</span><br><span class="line"> <span class="number">39</span>             <span class="keyword">this</span>.serverChannel = ServerSocketChannel.open();</span><br><span class="line"> <span class="number">40</span>             <span class="keyword">this</span>.serverChannel.socket().bind(<span class="keyword">new</span> InetSocketAddress(port), <span class="number">65535</span>);</span><br><span class="line"> <span class="number">41</span>             <span class="keyword">this</span>.serverChannel.configureBlocking(<span class="keyword">false</span>);</span><br><span class="line"> <span class="number">42</span>             <span class="keyword">this</span>.serverChannel.register(selector, SelectionKey.OP_ACCEPT);</span><br><span class="line"> <span class="number">43</span>         &#125;</span><br><span class="line"> <span class="number">44</span>     &#125;</span><br><span class="line"> <span class="number">53</span></span><br><span class="line"> <span class="number">54</span>     <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">setProcessors</span><span class="params">(NIOProcessor[] processors)</span> </span>&#123;</span><br><span class="line"> <span class="number">55</span>         <span class="keyword">this</span>.processors = processors;</span><br><span class="line"> <span class="number">56</span>     &#125;</span><br><span class="line"> <span class="number">57</span></span><br><span class="line"> <span class="number">58</span>     <span class="meta">@Override</span></span><br><span class="line"> <span class="number">59</span>     <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line"> <span class="number">60</span>         <span class="keyword">for</span> (;;) &#123;</span><br><span class="line"> <span class="number">61</span>             ++acceptCount;</span><br><span class="line"> <span class="number">62</span>             <span class="keyword">try</span> &#123;</span><br><span class="line"> <span class="number">63</span>                 selector.select(<span class="number">1000L</span>);</span><br><span class="line"> <span class="number">64</span>                 Set&lt;SelectionKey&gt; keys = selector.selectedKeys();</span><br><span class="line"> <span class="number">65</span>                 <span class="keyword">try</span> &#123;</span><br><span class="line"> <span class="number">66</span>                     <span class="keyword">for</span> (SelectionKey key : keys) &#123;</span><br><span class="line"> <span class="number">67</span>                         <span class="keyword">if</span> (key.isValid() &amp;&amp; key.isAcceptable()) &#123;</span><br><span class="line"> <span class="number">68</span>                             accept();</span><br><span class="line"> <span class="number">69</span>                         &#125; <span class="keyword">else</span> &#123;</span><br><span class="line"> <span class="number">70</span>                             key.cancel();</span><br><span class="line"> <span class="number">71</span>                         &#125;</span><br><span class="line"> <span class="number">72</span>                     &#125;</span><br><span class="line"> <span class="number">73</span>                 &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line"> <span class="number">74</span>                     keys.clear();</span><br><span class="line"> <span class="number">75</span>                 &#125;</span><br><span class="line"> <span class="number">76</span>             &#125; <span class="keyword">catch</span> (Throwable e) &#123;</span><br><span class="line"> <span class="number">77</span>                 </span><br><span class="line"> <span class="number">91</span>             &#125;</span><br><span class="line"> <span class="number">92</span>         &#125;</span><br><span class="line"> <span class="number">93</span>		&#125;</span><br><span class="line"> <span class="number">94</span></span><br><span class="line"> <span class="number">95</span>     <span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">accept</span><span class="params">()</span> </span>&#123;</span><br><span class="line"> <span class="number">96</span>         SocketChannel channel = <span class="keyword">null</span>;</span><br><span class="line"> <span class="number">97</span>         <span class="keyword">try</span> &#123;</span><br><span class="line"> <span class="number">98</span>             channel = serverChannel.accept();</span><br><span class="line"> <span class="number">99</span>             channel.setOption(StandardSocketOptions.TCP_NODELAY, <span class="keyword">true</span>);</span><br><span class="line"><span class="number">100</span>             channel.configureBlocking(<span class="keyword">false</span>);</span><br><span class="line"><span class="number">101</span>             FrontendConnection c = factory.make(channel);</span><br><span class="line"><span class="number">102</span>             c.setAccepted(<span class="keyword">true</span>);</span><br><span class="line"><span class="number">103</span></span><br><span class="line"><span class="number">104</span>             NIOProcessor processor = nextProcessor();</span><br><span class="line"><span class="number">105</span>             c.setProcessor(processor);</span><br><span class="line"><span class="number">106</span>             processor.postRegister(c);</span><br><span class="line"><span class="number">107</span>         &#125; <span class="keyword">catch</span> (Throwable e) &#123;</span><br><span class="line"><span class="number">108</span>             closeChannel(channel);</span><br><span class="line"><span class="number">109</span>             logger.info(getName(), e);</span><br><span class="line"><span class="number">110</span>         &#125;</span><br><span class="line"><span class="number">111</span>     &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">synchronized</span> <span class="keyword">public</span> <span class="keyword">void</span> <span class="title">online</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (<span class="keyword">this</span>.serverChannel != <span class="keyword">null</span> &amp;&amp; <span class="keyword">this</span>.serverChannel.isOpen()) &#123;</span><br><span class="line">            <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">this</span>.selector = Selector.open();</span><br><span class="line">            <span class="keyword">this</span>.serverChannel = ServerSocketChannel.open();</span><br><span class="line">            <span class="keyword">this</span>.serverChannel.socket().bind(<span class="keyword">new</span> InetSocketAddress(port));</span><br><span class="line">            <span class="keyword">this</span>.serverChannel.configureBlocking(<span class="keyword">false</span>);</span><br><span class="line">            <span class="comment">//NIOAccept 只处理accept事件</span></span><br><span class="line">            <span class="keyword">this</span>.serverChannel.register(selector, SelectionKey.OP_ACCEPT);</span><br><span class="line">            statusLogger.info(<span class="keyword">this</span>.getName() + <span class="string">" is started and listening on "</span> + <span class="keyword">this</span>.getPort());</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            logger.error(<span class="keyword">this</span>.getName() + <span class="string">" online error"</span>, e);</span><br><span class="line">            <span class="keyword">throw</span> GeneralUtil.nestedException(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<p>创建server(Listen端口)就是创建一个NIOAcceptor，监听在特定端口上，NIOAcceptor有多个（一般和core一致） NIOProcessor 线程，一个NIOProcessor 中还可以有一个 NIOReactor</p>
 <p>NIOAcceptor(一般只有一个，可以有多个)是一个Thread，只负责处理新建连接（建立新连接会设置这个Socket的Options，比如buffer size、keepalived等），将新建连接绑定到一个NIOProcessor（NIOProcessor数量一般和CPU Core数量一致，一个NIOProcessor对应一个NIOReactor），连接上的收发包由NIOReactor来处理。也就是一个连接（Socket）创建后就绑定到了一个固定的 NIOReactor来处理，每个NIOReactor 有一个 R线程和一个 W线程(写不走epoll的话用这个W线程按queue写出）。这个 R线程一直阻塞在selector,等待新连接或者读写事件的到来。</p>
 <p>新连接进来后NIOAcceptor.select 阻塞解除，执行accept逻辑，accept返回一个channel（对socket封装），设置channel TCP options，将这个channel和一个 NIOProcessor绑定（一个NIOProcessor可以绑定多个channel，反之一个channel只能绑定到一个NIOProcessor），同时将这个channel插入(offer)到NIOProcessor里面的NIOReactor的队列中,并唤醒NIOReactor的selector，将新连接注册到 NIOReactor的selector中(进行连接的mysql协议认证)。然后阻塞在这个selector等待事件中，等待读写事件的到来</p>
 <p>也就是只有Acceptor阶段会有惊群（但是上面的代码只有一个Acceptor，所以也没有惊群了），收发数据阶段因为Socket已经绑定到了一个固定的Thread，所以不会有惊群了，但是可能会存在某个Thread有慢处理导致新进来的请求长时间得不到响应。</p>
@@ -2256,7 +2418,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>同步：端菜上桌过程必须是阻塞，异步相当于厨师将菜送到桌子上后通知你吃</li>
 </ul>
 <h3 id="Tomcat中的NIO-多路复用的实现"><a href="#Tomcat中的NIO-多路复用的实现" class="headerlink" title="Tomcat中的NIO+多路复用的实现"></a>Tomcat中的NIO+多路复用的实现</h3><p> NIOEndpoint组件实现了NIO和IO多路复用，IO多路复用指的是Poller通过Selector处理多个Socket（SocketChannel）</p>
-<p><img src="/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
+<p><img src="/images/951413iMgBlog/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
 <ul>
 <li>LimitLatch 是连接控制器，负责控制最大连接数，NIO模式下默认是10000，达到阈值后新连接被拒绝</li>
 <li>Acceptor 跑在一个单独的线程里，一旦有新连接进来accept方法返回一个SocketChannel对象，接着把SocketChannel对象封装在一个PollerEvent对象中，并将PollerEvent对象压入Poller的Queue里交给Poller处理。 Acceptor和Poller之间是典型的生产者-消费者模式</li>
@@ -2285,6 +2447,16 @@ serverSock.configureBlocking(true);
 <p>事件驱动适合于I/O密集型服务，多进程或线程适合于CPU密集型服务<br>多路复用有很多种实现，在linux上，2.4内核前主要是select和poll，现在主流是epoll<br>select解决了一个线程监听多个socket的问题，但是因为依靠fd_set结构体记录所监控的socket，带来了能监听的socket数量有限（不超过1024）<br>poll在select的基础上解决了1024个的问题，但是还是要依次轮询这1024个socket，效率太低<br>epoll 异步非阻塞多路复用</p>
 <p>闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程</p>
 <p><img src="/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
+<p>netty自带telnet server的example中，一个boss epoll负责listen新连接，新连接分配给多个worker epoll(worker则使用默认的CPU数*2.)，每个连接之后的读写都由固定的一个worker来处理</p>
+<p><img src="/images/951413iMgBlog/image_epoll_worker-7648812.png" alt></p>
+<p>以上netty结构中：</p>
+<ul>
+<li><p>BOSS负责accept连接（通过BOSS监听的channel的read事件），然后实例化新连接的channel</p>
+</li>
+<li><p>将<strong>该channel绑定到worker线程组下的某个eventloop上，后续所有该channel的事件、任务 均有该eventloop执行。这是单个channel无锁的关键</strong></p>
+</li>
+<li>BOSS <strong>提交Channel.regist任务到worker线程组，之后BOSS任务结束，转入继续listen</strong></li>
+</ul>
 <h3 id="MySQL-Thread-Pool-带来的问题"><a href="#MySQL-Thread-Pool-带来的问题" class="headerlink" title="MySQL Thread Pool 带来的问题"></a>MySQL Thread Pool 带来的问题</h3><p>MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲–类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。</p>
 <p><img src="/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
 <p>连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。</p>
@@ -4437,7 +4609,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
         empty address or ‘*’ indicates that the port should be available from all interfaces.
 </code></pre><h3 id="本地转发-L"><a href="#本地转发-L" class="headerlink" title="本地转发 (-L)"></a>本地转发 (-L)</h3><p>本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定目标网站之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。</p>
 <p>它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（ssh-server），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -L local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host</span><br></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ ssh -L :local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host</span><br></pre></td></tr></table></figure>
 <p>上面命令中，<code>-L</code>参数表示本地转发，<code>local-port</code>是本地端口，<code>target-host</code>是你想要访问的目标服务器，<code>target-port</code>是目标服务器的端口，<code>ssh-server</code>是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port</p>
 <p><img src="/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG" alt="img"></p>
 <p>上图对应的命令是：</p>
@@ -5517,7 +5689,7 @@ tx-frame-high: 0
           
             <h1 id="就是要你懂网络–一个网络包的旅程"><a href="#就是要你懂网络–一个网络包的旅程" class="headerlink" title="就是要你懂网络–一个网络包的旅程"></a>就是要你懂网络–一个网络包的旅程</h1><hr>
 <h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>我相信你脑子里关于网络的概念都在下面这张图上，但是乱成一团麻，这就是因为知识没有贯通、没有实践、没有组织</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
+<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
 <p>上面的概念在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>中讲的无比的通熟易懂了，但是抱歉，当时你也许看懂了，但是一个月后又忘记了，或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
 <p><strong>所以这篇文章希望解决书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
 <h2 id="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"><a href="#最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下" class="headerlink" title="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"></a>最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下</h2><p>当时的网络链路是（大概是这样，略有简化）：</p>
@@ -5598,7 +5770,7 @@ tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
 listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 16:22:01.792501 ARP, Request who-has e010125003042.bja.tbsite.net tell e010125003033.bja, length 28
 16:22:01.792566 ARP, Reply e010125003042.bja.tbsite.net is-at 00:16:3e:01:8d:ff (oui Unknown), length 28
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/packtrav-host-switch-host.gif" alt="Host to Host through a Switch - Switch Functions animation"></p>
+</code></pre><p><img src="/images/951413iMgBlog/packtrav-host-switch-host.gif" alt="Host to Host through a Switch - Switch Functions animation"></p>
 <p>上面就是本机发送广播消息，10.125.3.42的mac地址是多少，很快10.125.3.42回复了自己的mac地址。<br>收到这个回复后，先缓存起来，下个ping包就不需要再次arp广播了。<br>然后将这个mac地址填写到ping包的包头的目标Mac（icmp包），然后发出这个icmp request包，按照mac地址，正确到达目标机器，然后对方正确回复icmp reply【对方回复也要查路由规则，arp查发送放的mac，这样回包才能正确路由回来，略过】。</p>
 <p>来看一次完整的ping 10.125.3.43，tcpdump抓包结果：</p>
 <pre><code>$sudo tcpdump -i eth0  arp or icmp
@@ -5611,7 +5783,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 </code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
 <h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关就行转发，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
 <p>从本机10.125.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走10.125.15.254这个网关，如下截图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
+<p><img src="/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
 <p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关10.125.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到10.125.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
 <p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
 <pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
@@ -5626,7 +5798,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 <h3 id="目标收到这个icmp包后的回复过程一样，略过。"><a href="#目标收到这个icmp包后的回复过程一样，略过。" class="headerlink" title="目标收到这个icmp包后的回复过程一样，略过。"></a>目标收到这个icmp包后的回复过程一样，略过。</h3><h3 id="arp广播风暴和arp欺骗"><a href="#arp广播风暴和arp欺骗" class="headerlink" title="arp广播风暴和arp欺骗"></a>arp广播风暴和arp欺骗</h3><p>广播风暴：如果一个子网非常大，机器非常多，每次arp查询都是广播的话，也容易因为N*N的问题导致广播风暴。</p>
 <p>arp欺骗：同样如果一个子网中的某台机器冒充网关或者其他机器，当收到arp查询的时候总是把自己的mac冒充目标机器的mac发给你，然后你的包先走到他，为了不被发现达到自己的目的后再转发给真正的网关或者机器，所以在里面都点什么手脚，看看你发送的内容都还是很容易的</p>
 <h2 id="讲完基础再来看开篇问题的答案"><a href="#讲完基础再来看开篇问题的答案" class="headerlink" title="讲完基础再来看开篇问题的答案"></a>讲完基础再来看开篇问题的答案</h2><h3 id="分别在两个物理机上抓包"><a href="#分别在两个物理机上抓包" class="headerlink" title="分别在两个物理机上抓包"></a>分别在两个物理机上抓包</h3><p>在物理机2上抓包：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
+<p><img src="/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
 <pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
 f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
 10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
@@ -5635,7 +5807,7 @@ f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102:
 </code></pre><p>这个抓包能看到核心证据，ping包有到达物理机2，同时物理机2也正确回复了（mac、ip都对）</p>
 <p>同时在物理机1上抓包只能看到ping包出去，回包没有到物理机1（所以回包肯定不会到容器里了）</p>
 <p><strong>所以问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
-<p>同时观察到的不正常延时：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
+<p>同时观察到的不正常延时：<br><img src="/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
 <h3 id="过程中的其它测试："><a href="#过程中的其它测试：" class="headerlink" title="过程中的其它测试："></a>过程中的其它测试：</h3><ol>
 <li>新拿出一台物理机配置上不通的容器的IP，这是通的，所以客户坚持是容器网络的配置；</li>
 <li>怀疑不通的IP所使用的mac地址冲突，在交换机上清理了交换机的arp缓存，没有帮助，还是不通</li>
@@ -5645,7 +5817,7 @@ f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102:
 <p><strong>通俗点说就是HSRP把回包拐跑了，有些回包拐跑了又送回来了（延时200ms那些）</strong></p>
 <p>至于HSRP为什么会这么做，要厂家出来解释了。</p>
 <p>大概结构如下图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1561010762561-4a8510f9-db2f-44bd-b86f-ddfc5bc889d3.png" alt="undefined">     </p>
+<p><img src="/images/oss/1561010762561-4a8510f9-db2f-44bd-b86f-ddfc5bc889d3.png" alt="undefined">     </p>
 <h4 id="关于HSRP和VRRP"><a href="#关于HSRP和VRRP" class="headerlink" title="关于HSRP和VRRP"></a>关于HSRP和VRRP</h4><p>VRRP是虚拟路由冗余协议的简称，这个协议的目的是为了让多台路由器共同组成一个虚拟路由器，从而解决单点故障。</p>
 <p>使用VRRP的网络架构大致如上面这个图所示，其中Master和Slave共同组成了一个虚拟路由器，这台虚拟路由器的IP是1.1.1.1，同时还会有一个虚拟的mac地址，所有主机的默认网关IP都将设置成1.1.1.1。</p>
 <p>假设主机H1需要对外发送数据，在发送IP数据包时主机H1需要知道1.1.1.1这个IP对应的物理地址，因此H1会向外广播一个ARP请求，询问1.1.1.1这个IP数据包对应的物理地址。此时，Master将会负责响应这个APR请求，将虚拟的mac地址报告给主机H1，主机H1就用这个物理地址发送IP数据包。</p>
@@ -5679,18 +5851,23 @@ telnet: connect to address 11.239.161.60: Connection refused
 <li>有几台物理机io偶然情况下会飙升到80多。需要定位解决。</li>
 </ol>
 <p>其实当时看到tsar监控retran比较高，我也觉得网络有问题，但是我去看的时候网络又非常好，于是我看了一下出问题时间段的网卡的流量信息也非常正常：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
+<p><img src="/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
 <p>上图是通过sar监控到的9号 10.16.11.138（v24d9e0f23d40） 这个网卡的流量，看起来也是正常，流量没有出现明显的波动（10.16.11.138  出问题容器对应的网卡名：v24d9e0f23d40）</p>
 <p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求，基本认识告诉我们如果网络丢包、卡顿，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常。</p>
 <p>实际监控来看，应用出异常的时候我的http服务是正常的（写了脚本判断日志的连续性，没问题）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
+<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
 <p>这也强有力地证明了网络没问题，所以大家集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
-<h2 id="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"><a href="#TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。" class="headerlink" title="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。"></a>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</h2><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
+<blockquote>
+<p>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</p>
+</blockquote>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
 <ul>
 <li>有重传的时候（或者说重传率高的时候），ping有可能是正常的（icmp包网卡直接返回）；</li>
 <li>重传高，一般是tcp retrans，可能应用不响应，可能操作系统软中断太高等</li>
 <li>ping只是保证网络链路是否通畅</li>
 </ul>
+<p>这些原理基本都在RFC1180中阐述的清晰简洁，图文并茂，结构逻辑合理，但是对于90%的程序员没有什么卵用，因为看完几周后就忘得差不多。对于普通人来说还是要通过具体的案例来加深理解。</p>
+<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如《wireshark抓包艺术》，人和人的学习能力有差别必须要承认。</p>
 <hr>
 <h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">https://tools.ietf.org/html/rfc1180</a></p>
 <p><a href="https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/" target="_blank" rel="noopener">https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/</a></p>
@@ -6019,8 +6196,8 @@ $ cat variable.log
 <pre><code>$(warning $(var123))
 </code></pre><p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
 <h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
+<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
+<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
 <p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
 <h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
 <h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
@@ -6048,7 +6225,9 @@ $ cat variable.log
 #echo c &gt; /proc/sysrq-trigger
 //系统crash，然后重启，重启后分析：
 sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
-</code></pre><h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
+</code></pre><p>可以触发dump但是系统没有crash, 以下两个命令都可以</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore</span><br><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem</span><br><span class="line"></span><br><span class="line">写内存hack内核，那就在crash命令执行前，先执行下面的命令：</span><br><span class="line">stap -g -e &apos;probe kernel.function(&quot;devmem_is_allowed&quot;).return &#123; $return = 1 &#125;&apos;</span><br></pre></td></tr></table></figure>
+<h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
 <pre><code>static int __init hotfix_init(void)
 {
   unsigned char e8_call[POKE_LENGTH];
@@ -6111,152 +6290,7 @@ void test_stub1(void)
 }
 </code></pre><h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
 <p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="url">中间件的vipclient服务在centos7上域名解析失败</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-13T10:30:03+08:00">
-                2019-01-13
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="中间件的vipclient服务在centos7上域名解析失败"><a href="#中间件的vipclient服务在centos7上域名解析失败" class="headerlink" title="中间件的vipclient服务在centos7上域名解析失败"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
-<p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
-</blockquote>
-<h2 id="抓包分析"><a href="#抓包分析" class="headerlink" title="抓包分析"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png" alt="image.png"></p>
-<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
-<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="noopener">这里</a>： </p>
-<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
-<h2 id="通过-dig-命令来查看dns解析过程"><a href="#通过-dig-命令来查看dns解析过程" class="headerlink" title="通过 dig 命令来查看dns解析过程"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com </p>
-<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
-<h2 id="分析vipclient域名解析返回的包内容"><a href="#分析vipclient域名解析返回的包内容" class="headerlink" title="分析vipclient域名解析返回的包内容"></a>分析vipclient域名解析返回的包内容</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0882e4815fb1acfa80f813db4bb7265b.png" alt="image.png"></p>
-<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns<br>通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP<br>但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
+<p><a href="https://blog.csdn.net/dog250/article/details/105394840" target="_blank" rel="noopener">Linux系统中如何彻底隐藏一个TCP连接</a></p>
 
           
         
@@ -6338,7 +6372,7 @@ void test_stub1(void)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">124</span>
+                <span class="site-state-item-count">126</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6360,7 +6394,7 @@ void test_stub1(void)
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">224</span>
+                <span class="site-state-item-count">225</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

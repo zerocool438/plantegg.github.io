@@ -292,6 +292,254 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/04/07/就是要你懂TCP--半连接队列和全连接队列--阿里技术公众号版本/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/04/07/就是要你懂TCP--半连接队列和全连接队列--阿里技术公众号版本/" itemprop="url">就是要你懂TCP--半连接队列和全连接队列</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-04-07T17:30:03+08:00">
+                2020-04-07
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+<p>最近碰到一个client端连接服务器总是抛异常的问题，然后定位分析并查阅各种资料文章，对TCP连接队列有个深入的理解</p>
+<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能把他们说清楚</p>
+</blockquote>
+<h3 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h3><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
+
+1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
+2.出问题的时间点，会同时有很多连接出现这个问题。
+3.selector没有销毁重建，一直用的都是一个。
+4.程序刚启动的时候必会出现一些，之后会间歇性出现。
+</code></pre><h3 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h3><h4 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
+</ul>
+<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
+<pre><code>667399 times the listen queue of a socket overflowed
+</code></pre><p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
+<p>接着查看溢出后，OS怎么处理：</p>
+<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
+0
+</code></pre><p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
+<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
+<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
+<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
+<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
+<blockquote>
+<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
+</blockquote>
+<h3 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"><br>（图片来源：<a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/）" target="_blank" rel="noopener">http://www.cnxct.com/something-about-phpfpm-s-backlog/）</a></p>
+<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
+<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
+</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，client就很容易异常了。</p>
+<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
+<pre><code>net.ipv4.tcp_synack_retries = 2
+</code></pre><h3 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h3><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
+<p>（<em>通过具体的、感性的东西来强化我们对知识点的理解和吸收</em>）</p>
+<h4 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h4><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
+667399 times the listen queue of a socket overflowed
+667399 SYNs to LISTEN sockets ignored
+</code></pre><p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。</p>
+<h4 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h4><pre><code>[root@server ~]# ss -lnt
+Recv-Q Send-Q Local Address:Port  Peer Address:Port 
+0        50               *:3306             *:* 
+</code></pre><p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
+<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
+<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
+<pre><code>ServerSocket()
+    Creates an unbound server socket.
+ServerSocket(int port)
+    Creates a server socket, bound to the specified port.
+ServerSocket(int port, int backlog)
+    Creates a server socket and binds it to the specified local port number, with the specified backlog.
+ServerSocket(int port, int backlog, InetAddress bindAddr)
+    Create a server with the specified port, listen backlog, and local IP address to bind to.
+</code></pre><p>（来自JDK帮助文档：<a href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）" target="_blank" rel="noopener">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
+<p><strong>半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 不同版本的os会有些差异</strong></p>
+<blockquote>
+<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
+</blockquote>
+<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre><p> <strong>netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆，顺便建立知识体系，巩固相关知识点 </strong>  </p>
+<h5 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h5><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Recv-Q</span><br><span class="line">Established: The count of bytes not copied by the user program connected to this socket.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</span><br><span class="line"></span><br><span class="line">Send-Q</span><br><span class="line">Established: The count of bytes not acknowledged by the remote host.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog.</span><br></pre></td></tr></table></figure>
+<h6 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h6><p>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<p>下面的case是接收方太慢，从应用机器的netstat统计来看，也是压力端回复太慢（本机listen 9108端口)</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断PTS到9108之间有瓶颈</strong></p>
+<p>上面是通过一些具体的工具、指标来认识全连接队列（工程效率的手段）   </p>
+<h3 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h3><p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
+<pre><code>Fri May  5 13:50:23 CST 2017
+Recv-Q Send-QLocal Address:Port  Peer Address:Port
+11         10         *:3306               *:*
+</code></pre><p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
+<h4 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h4><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
+<pre><code>#ss -lnt
+Recv-Q Send-Q   Local Address:Port Peer Address:Port
+0       100                 *:8080            *:*
+</code></pre><p>Nginx默认是511</p>
+<pre><code>$sudo ss -lnt
+State  Recv-Q Send-Q Local Address:PortPeer Address:Port
+LISTEN    0     511              *:8085           *:*
+LISTEN    0     511              *:8085           *:*
+</code></pre><p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
+<h3 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h3><p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<p>jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
+<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题（<strong>工程效率帮助强化对理论的理解</strong>）。</p>
+<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚，每个问题都是你对具体知识点通关的好机会。</p>
+<h3 id="最后提出相关问题给大家思考"><a href="#最后提出相关问题给大家思考" class="headerlink" title="最后提出相关问题给大家思考"></a>最后提出相关问题给大家思考</h3><ol>
+<li>全连接队列满了会影响半连接队列吗？</li>
+<li>netstat -s看到的overflowed和ignored的数值有什么联系吗？</li>
+<li>如果client走完了TCP握手的第三步，在client看来连接已经建立好了，但是server上的对应连接实际没有准备好，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，你觉得呢？）</li>
+</ol>
+<blockquote>
+<p>提出这些问题就是以这个知识点为抓手，让你的知识体系开始自我生长</p>
+</blockquote>
+<hr>
+<p>参考文章：</p>
+<p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="noopener">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="noopener">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
+<p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="noopener">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
+<p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
+<p><a href="http://jin-yang.github.io/blog/network-synack-queue.html#" target="_blank" rel="noopener">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
+<p><a href="http://blog.chinaunix.net/uid-20662820-id-4154399.html" target="_blank" rel="noopener">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
+<p><a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener">https://www.atatech.org/articles/12919</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/03/01/黄奇帆的复旦经济课--笔记/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -716,8 +964,7 @@
 <h2 id="Jiffies"><a href="#Jiffies" class="headerlink" title="Jiffies"></a>Jiffies</h2><p>Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来纪录系统自开几以来，已经过多少的tick。每发生一次timer interrupt，Jiffies变数会被加一。值得注意的是，Jiffies于系统开机时，并非初始化成零，而是被设为-300*HZ (arch/i386/kernel/time.c)，即代表系统于开机五分钟后，jiffies便会溢位。那溢出怎么办?事实上，Linux核心定义几个macro(timer_after、time_after_eq、time_before与time_before_eq)，即便是溢位，也能藉由这几个macro正确地取得jiffies的内容。</p>
 <p>另外，80x86架构定义一个与jiffies相关的变数jiffies_64 ，此变数64位元，要等到此变数溢位可能要好几百万年。因此要等到溢位这刻发生应该很难吧。那如何经由jiffies_64取得jiffies呢?事实上，jiffies被对应至jiffies_64最低的32位元。因此，经由jiffies_64可以完全不理会溢位的问题便能取得jiffies。</p>
 <h2 id="数据取自于4-19内核代码中的-include-net-tcp-h"><a href="#数据取自于4-19内核代码中的-include-net-tcp-h" class="headerlink" title="数据取自于4.19内核代码中的 include/net/tcp.h"></a>数据取自于4.19内核代码中的 include/net/tcp.h</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line">//rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒</span><br><span class="line">#define TCP_RTO_MAX     ((unsigned)(120*HZ))</span><br><span class="line">#define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN</span><br><span class="line"></span><br><span class="line">/* Maximal number of ACKs sent quickly to accelerate slow-start. */</span><br><span class="line">#define TCP_MAX_QUICKACKS       16U //默认前16个ack必须quick ack来加速慢启动</span><br><span class="line"></span><br><span class="line">//默认delay ack不能超过200ms</span><br><span class="line">#define TCP_DELACK_MAX  ((unsigned)(HZ/5))  /* maximal time to delay before sending an ACK */</span><br><span class="line">#if HZ &gt;= 100</span><br><span class="line">//默认 delay ack 40ms，不能修改和关闭</span><br><span class="line">#define TCP_DELACK_MIN  ((unsigned)(HZ/25))     /* minimal time to delay before sending an ACK */</span><br><span class="line">#define TCP_ATO_MIN     ((unsigned)(HZ/25))</span><br><span class="line">#else</span><br><span class="line">#define TCP_DELACK_MIN  4U</span><br><span class="line">#define TCP_ATO_MIN     4U</span><br><span class="line">#endif</span><br><span class="line"></span><br><span class="line">#define TCP_SYNQ_INTERVAL       (HZ/5)  /* Period of SYNACK timer */</span><br><span class="line">#define TCP_KEEPALIVE_TIME      (120*60*HZ)     /* two hours */</span><br><span class="line">#define TCP_KEEPALIVE_PROBES    9               /* Max of 9 keepalive probes    */</span><br><span class="line">#define TCP_KEEPALIVE_INTVL     (75*HZ)</span><br><span class="line"></span><br><span class="line">/* cwnd init 默认大小是10个拥塞窗口，也可以通过sysctl_tcp_init_cwnd来设置，要求内核编译的时候支持*/</span><br><span class="line">#if IS_ENABLED(CONFIG_TCP_INIT_CWND_PROC)</span><br><span class="line">extern u32 sysctl_tcp_init_cwnd;</span><br><span class="line">/* TCP_INIT_CWND is rvalue */</span><br><span class="line">#define TCP_INIT_CWND           (sysctl_tcp_init_cwnd + 0)</span><br><span class="line">#else</span><br><span class="line">/* TCP initial congestion window as per rfc6928 */</span><br><span class="line">#define TCP_INIT_CWND           10</span><br><span class="line">#endif</span><br><span class="line"></span><br><span class="line">/* Flags in tp-&gt;nonagle 默认nagle算法关闭的*/</span><br><span class="line">#define TCP_NAGLE_OFF           1       /* Nagle&apos;s algo is disabled */</span><br><span class="line">#define TCP_NAGLE_CORK          2       /* Socket is corked         */</span><br><span class="line">#define TCP_NAGLE_PUSH          4       /* Cork is overridden for already queued data */</span><br><span class="line"></span><br><span class="line">#define TCP_TIMEWAIT_LEN (60*HZ) /* how long to wait to destroy TIME-WAIT</span><br><span class="line">                                  * state, about 60 seconds     */</span><br><span class="line">                                  </span><br><span class="line">#define TCP_SYN_RETRIES  6      /* This is how many retries are done</span><br><span class="line">                                 * when active opening a connection.</span><br><span class="line">                                 * RFC1122 says the minimum retry MUST</span><br><span class="line">                                 * be at least 180secs.  Nevertheless</span><br><span class="line">                                 * this value is corresponding to</span><br><span class="line">                                 * 63secs of retransmission with the</span><br><span class="line">                                 * current initial RTO.</span><br><span class="line">                                 */</span><br><span class="line"></span><br><span class="line">#define TCP_SYNACK_RETRIES 5    /* This is how may retries are done</span><br><span class="line">                                 * when passive opening a connection.</span><br><span class="line">                                 * This is corresponding to 31secs of</span><br><span class="line">                                 * retransmission with the current</span><br><span class="line">                                 * initial RTO.</span><br><span class="line">                                 */</span><br></pre></td></tr></table></figure>
-<p>即使RTT很小（比如0.8ms），但是因为RTO有下限，最小必须是200ms，所以这是RTT再小也白搭；RTO最小值是内核编译是决定的，socket程序中无法修改，Linux TCP也没有任何参数可以改变这个值。</p>
-<p>rto不能设置，而是根据到不同server的rtt计算得到</p>
+<p>rto不能设置，而是根据到不同server的rtt计算得到，即使RTT很小（比如0.8ms），但是因为RTO有下限，最小必须是200ms，所以这是RTT再小也白搭；RTO最小值是内核编译是决定的，socket程序中无法修改，Linux TCP也没有任何参数可以改变这个值。</p>
 <h3 id="delay-ack"><a href="#delay-ack" class="headerlink" title="delay ack"></a>delay ack</h3><p>正常情况下ack可以quick ack也可以delay ack，redhat在sysctl中可以设置这两个值</p>
 <blockquote>
 <p>/proc/sys/net/ipv4/tcp_ato_min</p>
@@ -725,14 +972,14 @@
 <p>默认都是推荐delay ack的，一定要修改成quick ack的话（3.10.0-327之后的内核版本）：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$sudo ip route show</span><br><span class="line">default via 10.0.207.253 dev eth0 proto dhcp src 10.0.200.23 metric 1024</span><br><span class="line">10.0.192.0/20 dev eth0 proto kernel scope link src 10.0.200.23</span><br><span class="line">10.0.207.253 dev eth0 proto dhcp scope link src 10.0.200.23 metric 1024</span><br><span class="line"></span><br><span class="line">$sudo ip route change default via 10.0.207.253  dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickack 1</span><br><span class="line"></span><br><span class="line">$sudo ip route show</span><br><span class="line">default via 10.0.207.253 dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickack 1</span><br><span class="line">10.0.192.0/20 dev eth0 proto kernel scope link src 10.0.200.23</span><br><span class="line">10.0.207.253 dev eth0 proto dhcp scope link src 10.0.200.23 metric 1024</span><br></pre></td></tr></table></figure>
 <p>默认开启delay ack的抓包情况如下，可以清晰地看到有几个40ms的ack</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7f4590cccf73fd672268dbf0e6a1b309.png" alt="image.png"></p>
+<p><img src="/images/oss/7f4590cccf73fd672268dbf0e6a1b309.png" alt="image.png"></p>
 <p>第一个40ms 的ack对应的包， 3306收到 update请求后没有ack，而是等了40ms update也没结束，就ack了</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b06d3148450fc24fa26b2a9cdfe07831.png" alt="image.png"></p>
+<p><img src="/images/oss/b06d3148450fc24fa26b2a9cdfe07831.png" alt="image.png"></p>
 <p>同样的机器，执行quick ack后的抓包</p>
 <blockquote>
 <p>sudo ip route change default via 10.0.207.253  dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickack 1</p>
 </blockquote>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9fba9819e769494bc09a2a11245e4769.png" alt="image.png"></p>
+<p><img src="/images/oss/9fba9819e769494bc09a2a11245e4769.png" alt="image.png"></p>
 <p><strong>同样场景下，改成quick ack后基本所有的ack都在0.02ms内发出去了。</strong></p>
 <p>比较奇怪的是在delay ack情况下不是每个空ack都等了40ms，这么多包只看到4个delay了40ms，其它的基本都在1ms内就以空包就行ack了。</p>
 <p>将 quick ack去掉后再次抓包仍然抓到了很多的40ms的ack。</p>
@@ -1320,6 +1567,8 @@
 <h2 id="NVMe-SSD-和-HDD的性能比较"><a href="#NVMe-SSD-和-HDD的性能比较" class="headerlink" title="NVMe SSD 和 HDD的性能比较"></a>NVMe SSD 和 HDD的性能比较</h2><p><img src="/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png" alt="image.png"></p>
 <p>表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。</p>
 <p><strong>HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。</strong></p>
+<p><img src="/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png" alt="img"></p>
+<p>从上图可以看出如果是随机读写HDD性能极差，但是如果是顺序读写HDD和SDD、内存差异就不那么大了。</p>
 <h2 id="non-volatile-memory-NVM"><a href="#non-volatile-memory-NVM" class="headerlink" title="non-volatile memory (NVM)"></a>non-volatile memory (NVM)</h2><p>NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。</p>
 <p><strong>1、NVM特性</strong></p>
 <p><strong>数据访问延迟</strong>：NVM的读延迟比磁盘小很多。由于NVM仍处于开发阶段，来源不同延迟不同。STT-RAM的延迟1-20ns。尽管如此，他的延迟也已经非常接近DRAM了。</p>
@@ -3251,11 +3500,37 @@ test.x86_64.rpm
 </ul>
 <h2 id="Linux-启动进入紧急模式"><a href="#Linux-启动进入紧急模式" class="headerlink" title="Linux 启动进入紧急模式"></a>Linux 启动进入紧急模式</h2><p>可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载</p>
 <p>否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的</p>
+<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="noopener">tty</a></h2><p>tty（teletype–最早的一种终端设备） stty 设置tty的相关参数</p>
+<p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
+<p>/dev/pty（Pseudo Terminal） 伪终端</p>
+<p>/dev/tty 控制终端</p>
+<p>远古时代tty是物理形态的存在</p>
+<p><img src="/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
+<p>PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义</p>
+<p><img src="/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
+<p>实际像如下图的工作协作:</p>
+<p><img src="/images/951413iMgBlog/case3.png" alt="Diagram"></p>
+<h2 id="rsync"><a href="#rsync" class="headerlink" title="rsync"></a><a href="https://wangdoc.com/ssh/rsync.html" target="_blank" rel="noopener">rsync</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">将本地yum备份到150上的/data/yum/ 下</span><br><span class="line">rsync -arv ./yum/ root@11.167.60.150:/data/yum/</span><br><span class="line"></span><br><span class="line">走ssh的8022端口把目录备份到本地</span><br><span class="line">rsync -e &apos;ssh -p 8022&apos; -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./</span><br></pre></td></tr></table></figure>
+<p><code>-a</code>、<code>--archive</code>参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。</p>
+<p><code>--delete</code>参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。</p>
+<p><code>-i</code>参数表示输出源目录与目标目录之间文件差异的详细情况。</p>
+<p><code>--link-dest</code>参数指定增量备份的基准目录。</p>
+<p><code>-n</code>参数或<code>--dry-run</code>参数模拟将要执行的操作，而并不真的执行。配合<code>-v</code>参数使用，可以看到哪些内容会被同步过去。</p>
+<p><code>--partial</code>参数允许恢复中断的传输。不使用该参数时，<code>rsync</code>会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与<code>--append</code>或<code>--append-verify</code>配合使用。</p>
+<p><code>--progress</code>参数表示显示进展。</p>
+<p><code>-r</code>参数表示递归，即包含子目录。</p>
+<p><code>-v</code>参数表示输出细节。<code>-vv</code>表示输出更详细的信息，<code>-vvv</code>表示输出最详细的信息。</p>
+<h2 id="Shebang"><a href="#Shebang" class="headerlink" title="Shebang"></a>Shebang</h2><p>Shebang 的东西 <code>#!/bin/bash</code></p>
+<p>对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。</p>
+<h3 id="ELF（Executable-and-Linkable-Format）"><a href="#ELF（Executable-and-Linkable-Format）" class="headerlink" title="ELF（Executable and Linkable Format）"></a>ELF（Executable and Linkable Format）</h3><p>对应windows下的exe</p>
 <h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="noopener">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
 <p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="noopener">https://www.jianshu.com/p/ac3e7009a764</a></p>
 <p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="noopener">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
 <p>B 站清华大学操作系统视频地址：<a href="https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697" target="_blank" rel="noopener">https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697</a></p>
 <p><a href="https://linux.cn/article-10465-1.html" target="_blank" rel="noopener">Linux 工具：点的含义</a> <a href="https://www.linux.com/training-tutorials/linux-tools-meaning-dot/" target="_blank" rel="noopener">英文版</a></p>
+<p><a href="http://coolnull.com/4432.html" target="_blank" rel="noopener">linux cp实现强制覆盖</a></p>
+<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="noopener">https://wangdoc.com/bash/startup.html</a></p>
+<p><a href="https://cjting.me/2020/12/10/tiny-x64-helloworld/" target="_blank" rel="noopener">编写一个最小的 64 位 Hello World</a></p>
 
           
         
@@ -4314,7 +4589,7 @@ while (true) {
             <h1 id="epoll的LT和ET"><a href="#epoll的LT和ET" class="headerlink" title="epoll的LT和ET"></a>epoll的LT和ET</h1><ul>
 <li><p>LT水平触发(翻译为 条件触发 更合适） </p>
 <blockquote>
-<p>   如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如事件来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
+<p>如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如事件来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
 </blockquote>
 </li>
 <li><p>ET边沿触发 </p>
@@ -4324,7 +4599,7 @@ while (true) {
 </li>
 </ul>
 <p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
-<h3 id="水平触发的问题：不必要的唤醒"><a href="#水平触发的问题：不必要的唤醒" class="headerlink" title="水平触发的问题：不必要的唤醒"></a>水平触发的问题：不必要的唤醒</h3><ol>
+<h3 id="条件触发的问题：不必要的唤醒"><a href="#条件触发的问题：不必要的唤醒" class="headerlink" title="条件触发的问题：不必要的唤醒"></a>条件触发的问题：不必要的唤醒</h3><ol>
 <li>内核：收到一个新建连接的请求</li>
 <li>内核：由于 “惊群效应” ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
 <li>线程A：epoll_wait() 返回</li>
@@ -4355,28 +4630,17 @@ while (true) {
 <li>线程A：又继续执行 accept()，结果又返回成功</li>
 </ol>
 <p>ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：</p>
-<pre><code>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip .....
-</code></pre><p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
+<blockquote>
+<p>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip …..</p>
+</blockquote>
+<p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
 <p>这样就会造成nginx的这个worker假死了一样。如果上传速度慢，这个循环无法持续存在，也就是一旦读完nginx切走（再有数据进来等待下次触发），不会造成假死。</p>
 <p>JDK中的NIO是条件触发（level-triggered），不支持ET。netty，nginx和redis默认是边缘触发（edge-triggered），netty因为JDK不支持ET，所以自己实现了Netty-native的抽象，不依赖JDK来提供ET。</p>
 <p>边缘触发会比条件触发更高效一些，因为边缘触发不会让同一个文件描述符多次被处理,比如有些文件描述符已经不需要再读写了,但是在条件触发下每次都会返回,而边缘触发只会返回一次。</p>
 <p>如果设置边缘触发,则必须将对应的文件描述符设置为非阻塞模式并且循环读取数据。否则会导致程序的效率大大下降或丢消息。</p>
 <p>poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘触发。条件触发同时支持block和non-block，使用更简单一些。</p>
-<h3 id="epoll-LT惊群的发生"><a href="#epoll-LT惊群的发生" class="headerlink" title="epoll LT惊群的发生"></a>epoll LT惊群的发生</h3><pre><code>// 否则会阻塞在IO系统调用，导致没有机会再epoll
-set_socket_nonblocking(sd);
-epfd = epoll_create(64);
-event.data.fd = sd;
-epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &amp;event);
-while (1) {
-    epoll_wait(epfd, events, 64, xx);
-    ... // 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
-    // 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
-    // 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
-    // 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
-    csd = accept(sd, &amp;in_addr, &amp;in_len); 
-    ...
-}
-</code></pre><p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
+<h3 id="epoll-LT惊群的发生"><a href="#epoll-LT惊群的发生" class="headerlink" title="epoll LT惊群的发生"></a>epoll LT惊群的发生</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 否则会阻塞在IO系统调用，导致没有机会再epoll</span></span><br><span class="line">set_socket_nonblocking(sd);</span><br><span class="line">epfd = epoll_create(<span class="number">64</span>);</span><br><span class="line">event.data.fd = sd;</span><br><span class="line">epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &amp;event);</span><br><span class="line"><span class="keyword">while</span> (<span class="number">1</span>) &#123;</span><br><span class="line">    epoll_wait(epfd, events, <span class="number">64</span>, xx);</span><br><span class="line">    ... <span class="comment">// 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！</span></span><br><span class="line">    <span class="comment">// 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：</span></span><br><span class="line">    <span class="comment">// 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)</span></span><br><span class="line">    <span class="comment">// 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。</span></span><br><span class="line">    csd = accept(sd, &amp;in_addr, &amp;in_len); </span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
 <p>保证1：在LT模式下，“就绪链表”上取出的epi上报完事件后会重新加回“就绪链表”；<br>保证2：如果“就绪链表”不为空，且此时有进程阻塞在同一个epoll句柄的睡眠队列上，则唤醒它。</p>
 <p>epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而为之的，内核肯定是知道这件事的，这个并不像之前accept惊群那样算是内核的一个缺陷。epoll LT模式只是提供了一种模式，误用这种模式将会造成类似惊群那样的效应。但是不管怎么说，为了讨论上的方便，后面我们姑且将这种效应称作epoll LT惊群吧。</p>
 <h3 id="epoll-ET模式可以解决上面的问题，但是带来了新的麻烦"><a href="#epoll-ET模式可以解决上面的问题，但是带来了新的麻烦" class="headerlink" title="epoll ET模式可以解决上面的问题，但是带来了新的麻烦"></a>epoll ET模式可以解决上面的问题，但是带来了新的麻烦</h3><p>由于epi entry的callback即ep_poll_callback所做的事情仅仅是将该epi自身加入到epoll句柄的“就绪链表”，同时唤醒在epoll句柄睡眠队列上的task，所以这里并不对事件的细节进行计数，比如说，<strong>如果ep_poll_callback在将一个epi加入“就绪链表”之前发现它已经在“就绪链表”了，那么就不会再次添加，因此可以说，一个epi可能pending了多个事件，注意到这点非常重要！</strong></p>
@@ -5209,296 +5473,6 @@ Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/10/31/epoll和惊群/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/10/31/epoll和惊群/" itemprop="url">epoll和惊群</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-10-31T12:30:03+08:00">
-                2019-10-31
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
-<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
-<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好滴解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
-<h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
-<p>惊群的本质在于多个线程处理同一个事件。</p>
-<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
-<h2 id="无IO复用时Accept"><a href="#无IO复用时Accept" class="headerlink" title="无IO复用时Accept"></a>无IO复用时Accept</h2><blockquote>
-<p>无IO复用的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
-</blockquote>
-<p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
-<pre><code> /* nr_exclusive的值默认设为1 */
- #define wake_up_interruptible_sync_poll(x, m)              \
-    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, 1, (void *) (m))
-
-tcp_v4_rcv
-tcp_v4_do_rcv
-tcp_child_process
-sock_def_readable
-wake_up_interruptible_sync_poll
-__wake_up_common
- /* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */
-list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)
-    /* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */
-    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
-       !--nr_exclusive)
-       break; 
-</code></pre><p>sock中定义了几个I/O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
-<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
-<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
-<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
-<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
-<pre><code>//主进程中：
-ngx_init_cycle
-ngx_open_listening_sockets
-    socket
-    bind
-    listen
-    epoll_create
-    epoll_ctl
-
-//子进程中：
-ngx_event_process_init
-ngx_prcocess_events_and_timers
-ngx_epoll_process_events
-    epoll_wait
-    rev-&gt;handler(rev) // 对于listening socket，handler是ngx_event_accept
-</code></pre><p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
-<pre><code>epoll_wait
-ep_poll
-    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
-    init_waitqueue_entry(&amp;wait, current) 
-    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
-    ...
-    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
-</code></pre><p>回调触发逻辑：</p>
-<pre><code>tcp_v4_rcv
-tcp_v4_do_rcv
-tcp_child_process
-sock_def_readable /* sock I/O 有数据可读事件 */
-wake_up_interruptible_sync_poll
-__wake_up_common
-    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
-    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
-        !--nr_exclusive)
-        break;
-</code></pre><p>那么这种情况下内核如何来解决惊群呢？ </p>
-<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
-<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
-<p>linux man文档中一段文字描述其作用：</p>
-<blockquote>
-<p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
-</blockquote>
-<p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
-<ul>
-<li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
-<li>每一个线程拥有自己的服务器套接字</li>
-<li>在服务器套接字上没有了锁的竞争</li>
-<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
-<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
-</ul>
-<p>其核心的实现主要有三点：</p>
-<ul>
-<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
-<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
-<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
-</ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<ul>
-<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
-<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
-<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
-</ul>
-<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，根据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
-<p><img src="https://mmbiz.qpic.cn/mmbiz_png/yiaiaFLiaflYRTRy6F9YcnuFfYn7ESbWldtibYIVFRL84nRwtZuOgWYdOTI4BuRodRdR7LvWLlDXZl5cZ23l3AUgOQ/640?wx_fmt=png&amp;tp=webp&amp;wxfrom=5&amp;wx_lazy=1&amp;wx_co=1" alt></p>
-<p>对于Established socket的读写事件一般是只有一个worker在监听对应的epoll事件。</p>
-<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到别的socket上的read/write或者accept</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
-<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个cpu一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">因为Nginx是ET模式，epoll要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
-<p>如果不开启SO_REUSEPORT模式，那么即使有一个进程在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
-<p><strong>单worker同时会处理多个连接上的所有请求</strong>，accept_mutex 只是控制连接创建的时候哪个worker来accept，避免建连接惊群。连接建立好后这个连接的所有请求就一直会在这个worker上（当然还有其它连接的请求也在这个worker上）。SO_REUSEPORT只是不让worker去抢accept了，改成内核无差别轮询派发。如果这个时候某个连接一直是很耗CPU的请求（比如gzip），会导致这个worker比价卡顿，如果这个gzip能切走也还是可以照顾到别的连接的请求的。</p>
-<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
-<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
-<p>用图形展示大概如下：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
-<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲</p>
-<h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="noopener">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="noopener">comment</a></p>
-<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
-<h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
-<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
-<pre><code>epoll_ctl
-ep_insert
-ep_ptable_queue_proc
-    /* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */
-     * 注意，和标准accept的等待任务不同，这里并没有给等待任务设置WQ_FLAG_EXCLUSIVE。
-     */
-    init_waitqueue_func_entry(&amp;pwq-&gt;wait, ep_poll_callback);
-    /* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */
-    if (epi-&gt;event.events &amp; EPOLLEXCLUSIVE)
-        /* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */
-        add_wait_queue_exclusive(whead, &amp;pwq-&gt;wait);
-    else
-        /* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */
-        add_wait_queue(whead, &amp;pwq-&gt;wait);
-</code></pre><p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.<br>调用栈如下：</p>
-<pre><code>//  tcp_v4_do_rcv()
-//  --&gt;tcp_child_process()
-//  ---&gt;sock_def_readable()
-//  ----&gt;wake_up_interruptible_sync_poll()
-//  -----&gt;__wake_up_sync_key()
-</code></pre><p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
-<p><img src="https://blog.cloudflare.com/content/images/2017/10/worker2.png" alt></p>
-<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9bbf15909be8d1bffd3ee1958463c041.png" alt="image.png"></p>
-<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
-<h4 id="EPOLLEXCLUSIVE-带来的问题"><a href="#EPOLLEXCLUSIVE-带来的问题" class="headerlink" title="EPOLLEXCLUSIVE 带来的问题"></a>EPOLLEXCLUSIVE 带来的问题</h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6551777f24be3da9d2b41ceb20a2b040.png" alt="image.png"></p>
-<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
-<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
-<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
-<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
-<p><img src="https://blog.cloudflare.com/content/images/2017/10/sharedqueue.png" alt></p>
-<h3 id="比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT"><a href="#比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT" class="headerlink" title="比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
-<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/lyztyycode/article/details/78648798" target="_blank" rel="noopener">Linux惊群效应详解（最详细的了吧）</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/80837278" target="_blank" rel="noopener">再谈Linux epoll惊群问题的原因和解决方案</a></p>
-<p><a href="https://www.atatech.org/articles/117111" target="_blank" rel="noopener">epoll lifo引发的nginx “负载不均”</a> </p>
-<p><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="noopener">Why does one NGINX worker take all the load?</a></p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a> </p>
-<p><a href="https://www.atatech.org/articles/174248" target="_blank" rel="noopener">Gzip 导致 Nginx worker Hang 问题解法</a></p>
-<p><a href="https://www.atatech.org/articles/112471" target="_blank" rel="noopener">Socket多进程分发原理</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/107227145" target="_blank" rel="noopener">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
-<p><a href="https://my.oschina.net/alchemystar/blog/3008840" target="_blank" rel="noopener">https://my.oschina.net/alchemystar/blog/3008840</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5546,7 +5520,7 @@ ep_ptable_queue_proc
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">124</span>
+                <span class="site-state-item-count">126</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5568,7 +5542,7 @@ ep_ptable_queue_proc
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">224</span>
+                <span class="site-state-item-count">225</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

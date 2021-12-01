@@ -292,6 +292,152 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="url">中间件的vipclient服务在centos7上域名解析失败</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-13T10:30:03+08:00">
+                2019-01-13
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/DNS/" itemprop="url" rel="index">
+                    <span itemprop="name">DNS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="中间件的vipclient服务在centos7上域名解析失败"><a href="#中间件的vipclient服务在centos7上域名解析失败" class="headerlink" title="中间件的vipclient服务在centos7上域名解析失败"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
+<p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
+</blockquote>
+<h2 id="抓包分析"><a href="#抓包分析" class="headerlink" title="抓包分析"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png" alt="image.png"></p>
+<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
+<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="noopener">这里</a>： </p>
+<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
+<h2 id="通过-dig-命令来查看dns解析过程"><a href="#通过-dig-命令来查看dns解析过程" class="headerlink" title="通过 dig 命令来查看dns解析过程"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com </p>
+<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
+<h2 id="分析vipclient域名解析返回的包内容"><a href="#分析vipclient域名解析返回的包内容" class="headerlink" title="分析vipclient域名解析返回的包内容"></a>分析vipclient域名解析返回的包内容</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0882e4815fb1acfa80f813db4bb7265b.png" alt="image.png"></p>
+<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns<br>通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP<br>但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/12/Docker中的DNS解析过程/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -895,7 +1041,7 @@ IPv4 路由表
 <p>比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS /etc/resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。</p>
 <h3 id="风波再起"><a href="#风波再起" class="headerlink" title="风波再起"></a>风波再起</h3><p>本来以为问题彻底解决了，结果还是有一台机器ping仍然是unknow host，眼睛都看瞎了没发现啥问题，抓包发现总是把dns请求交给第二个nameserver，或者根本不发送dns请求，这就有意思了，跟我们理解的不太一样。</p>
 <p>看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
+<p><img src="/images/oss/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
 <p>ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。</p>
 <p><strong>从strace来看所有的ping都会尝试看看 nscd 是否在运行，在的话找nscd要域名解析结果，如果nscd没有运行，那么再找 /etc/resolv.conf中的nameserver做域名解析</strong></p>
 <p>而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。</p>
@@ -910,17 +1056,16 @@ IPv4 路由表
 <li>DNS域名解析的时候先根据 /etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
 <li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns </li>
 <li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener">但是因为glibc库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
 </ul>
 <p><strong>nslookup和dig程序是bind程序包所带的工具，专门用来检测DNS Server的，实现上更简单，就一个目的，给DNS Server发DNS解析请求，没有调gethostbyname()函数，也就不遵循上述流程，而是直接到 /etc/resolv.conf 取第一个nameserver当dns server进行解析</strong></p>
 <h3 id="glibc函数"><a href="#glibc函数" class="headerlink" title="glibc函数"></a>glibc函数</h3><p>glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 地址的解析, gethostbyname 函数以同步阻塞的方式提供服务, 没有超时等选项, 仅提供 IPv4 的解析. getaddrinfo 则没有这些限制, 同时支持 IPv4, IPv6, 也支持 IPv4 到 IPv6 的映射选项. 包含 Linux 在内的很多系统都已废弃 gethostbyname 函数, 使用 getaddrinfo 函数代替. 不过从现实的情况来看, 还是有很多程序或网络库使用 gethostbyname 进行服务.</p>
 <p>备注:<br>线上开启 nscd 前, 建议做好程序的测试, nscd 仅支持通过 glibc, c 标准机制运行的程序, 没有基于 glibc 运行的程序可能不支持 nscd. 另外一些 go, perl 等编程语言网络库的解析函数是单独实现的, 不会走 nscd 的 socket, 这种情况下程序可以进行名称解析, 但不会使用 nscd 缓存. 不过我们在测试环境中使用go, java 的常规网络库都可以正常连接 nscd 的 socket 进行请求; perl 语言使用 Net::DNS 模块, 不会使用 nscd 缓存; python 语言使用 python-dns 模块, 不会使用 nscd 缓存. python 和 perl 不使用模块的时候进行解析还是遵循上述的过程, 同时使用 nscd 缓存.</p>
 <h2 id="下面是glibc中对rotate的处理："><a href="#下面是glibc中对rotate的处理：" class="headerlink" title="下面是glibc中对rotate的处理："></a>下面是glibc中对rotate的处理：</h2><p>这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
+<p><img src="/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
 <p>在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
-<p>也就是2010年之前的版本都是把第一个默认挪到最后一个（为了保护第一个nameserver），到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
+<p><img src="/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
+<p><img src="/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
 <p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
 <p><a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570" target="_blank" rel="noopener">参考 glibc bug</a></p>
 <p><a href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc" target="_blank" rel="noopener">Linux内核与glibc</a></p>
@@ -1652,11 +1797,11 @@ end
 <p><strong>确认问题在宿主机网卡MTU设置为1350</strong>，从而导致容器发出的包被宿主机网卡丢掉</p>
 <h2 id="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名"><a href="#新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名" class="headerlink" title="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名"></a>新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名</h2><p>ping 这个域名能通，但是nslookup不行，基本可以确认网络没有大问题，之所以ping可以nslookup不行，是因为他们底层取dns server的逻辑不一样。</p>
 <p>先检查dns设置：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
+<p><img src="/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
+<p><img src="/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
 <p>多出来一个127.0.0.1肯定有问题，明明配置的时候只填了114.114.114.114. nslookup、浏览器默认把域名解析丢给了127.0.0.1，但是 ping丢给了114.114.114.114，所以看到如上描述的结果。</p>
 <p>经过思考发现应该是本机同时运行了easyconnect（vpn软件），127.0.0.1 是他强行塞进来的。马上停掉easyconnect再ipconfig /all 验证一下这个时候的dns server，果然127.0.0.1不见了, nslookup 也正常了。</p>
-<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
+<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
 <p>能ping通说明网络能通，但是dns域名要能解析依赖于：</p>
 <ul>
 <li>网络能通</li>
@@ -1665,7 +1810,7 @@ end
 </ul>
 <p>如上图，这里的问题非常明显是中间的防火墙没放行 udp 53端口</p>
 <h2 id="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通"><a href="#方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通" class="headerlink" title="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通"></a>方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通</h2><p><a href="https://www.atatech.org/articles/93688" target="_blank" rel="noopener">nslookup 域名结果正确，但是 ping 域名失败</a></p>
-<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
+<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
 <p><strong>如图所示容器中发了 arp包（IP 10.100.2.2 寻找10.100.2.1 的mac地址），这个包从bond0 网卡发出去了，也是带的正确的 vlanid 1011，但是交换机没有回复，那么就一定是交换机上vlan配置不对，需要找分配这个vlan的网工来检查交换机的配置</strong></p>
 <font color="red" size="4"><strong>能抓到进出的容器包–外部环境正确，方舟底座的问题</strong></font>
 
@@ -1677,7 +1822,7 @@ end
 <p>检查宿主机网卡状态，发现没插网线，<strong>如果容器所用的宿主机网卡没有插网线，那么ovs就不会转发任何包到宿主机网卡</strong>。</p>
 <h2 id="一台应用服务器无法访问部分drds-server"><a href="#一台应用服务器无法访问部分drds-server" class="headerlink" title="一台应用服务器无法访问部分drds-server"></a><a href="https://aone.alibaba-inc.com/task/9753887" target="_blank" rel="noopener">一台应用服务器无法访问部分drds-server</a></h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
 <p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
+<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
 <p><strong>上图是不通的IP，下图是正常IP</strong></p>
 <p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
 <h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
@@ -1690,7 +1835,7 @@ end
 <h2 id="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"><a href="#修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复" class="headerlink" title="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"></a>修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复</h2><p><a href="https://www.atatech.org/articles/105673" target="_blank" rel="noopener">Linux环境变量问题汇总</a></p>
 <h2 id="Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf"><a href="#Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf" class="headerlink" title="Centos系统重启后 /etc/resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 /etc/resolv.conf"></a>Centos系统重启后 /etc/resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 /etc/resolv.conf</h2><h2 id="MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"><a href="#MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。" class="headerlink" title="MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"></a>MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。</h2><p>好奇心迫使我去看代码、<strong>看openssl测试输出日志</strong>（MonkeyKing burn cpu内部调用 openssl speed 测试cpu的速度），这个测试一轮跑完了opessl就结束了，本身就不是死循环一直跑, 不是方舟杀掉的。</p>
 <p>另外说明这个问题一直存在开发、测试MonkeyKing功能的团队就没有发现，或者之前一直只需要跑不到10分钟就自己主动把它杀掉让出CPU。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
+<p><img src="/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
 <h2 id="某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"><a href="#某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常" class="headerlink" title="某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"></a>某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常</h2><p>尝试telnet zk发现不通，客户现场安装了kerberos导致telnet测试有问题（telnet被kerberos替换过）,换一个其他环境的telnet 二进制文件就可以了（md5sum、telnet –help）</p>
 <h2 id="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"><a href="#开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器" class="headerlink" title="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"></a><a href="https://aone.alibaba-inc.com/issue/10403085" target="_blank" rel="noopener">开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器</a></h2><p>主要是出现在tlog-console访问hbase容器的时候报连接异常</p>
 <ol>
@@ -1726,10 +1871,10 @@ end
 <p>手工修改这个文件，放到三行，问题没完，还是异常，我自己崩溃没管。最后听mq-diamond的开发讲他们取iplist的url比较特殊，是自己定义的，所以我修改的地方不起作用。<strong>反思，为什么修改不起作用的时候不去看看Nginx的access日志？ 这样可以证明我修改的文件实际没有被使用，同时还能找到真正被使用的配置文件</strong></p>
 <h2 id="内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）"><a href="#内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）" class="headerlink" title="内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）"></a>内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）</h2><p><a href="https://aone.alibaba-inc.com/issue/12510664" target="_blank" rel="noopener">内核migration进程bug导致对应的CPU核卡死</a>（图一），这个核上的所有进程得不到执行（Load高，CPU没有任何消耗， 图二），直到内核进程 watchdog 发现这个问题并恢复它。</p>
 <p>出现这个bug后的症状，通过top命令看到CPU没有任何消耗但是Load偏高，如果应用进程恰好被调度到这个出问题的CPU核上，那么这个进程会卡住（大概20秒）没有任何响应，比如 ping 进程（图三图四），watchdog恢复这个问题后，多个网络包在同一时间全部通。其实所影响的不仅仅是网络卡顿，中间件容器里面的服务如果调度到这个CPU核上同样得不到执行，从外面就是感觉容器不响应了</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
+<p><img src="/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
+<p><img src="/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
+<p><img src="/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
+<p><img src="/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
 <p>拿如上证据求助内核开发</p>
 <p>关键信息在这里：<br>代码第297行<br>2017-09-15T06:52:37.820783+00:00 ascliveedas4.sgdc kernel: [598346.499872] WARNING: at net/sched/sch_generic.c:297 dev_watchdog+0x270/0x280()<br>2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499873] NETDEV WATCHDOG: ens2f0 (ixgbe): transmit queue 28 timed out</p>
 <p>kernel version: kernel-3.10.0-327.22.2.el7.src.rpm</p>
@@ -2112,7 +2257,7 @@ $ cat  kernel_log.0915
           
             <h1 id="部分机器网络不通"><a href="#部分机器网络不通" class="headerlink" title="部分机器网络不通"></a>部分机器网络不通</h1><h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
 <p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
+<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
 <p><strong>上图是不通的IP，下图是正常IP</strong></p>
 <p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
 <h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
@@ -4561,174 +4706,6 @@ net.ipv4.route.min_pmtu = 552
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables监控reset的连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/25/iptables监控reset的连接/" itemprop="url">iptables监控reset的连接信息</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-25T17:30:03+08:00">
-                2018-03-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="iptables监控reset的连接信息"><a href="#iptables监控reset的连接信息" class="headerlink" title="iptables监控reset的连接信息"></a>iptables监控reset的连接信息</h1><h2 id="需求"><a href="#需求" class="headerlink" title="需求"></a>需求</h2><p>如果连接被reset需要记录下reset包是哪边放出来的，并记录reset连接的四元组信息</p>
-<h2 id="iptables规则"><a href="#iptables规则" class="headerlink" title="iptables规则"></a>iptables规则</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"># Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</span><br><span class="line">*filter</span><br><span class="line">:INPUT ACCEPT [557:88127]</span><br><span class="line">:FORWARD ACCEPT [0:0]</span><br><span class="line">:OUTPUT ACCEPT [527:171711]</span><br><span class="line"># 不监听3406上的reset，日志前面添加 [drds] </span><br><span class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line"># -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">COMMIT</span><br><span class="line"># Completed on Wed Apr  1 11:39:31 2020</span><br></pre></td></tr></table></figure>
-<p>将如上配置保存在 drds_filter.conf中，设置开机启动:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">//注意，tee 命令的 &quot;-a&quot; 选项的作用等同于 &quot;&gt;&gt;&quot; 命令，如果去除该选项，那么 tee 命令的作用就等同于 &quot;&gt;&quot; 命令。</span><br><span class="line">//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入</span><br><span class="line">echo &quot;sudo iptables-restore &lt; drds_filter.conf&quot; | sudo tee -a /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure>
-<h2 id="单独记录到日志文件中"><a href="#单独记录到日志文件中" class="headerlink" title="单独记录到日志文件中"></a>单独记录到日志文件中</h2><p>默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/drds-tcp.log</span><br></pre></td></tr></table></figure>
-<p>将 [drds] 开头的日志存到对应的文件</p>
-<p>将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">sudo systemctl restart rsyslog</span><br></pre></td></tr></table></figure>
-<h2 id="防止日志打满磁盘"><a href="#防止日志打满磁盘" class="headerlink" title="防止日志打满磁盘"></a>防止日志打满磁盘</h2><p>配置 logrotate, 保留最近30天的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">#cat /etc/logrotate.d/drds</span><br><span class="line">/home/admin/logs/drds-tcp.log</span><br><span class="line">&#123;</span><br><span class="line">daily</span><br><span class="line">rotate 30</span><br><span class="line">copytruncate</span><br><span class="line">compress</span><br><span class="line">dateext</span><br><span class="line">#size 1k</span><br><span class="line">prerotate</span><br><span class="line">/usr/bin/chattr -a /home/admin/logs/drds-tcp.log</span><br><span class="line">endscript</span><br><span class="line">postrotate</span><br><span class="line">/usr/bin/chattr +a /home/admin/logs/drds-tcp.log</span><br><span class="line">endscript</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">执行：</span><br><span class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</span><br><span class="line">debug：</span><br><span class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</span><br><span class="line">查看日志：</span><br><span class="line">cat /var/lib/logrotate/logrotate.status</span><br></pre></td></tr></table></figure>
-<p>logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：<a href="https://chasemp.github.io/2013/07/24/su-directive-logrotate/" target="_blank" rel="noopener">https://chasemp.github.io/2013/07/24/su-directive-logrotate/</a> 报错信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)</span><br><span class="line">empty log files are rotated, old logs are removed</span><br><span class="line">considering log /var/log/myapp/default.log</span><br><span class="line"></span><br><span class="line">error: skipping &quot;/var/log/myapp/default.log&quot; because parent directory has insecure permissions</span><br><span class="line">(It&apos;s world writable or writable by group which is not &quot;root&quot;) Set &quot;su&quot; directive in </span><br><span class="line">config file to tell logrotate which user/group should be used for rotation</span><br></pre></td></tr></table></figure>
-<h2 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$tail -10 logs/drds-tcp.log</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9366 SEQ=0 ACK=1747027778 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9368 SEQ=0 ACK=3840170438 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9370 SEQ=0 ACK=3892381139 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br></pre></td></tr></table></figure>
-<h2 id="NetFilter-Hooks"><a href="#NetFilter-Hooks" class="headerlink" title="NetFilter Hooks"></a>NetFilter Hooks</h2><p>下面几个 hook 是内核协议栈中已经定义好的：</p>
-<ul>
-<li><code>NF_IP_PRE_ROUTING</code>: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前</li>
-<li><code>NF_IP_LOCAL_IN</code>: 接收到的包经过路由判断，如果目的是本机，将触发此 hook</li>
-<li><code>NF_IP_FORWARD</code>: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook</li>
-<li><code>NF_IP_LOCAL_OUT</code>: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook</li>
-<li><code>NF_IP_POST_ROUTING</code>: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook</li>
-</ul>
-<h2 id="IPTables-表和链（Tables-and-Chains）"><a href="#IPTables-表和链（Tables-and-Chains）" class="headerlink" title="IPTables 表和链（Tables and Chains）"></a>IPTables 表和链（Tables and Chains）</h2><p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
-<ul>
-<li><code>PREROUTING</code>: 由 <code>NF_IP_PRE_ROUTING</code> hook 触发</li>
-<li><code>INPUT</code>: 由 <code>NF_IP_LOCAL_IN</code> hook 触发</li>
-<li><code>FORWARD</code>: 由 <code>NF_IP_FORWARD</code> hook 触发</li>
-<li><code>OUTPUT</code>: 由 <code>NF_IP_LOCAL_OUT</code> hook 触发</li>
-<li><code>POSTROUTING</code>: 由 <code>NF_IP_POST_ROUTING</code> hook 触发</li>
-</ul>
-<h2 id="tracing-point-监控"><a href="#tracing-point-监控" class="headerlink" title="tracing_point 监控"></a>tracing_point 监控</h2><p>对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line"># grep tcp:tcp /sys/kernel/debug/tracing/available_events</span><br><span class="line">tcp:tcp_probe</span><br><span class="line">tcp:tcp_retransmit_synack</span><br><span class="line">tcp:tcp_rcv_space_adjust</span><br><span class="line">tcp:tcp_destroy_sock</span><br><span class="line">tcp:tcp_receive_reset</span><br><span class="line">tcp:tcp_send_reset</span><br><span class="line">tcp:tcp_retransmit_skb</span><br><span class="line"></span><br><span class="line">#开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe</span><br><span class="line"># echo 1 &gt; /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/enable</span><br><span class="line"></span><br><span class="line">#如下是开启重传以及reset的记录，本机ip 10.0.186.140</span><br><span class="line"># cat trace_pipe</span><br><span class="line">//重传</span><br><span class="line">          &lt;idle&gt;-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          </span><br><span class="line"> Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a</span><br><span class="line"> C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574</span><br><span class="line"> </span><br><span class="line">// 被reset</span><br><span class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd</span><br><span class="line">// 主动reset  </span><br><span class="line">     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174</span><br><span class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193</span><br><span class="line">  </span><br><span class="line"> // 3306对端中断 </span><br><span class="line">              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">          &lt;idle&gt;-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE</span><br><span class="line">         </span><br><span class="line">//8182 主动关闭         </span><br><span class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1</span><br><span class="line">          &lt;idle&gt;-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2</span><br><span class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE</span><br><span class="line"></span><br><span class="line">//3306 被动关闭</span><br><span class="line">          &lt;idle&gt;-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT</span><br><span class="line"> Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK</span><br><span class="line"> Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE</span><br></pre></td></tr></table></figure>
-<h2 id="iptables-打通网络"><a href="#iptables-打通网络" class="headerlink" title="iptables 打通网络"></a>iptables 打通网络</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)</span><br><span class="line">iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16</span><br></pre></td></tr></table></figure>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/" target="_blank" rel="noopener">深入理解 iptables 和 netfilter 架构</a></p>
-<p><a href="http://arthurchiao.art/blog/nat-zh/" target="_blank" rel="noopener">NAT - 网络地址转换（2016）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4776,7 +4753,7 @@ net.ipv4.route.min_pmtu = 552
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">124</span>
+                <span class="site-state-item-count">126</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4798,7 +4775,7 @@ net.ipv4.route.min_pmtu = 552
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">224</span>
+                <span class="site-state-item-count">225</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
