@@ -103,7 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="CPU的制造和概念为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524-1011377.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/images.jpeg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/yp6cf.jpg">
@@ -171,11 +171,11 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210728095829384.png">
-<meta property="og:updated_time" content="2021-12-01T09:58:48.177Z">
+<meta property="og:updated_time" content="2021-12-29T12:50:23.396Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU的制造和概念">
 <meta name="twitter:description" content="CPU的制造和概念为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524-1011377.png">
 
 
 
@@ -471,10 +471,10 @@
 <p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
 <p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
 <p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
-<p><img src="/images/951413iMgBlog/image-20210802161410524.png" alt="image-20210802161410524"></p>
+<p><img src="/images/951413iMgBlog/image-20210802161410524-1011377.png" alt="image-20210802161410524"></p>
 <h2 id="几个重要概念"><a href="#几个重要概念" class="headerlink" title="几个重要概念"></a>几个重要概念</h2><p>为了增加对文章的理解先解释下几个高频概念</p>
 <p>Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路</p>
-<p>Die：从晶圆上切割下来的CPU(通常一个Die中包含多个core、L3cache、北桥、GPU等，core里面又包含了L1、L2cache），Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试，服务器所用的Intel CPU的Die大小一般是大拇指指甲大小。</p>
+<p>Die：从晶圆上切割下来的CPU(通常一个Die中包含多个core、L3cache、内存接口、GPU等，core里面又包含了L1、L2cache），Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试，服务器所用的Intel CPU的Die大小一般是大拇指指甲大小。</p>
 <p>封装：将一个或多个Die封装成一个物理上可以售卖的CPU</p>
 <p>路：就是socket、也就是封装后的物理CPU</p>
 <p>node：同一个Die下的多个core以及他们对应的内存，对应着NUMA</p>
@@ -599,6 +599,8 @@
 <p><a href="https://wccftech.com/intel-unveils-ice-lake-sp-xeon-cpu-family-10nm-sunny-cove-cores-28-core-die/" target="_blank" rel="noopener">两代CPU整体性能差异</a>：</p>
 <p><img src="/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png" alt="img"></p>
 <h3 id="指令集优化"><a href="#指令集优化" class="headerlink" title="指令集优化"></a>指令集优化</h3><p>新增等效于某种常见指令组合的指令。原来多个指令执行需要多个时钟周期，合并后的单条指令可以在一个时钟周期执行完成。例如FMA指令，就是一条指令计算A×B+C，而无需分两个时钟周期计算。这种指令一般来说现有程序直接就能用上，无需优化。限制在于只对特定代码有效，还是以FMA为例，更普遍的普通加法、乘法运算都不能从中获益。</p>
+<p>案例， ssse3(<strong>Supplemental Streaming SIMD Extensions 3</strong> ) 是simd的一种，在libc-2.17.so中就有使用到，如下是mysqld进程中采集到的</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">2.79</span>%  mysqld                [.] MYSQLparse                                   </span><br><span class="line"><span class="number">2.27</span>%  libc<span class="number">-2.17</span>.so          [.] __memcpy_ssse3_back  <span class="comment">//ssse3                </span></span><br><span class="line"><span class="number">2.19</span>%  mysqld                [.] ha_insert_for_fold_func                         </span><br><span class="line"><span class="number">1.95</span>%  mysqld                [.] rec_get_offsets_func                           </span><br><span class="line"><span class="number">1.35</span>%  mysqld                [.] <span class="built_in">malloc</span></span><br></pre></td></tr></table></figure>
 <h4 id="AVX-Advanced-Vector-Extension，高级矢量扩展指令集"><a href="#AVX-Advanced-Vector-Extension，高级矢量扩展指令集" class="headerlink" title="AVX(Advanced Vector Extension，高级矢量扩展指令集)"></a>AVX(Advanced Vector Extension，高级矢量扩展指令集)</h4><p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
 <p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
 <p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>

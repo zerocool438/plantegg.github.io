@@ -104,11 +104,13 @@
 <meta property="og:description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
 <meta property="og:locale" content="zh-Hans">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/87f90b5535714486f4e0c86982b54141.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9735668.">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20211217181055800">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211108152328424.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png">
-<meta property="og:updated_time" content="2021-11-10T10:22:02.717Z">
+<meta property="og:updated_time" content="2021-12-29T12:50:22.939Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="MySQL知识体系的三驾马车">
 <meta name="twitter:description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
@@ -411,6 +413,19 @@
 <p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
 <p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
 <p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="B-树"><a href="#B-树" class="headerlink" title="B+树"></a>B+树</h3><p>MySQL的索引结构主要是B+树，也可以选hash</p>
+<p>B+树特点：</p>
+<ul>
+<li>叶子结点才有数据，这些数据形成一个有序链表</li>
+<li>非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）</li>
+<li>删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除</li>
+<li>B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO</li>
+<li>因为叶子节点的有序链表存在，支持范围查找</li>
+</ul>
+<p>B+树的标准结构：</p>
+<p><img src="/images/951413iMgBlog/640-9735668." alt="Image"></p>
+<p>innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）</p>
+<p><img src="/images/951413iMgBlog/640-20211217181055800" alt="Image"></p>
 <h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
 <p>MySQL一个查询只能用一个索引。</p>
 <h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
@@ -446,6 +461,14 @@
 <p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
 <p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
 <p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<p>redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是<strong>Physiological Logging</strong>的方式，来兼得二者的优势。</p>
+<p>所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：</p>
+<blockquote>
+<p>（Page ID，Record Offset，(Filed 1, Value 1) … (Filed i, Value i) … )</p>
+</blockquote>
+<p>其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。</p>
+<p>Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入<strong>Double Write Buffer</strong>的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。</p>
+<p>InnoDB给每个REDO记录一个全局唯一递增的标号<strong>LSN(Log Sequence Number)</strong>。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。</p>
 <h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
 <p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
 <ol>
@@ -529,6 +552,7 @@
 <p>那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。</p>
 <p>事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.</p>
 <p>如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。</p>
+<h4 id="MySQL和PG事务实现上的差异"><a href="#MySQL和PG事务实现上的差异" class="headerlink" title="MySQL和PG事务实现上的差异"></a>MySQL和PG事务实现上的差异</h4><p>这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
 <p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
 <p>事务则是数据库皇冠。</p>
@@ -728,7 +752,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL知识体系的三驾马车"><span class="nav-number">1.</span> <span class="nav-text">MySQL知识体系的三驾马车</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#索引"><span class="nav-number">1.1.</span> <span class="nav-text">索引</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#联合索引"><span class="nav-number">1.1.1.</span> <span class="nav-text">联合索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引下推-index-condition-pushdown"><span class="nav-number">1.1.2.</span> <span class="nav-text">索引下推(index condition pushdown )</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#覆盖索引"><span class="nav-number">1.1.3.</span> <span class="nav-text">覆盖索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#回表"><span class="nav-number">1.1.4.</span> <span class="nav-text">回表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引的一些其它知识点"><span class="nav-number">1.1.5.</span> <span class="nav-text">索引的一些其它知识点</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#日志"><span class="nav-number">1.2.</span> <span class="nav-text">日志</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Write-Ahead-logging（WAL）"><span class="nav-number">1.2.1.</span> <span class="nav-text">Write-Ahead logging（WAL）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#bin-log"><span class="nav-number">1.2.2.</span> <span class="nav-text">bin-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#redo-log"><span class="nav-number">1.2.3.</span> <span class="nav-text">redo-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#binlog和redo-log一致性的保证"><span class="nav-number">1.2.4.</span> <span class="nav-text">binlog和redo-log一致性的保证</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#组提交"><span class="nav-number">1.2.5.</span> <span class="nav-text">组提交</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#刷脏"><span class="nav-number">1.2.6.</span> <span class="nav-text">刷脏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#落盘"><span class="nav-number">1.2.7.</span> <span class="nav-text">落盘</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#事务"><span class="nav-number">1.3.</span> <span class="nav-text">事务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#可见性"><span class="nav-number">1.3.1.</span> <span class="nav-text">可见性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#可重复读"><span class="nav-number">1.3.2.</span> <span class="nav-text">可重复读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#当前读"><span class="nav-number">1.3.3.</span> <span class="nav-text">当前读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#可重复读、当前读以及行锁案例"><span class="nav-number">1.3.4.</span> <span class="nav-text">可重复读、当前读以及行锁案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL知识体系的三驾马车"><span class="nav-number">1.</span> <span class="nav-text">MySQL知识体系的三驾马车</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#索引"><span class="nav-number">1.1.</span> <span class="nav-text">索引</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#B-树"><span class="nav-number">1.1.1.</span> <span class="nav-text">B+树</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#联合索引"><span class="nav-number">1.1.2.</span> <span class="nav-text">联合索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引下推-index-condition-pushdown"><span class="nav-number">1.1.3.</span> <span class="nav-text">索引下推(index condition pushdown )</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#覆盖索引"><span class="nav-number">1.1.4.</span> <span class="nav-text">覆盖索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#回表"><span class="nav-number">1.1.5.</span> <span class="nav-text">回表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引的一些其它知识点"><span class="nav-number">1.1.6.</span> <span class="nav-text">索引的一些其它知识点</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#日志"><span class="nav-number">1.2.</span> <span class="nav-text">日志</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Write-Ahead-logging（WAL）"><span class="nav-number">1.2.1.</span> <span class="nav-text">Write-Ahead logging（WAL）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#bin-log"><span class="nav-number">1.2.2.</span> <span class="nav-text">bin-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#redo-log"><span class="nav-number">1.2.3.</span> <span class="nav-text">redo-log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#binlog和redo-log一致性的保证"><span class="nav-number">1.2.4.</span> <span class="nav-text">binlog和redo-log一致性的保证</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#组提交"><span class="nav-number">1.2.5.</span> <span class="nav-text">组提交</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#刷脏"><span class="nav-number">1.2.6.</span> <span class="nav-text">刷脏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#落盘"><span class="nav-number">1.2.7.</span> <span class="nav-text">落盘</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#事务"><span class="nav-number">1.3.</span> <span class="nav-text">事务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#可见性"><span class="nav-number">1.3.1.</span> <span class="nav-text">可见性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#可重复读"><span class="nav-number">1.3.2.</span> <span class="nav-text">可重复读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#当前读"><span class="nav-number">1.3.3.</span> <span class="nav-text">当前读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#可重复读、当前读以及行锁案例"><span class="nav-number">1.3.4.</span> <span class="nav-text">可重复读、当前读以及行锁案例</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#MySQL和PG事务实现上的差异"><span class="nav-number">1.3.4.1.</span> <span class="nav-text">MySQL和PG事务实现上的差异</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

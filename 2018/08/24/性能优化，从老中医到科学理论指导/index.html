@@ -95,18 +95,20 @@
 
 
 
-<meta name="description" content="性能优化，从老中医到科学理论指导理解最佳线程数量最佳线程数量 单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO) 最佳线程数量 rt(total)/rt(cpu) 维持住rt 这一点占性能优化领域的50% 从单线程跑出QPS、各个环节的RT、CPU占用等数据 然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里 思路严谨最难">
+<meta name="description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
 <meta name="keywords" content="performance,Linux,troubleshooting,network">
 <meta property="og:type" content="article">
 <meta property="og:title" content="性能优化，从老中医到科学理论指导">
 <meta property="og:url" content="https://plantegg.github.io/2018/08/24/性能优化，从老中医到科学理论指导/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="性能优化，从老中医到科学理论指导理解最佳线程数量最佳线程数量 单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO) 最佳线程数量 rt(total)/rt(cpu) 维持住rt 这一点占性能优化领域的50% 从单线程跑出QPS、各个环节的RT、CPU占用等数据 然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里 思路严谨最难">
+<meta property="og:description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:updated_time" content="2021-06-18T04:11:44.976Z">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211103175727900.png">
+<meta property="og:updated_time" content="2021-12-29T12:50:22.807Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="性能优化，从老中医到科学理论指导">
-<meta name="twitter:description" content="性能优化，从老中医到科学理论指导理解最佳线程数量最佳线程数量 单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO) 最佳线程数量 rt(total)/rt(cpu) 维持住rt 这一点占性能优化领域的50% 从单线程跑出QPS、各个环节的RT、CPU占用等数据 然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里 思路严谨最难">
+<meta name="twitter:description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211103175727900.png">
 
 
 
@@ -383,7 +385,31 @@
       
 
       
-        <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量</p>
+        <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><p>简单原理：</p>
+<ul>
+<li><p>追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；</p>
+</li>
+<li><p>QPS=并发/RT</p>
+</li>
+</ul>
+<h2 id="利特尔法则-编辑"><a href="#利特尔法则-编辑" class="headerlink" title="利特尔法则[编辑]"></a>利特尔法则[<a href="https://zh.wikipedia.org/w/index.php?title=利特爾法則&amp;action=edit&amp;section=0&amp;summary=/* top */" target="_blank" rel="noopener">编辑</a>]</h2><p><strong>利特尔法则</strong>（英语：Little’s law），基于<a href="https://zh.wikipedia.org/wiki/等候理論" target="_blank" rel="noopener">等候理论</a>，由<a href="https://zh.wikipedia.org/w/index.php?title=約翰·利特爾&amp;action=edit&amp;redlink=1" target="_blank" rel="noopener">约翰·利特尔</a>在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：</p>
+<blockquote>
+<p>在一个稳定的系统中，长期的平均顾客人数（L），等于长期的有效抵达率（λ），乘以顾客在这个系统中平均的等待时间（W）</p>
+</blockquote>
+<p>或者，我们可以用一个代数式来表达：</p>
+<p>L=λW</p>
+<p>利特尔法则可用来确定在途存货的数量。此法则认为，系统中的平均存货等于存货单位离开系统的比率（亦即平均需求率）与存货单位在系统中平均时间的乘积。</p>
+<p>虽然此公式看起来直觉性的合理，它依然是个非常杰出的推导结果，因为此一关系式“不受到货流程分配、服务分配、服务顺序，或任何其他因素影响”。</p>
+<p>此一理论适用于所有系统，而且它甚至更适合用于系统中的系统。举例来说，在一间银行里，顾客等待的队伍就是一个子系统，而每一位柜员也可以被视为一个等待的子系统，而利特尔法则可以套用到任何一个子系统，也可以套用到整个银行的等待队伍之母系统。</p>
+<p>唯一的条件就是，这个系统必须是长期稳定的，而且不能有插队抢先的情况发生，这样才能排除换场状况的可能性，例如开业或是关厂。</p>
+<h3 id="案例："><a href="#案例：" class="headerlink" title="案例："></a>案例：</h3><p>需要的线程数 = qps * latency(单位秒)。 依据是little’s law，类似的应用是tcp中的bandwidth-delay product。如果这个数目远大于核心数量，应该考虑用异步接口。<br>举例：</p>
+<ul>
+<li>qps = 2000，latency = 10ms，计算结果 = 2000 * 0.01s = 20。和常见核数在同一个数量级，用同步。</li>
+<li>qps = 100, latency = 5s, 计算结果 = 100 * 5s = 500。和常见核数不在同一个数量级，用异步。</li>
+<li>qps = 500, latency = 100ms，计算结果 = 500 * 0.1s = 50。和常见核数在同一个数量级，可用同步。如果未来延时继续增长，考虑异步。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
+<h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量</p>
 <p>单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
 <p>最佳线程数量 rt(total)/rt(cpu)</p>
 <p>维持住rt</p>
@@ -589,7 +615,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#性能优化，从老中医到科学理论指导"><span class="nav-number">1.</span> <span class="nav-text">性能优化，从老中医到科学理论指导</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#理解最佳线程数量"><span class="nav-number">1.1.</span> <span class="nav-text">理解最佳线程数量</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#思路严谨"><span class="nav-number">1.2.</span> <span class="nav-text">思路严谨</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#老中医经验不可缺少"><span class="nav-number">1.3.</span> <span class="nav-text">老中医经验不可缺少</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#找瓶颈，先干掉瓶颈才能优化其它"><span class="nav-number">1.4.</span> <span class="nav-text">找瓶颈，先干掉瓶颈才能优化其它</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#全栈能力，一文钱难倒英雄好汉"><span class="nav-number">1.5.</span> <span class="nav-text">全栈能力，一文钱难倒英雄好汉</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案列"><span class="nav-number">1.6.</span> <span class="nav-text">案列</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#性能优化，从老中医到科学理论指导"><span class="nav-number">1.</span> <span class="nav-text">性能优化，从老中医到科学理论指导</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#利特尔法则-编辑"><span class="nav-number">1.1.</span> <span class="nav-text">利特尔法则[编辑]</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#案例："><span class="nav-number">1.1.1.</span> <span class="nav-text">案例：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#理解最佳线程数量"><span class="nav-number">1.2.</span> <span class="nav-text">理解最佳线程数量</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#思路严谨"><span class="nav-number">1.3.</span> <span class="nav-text">思路严谨</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#老中医经验不可缺少"><span class="nav-number">1.4.</span> <span class="nav-text">老中医经验不可缺少</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#找瓶颈，先干掉瓶颈才能优化其它"><span class="nav-number">1.5.</span> <span class="nav-text">找瓶颈，先干掉瓶颈才能优化其它</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#全栈能力，一文钱难倒英雄好汉"><span class="nav-number">1.6.</span> <span class="nav-text">全栈能力，一文钱难倒英雄好汉</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案列"><span class="nav-number">1.7.</span> <span class="nav-text">案列</span></a></li></ol></li></ol></div>
             
 
           </div>

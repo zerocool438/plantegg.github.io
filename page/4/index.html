@@ -2341,40 +2341,8 @@ public BufferedOutputStream(OutputStream out) {
         at com.alibaba.cobar.net.NIOReactor$R.run(NIOReactor.java:88)
         at java.lang.Thread.run(Thread.java:852)
 </code></pre><p>NIOReactor.java:</p>
-<pre><code> 82         @Override
- 83         public void run() {
- 84             final Selector selector = this.selector;
- 85             for (;;) {
- 86                 ++reactCount;
- 87                 try {
- 88                     selector.select(1000L);
- 89                     register(selector);
- 90                     Set&lt;SelectionKey&gt; keys = selector.selectedKeys();
- 91                     try {
- 92                         for (SelectionKey key : keys) {
- 93                             Object att = key.attachment();
- 94                             if (att != null &amp;&amp; key.isValid()) {
- 95                                 int readyOps = key.readyOps();
- 96                                 if ((readyOps &amp; SelectionKey.OP_READ) != 0) {
- 97                                     read((NIOConnection) att);  //读
- 98                                 } else if ((readyOps &amp; SelectionKey.OP_WRITE) != 0) {
- 99                                     write((NIOConnection) att); //写
-100                                 } else {
-101                                     key.cancel();
-102                                 }
-103                             } else {
-104                                 key.cancel();
-105                             }
-106                         }
-107                     } finally {
-108                         keys.clear();
-109                     }
-110                 } catch (Throwable e) {
-111                     logger.warn(name, e);
-112                 }
-113             }
-114         }
-</code></pre><p>Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketChannel对Socket进行封装，是一个NIO的Socket超集，一个Select线程就能处理所有的SocketChannel（也就是所有的Socket）</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">82</span>         <span class="meta">@Override</span></span><br><span class="line"> <span class="number">83</span>         <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line"> <span class="number">84</span>             <span class="keyword">final</span> Selector selector = <span class="keyword">this</span>.selector;</span><br><span class="line"> <span class="number">85</span>             <span class="keyword">for</span> (;;) &#123;</span><br><span class="line"> <span class="number">86</span>                 ++reactCount;</span><br><span class="line"> <span class="number">87</span>                 <span class="keyword">try</span> &#123;</span><br><span class="line"> <span class="number">88</span>                     selector.select(<span class="number">1000L</span>);</span><br><span class="line"> <span class="number">89</span>                     register(selector);</span><br><span class="line"> <span class="number">90</span>                     Set&lt;SelectionKey&gt; keys = selector.selectedKeys();</span><br><span class="line"> <span class="number">91</span>                     <span class="keyword">try</span> &#123;</span><br><span class="line"> <span class="number">92</span>                         <span class="keyword">for</span> (SelectionKey key : keys) &#123;</span><br><span class="line"> <span class="number">93</span>                             Object att = key.attachment();</span><br><span class="line"> <span class="number">94</span>                             <span class="keyword">if</span> (att != <span class="keyword">null</span> &amp;&amp; key.isValid()) &#123;</span><br><span class="line"> <span class="number">95</span>                                 <span class="keyword">int</span> readyOps = key.readyOps();</span><br><span class="line"> <span class="number">96</span>                                 <span class="keyword">if</span> ((readyOps &amp; SelectionKey.OP_READ) != <span class="number">0</span>) &#123;</span><br><span class="line"> <span class="number">97</span>                                     read((NIOConnection) att);  <span class="comment">//读</span></span><br><span class="line"> <span class="number">98</span>                                 &#125; <span class="keyword">else</span> <span class="keyword">if</span> ((readyOps &amp; SelectionKey.OP_WRITE) != <span class="number">0</span>) &#123;</span><br><span class="line"> <span class="number">99</span>                                     write((NIOConnection) att); <span class="comment">//写</span></span><br><span class="line"><span class="number">100</span>                                 &#125; <span class="keyword">else</span> &#123;</span><br><span class="line"><span class="number">101</span>                                     key.cancel();</span><br><span class="line"><span class="number">102</span>                                 &#125;</span><br><span class="line"><span class="number">103</span>                             &#125; <span class="keyword">else</span> &#123;</span><br><span class="line"><span class="number">104</span>                                 key.cancel();</span><br><span class="line"><span class="number">105</span>                             &#125;</span><br><span class="line"><span class="number">106</span>                         &#125;</span><br><span class="line"><span class="number">107</span>                     &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line"><span class="number">108</span>                         keys.clear();</span><br><span class="line"><span class="number">109</span>                     &#125;</span><br><span class="line"><span class="number">110</span>                 &#125; <span class="keyword">catch</span> (Throwable e) &#123;</span><br><span class="line"><span class="number">111</span>                     logger.warn(name, e);</span><br><span class="line"><span class="number">112</span>                 &#125;</span><br><span class="line"><span class="number">113</span>             &#125;</span><br><span class="line"><span class="number">114</span>         &#125;</span><br></pre></td></tr></table></figure>
+<p>Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketChannel对Socket进行封装，是一个NIO的Socket超集，一个Select线程就能处理所有的SocketChannel（也就是所有的Socket）</p>
 <p>Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(多)selector形式</p>
 <h3 id="Channel"><a href="#Channel" class="headerlink" title="Channel"></a><a href="https://spongecaptain.cool/SimpleClearFileIO/5.%20Java%20ByteBuffer%E4%B8%8E%20Channel.html" target="_blank" rel="noopener">Channel</a></h3><p>Channel 类位于 java.nio.channels 包中，但并不是 Channel 仅仅支持 NIO，其分为两种类型：</p>
 <ul>
@@ -4526,7 +4494,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，/root 以及 /root/.ssh 文件夹的权限和owner都要对，更不要说 /root/.ssh/authorized_keys 了</li>
 </ul>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/usr/sbin/sshd -ddd -p 2222</span><br></pre></td></tr></table></figure>
-<h3 id="ssh-提示信息"><a href="#ssh-提示信息" class="headerlink" title="ssh 提示信息"></a>ssh 提示信息</h3><p>可以用一下脚本生成一个彩色文件</p>
+<h3 id="ssh-提示信息"><a href="#ssh-提示信息" class="headerlink" title="ssh 提示信息"></a>ssh 提示信息</h3><p>可以用一下脚本生成一个彩色文件，放到 /etc/motd 中就行</p>
 <p>Basic colors are numbered:</p>
 <ul>
 <li>1 – Red</li>
@@ -4826,6 +4794,19 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
 <p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
 <p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="B-树"><a href="#B-树" class="headerlink" title="B+树"></a>B+树</h3><p>MySQL的索引结构主要是B+树，也可以选hash</p>
+<p>B+树特点：</p>
+<ul>
+<li>叶子结点才有数据，这些数据形成一个有序链表</li>
+<li>非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）</li>
+<li>删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除</li>
+<li>B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO</li>
+<li>因为叶子节点的有序链表存在，支持范围查找</li>
+</ul>
+<p>B+树的标准结构：</p>
+<p><img src="/images/951413iMgBlog/640-9735668." alt="Image"></p>
+<p>innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）</p>
+<p><img src="/images/951413iMgBlog/640-20211217181055800" alt="Image"></p>
 <h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
 <p>MySQL一个查询只能用一个索引。</p>
 <h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
@@ -4861,6 +4842,14 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
 <p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
 <p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<p>redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是<strong>Physiological Logging</strong>的方式，来兼得二者的优势。</p>
+<p>所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：</p>
+<blockquote>
+<p>（Page ID，Record Offset，(Filed 1, Value 1) … (Filed i, Value i) … )</p>
+</blockquote>
+<p>其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。</p>
+<p>Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入<strong>Double Write Buffer</strong>的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。</p>
+<p>InnoDB给每个REDO记录一个全局唯一递增的标号<strong>LSN(Log Sequence Number)</strong>。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。</p>
 <h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
 <p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
 <ol>
@@ -4944,6 +4933,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。</p>
 <p>事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.</p>
 <p>如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。</p>
+<h4 id="MySQL和PG事务实现上的差异"><a href="#MySQL和PG事务实现上的差异" class="headerlink" title="MySQL和PG事务实现上的差异"></a>MySQL和PG事务实现上的差异</h4><p>这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
 <p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
 <p>事务则是数据库皇冠。</p>
@@ -5158,6 +5148,8 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
 <p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
 <p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt></p>
+<p>对应的堆栈（本堆栈有问题，si%打满）：</p>
+<p><img src="/images/951413iMgBlog/image-20211210160634705.png" alt="image-20211210160634705"></p>
 <p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。<strong>收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段</strong>。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
 <h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
 <li>应用调 sendmsg</li>
@@ -5326,21 +5318,29 @@ tx-frame-high: 0
 </code></pre><p>如果 “pruning” 一直在增加很有可能是程序中调用了 setsockopt(SO_RCVBUF) 导致内核关闭了动态调整功能，或者压力大，缓存不够了。具体Case：<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a></p>
 <p>nstat也可以看到比较多的数据</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$nstat -z |grep -i drop</span><br><span class="line">TcpExtLockDroppedIcmps          0                  0.0</span><br><span class="line">TcpExtListenDrops               0                  0.0</span><br><span class="line">TcpExtTCPBacklogDrop            0                  0.0</span><br><span class="line">TcpExtPFMemallocDrop            0                  0.0</span><br><span class="line">TcpExtTCPMinTTLDrop             0                  0.0</span><br><span class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</span><br><span class="line">TcpExtTCPReqQFullDrop           0                  0.0</span><br><span class="line">TcpExtTCPOFODrop                0                  0.0</span><br><span class="line">TcpExtTCPZeroWindowDrop         0                  0.0</span><br><span class="line">TcpExtTCPRcvQDrop               0                  0.0</span><br></pre></td></tr></table></figure>
-<h2 id="总体简略收包流程"><a href="#总体简略收包流程" class="headerlink" title="总体简略收包流程"></a>总体简略收包流程</h2><p><img src="/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
+<h2 id="总体简略接收包流程"><a href="#总体简略接收包流程" class="headerlink" title="总体简略接收包流程"></a>总体简略接收包流程</h2><p><img src="/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
 <p>带参数版收包流程：</p>
 <p><img src="/images/oss/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
 <h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="/images/oss/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt></p>
 <p>带参数版发包流程：</p>
 <p><img src="/images/oss/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
-<h2 id="网络包流转结构图"><a href="#网络包流转结构图" class="headerlink" title="网络包流转结构图"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;scene=21#wechat_redirect" target="_blank" rel="noopener">网络包流转结构图</a></h2><p>跨机器网络IO</p>
-<p><img src="/images/951413iMgBlog/640-20211027113522111" alt="Image"></p>
-<p>127.0.0.1(lo)本机网络 IO ，无需走到物理网卡，也不用进入RingBuffer驱动队列，但是还是要走内核协议栈，直接把 skb 传给接收协议栈（经过软中断）</p>
+<h2 id="网络包流转结构图"><a href="#网络包流转结构图" class="headerlink" title="网络包流转结构图"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;scene=21#wechat_redirect" target="_blank" rel="noopener">网络包流转结构图</a></h2><h3 id="跨机器网络IO"><a href="#跨机器网络IO" class="headerlink" title="跨机器网络IO"></a>跨机器网络IO</h3><p><img src="/images/951413iMgBlog/640-20211027113522111" alt="Image"></p>
+<h3 id="lo-网卡"><a href="#lo-网卡" class="headerlink" title="lo 网卡"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;chksm=a6e3066d91948f7b4b56dc85cf12e7656cb8ac8c0bfe737df1ee400fc45b812476e1cb9bff1a&amp;scene=178&amp;cur_album_id=1532487451997454337#rd" target="_blank" rel="noopener">lo 网卡</a></h3><p>127.0.0.1(lo)本机网络 IO ，无需走到物理网卡，也不用进入RingBuffer驱动队列，但是还是要走内核协议栈，直接把 skb 传给接收协议栈（经过软中断）</p>
 <p><img src="/images/951413iMgBlog/640-20211027113545882" alt="Image"></p>
+<p>总的来说，本机网络 IO 和跨机 IO 比较起来，确实是节约了一些开销。发送数据不需要进 RingBuffer 的驱动队列，直接把 skb 传给接收协议栈（经过软中断）。但是在内核其它组件上，可是一点都没少，系统调用、协议栈（传输层、网络层等）、网络设备子系统、邻居子系统整个走了一个遍。连“驱动”程序都走了（虽然对于回环设备来说只是一个纯软件的虚拟出来的东东）。所以即使是本机网络 IO，也别误以为没啥开销。</p>
 <p>如果是同一台宿主机走虚拟bridge通信的话（同一宿主机下的不容docker容器通信）：</p>
 <p><img src="/images/951413iMgBlog/640-20211027123524056" alt="Image"></p>
+<h3 id="Unix-Domain-Socket工作原理"><a href="#Unix-Domain-Socket工作原理" class="headerlink" title="Unix Domain Socket工作原理"></a><a href="https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A" target="_blank" rel="noopener">Unix Domain Socket工作原理</a></h3><p>接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。</p>
+<p><img src="/images/951413iMgBlog/640-0054201." alt="Image"></p>
+<p>主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。</p>
+<p>直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) = sk 和 unix_peer(sk) = newsk 这两句。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">int</span> <span class="title">unix_stream_connect</span><span class="params">(struct socket *sock, struct sockaddr *uaddr,</span></span></span><br><span class="line"><span class="function"><span class="params">          <span class="keyword">int</span> addr_len, <span class="keyword">int</span> flags)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line"> <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_un</span> *<span class="title">sunaddr</span> = (<span class="title">struct</span> <span class="title">sockaddr_un</span> *)<span class="title">uaddr</span>;</span></span><br><span class="line"></span><br><span class="line"> <span class="comment">// 1. 为服务器侧申请一个新的 socket 对象</span></span><br><span class="line"> newsk = unix_create1(sock_net(sk), <span class="literal">NULL</span>);</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 2. 申请一个 skb，并关联上 newsk</span></span><br><span class="line"> skb = sock_wmalloc(newsk, <span class="number">1</span>, <span class="number">0</span>, GFP_KERNEL);</span><br><span class="line"> ...</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 3. 建立两个 sock 对象之间的连接</span></span><br><span class="line"> unix_peer(newsk) = sk;</span><br><span class="line"> newsk-&gt;sk_state  = TCP_ESTABLISHED;</span><br><span class="line"> newsk-&gt;sk_type  = sk-&gt;sk_type;</span><br><span class="line"> ...</span><br><span class="line"> sk-&gt;sk_state = TCP_ESTABLISHED;</span><br><span class="line"> unix_peer(sk) = newsk;</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 4. 把连接中的一头（新 socket）放到服务器接收队列中</span></span><br><span class="line"> __skb_queue_tail(&amp;other-&gt;sk_receive_queue, skb);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> unix_peer(sk) (unix_sk(sk)-&gt;peer)</span></span><br></pre></td></tr></table></figure>
+<p>收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，<strong>直接把 skb 给放到对端的接收队列里了</strong></p>
+<p><img src="/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
+<p>Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。</p>
 <p>再来一个<a href="https://upload.wikimedia.org/wikipedia/commons/3/37/Netfilter-packet-flow.svg" target="_blank" rel="noopener">整体流转矢量图</a>:</p>
 <p><img src="/images/951413iMgBlog/image-20211116101345648.png" alt="image-20211116101345648"></p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="/images/oss/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="/images/951413iMgBlog/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
 <ol>
 <li>snat 就是要把 192.168.1.10和192.168.1.11的两个连接替换成宿主机的ip:port</li>
 <li>主要是在宿主机找可用port分别给这两个连接用</li>
