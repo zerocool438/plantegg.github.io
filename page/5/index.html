@@ -292,6 +292,884 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/15/就是要你懂网络--一个网络包的旅程/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/15/就是要你懂网络--一个网络包的旅程/" itemprop="url">就是要你懂网络--一个网络包的旅程</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-15T17:30:03+08:00">
+                2019-05-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="就是要你懂网络–一个网络包的旅程"><a href="#就是要你懂网络–一个网络包的旅程" class="headerlink" title="就是要你懂网络–一个网络包的旅程"></a>就是要你懂网络–一个网络包的旅程</h1><hr>
+<h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>我相信你脑子里关于网络的概念都在下面这张图上，但是乱成一团麻，这就是因为知识没有贯通、没有实践、没有组织</p>
+<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
+<p>上面的概念在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>中讲的无比的通熟易懂了，但是抱歉，当时你也许看懂了，但是一个月后又忘记了，或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
+<p><strong>所以这篇文章希望解决书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
+<h2 id="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"><a href="#最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下" class="headerlink" title="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"></a>最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下</h2><p>当时的网络链路是（大概是这样，略有简化）：</p>
+<pre><code>容器1-&gt;容器1所在物理机1-&gt;交换机-&gt;物理机2
+</code></pre><ul>
+<li>从容器1 ping 物理机2 不通；</li>
+<li>从物理机1上的容器2 ping物理机2 通；</li>
+<li>物理机用一个vlan，容器用另外一个vlan</li>
+<li>交换机都做了trunk，让两个vlan都允许通过（肯定没问题，因为容器2是通的）</li>
+<li>同时发现即使是通的，有的容器 ping物理机1只需要0.1ms，有的容器需要200ms以上（都在同一个交换机下），不合理</li>
+<li>所有容器 ping 其它外网IP反而是通的</li>
+</ul>
+<p>扯了一周是因为容器的网络是我们自己配置的，交换机我们没有权限接触，由客户配置。出问题的时候都会觉得自己没问题对方有问题，另外就是对网络基本知识认识不够所以都觉得自己没问题。</p>
+<p>这个问题的答案在大家看完本文的基础知识后会总结出来。</p>
+<blockquote>
+<p>开始前大家先想想，假如有个面试题是：输入 ping IP后 敲回车，然后发生了什么？</p>
+</blockquote>
+<h2 id="route-路由表"><a href="#route-路由表" class="headerlink" title="route 路由表"></a>route 路由表</h2><pre><code>$route -n
+Kernel IP routing table
+Destination Gateway Genmask Flags Metric RefUse Iface
+0.0.0.0     10.125.15.254   0.0.0.0 UG0  00 eth0
+10.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+10.125.0.0  0.0.0.0 255.255.240.0   U 0  00 eth0
+11.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+30.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+100.64.0.0  10.125.15.254   255.192.0.0 UG0  00 eth0
+169.254.0.0 0.0.0.0 255.255.0.0 U 1002   00 eth0
+172.16.0.0  10.125.15.254   255.240.0.0 UG0  00 eth0
+172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
+192.168.0.0 10.125.15.254   255.255.0.0 UG0  00 eth0
+</code></pre><p>假如你现在在这台机器上ping 172.17.0.2 根据上面的route表得出 172.17.0.2这个IP符合：</p>
+<pre><code>172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
+</code></pre><p>这条路由规则，那么ping 包会从docker0这张网卡发出去。</p>
+<p>但是如果是ping 10.125.4.4 根据路由规则应该走eth0这张网卡。</p>
+<p>接下来就要判断目标IP是否在同一个子网了</p>
+<h2 id="ifconfig"><a href="#ifconfig" class="headerlink" title="ifconfig"></a>ifconfig</h2><p>首先来看看这台机器的网卡情况：</p>
+<pre><code>$ifconfig
+docker0: flags=4099&lt;UP,BROADCAST,MULTICAST&gt;  mtu 1500
+    inet 172.17.42.1  netmask 255.255.0.0  broadcast 0.0.0.0
+    ether 02:42:49:a7:dc:ba  txqueuelen 0  (Ethernet)
+    RX packets 461259  bytes 126800808 (120.9 MiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 462820  bytes 103470899 (98.6 MiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
+    inet 10.125.3.33  netmask 255.255.240.0  broadcast 10.125.15.255
+    ether 00:16:3e:00:02:67  txqueuelen 1000  (Ethernet)
+    RX packets 280918095  bytes 89102074868 (82.9 GiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 333504217  bytes 96311277198 (89.6 GiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536
+    inet 127.0.0.1  netmask 255.0.0.0
+    loop  txqueuelen 0  (Local Loopback)
+    RX packets 1077128597  bytes 104915529133 (97.7 GiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 1077128597  bytes 104915529133 (97.7 GiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+</code></pre><p>这里有三个IP，三个子网掩码（netmask)，根据目标路由走哪张网卡，得到这个网卡的子网掩码，来计算目标IP是否在这个子网内。</p>
+<h2 id="arp协议"><a href="#arp协议" class="headerlink" title="arp协议"></a>arp协议</h2><p>网络包在物理层传输的时候依赖的mac 地址而不是上面的IP地址，也就是根据mac地址来决定把包发到哪里去。 </p>
+<p>arp协议就是查询某个IP地址的mac地址是多少，由于这种对应关系一般不太变化，所以每个os都有一份arp缓存（一般15分钟过期），也可以手工清理，下面是arp缓存的内容：</p>
+<pre><code>$arp -a
+e010125011202.bja.tbsite.net (10.125.11.202) at 00:16:3e:01:c2:00 [ether] on eth0
+? (10.125.15.254) at 0c:da:41:6e:23:00 [ether] on eth0
+v125004187.bja.tbsite.net (10.125.4.187) at 00:16:3e:01:cb:00 [ether] on eth0
+e010125001224.bja.tbsite.net (10.125.1.224) at 00:16:3e:01:64:00 [ether] on eth0
+v125009121.bja.tbsite.net (10.125.9.121) at 00:16:3e:01:b8:ff [ether] on eth0
+e010125009114.bja.tbsite.net (10.125.9.114) at 00:16:3e:01:7c:00 [ether] on eth0
+v125012028.bja.tbsite.net (10.125.12.28) at 00:16:3e:00:fb:ff [ether] on eth0
+e010125005234.bja.tbsite.net (10.125.5.234) at 00:16:3e:01:ee:00 [ether] on eth0
+</code></pre><h2 id="进入正题，回车后发生什么"><a href="#进入正题，回车后发生什么" class="headerlink" title="进入正题，回车后发生什么"></a>进入正题，回车后发生什么</h2><p>首先 os需要把ping命令封成一个icmp包，需要填上包头（包括IP、mac地址），那么os先根据目标IP和本机的route规则计算使用哪个interface(网卡），每条路由规则基本都包含目标IP范围、网关、网卡这样几个基本元素。</p>
+<h3 id="如果目标IP在同一子网"><a href="#如果目标IP在同一子网" class="headerlink" title="如果目标IP在同一子网"></a>如果目标IP在同一子网</h3><p>如果目标IP和本机IP是同一个子网（根据本机ifconfig上的每个网卡的netmask来判断），并且本机arp缓存没有这条IP对应的mac记录，那么给整个子网的所有机器广播发送一个 arp查询</p>
+<p>比如我ping 10.125.3.42，然后tcpdump抓包看到的arp请求：</p>
+<pre><code>$sudo tcpdump -i eth0  arp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+16:22:01.792501 ARP, Request who-has e010125003042.bja.tbsite.net tell e010125003033.bja, length 28
+16:22:01.792566 ARP, Reply e010125003042.bja.tbsite.net is-at 00:16:3e:01:8d:ff (oui Unknown), length 28
+</code></pre><p><img src="/images/951413iMgBlog/packtrav-host-switch-host.gif" alt="Host to Host through a Switch - Switch Functions animation"></p>
+<p>上面就是本机发送广播消息，10.125.3.42的mac地址是多少，很快10.125.3.42回复了自己的mac地址。<br>收到这个回复后，先缓存起来，下个ping包就不需要再次arp广播了。<br>然后将这个mac地址填写到ping包的包头的目标Mac（icmp包），然后发出这个icmp request包，按照mac地址，正确到达目标机器，然后对方正确回复icmp reply【对方回复也要查路由规则，arp查发送放的mac，这样回包才能正确路由回来，略过】。</p>
+<p>来看一次完整的ping 10.125.3.43，tcpdump抓包结果：</p>
+<pre><code>$sudo tcpdump -i eth0  arp or icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+16:25:15.195401 ARP, Request who-has e010125003043.bja.tbsite.net tell e010125003033.bja, length 28
+16:25:15.195459 ARP, Reply e010125003043.bja.tbsite.net is-at 00:16:3e:01:0c:ff (oui Unknown), length 28
+16:25:15.211505 IP e010125003033.bja &gt; e010125003043.bja.tbsite.net: ICMP echo request, id 27990, seq 1, length 64
+16:25:15.212056 IP e010125003043.bja.tbsite.net &gt; e010125003033.bja: ICMP echo reply, id 27990, seq 1, length 64
+</code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
+<h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关就行转发，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
+<p>从本机10.125.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走10.125.15.254这个网关，如下截图：</p>
+<p><img src="/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
+<p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关10.125.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到10.125.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
+<p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
+<pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
+    inet 11.239.161.60  netmask 255.255.252.0  broadcast 11.239.163.255
+    ether 00:16:3e:00:04:c4  txqueuelen 1000  (Ethernet)
+</code></pre><p>这个包根据Mac地址路由到了网关上</p>
+<h3 id="网关接下来怎么办"><a href="#网关接下来怎么办" class="headerlink" title="网关接下来怎么办"></a>网关接下来怎么办</h3><p><strong>为了简化问题，假设两个网关直连</strong></p>
+<p>网关收到这个包后（因为mac地址是她的），打开一看IP地址是 11.239.161.60，不是自己的，于是继续查自己的route和arp缓存，发现11.239.161.60这个IP的网关是11.239.163.247，于是把包的目的mac地址改成11.239.163.247的mac继续发出去。</p>
+<p>11.239.163.247这个网关收到包后，一看 11.239.161.60是自己同一子网的IP，于是该arp广播找mac就广播，cache有就拿cache的，然后这个包才最终到达目的11.239.161.60上。</p>
+<p>整个过程中目标mac地址每一跳都在变，IP地址不变，每经过一次变化可以简单理解从一跳。</p>
+<p>实际上可能要经过多个网关多次跳跃才能真正到达目标机器</p>
+<h3 id="目标收到这个icmp包后的回复过程一样，略过。"><a href="#目标收到这个icmp包后的回复过程一样，略过。" class="headerlink" title="目标收到这个icmp包后的回复过程一样，略过。"></a>目标收到这个icmp包后的回复过程一样，略过。</h3><h3 id="arp广播风暴和arp欺骗"><a href="#arp广播风暴和arp欺骗" class="headerlink" title="arp广播风暴和arp欺骗"></a>arp广播风暴和arp欺骗</h3><p>广播风暴：如果一个子网非常大，机器非常多，每次arp查询都是广播的话，也容易因为N*N的问题导致广播风暴。</p>
+<p>arp欺骗：同样如果一个子网中的某台机器冒充网关或者其他机器，当收到arp查询的时候总是把自己的mac冒充目标机器的mac发给你，然后你的包先走到他，为了不被发现达到自己的目的后再转发给真正的网关或者机器，所以在里面都点什么手脚，看看你发送的内容都还是很容易的</p>
+<h2 id="讲完基础再来看开篇问题的答案"><a href="#讲完基础再来看开篇问题的答案" class="headerlink" title="讲完基础再来看开篇问题的答案"></a>讲完基础再来看开篇问题的答案</h2><h3 id="分别在两个物理机上抓包"><a href="#分别在两个物理机上抓包" class="headerlink" title="分别在两个物理机上抓包"></a>分别在两个物理机上抓包</h3><p>在物理机2上抓包：</p>
+<p><img src="/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
+<pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
+f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
+10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
+18:66:da:f0:15:90 &gt; 00:00:0c:9f:f0:86, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 64, id 21395, offset 0, flags [none], proto ICMP (1), length 84)
+10.159.43.1 &gt; 10.159.43.162: ICMP echo reply, id 6285, seq 1, length 64
+</code></pre><p>这个抓包能看到核心证据，ping包有到达物理机2，同时物理机2也正确回复了（mac、ip都对）</p>
+<p>同时在物理机1上抓包只能看到ping包出去，回包没有到物理机1（所以回包肯定不会到容器里了）</p>
+<p><strong>所以问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
+<p>同时观察到的不正常延时：<br><img src="/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
+<h3 id="过程中的其它测试："><a href="#过程中的其它测试：" class="headerlink" title="过程中的其它测试："></a>过程中的其它测试：</h3><ol>
+<li>新拿出一台物理机配置上不通的容器的IP，这是通的，所以客户坚持是容器网络的配置；</li>
+<li>怀疑不通的IP所使用的mac地址冲突，在交换机上清理了交换机的arp缓存，没有帮助，还是不通</li>
+</ol>
+<p>对于1能通，我认为这个测试不严格，新物理机所用的mac不一样，并且所接的交换机口也不一样，影响了测试结果。</p>
+<h3 id="最终的原因"><a href="#最终的原因" class="headerlink" title="最终的原因"></a>最终的原因</h3><p>最后在交换机上分析包没正确发到物理机1上的原因跟客户交换机使用了HSRP（热备份路由器协议，就是多个交换机HA高可用，也就是同一子网可以有多个网关的IP），停掉HSRP后所有IP容器都能通了，并且前面的某些容器延时也恢复正常了。</p>
+<p><strong>通俗点说就是HSRP把回包拐跑了，有些回包拐跑了又送回来了（延时200ms那些）</strong></p>
+<p>至于HSRP为什么会这么做，要厂家出来解释了。</p>
+<p>大概结构如下图：</p>
+<p><img src="/images/oss/1561010762561-4a8510f9-db2f-44bd-b86f-ddfc5bc889d3.png" alt="undefined">     </p>
+<h4 id="关于HSRP和VRRP"><a href="#关于HSRP和VRRP" class="headerlink" title="关于HSRP和VRRP"></a>关于HSRP和VRRP</h4><p>VRRP是虚拟路由冗余协议的简称，这个协议的目的是为了让多台路由器共同组成一个虚拟路由器，从而解决单点故障。</p>
+<p>使用VRRP的网络架构大致如上面这个图所示，其中Master和Slave共同组成了一个虚拟路由器，这台虚拟路由器的IP是1.1.1.1，同时还会有一个虚拟的mac地址，所有主机的默认网关IP都将设置成1.1.1.1。</p>
+<p>假设主机H1需要对外发送数据，在发送IP数据包时主机H1需要知道1.1.1.1这个IP对应的物理地址，因此H1会向外广播一个ARP请求，询问1.1.1.1这个IP数据包对应的物理地址。此时，Master将会负责响应这个APR请求，将虚拟的mac地址报告给主机H1，主机H1就用这个物理地址发送IP数据包。</p>
+<p>当IP数据包到达交换机Switch A的时候，Switch A需要知道应该把这个数据包转发到哪条链路去，这个时候Switch A也会广播一个ARP请求，看看哪条链路会响应这个ARP请求。同样，Master会响应这个ARP请求，从而Switch A就知道了应该把数据包从自己的eth0对应的这条链路转发出去。此时，Master就是真正负责整个网络对外通信的路由器。</p>
+<p>当Master出现故障的时候，通过VRRP协议，Slave可以感知到这个故障(通过类似于心跳的方式)，这个时候Slave会主动广播一个ARP消息，告诉Switch A应该从eth1对应的链路转发物理地址是虚拟mac地址的数据包。这样就完成了主备路由器的切换，这个过程对网络中的主机来说是透明的。</p>
+<p>通过VRRP不仅可以实现1主1备的部署，还可以实现1主多备的部署。在1主多备的部署结构下，当Master路由器出现故障，多个Backup路由器会通过选举的方式产生一个新的Master路由器，由这个Master路由器来响应ARP请求。</p>
+<p>除了利用VRRP屏蔽单点故障之外，还可以实现负载均衡。在主备部署的情况下，Backup路由器其实是空转的，并不负责数据包的路由工作，这样显然是有点浪费的。此时，为了让Backup也负责一部分的路由工作，可以将两台路由器配制成互为主备的模式，这样就形成了两台虚拟路由器，网络中的主机可以选择任意一台作为默认网关。这种互为主备的模式也可以应用到1主多备的部署方式下。比如由3台路由器，分别是R1，R2和R3，用这3台路由器可以组成3台虚拟路由器，一台虚拟路由器以R1为Master，R2和R3为Backup路由器，另外一台以R2为Master，R1和R3为Backup路由器，第三台则以R3为Master，R1和R2为Backup路由器。</p>
+<p>通过VRRP，可以实现LVS的主备部署，屏蔽LVS单点故障对应用服务器的影响。</p>
+<h2 id="网络到底通不通是个复杂的问题"><a href="#网络到底通不通是个复杂的问题" class="headerlink" title="网络到底通不通是个复杂的问题"></a>网络到底通不通是个复杂的问题</h2><p>讲这个过程的核心目的是除了真正的网络不通，有些是服务不可用了也怪网络。很多现场的同学根本讲不清自己的服务（比如80端口上的tomcat服务）还在不在，网络通不通，网络不通的话该怎么办？</p>
+<p>实际这里涉及到四个节点（以两个网关直连为例），srcIP -&gt; src网关 -&gt; dest网关 -&gt; destIP.如果ping不通(也有特殊的防火墙限制ping包不让过的），那么分段ping（二分查找程序员应该最熟悉了）。 比如前面的例子就是网关没有把包转发回来</p>
+<p>抓包看ping包有没有出去，对方抓包看有没有收到，收到后有没有回复。</p>
+<p>ping自己网关能不能通，ping对方网关能不能通</p>
+<h2 id="接下来说点跟程序员日常相关的"><a href="#接下来说点跟程序员日常相关的" class="headerlink" title="接下来说点跟程序员日常相关的"></a>接下来说点跟程序员日常相关的</h2><h3 id="如果网络能ping通，服务无法访问"><a href="#如果网络能ping通，服务无法访问" class="headerlink" title="如果网络能ping通，服务无法访问"></a>如果网络能ping通，服务无法访问</h3><p>那么尝试telnet IP port 看看你的服务监听的端口是否还在，在的话是否能正常响应新的连接。有时候是进程挂掉了，端口也没人监听了。有时候是进程还在但是死掉了，所以端口也不响应新的请求了。</p>
+<p>如果端口还在也是正常的话，telnet应该是好的：</p>
+<pre><code>$telnet 11.239.161.60 2376
+Trying 11.239.161.60...
+Connected to 11.239.161.60.
+Escape character is &apos;^]&apos;.
+^C
+Connection closed by foreign host.
+</code></pre><p>假如我故意换成一个不存在的端口，目标机器上的OS直接就拒绝了这个连接（抓包的话一般是看到reset标识）：</p>
+<pre><code>$telnet 11.239.161.60 2379
+Trying 11.239.161.60...
+telnet: connect to address 11.239.161.60: Connection refused
+</code></pre><h2 id="一个服务不响应，然后首先怀疑网络不通、丢包的Case"><a href="#一个服务不响应，然后首先怀疑网络不通、丢包的Case" class="headerlink" title="一个服务不响应，然后首先怀疑网络不通、丢包的Case"></a>一个服务不响应，然后首先怀疑网络不通、丢包的Case</h2><p>当时的反馈应用代码抛SocketTimeoutException，怀疑网络问题：</p>
+<ol>
+<li>tsar检查，发现retran率特别高，docker容器（tlog-console）内达到50，物理机之间的retran在1-2之间。</li>
+<li>Tlog连接Hbase，出现大量连接断开，具体日志见附件，Hbase服务器完全正常，Hbase同学怀疑retran比较高导致。</li>
+<li>业务应用连接Diamond 偶尔会出现超时异常，具体日志见附件。</li>
+<li>业务很多这样的异常日志：[Diamond  SocketTimeoutException]</li>
+<li>有几台物理机io偶然情况下会飙升到80多。需要定位解决。</li>
+</ol>
+<p>其实当时看到tsar监控retran比较高，我也觉得网络有问题，但是我去看的时候网络又非常好，于是我看了一下出问题时间段的网卡的流量信息也非常正常：</p>
+<p><img src="/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
+<p>上图是通过sar监控到的9号 10.16.11.138（v24d9e0f23d40） 这个网卡的流量，看起来也是正常，流量没有出现明显的波动（10.16.11.138  出问题容器对应的网卡名：v24d9e0f23d40）</p>
+<p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求，基本认识告诉我们如果网络丢包、卡顿，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常。</p>
+<p>实际监控来看，应用出异常的时候我的http服务是正常的（写了脚本判断日志的连续性，没问题）：</p>
+<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
+<p>这也强有力地证明了网络没问题，所以大家集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
+<blockquote>
+<p>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</p>
+</blockquote>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
+<ul>
+<li>有重传的时候（或者说重传率高的时候），ping有可能是正常的（icmp包网卡直接返回）；</li>
+<li>重传高，一般是tcp retrans，可能应用不响应，可能操作系统软中断太高等</li>
+<li>ping只是保证网络链路是否通畅</li>
+</ul>
+<p>这些原理基本都在RFC1180中阐述的清晰简洁，图文并茂，结构逻辑合理，但是对于90%的程序员没有什么卵用，因为看完几周后就忘得差不多。对于普通人来说还是要通过具体的案例来加深理解。</p>
+<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如《wireshark抓包艺术》，人和人的学习能力有差别必须要承认。</p>
+<hr>
+<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">https://tools.ietf.org/html/rfc1180</a></p>
+<p><a href="https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/" target="_blank" rel="noopener">https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/04/21/netstat定位性能案例/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/04/21/netstat定位性能案例/" itemprop="url">netstat定位性能案例</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-04-21T17:30:03+08:00">
+                2019-04-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="netstat定位性能案例"><a href="#netstat定位性能案例" class="headerlink" title="netstat定位性能案例"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/">ss用法见这里</a></p>
+<p>下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了）</p>
+<h2 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre><p> netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><blockquote>
+<p>Recv-Q<br>Established: The count of bytes not copied by the user program connected to this socket.<br>Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</p>
+<p>Send-Q<br>Established: The count of bytes not acknowledged by the remote host.<br>Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. </p>
+</blockquote>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><p><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat-s-统计数据"><a href="#netstat-s-统计数据" class="headerlink" title="netstat -s 统计数据"></a>netstat -s 统计数据</h2><p>所有统计信息基本都有</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/Linux Module/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/01/24/Linux Module/" itemprop="url">Linux Module and make debug</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
+                2019-01-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
+Makefile:4: *** missing separator.  Stop.
+</code></pre><p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
+<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
+make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
+make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
+make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&apos;, needed by `arch/x86/include/generated/asm/syscalls_32.h&apos;.  Stop.
+make[1]: *** [archheaders] Error 2
+make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&apos;
+make: *** [all] Error 2
+</code></pre><p>Makefile中的：<br>    make -C /lib/modules/$(shell uname -r)/build M=$(pwd) modules</p>
+<p>$(pwd) 需要修改成：$(shell pwd)</p>
+<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
+$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
+$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
+$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
+</code></pre><h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
+<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &apos;^# makefile&apos; | grep -v &apos;^--&apos; | awk &apos;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&apos; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
+$ cat variable.log
+# makefile (from `Makefile&apos;, line 1) ; aa := 11
+# makefile (from `Makefile&apos;, line 3) ; cc := 11
+# makefile (from `Makefile&apos;, line 4) ; bb := 9999
+# makefile (from `cfg_makefile&apos;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
+# makefile (from `cfg_makefile&apos;, line 1) ; xx := 4444
+# makefile (from `cfg_makefile&apos;, line 2) ; yy := 4444
+# makefile (from `cfg_makefile&apos;, line 3) ; zz := 4444
+# makefile (from `sub_makefile&apos;, line 1) ; MAKEFILE_LIST :=  sub_makefile
+# makefile (from `sub_makefile&apos;, line 1) ; aaaa := 222222
+# makefile (from `sub_makefile&apos;, line 2) ; bbbb := 222222
+# makefile (from `sub_makefile&apos;, line 3) ; cccc := 222222
+</code></pre><h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
+<pre><code>$(warning $(var123))
+</code></pre><p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
+<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
+<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
+<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
+<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
+<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
+<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
+<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
+</code></pre><h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING,    /* Now a valid state */
+
+    TCP_MAX_STATES  /* Leave at the end! */
+};
+</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a>kdump</h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
+<pre><code>sudo systemctl start kdump
+</code></pre><h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
+//手动触发crash
+#echo 1 &gt; /proc/sys/kernel/sysrq
+#echo c &gt; /proc/sysrq-trigger
+//系统crash，然后重启，重启后分析：
+sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
+</code></pre><p>可以触发dump但是系统没有crash, 以下两个命令都可以</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore</span><br><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem</span><br><span class="line"></span><br><span class="line">写内存hack内核，那就在crash命令执行前，先执行下面的命令：</span><br><span class="line">stap -g -e &apos;probe kernel.function(&quot;devmem_is_allowed&quot;).return &#123; $return = 1 &#125;&apos;</span><br></pre></td></tr></table></figure>
+<h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
+<pre><code>static int __init hotfix_init(void)
+{
+  unsigned char e8_call[POKE_LENGTH];
+  s32 offset, i;
+
+  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
+  if (!addr) {
+    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
+    return -1;
+  }
+
+  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
+  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
+
+  stub = (void *)test_stub1;
+
+  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
+
+  e8_call[0] = 0xe8;
+  (*(s32 *)(&amp;e8_call[1])) = offset;
+  for (i = 5; i &lt; POKE_LENGTH; i++) {
+    e8_call[i] = 0x90;
+  }
+  get_online_cpus();
+  mutex_lock(_text_mutex);
+  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
+  mutex_unlock(_text_mutex);
+  put_online_cpus();
+
+  return 0;
+}
+
+void test_stub1(void)
+{
+  struct sock *sk = NULL;
+  unsigned long sk_addr = 0;
+  char buf[MAX_BUF_SIZE];
+  int size=0;
+  asm (&quot;push %rdi&quot;);
+
+  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
+  sk = (struct sock *)sk_addr;
+
+  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
+      sk-&gt;sk_state,
+      sk-&gt;sk_rcv_saddr,
+      sk-&gt;sk_daddr);
+/*
+  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
+                     get_seconds(),
+                     sk-&gt;sk_state,
+                     &amp;(inet_sk(sk)-&gt;inet_saddr),
+                     ntohs(inet_sk(sk)-&gt;inet_sport),
+                     ntohs(inet_sk(sk)-&gt;inet_dport),
+                     &amp;(inet_sk(sk)-&gt;inet_daddr));
+*/
+//  tcp_rt_log_output(buf,size,1);
+
+  asm (&quot;pop %rdi&quot;);
+}
+</code></pre><h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
+<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/105394840" target="_blank" rel="noopener">Linux系统中如何彻底隐藏一个TCP连接</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/定制Linux_Kernel/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/01/24/定制Linux_Kernel/" itemprop="url">定制Linux Kernel</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
+                2019-01-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">cat change_kernel_parameter.sh </span></span><br><span class="line"><span class="meta">#</span><span class="bash">cat /sys/devices/system/cpu/vulnerabilities/*</span></span><br><span class="line"><span class="meta">#</span><span class="bash">grep <span class="string">''</span> /sys/devices/system/cpu/vulnerabilities/*</span></span><br><span class="line"><span class="meta">#</span><span class="bash">https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash">cat /sys/kernel/mm/transparent_hugepage/enabled</span></span><br><span class="line"><span class="meta">#</span><span class="bash">transparent_hugepage=always</span></span><br><span class="line"><span class="meta">#</span><span class="bash">noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</span></span><br><span class="line"><span class="meta">#</span><span class="bash">追加nopti nospectre_v2到内核启动参数中</span></span><br><span class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</span><br><span class="line"></span><br><span class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</span><br><span class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"><span class="built_in">limit</span> the journald <span class="built_in">log</span> to 500M</span></span><br><span class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</span><br><span class="line"><span class="meta">#</span><span class="bash">重启系统</span></span><br><span class="line"><span class="meta">#</span><span class="bash">sudo reboot</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"><span class="comment"># 选择不同的kernel启动</span></span></span><br><span class="line"><span class="meta">#</span><span class="bash">sudo grep <span class="string">"menuentry "</span> /boot/grub2/grub.cfg | grep -n menu</span></span><br><span class="line"><span class="meta">#</span><span class="bash"><span class="comment">#grub认的index从0开始数的</span></span></span><br><span class="line"><span class="meta">#</span><span class="bash">sudo grub2-reboot 0; sudo reboot</span></span><br></pre></td></tr></table></figure>
+<h2 id="修改是否启用透明大页"><a href="#修改是否启用透明大页" class="headerlink" title="修改是否启用透明大页"></a>修改是否启用透明大页</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line">always [madvise] never</span><br></pre></td></tr></table></figure>
+<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">$ diskutil list</span><br><span class="line">/dev/disk6 (external, physical):</span><br><span class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</span><br><span class="line">   0:                                                   *31.5 GB    disk6</span><br><span class="line">                        </span><br><span class="line"># 找到 U 盘的那个设备，umount</span><br><span class="line">$ diskutil unmountDisk /dev/disk3</span><br><span class="line"></span><br><span class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</span><br><span class="line"># 代表了 raw device，会快很多</span><br><span class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</span><br><span class="line"></span><br><span class="line"># 弹出 U 盘</span><br><span class="line">$ sudo diskutil eject /dev/disk3</span><br></pre></td></tr></table></figure>
+<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="noopener">Linux 下制作步骤</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">umount /dev/sdn1</span><br><span class="line">sudo mkfs.vfat /dev/sdn1</span><br><span class="line">dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</span><br></pre></td></tr></table></figure>
+<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">24条32G的内存条，总内存768G</span><br><span class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</span><br><span class="line">  Size: 32 GB</span><br><span class="line">…………</span><br><span class="line">  Size: 32 GB</span><br><span class="line">  Size: 32 GB</span><br><span class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</span><br><span class="line">24</span><br><span class="line"></span><br><span class="line"># cat /boot/grub/grub.cfg  |grep 512</span><br><span class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br><span class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</span><br></pre></td></tr></table></figure>
+<h3 id="高级版，按numa限制内存"><a href="#高级版，按numa限制内存" class="headerlink" title="高级版，按numa限制内存"></a>高级版，<a href="https://www.kernel.org/doc/html/v4.14/admin-guide/kernel-parameters.html" target="_blank" rel="noopener">按numa限制内存</a></h3><p>每个numa 128G内存，总共1024G（32条*32G），8个numa node，需要将每个numa node内存限制在64G</p>
+<p>在grub中cmdline中加入如下配置，每个node只用64G内存：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">memmap=64G\$64G memmap=64G\$192G memmap=64G\$320G memmap=64G\$448G memmap=64G\$576G memmap=64G\$704G memmap=64G\$832G memmap=64G\$960G</span><br></pre></td></tr></table></figure>
+<p>或者：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">#cat /etc/default/grub</span><br><span class="line">GRUB_TIMEOUT=5</span><br><span class="line">GRUB_DISTRIBUTOR=&quot;$(sed &apos;s, release .*$,,g&apos; /etc/system-release)&quot;</span><br><span class="line">GRUB_DEFAULT=saved</span><br><span class="line">GRUB_DISABLE_SUBMENU=true</span><br><span class="line">GRUB_TERMINAL_OUTPUT=&quot;console&quot;</span><br><span class="line">GRUB_CMDLINE_LINUX=&quot;crashkernel=1024M,high resume=/dev/mapper/klas-swap rd.lvm.lv=klas/root rd.lvm.lv=klas/swap video=efifb:on rhgb quiet quiet noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off tsx=on tsx_async_abort=off mitigations=off iommu.passthrough=1 memmap=64G\\\$64G memmap=64G\\\$192G memmap=64G\\\$320G memmap=64G\\\$448G memmap=64G\\\$576G memmap=64G\\\$704G memmap=64G\\\$832G memmap=64G\\\$960G&quot;</span><br><span class="line">GRUB_DISABLE_RECOVERY=&quot;true&quot;</span><br><span class="line"></span><br><span class="line">然后执行生成最终grub启动参数</span><br><span class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</span><br></pre></td></tr></table></figure>
+<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line">#dmidecode -t memory</span><br><span class="line"># dmidecode 3.2</span><br><span class="line">Getting SMBIOS data from sysfs.</span><br><span class="line">SMBIOS 3.2.1 present.</span><br><span class="line"># SMBIOS implementations newer than version 3.2.0 are not</span><br><span class="line"># fully supported by this version of dmidecode.</span><br><span class="line"></span><br><span class="line">Handle 0x0033, DMI type 16, 23 bytes </span><br><span class="line">Physical Memory Array</span><br><span class="line">	Location: System Board Or Motherboard</span><br><span class="line">	Use: System Memory</span><br><span class="line">	Error Correction Type: Multi-bit ECC</span><br><span class="line">	Maximum Capacity: 2 TB  //最大支持2T</span><br><span class="line">	Error Information Handle: 0x0032</span><br><span class="line">	Number Of Devices: 32   //32个插槽</span><br><span class="line">	</span><br><span class="line">	Handle 0x0041, DMI type 17, 84 bytes</span><br><span class="line">Memory Device</span><br><span class="line">	Array Handle: 0x0033</span><br><span class="line">	Error Information Handle: 0x0040</span><br><span class="line">	Total Width: 72 bits</span><br><span class="line">	Data Width: 64 bits</span><br><span class="line">	Size: 32 GB</span><br><span class="line">	Form Factor: DIMM</span><br><span class="line">	Set: None</span><br><span class="line">	Locator: CPU0_DIMMA0</span><br><span class="line">	Bank Locator: P0 CHANNEL A</span><br><span class="line">	Type: DDR4</span><br><span class="line">	Type Detail: Synchronous Registered (Buffered)</span><br><span class="line">	Speed: 2933 MT/s                    //dmmi 插槽支持最大速度</span><br><span class="line">	Manufacturer: SK Hynix</span><br><span class="line">	Serial Number: 220F9EC0</span><br><span class="line">	Asset Tag: Not Specified</span><br><span class="line">	Part Number: HMAA4GR7AJR8N-WM</span><br><span class="line">	Rank: 2</span><br><span class="line">	Configured Memory Speed: 2400 MT/s  //内存实际运行速度</span><br><span class="line">	Minimum Voltage: 1.2 V</span><br><span class="line">	Maximum Voltage: 1.2 V</span><br><span class="line">	Configured Voltage: 1.2 V</span><br><span class="line">	Memory Technology: DRAM</span><br><span class="line">	Memory Operating Mode Capability: Volatile memory</span><br><span class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</span><br><span class="line">	Non-Volatile Size: None</span><br><span class="line">	Volatile Size: 32 GB</span><br><span class="line">	</span><br><span class="line">	#lshw</span><br><span class="line">	*-bank:19  //主板插槽能力</span><br><span class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns)</span><br><span class="line">             product: HMAA4GR7AJR8N-WM</span><br><span class="line">             vendor: SK Hynix</span><br><span class="line">             physical id: 13</span><br><span class="line">             serial: 220F9F63</span><br><span class="line">             slot: CPU1_DIMMB0</span><br><span class="line">             size: 32GiB  //实际所插内存大小</span><br><span class="line">             width: 64 bits</span><br><span class="line">             clock: 2933MHz (0.3ns)</span><br></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -3807,929 +4685,6 @@ msg_size  =4 KiB (4,096)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/06/14/就是要你懂TCP--最经典的TCP性能问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/06/14/就是要你懂TCP--最经典的TCP性能问题/" itemprop="url">就是要你懂TCP--TCP性能问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-06-14T10:30:03+08:00">
-                2018-06-14
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂TCP–TCP性能问题"><a href="#就是要你懂TCP–TCP性能问题" class="headerlink" title="就是要你懂TCP–TCP性能问题"></a>就是要你懂TCP–TCP性能问题</h1><p>先通过一个案例来看TCP性能点</p>
-<h2 id="案例描述"><a href="#案例描述" class="headerlink" title="案例描述"></a>案例描述</h2><p>某个PHP服务通过Nginx将后面的redis封装了一下，让其他应用可以通过http协议访问Nginx来get、set 操作redis</p>
-<p>上线后测试一切正常，每次操作几毫秒. 但是有个应用的value是300K，这个时候set一次需要300毫秒以上。 在没有任何并发压力单线程单次操作也需要这么久，这个操作需要这么久是不合理和无法接受的。</p>
-<h2 id="问题的原因"><a href="#问题的原因" class="headerlink" title="问题的原因"></a>问题的原因</h2><p>因为TCP协议为了对带宽利用率、性能方面优化，而做了一些特殊处理。比如Delay Ack和Nagle算法。</p>
-<p>这个原因对大家理解TCP基本的概念后能在实战中了解一些TCP其它方面的性能和影响。</p>
-<h3 id="什么是delay-ack"><a href="#什么是delay-ack" class="headerlink" title="什么是delay ack"></a>什么是delay ack</h3><p>由我前面的TCP介绍文章大家都知道，TCP是可靠传输，可靠的核心是收到包后回复一个ack来告诉对方收到了。</p>
-<p>来看一个例子：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/06e6b04614ce57e4624346ea6311a411.png" alt="image.png"></p>
-<p>截图中的Nignx(8085端口），收到了一个http request请求，然后立即回复了一个ack包给client，接着又回复了一个http response 给client。大家注意回复的ack包长度66，实际内容长度为0，ack信息放在TCP包头里面，也就是这里发了一个66字节的空包给客户端来告诉客户端我收到你的请求了。</p>
-<p>这里没毛病，逻辑很对，符合TCP的核心可靠传输的意义。但是带来的一个问题是：性能不够好（用了一个空包用于特意回复ack，有点浪费）。那能不能优化呢？</p>
-<p>这里的优化方法就是delay ack。</p>
-<p><strong>delay ack</strong>是指收到包后不立即ack，而是等一小会（比如40毫秒）看看，如果这40毫秒以内是否有其它包（比如上面的http response）正要发给client，那么我这个ack包就跟着发过去（顺风车，http reponse包不需要增加任何大小和包的数量），这样节省了资源。 当然如果超过这个时间还没有包发给client（比如nginx处理需要40毫秒以上），那么这个ack也要发给client了（即使为空，要不client以为丢包了，又要重发http request，划不来）。</p>
-<p>假如这个时候ack包还在等待延迟发送的时候，又收到了client的一个包，那么这个时候server有两个ack包要回复，那么os会把这两个ack包合起来<strong>立即</strong>回复一个ack包给client，告诉client前两个包都收到了。</p>
-<p><strong>也就是delay ack开启的情况下：ack包有顺风车就搭；如果凑两个ack包那么包个车也立即发车；再如果等了40毫秒以上也没顺风车或者拼车的，那么自己打个专车也要发车。</strong></p>
-<p>截图中Nginx<strong>没有开delay ack</strong>，所以你看红框中的ack是完全可以跟着绿框（http response）一起发给client的，但是没有，红框的ack立即打车跑了</p>
-<h2 id="什么是Nagle算法"><a href="#什么是Nagle算法" class="headerlink" title="什么是Nagle算法"></a>什么是Nagle算法</h2><p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener">下面的伪代码就是Nagle算法的基本逻辑，摘自wiki</a>：</p>
-<pre><code>if there is new data to send
-  if the window size &gt;= MSS and available data is &gt;= MSS
-        send complete MSS segment now
-  else
-    if there is unconfirmed data still in the pipe
-          enqueue data in the buffer until an acknowledge is received
-    else
-          send data immediately
-    end if
-  end if
-end if
-</code></pre><p>这段代码的意思是如果接收窗口大于MSS  并且  要发送的数据大于 MSS的话，立即发送。<br>否则：<br>   看看前面发出去的包是不是还有没有ack的，如果有没有ack的那么我这个小包不急着发送，等前面的ack回来再发送</p>
-<p>我总结下Nagle算法逻辑就是：如果发送的包很小（不足MSS），又有包发给了对方对方还没回复说收到了，那我也不急着发，等前面的包回复收到了再发。这样可以优化带宽利用率（早些年带宽资源还是很宝贵的），Nagle算法也是用来优化改进tcp传输效率的。</p>
-<h2 id="如果client启用Nagle，并且server端启用了delay-ack会有什么后果呢？"><a href="#如果client启用Nagle，并且server端启用了delay-ack会有什么后果呢？" class="headerlink" title="如果client启用Nagle，并且server端启用了delay ack会有什么后果呢？"></a>如果client启用Nagle，并且server端启用了delay ack会有什么后果呢？</h2><p>假如client要发送一个http请求给server，这个请求有1600个bytes，通过握手协商好的MSS是1460，那么这1600个bytes就会分成2个TCP包，第一个包1460，剩下的140bytes放在第二个包。第一个包发出去后，server收到第一个包，因为delay ack所以没有回复ack，同时因为server没有收全这个HTTP请求，所以也没法回复HTTP response（server的应用层在等一个完整的HTTP请求然后才能回复，或者TCP层在等超过40毫秒的delay时间）。client这边开启了Nagle算法（默认开启）第二个包比较小（140&lt;MSS),第一个包的ack还没有回来，那么第二个包就不发了，等！互相等！一直到Delay Ack的Delay时间到了！</p>
-<p>这就是悲剧的核心原因。</p>
-<h2 id="再来看一个经典例子和数据分析"><a href="#再来看一个经典例子和数据分析" class="headerlink" title="再来看一个经典例子和数据分析"></a>再来看一个经典例子和数据分析</h2><p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener">这个案例的原始出处</a></p>
-<p>案例核心奇怪的现象是：</p>
-<ul>
-<li>如果传输的数据是 99,900 bytes，速度5.2M/秒； </li>
-<li>如果传输的数据是 100,000 bytes 速度2.7M/秒，多了10个bytes，不至于传输速度差这么多。</li>
-</ul>
-<p>原因就是：</p>
-<pre><code> 99,900 bytes = 68 full-sized 1448-byte packets, plus 1436 bytes extra
-100,000 bytes = 69 full-sized 1448-byte packets, plus   88 bytes extra
-</code></pre><p>99,900 bytes：</p>
-<blockquote>
-<p>68个整包会立即发送（都是整包，不受Nagle算法的影响），因为68是偶数，对方收到最后两个包后立即回复ack（delay ack凑够两个也立即ack），那么剩下的1436也很快发出去（根据Nagle算法，没有没ack的包了，立即发）</p>
-</blockquote>
-<p>100,000 bytes:</p>
-<blockquote>
-<p>前面68个整包很快发出去也收到ack回复了，然后发了第69个整包，剩下88bytes（不够一个整包）根据Nagle算法要等一等，server收到第69个ack后，因为delay ack不回复（手里只攒下一个没有回复的包），所以client、server两边等在等，一直等到server的delay ack超时了。</p>
-</blockquote>
-<p>挺奇怪和挺有意思吧，作者还给出了传输数据的图表：</p>
-<p><img src="http://www.stuartcheshire.org/papers/nagledelayedack/Fail.jpg" alt></p>
-<p>这是有问题的传输图，明显有个平台层，这个平台层就是两边在互相等，整个速度肯定就上不去。</p>
-<p>如果传输的都是99,900，那么整个图形就很平整：</p>
-<p><img src="http://www.stuartcheshire.org/papers/nagledelayedack/Pass.jpg" alt></p>
-<h2 id="回到前面的问题"><a href="#回到前面的问题" class="headerlink" title="回到前面的问题"></a>回到前面的问题</h2><p>服务写好后，开始测试都没有问题，rt很正常（一般测试的都是小对象），没有触发这个问题。后来碰到一个300K的rt就到几百毫秒了，就是因为这个原因。</p>
-<p>另外有些http post会故意把包头和包内容分成两个包，再加一个Expect参数之类的，更容易触发这个问题。</p>
-<p>这是修改后的C代码</p>
-<pre><code>struct curl_slist *list = NULL;
-//合并post包
-list = curl_slist_append(list, &quot;Expect:&quot;);  
-
-CURLcode code(CURLE_FAILED_INIT);
-if (CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_URL, oss.str().c_str())) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &amp;write_callback)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_POST, 1L)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, pooh.sizeleft)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback)) &amp;&amp;
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_READDATA, &amp;pooh)) &amp;&amp;                
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L)) &amp;&amp; //1000 ms curl bug
-        CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list))                
-        ) {
-
-        //这里如果是小包就不开delay ack，实际不科学
-        if (request.size() &lt; 1024) {
-                code = curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
-        } else {
-                code = curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 0L);
-        }
-        if(CURLE_OK == code) {
-                code = curl_easy_perform(curl);
-        }
-</code></pre><p>上面中文注释的部分是后来的改进，然后经过测试同一个300K的对象也能在几毫米以内完成get、set了。</p>
-<p>尤其是在Post请求将HTTP Header和Body内容分成两个包后，容易出现这种延迟问题</p>
-<h2 id="一些概念和其它会导致TCP性能差的原因"><a href="#一些概念和其它会导致TCP性能差的原因" class="headerlink" title="一些概念和其它会导致TCP性能差的原因"></a>一些概念和其它会导致TCP性能差的原因</h2><h3 id="跟速度相关的几个概念"><a href="#跟速度相关的几个概念" class="headerlink" title="跟速度相关的几个概念"></a>跟速度相关的几个概念</h3><ul>
-<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
-<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
-<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
-<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
-<li>tcp_wmem 对应send buffer，也就是滑动窗口大小</li>
-</ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
-<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
-<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
-<h3 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h3><ul>
-<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
-<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
-</ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
-<ul>
-<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
-<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
-<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
-<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
-<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
-<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
-</ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
-<h3 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h3><h4 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h4><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
-<p>这种友善的保护机制，对于 CDN 来说是帮倒忙，因此我们可以通过命令将此功能关闭，以提高 HTTP Connection: keep-alive 环境下的用户体验感。</p>
-<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
-</code></pre><h4 id="运行中每个连接-CWND-ssthresh-slow-start-threshold-的确认"><a href="#运行中每个连接-CWND-ssthresh-slow-start-threshold-的确认" class="headerlink" title="运行中每个连接 CWND/ssthresh(slow start threshold) 的确认"></a>运行中每个连接 CWND/ssthresh(slow start threshold) 的确认</h4><pre><code>for i in {1..1000}; do ss -i | grep -A 1 100.118.58.7 | grep ssthresh ; done
- reno wscale:9,9 rto:233 rtt:29.171/14.585 mss:1444 cwnd:40 ssthresh:361 send 15.8Mbps lastsnd:10 lastrcv:909498308 lastack:10 pacing_rate 7.9Mbps unacked:1 rcv_space:29200
- reno wscale:9,9 rto:230 rtt:29.237/3.534 redis:40 mss:1444 cwnd:40 ssthresh:361 send 15.8Mbps lastsnd:8 lastrcv:38 lastack:8 pacing_rate 31.6Mbps unacked:40 rcv_space:29200
- reno wscale:9,9 rto:230 rtt:29.201/0.111 redis:40 mss:1444 cwnd:155 ssthresh:361 send 61.3Mbps lastsnd:7 lastrcv:96 lastack:8 pacing_rate 122.6Mbps unacked:151 rcv_space:29200
- reno wscale:9,9 rto:230 rtt:29.381/0.193 redis:40 mss:1444 cwnd:362 ssthresh:361 send 142.3Mbps lastsnd:6 lastrcv:153 lastack:6 pacing_rate 284.7Mbps unacked:360 rcv_space:29200
- reno wscale:9,9 rto:230 rtt:29.351/0.081 redis:40 mss:1444 cwnd:364 ssthresh:361 send 143.3Mbps lastsnd:5 lastrcv:211 lastack:5 pacing_rate 286.5Mbps unacked:360 rcv_space:29200
-</code></pre><h4 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h4><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
-100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
-</code></pre><p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
-<p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
-<pre><code>清除 tcp_metrics, sudo ip tcp_metrics flush all 
-关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
-sudo ip tcp_metrics delete 100.118.58.7
-</code></pre><blockquote>
-<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值。</p>
-<p>对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
-</blockquote>
-<h5 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h5><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
-<h5 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h5><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
-<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
-<h4 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h4><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
-<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
-<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
-<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
-<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
-<h4 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h4><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
-<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
-<h4 id="socket-send-rcv-buf"><a href="#socket-send-rcv-buf" class="headerlink" title="socket send/rcv buf"></a>socket send/rcv buf</h4><p>有些应用会默认设置 socketSendBuffer 为16K，在高rt的环境下，延时20ms，带宽100M，如果一个查询结果22M的话需要25秒</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
-<p>细化看下问题所在：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
-<p>这个时候也就是buf中的16K数据全部发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、OS什么都不能做。</p>
-<p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
-<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
-<pre><code>$sudo sysctl -a | grep --color wmem
-vm.lowmem_reserve_ratio = 256   256     32
-net.core.wmem_max = 131071
-net.core.wmem_default = 124928
-net.ipv4.tcp_wmem = 4096        16384   4194304
-net.ipv4.udp_wmem_min = 4096
-</code></pre><p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
-<p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
-<p>这个buf调到1M有没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
-<pre><code>ip route | while read p; do sudo ip route change $p initcwnd 30 ; done
-</code></pre><hr>
-<p>就是要你懂TCP相关文章：</p>
-<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="noopener">关于TCP 半连接队列和全连接队列</a></p>
-<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="noopener">MSS和MTU导致的悲剧</a> </p>
-<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">双11通过网络优化提升10倍性能</a></p>
-<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener">就是要你懂TCP的握手和挥手</a></p>
-<hr>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>影响性能的几个点：</p>
-<ul>
-<li>nagle，影响主要是针对响应时间;</li>
-<li>tcp_metrics(缓存 ssthresh)， 影响主要是传输大文件时速度上不去或者上升缓慢，明明带宽还有余;</li>
-<li>tcp windows scale(lvs介在中间，不生效，导致接受窗口非常小）， 影响主要是传输大文件时速度上不去，明明带宽还有余。</li>
-</ul>
-<p>Nagle这个问题确实经典，非常隐晦一般不容易碰到，碰到一次决不放过她。文中所有client、server的概念都是相对的，client也有delay ack的问题。 Nagle算法一般默认开启的。</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="noopener">https://access.redhat.com/solutions/407743</a></p>
-<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
-<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
-<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="noopener">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
-<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="noopener">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
-<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener">https://www.atatech.org/articles/109721</a></p>
-<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">https://www.atatech.org/articles/109967</a></p>
-<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="noopener">https://www.atatech.org/articles/27189</a> </p>
-<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="noopener">https://www.atatech.org/articles/45084</a></p>
-<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="noopener">高性能网络编程7–tcp连接的内存使用</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/05/23/如何在工作中学习/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/05/23/如何在工作中学习/" itemprop="url">如何在工作中学习</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-05-23T12:30:03+08:00">
-                2018-05-23
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/技巧/" itemprop="url" rel="index">
-                    <span itemprop="name">技巧</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何在工作中学习"><a href="#如何在工作中学习" class="headerlink" title="如何在工作中学习"></a>如何在工作中学习</h1><p>2021年0705更新了两个案例和慢就是快的理念，尽量将案例扩大化，不只是程序员，增加了高中数学题的案例。</p>
-<p>本文被网友翻译的<a href="https://medium.com/@cai.eason/learn-and-improve-the-right-technical-skills-7a0bc5123e1" target="_blank" rel="noopener">英文版</a> （medium 需要梯子）</p>
-<blockquote>
-<p>先说一件值得思考的事情：高考的时候大家都是一样的教科书，同一个教室，同样的老师辅导，时间精力基本差不多，可是最后别人考的是清华北大或者一本，而你的实力只能考个三本，为什么？ 当然这里主要是智商的影响，那么其他因素呢？智商解决的问题能不能后天用其他方式来补位一下？</p>
-</blockquote>
-<p>大家平时都看过很多方法论的文章，看的时候很爽觉得非常有用，但是一两周后基本还是老样子了。其中有很大一部分原因那些方法对脑力有要求、或者方法论比较空缺少落地的步骤和案例。 下文中描述的方式方法是不需要智商也能学会的，非常具体的。</p>
-<h2 id="关键问题点"><a href="#关键问题点" class="headerlink" title="关键问题点"></a>关键问题点</h2><h3 id="为什么你的知识积累不了？"><a href="#为什么你的知识积累不了？" class="headerlink" title="为什么你的知识积累不了？"></a>为什么你的知识积累不了？</h3><p>有些知识看过就忘、忘了再看，实际碰到问题还是联系不上这个知识，这其实是知识的积累出了问题，没有深入的理解自然就不能灵活运用，也就谈不上解决问题了。这跟大家一起看相同的高考教科书但是高考结果不一样是一个原因。问题出在了理解上，每个人的理解能力不一样（智商），绝大多数人对知识的理解要靠不断地实践（做题）来巩固。</p>
-<h3 id="同样实践效果不一样？"><a href="#同样实践效果不一样？" class="headerlink" title="同样实践效果不一样？"></a>同样实践效果不一样？</h3><p>同样工作一年碰到了10个问题（或者说做了10套高考模拟试卷），但是结果不一样，那是因为在实践过程中方法不够好。或者说你对你为什么做对了、为什么做错了没有去复盘</p>
-<p>假如碰到一个问题，身边的同事解决了，而我解决不了。那么我就去想这个问题他是怎么解决的，他看到这个问题后的逻辑和思考是怎么样的，有哪些知识指导了他这么逻辑推理，这些知识哪些我也知道但是我没有想到这么去运用推理（说明我对这个知识理解的不到位导致灵活运用缺乏）；这些知识中又有哪些是我不知道的（知识缺乏，没什么好说的快去Google什么学习下–有场景案例和目的加持，学习理解起来更快）。</p>
-<p>等你把这个问题基本按照你同事掌握的知识和逻辑推理想明白后，需要再去琢磨一下他的逻辑推理解题思路中有没有不对的，有没有啰嗦的地方，有没有更直接的方式（对知识更好地运用）。</p>
-<p>我相信每个问题都这么去实践的话就不应该再抱怨灵活运用、举一反三，同时知识也积累下来了，这种场景下积累到的知识是不会那么容易忘记的。</p>
-<p>这就是向身边的牛人学习，同时很快超过他的办法。这就是为什么高考前你做了10套模拟题还不如其他人做一套的效果好</p>
-<p><strong>知识+逻辑 基本等于你的能力</strong>，知识让你知道那个东西，逻辑让你把东西和问题联系起来</p>
-<p><strong>这里的问题你可以理解成方案、架构、设计等</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/webp-5540564." alt="img"></p>
-<h3 id="系统化的知识哪里来？"><a href="#系统化的知识哪里来？" class="headerlink" title="系统化的知识哪里来？"></a>系统化的知识哪里来？</h3><p>知识之间是可以联系起来的并且像一颗大树一样自我生长，但是当你都没理解透彻，自然没法产生联系，也就不能够自我生长了。</p>
-<p>真正掌握好的知识点会慢慢生长连接最终组成一张大网</p>
-<p>但是我们最容易陷入的就是掌握的深度、系统化（工作中碎片时间过多，学校里缺少时间）不够，所以一个知识点每次碰到花半个小时学习下来觉得掌握了，但是3个月后就又没印象了。总是感觉自己在懵懵懂懂中，或者一个领域学起来总是不得要领，根本的原因还是在于：宏观整体大图了解不够（缺乏体系，每次都是盲人摸象）；关键知识点深度不够，理解不透彻，这些关键点就是这个领域的骨架、支点、抓手。缺了抓手自然不能生长，缺了宏观大图容易误入歧途。</p>
-<p>我们有时候发现自己在某个领域学起来特别快，但是换个领域就总是不得要领，问题出在了上面，即使花再多时间也是徒然。这也就是为什么学霸看两个小时的课本比你看两天效果还好，感受下来还觉得别人好聪明，是不是智商比我高啊。</p>
-<p>所以新进入一个领域的时候要去找他的大图和抓手。</p>
-<p>好的同事总是能很轻易地把这个大图交给你，再顺便给你几个抓手，你就基本入门了，这就是培训的魅力，这种情况肯定比自学效率高多了。但是目前绝大部分的培训都做不到这点</p>
-<h3 id="好的逻辑又怎么来？"><a href="#好的逻辑又怎么来？" class="headerlink" title="好的逻辑又怎么来？"></a>好的逻辑又怎么来？</h3><p>实践、复盘</p>
-<h2 id="讲个前同事的故事"><a href="#讲个前同事的故事" class="headerlink" title="讲个前同事的故事"></a>讲个前同事的故事</h2><p>有一个前同事是5Q过来的，负责技术（所有解决不了的问题都找他），这位同学从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。这位同学让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
-<h3 id="应用访问数据库比较慢，但又不是慢查询"><a href="#应用访问数据库比较慢，但又不是慢查询" class="headerlink" title="应用访问数据库比较慢，但又不是慢查询"></a>应用访问数据库比较慢，但又不是慢查询</h3><ol>
-<li>这位同学的解决办法是通过tcpdump来分析网络包，看网络包的时间戳和网络包的内容，然后找到了具体卡在了哪里。</li>
-<li>如果是专业的DBA可能会通过show processlist 看具体连接在做什么，比如看到这些连接状态是 <strong>authentication</strong> 状态，然后再通过Google或者对这个状态的理解知道创建连接的时候MySQL需要反查IP、域名这里比较耗时，通过配置参数 <strong>skip-name-resolve</strong> 跳过去就好了。</li>
-<li>如果是MySQL的老司机，一上来就知道连接慢的话跟 <strong>skip-name-resolve</strong> 关系最大。</li>
-</ol>
-<p>在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的知识就把问题解决了，而且跨领域仍然可以适用(这也是基础知识的威力)。</p>
-<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
-<h2 id="慢就是快"><a href="#慢就是快" class="headerlink" title="慢就是快"></a>慢就是快</h2><p>往往我们很容易求多，一个知识点一本书看下来当时觉得掌握了，实际还是没有，这就是对自己的理解能力高估了，要学会慢下来，打透一个知识点比对10个知识点懵懵懂懂重要多了，因为你掌握一个知识点后，很容易发散掌握其它知识点。</p>
-<p>学习不是走斜坡，不是你学了就掌握了(掌握指的知识能用来解决问题)；学习更像走阶梯，每一阶有每一阶的难点，学物理有物理的难点，学漫画有漫画的难点，你没有克服难点，再怎么努力都是原地跳。所以当你克服难点，你跳上去就不会下来了。</p>
-<p>这里的克服难点可以理解成真正掌握知识点，大多时候的学习只是似是而非，所以一直在假学习，只有真正掌握后才像是上了个台阶。</p>
-<p>人跟人的差别就是爬台阶的能力，有人碰到台阶了绕过去，或者别人把他拉上去了，他哦一下就完事了，这种很快还是会掉下去(不能解决问题、或是很快遗忘)；有的人爬上去然后反复琢磨刚刚怎么爬上去的，甚至再下来，然后重新爬试试，还有没有不同的爬法。这两种人经过一两年就天差地别了。因为把事情做到位一次，就能获得几十倍于把事情普通完成后得到的经验。</p>
-<p>其实高中备考三年的高中生最应该注意这个方法(跟大家推荐的错题本非常类似)，比如从<a href="https://plantegg.github.io/2021/06/23/做了一道数学几何题/">做了一道数学几何题</a> 这个案例里面可以看到对一道题型所包含的知识点的理解、运用吃透，远远超过做更多的题目。</p>
-<h2 id="如何向身边的同学学习"><a href="#如何向身边的同学学习" class="headerlink" title="如何向身边的同学学习"></a>如何向身边的同学学习</h2><h3 id="微信、钉钉提问的技巧"><a href="#微信、钉钉提问的技巧" class="headerlink" title="微信、钉钉提问的技巧"></a>微信、钉钉提问的技巧</h3><p>我进现在的公司的时候是个网络小白，但是业务需要我去解决这些问题，于是我就经常在钉钉上找内部的专家来帮请教一些问题，首先要感谢他们的耐心，同时我觉得跟他们提问的时候的方法大家可以参考一下。</p>
-<p>首先，没有客套直奔主题把问题描述清楚，微信、钉钉消息本来就不是即时的，就不要问在不在、能不能问个问题、你好（因为这些问题会浪费他一次切换，真要客套把 你好 写在问题前面在一条消息中发出去）。</p>
-<p>其次，我会截图把现象接下来，关键部分红框标明。如果是内部机器还会帮对方申请登陆账号，打通ssh登陆，然后把ssh登陆命令和触发截图现象命令的文字一起钉钉发过去。也就是对方收到我的消息，看到截图的问题后，他只要复制粘贴我发给他的文字信息就看到现象了。</p>
-<p>为什么要帮他申请账号，有时候账号要审批，要找人，对方不知道到哪里申请等等；这么复杂对方干脆就装作没看见你的消息好了。</p>
-<p>为什么还要把ssh登陆命令、重现文字命令发给他呢，怕他敲错啊，敲错了还得来问你，一来一回时间都浪费了。你也许会说我截图上有重现命令啊，那么凭什么他帮你解决问题他还要瞪大眼睛看你的截图把你的命令抄下来？比如容器ID一长串，你是截图了，结果他把b抄成6了，重现不了，还得问你，又是几个来回……</p>
-<p>提完问题后有几种情况：抱歉，我也不知道；这个问题你要问问谁，他应该知道；沉默</p>
-<p>如果你跟我上面一样给出的信息完整，能直接复制粘贴重现，沉默是极少极少的</p>
-<p>没关系钉钉的优势是复制粘贴方便，你就换个人再问，可能问到第三个人终于搞定了。那么我会回来把结果告诉前面我问过的同学，即使他是沉默的那个。因为我骚扰过人家，要回来填这个坑，另外也许他真的不知道，那么同步给他也可以帮到他。结果就是他觉得我很靠谱，信任度就建立好了，下次再有问题会更卖力地一起来解决。</p>
-<h3 id="一些不好的网络提问"><a href="#一些不好的网络提问" class="headerlink" title="一些不好的网络提问"></a>一些不好的网络提问</h3><p>有个同学看了我的文章（晚上11点看的），马上发了钉钉消息过来问文章中用到的工具是什么。我还没睡觉但是躺床上看东西，有钉钉消息提醒，但没有切过去回复（不想中断我在看的东西）。5分钟后这个同学居然钉了我一下，我当时是很震惊的，这是你平时学习，不是我的产品出了故障，现在晚上11点，因个人原因骚扰别人完全没有边界。</p>
-<p>提问题的时间要考虑对方大概率在电脑前，打字快。否则要紧的话就提选择题类型的问题</p>
-<p>问题要尽量是封闭的，比如钉钉上不适合问的问题：</p>
-<ul>
-<li>为什么我们应用的TPS压不上去，即使CPU还有很多空闲（不好的原因：太开放，原因太多，对方要打字2000才能给你解释清楚各种可能的原因，你要不是他老板就不要这样问了）</li>
-<li>用多条消息来描述一个问题，一次没把问题描述清楚，需要对方中断多次</li>
-</ul>
-<h2 id="场景式学习、体感的来源、面对问题学习"><a href="#场景式学习、体感的来源、面对问题学习" class="headerlink" title="场景式学习、体感的来源、面对问题学习"></a>场景式学习、体感的来源、面对问题学习</h2><p>前面提到的对知识的深入理解这有点空，如何才能做到深入理解？我下面通过几个非常具体的例子来解释下</p>
-<h3 id="学习TCP三次握手例子"><a href="#学习TCP三次握手例子" class="headerlink" title="学习TCP三次握手例子"></a>学习TCP三次握手例子</h3><p>经历稍微丰富点的工程师都觉得TCP三次握手看过很多次、很多篇文章了，但是文章写得再好似乎当时理解了，但是总是过几个月就忘了或者一看就懂，过一阵子被人一问就模模糊糊了，或者两个为什么就答不上了，自己都觉得自己的回答是在猜或者不确定</p>
-<p>为什么会这样呢？而学其它知识就好通畅多了，我觉得这里最主要的是我们对TCP缺乏体感，比如没有几个工程师去看过TCP握手的代码，也没法想象真正的TCP握手是如何在电脑里运作的（打电话能给你一些类似的体感，但是细节覆盖面不够）。</p>
-<p>如果这个时候你一边学习的时候一边再用wireshark抓包看看三次握手具体在干什么，比抽象的描述实在多了，你能看到具体握手的一来一回，并且看到一来一回带了哪些内容，这些内容又是用来做什么、为什么要带，这个时候你再去看别人讲解的理论顿时会觉得好理解多了，以后也很难忘记。</p>
-<p>但是这里很多人执行能力不强，想去抓包，但是觉得要下载安装wireshark，要学习wireshark就放弃了。只看不动手当然是最舒适的，但是这个最舒适给了你在学习的假象，没有结果。</p>
-<p>这是不是跟你要解决一个难题非常像，这个难题需要你去做很多事，比如下载源代码（翻不了墙，放弃）；比如要编译（还要去学习那些编译参数，放弃）；比如要搭建环境（太琐屑，放弃）。你看这中间九九八十一难你放弃了一难都取不了真经。这也是为什么同样学习、同样的问题，他能学会，他能解决，你不可以。</p>
-<h3 id="学习网络路由的案例"><a href="#学习网络路由的案例" class="headerlink" title="学习网络路由的案例"></a>学习网络路由的案例</h3><p>我第一次看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>（这个RFC对网络路由描述的太好了）的时候是震惊的，觉得讲述的太好了，2000字就把一本教科书的知识阐述的无比清晰、透彻。但是实际上我发现很快就忘了，而且大部分程序员基本都是这样</p>
-<blockquote>
-<p>写的确实很好，清晰简洁，图文并茂，结构逻辑合理，但是对于95%的程序员没有什么用，当时看的时候很爽、也觉得自己理解了、学会了，实际上看完几周后就忘得差不多了。问题出在这种RFC偏理论多一点看起来完全没有体感无法感同身受，所以即使似乎当时看懂了，但是忘得也快，需要一篇结合实践的文章来帮助理解</p>
-</blockquote>
-<p>在这个问题上，让我深刻地理解到：</p>
-<blockquote>
-<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如<a href="https://book.douban.com/subject/26268767/" target="_blank" rel="noopener">《wireshark抓包艺术》</a>，人和人的学习能力有差别必须要承认。</p>
-</blockquote>
-<p>也就是我们要认识到每个个人的<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="noopener">学习能力的差异</a>，我超级认同这篇文章中的一个评论</p>
-<blockquote>
-<p>看完深有感触，尤其是后面的知识效率和工程效率型的区别。以前总是很中二的觉得自己看一遍就理解记住了，结果一次次失败又怀疑自己的智商是不是有问题，其实就是把自己当作知识效率型来用了。一个不太恰当的形容就是，有颗公主心却没公主命！</p>
-</blockquote>
-<p>嗯，大部分时候我们都觉得自己看一遍就理解了记住了能实用解决问题了，实际上了是马上忘了，停下来想想自己是不是这样的？在网络的相关知识上大部分看RFC、TCP卷1等东西是很难实际理解的，还是要靠实践来建立对知识的具体的理解，而网络相关的东西基本离大家有点远（大家不回去读tcp、ip源码，纯粹是靠对书本的理解），所以很难建立具体的概念，所以这里有个必杀技就是学会抓包和用wireshark看包，同时针对实际碰到的文题来抓包、看包分析。</p>
-<p>比如我的这篇《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="noopener">从计算机知识到落地能力，你欠缺了什么？</a>》就对上述问题最好的阐述，程序员最常碰到的网络问题就是为啥为啥不通？</p>
-<p>这是最好建立对网络知识具体理解和实践的机会，你把《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="noopener">从计算机知识到落地能力，你欠缺了什么？</a>》实践完再去看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a> 就明白了。</p>
-<h3 id="再来看一个解决问题的例子"><a href="#再来看一个解决问题的例子" class="headerlink" title="再来看一个解决问题的例子"></a>再来看一个解决问题的例子</h3><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener">会员系统双11优化这个问题</a>对我来说，我是个外来者，完全不懂这里面的部署架构、业务逻辑。但是在问题的关键地方（会员认为自己没问题–压力测试正常的；淘宝API更是认为自己没问题，alimonitor监控显示正常），结果就是会员的同学说我们没有问题，淘宝API肯定有问题，然后就不去思考自己这边可能出问题的环节了。思想上已经甩包了，那么即使再去review流程、环节也就不会那么仔细，自然更是发现不了问题了。</p>
-<p>但是我的经验告诉我要有证据地甩包，或者说拿着证据优雅地甩包，这迫使我去找更多的细节证据（证据要给力哦，不能让人家拍回来）。如果我是这么说的，这个问题在淘宝API这里，你看理由是…………，我做了这些实验，看到了这些东东。那么淘宝API那边想要证明我的理由错了就会更积极地去找一些数据。</p>
-<p>事实上我就是做这些实验找证据过程中发现了会员的问题，这就是态度、执行力、知识、逻辑能力综合下来拿到的一个结果。我最不喜欢的一句话就是我的程序没问题，因为我的逻辑是这样的，不会错的。你当然不会写你知道的错误逻辑，程序之所以有错误都是在你的逻辑、意料之外的东西。有很多次一堆人电话会议中扯皮的时候，我一般把电话静音了，直接上去人肉一个个过对方的逻辑，一般来说电话会议还没有结束我就给出来对方逻辑之外的东西。</p>
-<h3 id="场景式学习"><a href="#场景式学习" class="headerlink" title="场景式学习"></a>场景式学习</h3><p>我带2岁的小朋友看刷牙的画本的时候，小朋友理解不了喝口水含在嘴里咕噜咕噜不要咽下去，然后刷牙的时候就都喝下去了。我讲到这里的时候立马放下书把小朋友带到洗手间，先开始我自己刷牙了，示范一下什么是咕噜咕噜（放心，他还是理解不了的，但是至少有点感觉了，水在口里会响，然后水会吐出来）。示范完然后辅导他刷牙，喝水的时候我和他一起直接低着头，喝水然后立马水吐出来了，让他理解了到嘴里的东西不全是吞下去的。然后喝水晃脑袋，有点声音了（离咕噜咕噜不远了）。训练几次后小朋友就理解了咕噜咕噜，也学会了咕噜咕噜。这就是场景式学习的魅力。</p>
-<p>很多年前我有一次等电梯，边上还有一个老太太，一个年轻的妈妈带着一个4、5岁的娃。应该是刚从外面玩了回来，妈妈在教育娃娃刚刚在外面哪里做错了，那个小朋友也是气嘟嘟地。进了电梯后都不说话，小朋友就开始踢电梯。这个时候那个年轻的妈妈又想开始教育小朋友了。这时老太太教育这个妈妈说，这是小朋友不高兴，做出的反抗，就是想要用这个方式抗议刚刚的教育或者挑逗起妈妈的注意。这个时候要忽视他，不要去在意，他踢几下后（虽然没有公德这么小懂不了这么多）脚也疼还没人搭理他这个动作，就觉得真没劲，可能后面他都不踢电梯了，觉得这是一个非常无聊还挨疼的事情。那么我在这个场景下立马反应过来，这就是很多以前我对一些小朋友的行为不理解的原因啊，这比书上看到的深刻多了。就是他们生气了在那里做妖挑逗你骂他、打他或者激怒你来吸引大人的注意力。</p>
-<h2 id="钉子式学习方法和系统性学习方法"><a href="#钉子式学习方法和系统性学习方法" class="headerlink" title="钉子式学习方法和系统性学习方法"></a>钉子式学习方法和系统性学习方法</h2><p>系统性就是想掌握MySQL，那么搞几本MySQL专著和MySQL 官方DOC看下来，一般课程设计的好的话还是比较容易普遍性地掌握下来，绝大部分时候都是这种学习方法，可是问题在于在种方式下学完后当时看着似乎理解了，但是很容易忘记，一片一片地系统性的忘记。还是一般人对知识的理解没那么容易真正理解。</p>
-<p>钉子式的学习方式，就是在一大片知识中打入几个桩，反复演练将这个桩不停地夯实，夯温，做到在这个知识点上用通俗的语言跟小白都能讲明白，然后在这几个桩中间发散像星星之火燎原一样把整个一片知识都掌握下来。这种学习方法的缺点就是很难找到一片知识点的这个点，然后没有很好整合的话知识过于零散。</p>
-<p>我们常说的一个人很聪明，就是指系统性的看看书就都理解了，是真的理解那种，还能灵活运用，但是大多数普通人就不是这样的，看完书似乎理解了，实际几周后基本都忘记了，真正实践需要用的时候还是用不好。</p>
-<p>这个钉子就是我前面讲慢就是快中间提到的：完整地掌握一个知识点，比懵懵懂懂懂了10个知识点还重要，被你掌握的这个知识点就是你的钉子，钉入到一大片位置的知识中，成为一个有力的抓手来帮助理解相关的知识。</p>
-<h3 id="举个Open-SSH的例子"><a href="#举个Open-SSH的例子" class="headerlink" title="举个Open-SSH的例子"></a>举个Open-SSH的例子</h3><p>为了做通 SSH 的免密登陆，大家都需要用到 ssh-keygen/ssh-copy-id， 如果我们把这两个命令当一个小的钉子的话，会去了解ssh-keygen做了啥（生成了密钥对），或者ssh-copy-id 的时候报错了（原来是需要秘钥对），然后将 ssh-keygen 生成的pub key复制到server的~/.ssh/authorized_keys 中。</p>
-<p>然后你应该会对这个原理要有一些理解（更大的钉子），于是理解了密钥对，和ssh验证的流程，顺便学会怎么看ssh debug信息，那么接下来网络上各种ssh攻略、各种ssh卡顿的解决都是很简单的事情了。</p>
-<p>比如你通过SSH可以解决这些问题：</p>
-<ul>
-<li>免密登陆</li>
-<li>ssh卡顿</li>
-<li>怎么去掉ssh的时候需要手工多输入yes</li>
-<li>我的ssh怎么很快就断掉了</li>
-<li>我怎么样才能一次通过跳板机ssh到目标机器</li>
-<li>我怎么样通过ssh科学上网</li>
-<li>我的ansible（底层批量命令都是基于ssh）怎么这么多问题，到底是为什么</li>
-<li>我的git怎么报网络错误了</li>
-<li>X11 forward我怎么配置不好</li>
-<li>https为什么需要随机数加密，还需要签名</li>
-<li>…………</li>
-</ul>
-<p>这些问题都是一步步在扩大ssh的外延，让这个钉子变成一个巨大的桩。</p>
-<p>然后就会学习到一些<a href="/2019/06/02/史上最全%20SSH%20暗黑技巧详解--收藏保平安/">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
-<p>这基本都还是ssh的本质范围，像ansible、git在底层都是依赖ssh来通讯的，你会发现学、调试X11、ansible和git简直太容易了。</p>
-<p>另外理解了ssh的秘钥对，也就理解了非对称加密，同时也很容易理解https流程（SSL），同时知道对称和非对称加密各自的优缺点，SSL为什么需要用到这两种加密算法了。</p>
-<p>你看一个简单日常的知识我们只要沿着它用钉子精神，深挖细挖你就会发现知识之间的连接，这个小小的知识点成为你知识体系的一根结实的柱子。</p>
-<p>我见过太多的老的工程师、年轻的工程师，天天在那里ssh 密码，ssh 跳板机，ssh 目标机，一小会ssh断了，重来一遍；或者ssh后卡住了，等吧……</p>
-<p>在这个问题上表现得没有求知欲、没有探索精神、没有一次把问题搞定的魄力，所以就习惯了</p>
-<h2 id="空洞的口号"><a href="#空洞的口号" class="headerlink" title="空洞的口号"></a>空洞的口号</h2><p>很多文章都会教大家：举一反三、灵活运用、活学活用、多做多练。但是只有这些口号是没法落地的，落地的基本原则就是前面提到的，却总是被忽视了。</p>
-<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举一反三，这是知识效率，这种人非常少；</p>
-<p>大多数普通人都是看点知识然后结合实践来强化理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
-<p>肯定知识效率最牛逼，但是拥有这种技能的人毕竟非常少（天生的高智商吧）。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快的掌握一个新知识，非常气人。剩下的绝大部分只能拼时间+方法+总结等也能掌握一些知识</p>
-<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
-<p>使劲挖掘自己在知识效率型方面的能力吧，两者之间当然没有明显的界限，知识积累多了逻辑训练好了在别人看来你的智商就高了</p>
-<h2 id="知识分两种"><a href="#知识分两种" class="headerlink" title="知识分两种"></a>知识分两种</h2><p>一种是通用知识（不是说对所有人通用，而是说在一个专业领域去到哪个公司都能通用）；另外一种是跟业务公司绑定的特定知识</p>
-<p>通用知识没有任何疑问碰到后要非常饥渴地扑上去掌握他们（受益终生，这还有什么疑问吗？）。对于特定知识就要看你对业务需要掌握的深度了，肯定也是需要掌握一些的，特定知识掌握好的一般在公司里混的也会比较好</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210723142126157.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/05/07/就是要你懂TCP--通过案例来学习MSS、MTU/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/05/07/就是要你懂TCP--通过案例来学习MSS、MTU/" itemprop="url">通过案例来理解MSS、MTU等相关TCP概念</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-05-07T12:30:03+08:00">
-                2018-05-07
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂TCP–通过案例来学习MSS、MTU"><a href="#就是要你懂TCP–通过案例来学习MSS、MTU" class="headerlink" title="就是要你懂TCP–通过案例来学习MSS、MTU"></a>就是要你懂TCP–通过案例来学习MSS、MTU</h1><h2 id="问题的描述"><a href="#问题的描述" class="headerlink" title="问题的描述"></a>问题的描述</h2><ul>
-<li>最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题）</li>
-<li>发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现） </li>
-<li>手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了</li>
-<li>尝试单独scp这个文件依然卡死</li>
-<li>在这个容器上scp其它文件没问题</li>
-<li>换一个容器scp这个文件没问题</li>
-</ul>
-<h2 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h2><blockquote>
-<p>实在很难理解为什么单单这个文件在这个容器上scp就卡死了，既然scp网络传输卡死，那么就同时在两个容器上tcpdump抓包，想看看为什么传不动了</p>
-</blockquote>
-<h4 id="在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）"><a href="#在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）" class="headerlink" title="在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）"></a>在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</h4><p><img src="http://img4.tbcdn.cn/L1/461/1/1d010b9937198aee9e798bb02913603874f19ddc" alt="screenshot"></p>
-<h4 id="从抓包中可以得到这样一些结论："><a href="#从抓包中可以得到这样一些结论：" class="headerlink" title="从抓包中可以得到这样一些结论："></a>从抓包中可以得到这样一些结论：</h4><ul>
-<li>从抓包中可以明显知道scp之所以卡死是因为丢包了，客户端一直在重传，图中绿框</li>
-<li>图中篮框显示时间间隔，时间都是花在在丢包重传等待的过程</li>
-<li>奇怪的问题是图中橙色框中看到的，网络这时候是联通的，客户端跟服务端在这个会话中依然有些包能顺利到达（Keep-Alive包）</li>
-<li>同时注意到重传的包长是1442，包比较大了，看了一下tcp建立连接的时候MSS是1500，应该没有问题</li>
-<li>查看了scp的两个容器的网卡mtu都是1500，正常</li>
-</ul>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了</span><br></pre></td></tr></table></figure>
-<h2 id="接下来分析网络传输链路"><a href="#接下来分析网络传输链路" class="headerlink" title="接下来分析网络传输链路"></a>接下来分析网络传输链路</h2><h4 id="scp传输的时候实际路由大概是这样的"><a href="#scp传输的时候实际路由大概是这样的" class="headerlink" title="scp传输的时候实际路由大概是这样的"></a>scp传输的时候实际路由大概是这样的</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">容器A---&gt; 宿主机1 ---&gt; ……中间的路由设备 …… ---&gt; 宿主机2 ---&gt; 容器B</span><br></pre></td></tr></table></figure>
-<ul>
-<li>前面提过其它容器scp同一个文件到容器B没问题，所以我认为中间的路由设备没问题，问题出在两台宿主机上</li>
-<li>在宿主机1上抓包发现抓不到丢失的那个长度为 1442 的包，也就是问题出在了  容器A—&gt; 宿主机1 上</li>
-</ul>
-<h2 id="查看宿主机1的dmesg看到了这样一些信息"><a href="#查看宿主机1的dmesg看到了这样一些信息" class="headerlink" title="查看宿主机1的dmesg看到了这样一些信息"></a>查看宿主机1的dmesg看到了这样一些信息</h2><pre><code>2016-08-08T08:15:27.125951+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
-2016-08-08T08:15:27.536517+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
-</code></pre><h2 id="验证方法"><a href="#验证方法" class="headerlink" title="验证方法"></a>验证方法</h2><blockquote>
-<p>-D      Set the Don’t Fragment bit.<br>-s packetsize<br>             Specify the number of data bytes to be sent.  The default is 56, which translates into 64<br>             ICMP data bytes when combined with the 8 bytes of ICMP header data.  This option cannot be<br>             used with ping sweeps.</p>
-</blockquote>
-<p>ping 测试</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1500 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1500 data bytes</span><br><span class="line">ping: sendto: Message too long</span><br><span class="line">^C</span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 0 packets received, 100.0% packet loss</span><br><span class="line"> ✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1400 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1400 data bytes</span><br><span class="line">1408 bytes from 110.242.68.4: icmp_seq=0 ttl=49 time=21.180 ms</span><br><span class="line"></span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 1 packets received, 0.0% packet loss</span><br><span class="line">round-trip min/avg/max/stddev = 21.180/21.180/21.180/0.000 ms</span><br><span class="line"> ren@mac  ~/Downloads </span><br></pre></td></tr></table></figure>
-<h2 id="一些结论"><a href="#一些结论" class="headerlink" title="一些结论"></a>一些结论</h2><p> <strong>到这里问题已经很明确了 openvswitch 收到了 一个1428大小的包因为比mtu1400要大，所以扔掉了，接着查看宿主机1的网卡mtu设置果然是1400，悲催，马上修改mtu到1500，问题解决。</strong></p>
-<p>正常分片是ip层来操作，路由器工作在3层，有分片能力，从容器到宿主机走的是bridge，没有进行分片，或者是因为收到这个IP包的时候里面带了 Don’t Fragment标志，路由器就不进行分片了，那为什么IP包要带这个标志呢？当然是为了有更好的性能，都经过TCP握手协商出了一个MSS，就不要再进行分片了。</p>
-<p>当然这里TCP协商MSS的时候应该经过 <a href="http://en.wikipedia.org/wiki/Path_MTU_Discovery" target="_blank" rel="noopener">PMTUD（ This process is called “Path MTU discovery”.）</a> 来确认整个路由上的所有最小MTU，但是有些路由器会因为安全的原因过滤掉ICMP，导致PMTUD不可靠，所以这里的PMTUD形同虚设，比如在我们的三次握手中会协商一个MSS，这只是基于Client和Server两方的MTU来确定的，链路上如果还有比Client和Server的MTU更小的那么就会出现包超过MTU的大小，同时设置了DF标志而不再进行分片被丢掉。</p>
-<p>centos或者ubuntu下：</p>
-<pre><code>$cat /proc/sys/net/ipv4/tcp_mtu_probing //1 表示开启路径mtu检测
-0
-
-$sudo sysctl -a |grep -i pmtu
-net.ipv4.ip_forward_use_pmtu = 0
-net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
-net.ipv4.route.min_pmtu = 552
-</code></pre><p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="noopener">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
-<p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="noopener">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
-<li>通过这个案例对mtu/mss等有了进一步的了解</li>
-<li>从这个案例也理解了vlan模式下容器、宿主机、交换机之间的网络传输链路</li>
-<li>其实抓包还发现了比1500大得多的包顺利通过，反而更小的包无法通过，这是因为网卡基本都有拆包的功能了</li>
-<li>设置由<a href="https://sysctl-explorer.net/net/ipv4/ip_no_pmtu_disc/" target="_blank" rel="noopener">系统主动允许分片的参数</a> sysctl -w net.ipv4.ip_no_pmtu_disc=1  可以解决这种问题</li>
-</ul>
-<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><p>Q: 传输的包超过MTU后表现出来的症状？<br>A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。</p>
-<p>Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？<br>A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/04/26/如何定位上亿次调用才出现一次的Bug/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/04/26/如何定位上亿次调用才出现一次的Bug/" itemprop="url">如何定位上亿次调用才出现一次的Bug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-04-26T16:30:03+08:00">
-                2018-04-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何定位上亿次调用才出现一次的Bug"><a href="#如何定位上亿次调用才出现一次的Bug" class="headerlink" title="如何定位上亿次调用才出现一次的Bug"></a>如何定位上亿次调用才出现一次的Bug</h1><h2 id="引文"><a href="#引文" class="headerlink" title="引文"></a>引文</h2><p>对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如<a href="https://zhuanlan.zhihu.com/p/21348220?f3fb8ead20=e041f967b1b416071a11f7702126d7a0&amp;from=singlemessage&amp;isappinstalled=0" target="_blank" rel="noopener">这个问题</a></p>
-<p>正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。</p>
-<h2 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
-<p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
-<h3 id="tcpdump-抓包所看到的问题表现"><a href="#tcpdump-抓包所看到的问题表现" class="headerlink" title="tcpdump 抓包所看到的问题表现"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
-<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
-<p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
-<p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
-<h3 id="开发增加debug日志"><a href="#开发增加debug日志" class="headerlink" title="开发增加debug日志"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据–实际不能排除）</p>
-<h3 id="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"><a href="#怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）" class="headerlink" title="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"></a>怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）</h3><p>申请单独的物理机资源给客户，保证没有其它应用来争抢网络和其它资源，前三天一次异常也没有发生（在ECS上一天发生1-2次），非常高兴以为找到问题了。结果第四天异常再次出现，更换物理机也只是好像偶然性地降低了发生频率而已。</p>
-<h3 id="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"><a href="#去底层挖掘tcp协议，到底什么条件下会出现主动断开连接" class="headerlink" title="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"></a>去底层挖掘tcp协议，到底什么条件下会出现主动断开连接</h3><p>实际也没有什么进展</p>
-<h3 id="用strace、pstack去监控-socket-close-这个事件"><a href="#用strace、pstack去监控-socket-close-这个事件" class="headerlink" title="用strace、pstack去监控 socket.close 这个事件"></a>用strace、pstack去监控 socket.close 这个事件</h3><p>但实际可能在上亿次正常的 socket.close (查询全部结束，client主动请求断开连接）才会出现一次不正常的 socket.close .量太大，还没发在这么多事件中区分那个是不正常的close</p>
-<h3 id="应用被-OOM-kill"><a href="#应用被-OOM-kill" class="headerlink" title="应用被 OOM kill"></a>应用被 OOM kill</h3><p>调查过程中为了更快地重现异常，将客户端连接都改成长连接，这样应用不再去调 socket.close ，除非超时、异常之类的，这样一旦出现不正常的 socket.close 就更容易定位了。</p>
-<p>实际跑了一段时间后，发现确实 tcpdump 能抓到很多 server在接收到request还没有返回response的时候主动发送 fin包来断开连接的情况，跟前面的症状是一模一样的。但是最终发现这个时候应用被杀掉了，只是说明应用被杀的情况下 server会主动去掉 socket.close关闭连接，但这只是充分条件，而不是必要条件。实际生产线上也没有被 OOM kill过。</p>
-<h3 id="给力的开发同学"><a href="#给力的开发同学" class="headerlink" title="给力的开发同学"></a>给力的开发同学</h3><p>分析了这个异常后，开发简化了整个测试，实现client上跑一行PHP代码反复调用就能够让这个bug触发，这一下把整个测试重现bug的过程简化了，终于不再需要客户配合了，让问题的定位效率快了一个数量级。</p>
-<p>为了快速地定位到异常的具体连接，实现脚本来自动分析tcpdump结果找到异常close的连接</p>
-<p>快速在tcpdump包中找到出问题的那个stream（这个命令行要求tshark的版本为1.12及以上，默认的阿里服务器上的版本都太低，解析不了_ws.col.Info列）：</p>
-<pre><code>tshark -r capture.pcap135 -T fields -e frame.number -e frame.time_epoch -e ip.addr -e tcp.port  -e tcp.stream   -e _ws.col.Info | egrep &quot;FIN|Request Quit&quot; | awk &apos;{ print $5, $6 $7 }&apos; | sort -k1n | awk &apos;{ print $1 }&apos; | uniq -c | grep -v &quot;^      3&quot; | less
-</code></pre><p>在这一系列的工具作用下，稳定跑上一天，异常能发生3、4次，产生的日志和网络包有几百G。</p>
-<p>出现问题的后，通过上面的脚本分析连接异常断开的client ip+port和时间，同时拿这三个信息到下面的异常堆栈中搜索匹配找到调用 socket.close()的堆栈。</p>
-<h3 id="上Btrace-监听所有-socket-close-事件"><a href="#上Btrace-监听所有-socket-close-事件" class="headerlink" title="上Btrace 监听所有 socket.close 事件"></a>上Btrace 监听所有 socket.close 事件</h3><pre><code>    @OnMethod(clazz=&quot;+java.net.Socket&quot;, method=&quot;close&quot;)
-    public static void onSocketClose(@Self Object me) {
-      println(&quot;\n==== java.net.Socket#close ====&quot;);
-      BTraceUtils.println(BTraceUtils.timestamp() );
-      BTraceUtils.println(BTraceUtils.Time.millis() );
-      println(concat(&quot;Socket closing:&quot;, str(me)));
-      println(concat(&quot;thread: &quot;, str(currentThread())));
-      printFields(me);
-      jstack();
-}
-</code></pre><p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
-<p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
-<p>实际上这里可能有几个问题：</p>
-<ol>
-<li>buffer.position 是不可能为0的；</li>
-<li>即使buffer.position 等于0 也不应该直接 socket.close, 可能发送error信息给客户端更好；</li>
-</ol>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>最终原因是因为NIO过程中buffer有极低的概率被两个socket重用，从而导致出现正在使用的buffer被另外一个socket拿过去并且设置了buffer.position为0，进而导致前一个socket认为数据异常赶紧close了。</li>
-<li>开发简化问题的重现步骤非常关键，同时对异常进行分类分析，加快了定位效率</li>
-<li>能够通过tcpdump去抓包定位到具体问题大概所在点这是比较关键的一步，同时通过btrace再去监控出问题的调用堆栈从而找到具体代码行。</li>
-<li>过程看似简单，实际牵扯了一大波工程师进来，经过几个月才最终定位到出问题的代码行，确实不容易</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4777,7 +4732,7 @@ net.ipv4.route.min_pmtu = 552
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">126</span>
+                <span class="site-state-item-count">130</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4799,7 +4754,7 @@ net.ipv4.route.min_pmtu = 552
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">225</span>
+                <span class="site-state-item-count">229</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -4851,7 +4806,7 @@ net.ipv4.route.min_pmtu = 552
 <div class="copyright">
   
   &copy; 
-  <span itemprop="copyrightYear">2021</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>

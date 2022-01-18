@@ -292,6 +292,405 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP传输速度案例分析/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/15/TCP传输速度案例分析/" itemprop="url">TCP传输速度案例分析</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-15T17:30:03+08:00">
+                2021-01-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+                  ， 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+                  ， 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/TCP/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP传输速度案例分析"><a href="#TCP传输速度案例分析" class="headerlink" title="TCP传输速度案例分析"></a>TCP传输速度案例分析</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
+<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
+<p> <a href="/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了，Good Luck！</p>
+<h2 id="前后端rtt差异大-vip下载慢的案例"><a href="#前后端rtt差异大-vip下载慢的案例" class="headerlink" title="前后端rtt差异大+vip下载慢的案例"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：<a href="https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng</a> 文章中的trace-cmd工具也不错</p>
+<p>如下三个链路，有一个不正常了</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2422ae219d3b27cfe8c799642662d5b2.png" alt="image.png"></p>
+<p>首先通过 ss -it dst “ip:port” 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
+<h3 id="原因TCPLossProbe："><a href="#原因TCPLossProbe：" class="headerlink" title="原因TCPLossProbe："></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，如果完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
+<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO=max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
+<p>握手完毕后第七号包很快重传了</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2867daa600363af61f8f971479246858.png" alt="image.png"></p>
+<h3 id="观察："><a href="#观察：" class="headerlink" title="观察："></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
+<h3 id="解决："><a href="#解决：" class="headerlink" title="解决："></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans=2 关掉TLP</p>
+<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
+<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
+<h2 id="长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例"><a href="#长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例" class="headerlink" title="长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener">https://www.atatech.org/articles/109967</a></p>
+<blockquote>
+<p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
+</blockquote>
+<p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
+<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save = 1 </p>
+<p>或者清除： sudo ip tcp_metrics flush all</p>
+<h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
+
+192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
+
+清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<h2 id="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"><a href="#长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响" class="headerlink" title="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
+<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
+<p>client ——150ms—–&gt;&gt;&gt;LVS—1ms–&gt;&gt;&gt;美国的统一接入server—–1ms—–&gt;&gt;&gt;nginx</p>
+<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
+<h3 id="Nginx上抓包"><a href="#Nginx上抓包" class="headerlink" title="Nginx上抓包"></a>Nginx上抓包</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png" alt="image.png"></p>
+<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
+<h3 id="client上抓包"><a href="#client上抓包" class="headerlink" title="client上抓包"></a>client上抓包</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png" alt="image.png"></p>
+<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
+<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
+<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
+<h3 id="将buffer改大"><a href="#将buffer改大" class="headerlink" title="将buffer改大"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0a8c68a58da6f169573b57cde0ffba93.png" alt="image.png"></p>
+<p>接着看一下client上的抓包</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png" alt="image.png"></p>
+<p>可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
+<p>那么继续分析一下握手包，syn：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/004886698ddbaa1cbc8342a9cd667c76.png" alt="image.png"></p>
+<p>说明client是支持的，再看 syn+ack：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/70155e021390cb1ee07091c306c375f4.png" alt="image.png"></p>
+<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
+<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
+<p>比如这是这个应用的开发人员的反馈：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a08a204ec7ad4bba7867dacea1668322.png" alt="image.png"></p>
+<p>长肥网络就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。<br>在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
+<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑用户连自己的业务结构都描述不清）：</p>
+<p>client ——150ms—–&gt;&gt;&gt;nginx</p>
+<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
+<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
+<p>nginx buffer 分析参考案例：<a href="https://club.perfma.com/article/433792?from=timeline" target="_blank" rel="noopener">https://club.perfma.com/article/433792?from=timeline</a></p>
+<h2 id="应用层发包逻辑影响了BDP不能跑满"><a href="#应用层发包逻辑影响了BDP不能跑满" class="headerlink" title="应用层发包逻辑影响了BDP不能跑满"></a>应用层发包逻辑影响了BDP不能跑满</h2><p><a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="noopener">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a></p>
+<blockquote>
+<p>遇到一个迟来的case，用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
+<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
+<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
+</blockquote>
+<h2 id="delay-ack拉高实际rt的案例"><a href="#delay-ack拉高实际rt的案例" class="headerlink" title="delay ack拉高实际rt的案例"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
+<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
+<p>抓包来分析原因：</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
+<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
+<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="noopener">SSH Performance</a></p>
+<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="noopener">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/03/mac路由和DSN相关知识/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/03/mac路由和DSN相关知识/" itemprop="url">mac 路由和DSN相关知识</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-03T17:30:03+08:00">
+                2021-01-03
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/其它/" itemprop="url" rel="index">
+                    <span itemprop="name">其它</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="mac-路由和DSN相关知识"><a href="#mac-路由和DSN相关知识" class="headerlink" title="mac 路由和DSN相关知识"></a>mac 路由和DSN相关知识</h1><p>Mac 下上网,尤其是在双网卡一起使用的时候, 一个网卡连内网，一个网卡连外网，经常会碰到ip不通(路由问题,比较好解决)或者dns解析不了问题. 或者是在通过VPN连公司网络会插入一些内网route,导致部分网络访问不了.</p>
+<p>即使对Linux下的DNS解析无比熟悉了，但是在Mac下还是花了一些时间来折腾，配置不好路由和DNS是不配使用Mac的，所以记录下。</p>
+<h2 id="route"><a href="#route" class="headerlink" title="route"></a>route</h2><p>如果ip不通就看路由表, 根据内外网IP增加/删除相应的路由信息,常用命令如下:</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">sudo route -n add 10.176/16 192.168.3.1</span><br><span class="line">sudo route -n add -net 10.176.0.0/16 192.168.3.1 //添加路由, 访问10.176.0.0/16 走192.168.3.1 </span><br><span class="line">sudo route -n delete -net 10.176.0.0/16 192.168.3.1</span><br><span class="line">sudo route -n delete 0.0.0.0 192.168.184.1</span><br><span class="line">sudo route -n add 0.0.0.0 192.168.184.1  //添加默认路由访问外网 </span><br><span class="line"></span><br><span class="line">sudo route -n delete 0.0.0.0 192.168.3.1</span><br><span class="line">sudo route -n add 10.176/16 192.168.3.1</span><br><span class="line">sudo route -n delete 0.0.0.0 192.168.184.1 -ifscope en0</span><br><span class="line">sudo route -n add 0.0.0.0 192.168.184.1 </span><br><span class="line">sudo networksetup -setdnsservers 'Apple USB Ethernet Adapter' 202.106.196.115 202.106.0.20 114.114.114.114</span><br><span class="line"></span><br><span class="line">sudo networksetup -setdnsservers 'USB 10/100/1000 LAN' 223.5.5.5 30.30.30.30 114.114.114.114</span><br><span class="line"></span><br><span class="line">ip route get 8.8.8.8</span><br><span class="line">netstat -rn  //查看路由  </span><br><span class="line">netstat -nr -f inet  //只看ipv4相关路由</span><br></pre></td></tr></table></figure>
+<p>如果本来IP能通,连上VPN后就通不了,那一定是VPN加入了一些更精细的路由导致原来的路由不通了,那么很简单停掉VPN就能恢复或者增加一条更精确的路有记录进去,或者删掉VPN增加的某条路由.</p>
+<h2 id="DNS-解析"><a href="#DNS-解析" class="headerlink" title="DNS 解析"></a>DNS 解析</h2><p>mac下DNS解析问题搞起来比较费劲,相应的资料也不多, 经过上面的操作后如果IP能通,域名解析有问题,一般都是DNS解析出了问题</p>
+<p><a href="https://shockerli.net/post/macos-hostname-scutil/" target="_blank" rel="noopener">mac下 /etc/resolv.conf 不再用来解析域名, 只有nslookup能用到resolv.conf</a></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">cat /etc/resolv.conf                                                </span><br><span class="line"><span class="meta">#</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> macOS Notice</span></span><br><span class="line"><span class="meta">#</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> This file is not consulted <span class="keyword">for</span> DNS hostname resolution, address</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> resolution, or the DNS query routing mechanism used by most</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> processes on this system.</span></span><br><span class="line"><span class="meta">#</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> To view the DNS configuration used by this system, use:</span></span><br><span class="line"><span class="meta">#</span><span class="bash">   scutil --dns</span></span><br><span class="line"></span><br><span class="line">scutil --dns //查看DNS 解析器</span><br><span class="line">scutil --nwi //查看网络</span><br></pre></td></tr></table></figure>
+<p>解析出了问题先检查nameserver</p>
+<p>scutil –dns 一般会展示一大堆的resolver, 每个resolver又可以有多个nameserver</p>
+<blockquote>
+<p>A scoped DNS query can use only specified network interfaces (e.g. Ethernet or WiFi), while non-scoped can use any available interface.</p>
+<p>More verbosely, an application that wants to resolve a name, sends a <em>request</em> (either scoped or non-scoped) to a resolver (usually a DNS client application), if the resolver does not have the answer cached, it sends a DNS <em>query</em> to a particular nameserver (and this goes through one interface, so it is always “scoped”).</p>
+<p>In your example resolver #1 “for scoped queries” can use only en0 interface (Ethernet).</p>
+</blockquote>
+<h3 id="修改-nameserver"><a href="#修改-nameserver" class="headerlink" title="修改 nameserver"></a>修改 nameserver</h3><p>默认用第一个resolver, 如果第一个resolver没有nameserver那么域名没法解析, 可以修改dns resolver的nameserver: </p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">networksetup -listallnetworkservices  //列出网卡service, 比如 wifi ,以下是我的 macos 输出</span></span><br><span class="line">An asterisk (*) denotes that a network service is disabled.</span><br><span class="line">USB 10/100/1000 LAN</span><br><span class="line">Apple USB Ethernet Adapter</span><br><span class="line">Wi-Fi</span><br><span class="line">Bluetooth PAN</span><br><span class="line">Thunderbolt Bridge</span><br><span class="line"><span class="meta">$</span><span class="bash">sudo networksetup -setdnsservers <span class="string">'Wi-Fi'</span> 202.106.196.115 202.106.0.20 114.114.114.114 //修改nameserver</span></span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -getdnsservers Wi-Fi //查看对应的nameserver, 跟 scutil --dns 类似</span></span><br></pre></td></tr></table></figure>
+<p>如上, 只要是你的nameserver工作正常那么DNS就肯定回复了</p>
+<p>删掉所有DNS nameserver:</p>
+<blockquote>
+<p>One note to anyone wanting to remove the DNS, just write “empty” (without the quotes) instead of the DNS: <code>sudo networksetup -setdnsservers &lt;networkservice&gt; empty</code></p>
+</blockquote>
+<h2 id="networksetup用法"><a href="#networksetup用法" class="headerlink" title="networksetup用法"></a><a href="https://www.jianshu.com/p/c84e0f972353" target="_blank" rel="noopener">networksetup用法</a></h2><h3 id="查看设备和配置"><a href="#查看设备和配置" class="headerlink" title="查看设备和配置"></a>查看设备和配置</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">networksetup -listallnetworkservices</span></span><br><span class="line">An asterisk (*) denotes that a network service is disabled.</span><br><span class="line">USB 10/100/1000 LAN</span><br><span class="line">Apple USB Ethernet Adapter</span><br><span class="line">Wi-Fi</span><br><span class="line">Bluetooth PAN</span><br><span class="line">Thunderbolt Bridge</span><br><span class="line">Thunderbolt Bridge 2</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash">查看网卡配置</span></span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"USB 10/100/1000 LAN"</span>                                   </span></span><br><span class="line">DHCP Configuration</span><br><span class="line">IP address: 30.25.25.195</span><br><span class="line">Subnet mask: 255.255.255.128</span><br><span class="line">Router: 30.25.25.254</span><br><span class="line">Client ID:</span><br><span class="line">IPv6 IP address: none</span><br><span class="line">IPv6 Router: none</span><br><span class="line">Ethernet Address: 44:67:52:02:16:d4</span><br><span class="line"></span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -listallhardwareports</span></span><br><span class="line">Hardware Port: USB 10/100/1000 LAN</span><br><span class="line">Device: en7</span><br><span class="line">Ethernet Address: 44:67:52:02:16:d4</span><br><span class="line"></span><br><span class="line">Hardware Port: Wi-Fi</span><br><span class="line">Device: en0</span><br><span class="line">Ethernet Address: 88:66:5a:10:e4:2b</span><br><span class="line"></span><br><span class="line">Hardware Port: Thunderbolt Bridge</span><br><span class="line">Device: bridge0</span><br><span class="line">Ethernet Address: 82:0a:d5:01:b4:00</span><br><span class="line"></span><br><span class="line">VLAN Configurations</span><br><span class="line">===================</span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"Thunderbolt Bridge"</span></span></span><br><span class="line">DHCP Configuration</span><br><span class="line">Client ID:</span><br><span class="line">IPv6: Automatic</span><br><span class="line">IPv6 IP address: none</span><br><span class="line">IPv6 Router: none</span><br><span class="line"></span><br><span class="line">//查看wifi和热点</span><br><span class="line">networksetup -listpreferredwirelessnetworks en0 </span><br><span class="line">networksetup -getairportnetwork "en0"</span><br></pre></td></tr></table></figure>
+<h3 id="dhcp、route、domain配置"><a href="#dhcp、route、domain配置" class="headerlink" title="dhcp、route、domain配置"></a>dhcp、route、domain配置</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[-setmanual networkservice ip subnet router]</span><br><span class="line"></span><br><span class="line">[-setdhcp networkservice [clientid]]</span><br><span class="line"></span><br><span class="line">[-setbootp networkservice]</span><br><span class="line"></span><br><span class="line">[-setmanualwithdhcprouter networkservice ip]</span><br><span class="line"></span><br><span class="line">[-getadditionalroutes networkservice]</span><br><span class="line"></span><br><span class="line">[-setadditionalroutes networkservice [dest1 mask1 gate1] [dest2 mask2 gate2] ..</span><br><span class="line"></span><br><span class="line">. [destN maskN gateN]]</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash">给网卡配置ip、网关</span></span><br><span class="line"><span class="meta">$</span><span class="bash"> networksetup -getinfo <span class="string">"Apple USB Ethernet Adapter"</span>                                DHCP Configuration</span></span><br><span class="line">Client ID:</span><br><span class="line">IPv6: Automatic</span><br><span class="line">IPv6 IP address: none</span><br><span class="line">IPv6 Router: none</span><br><span class="line">Ethernet Address: (null)</span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -setmanual <span class="string">"Apple USB Ethernet Adapter"</span> 192.168.100.100 255.255.255.0 192.168.100.1</span></span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"Apple USB Ethernet Adapter"</span></span></span><br><span class="line">Manual Configuration</span><br><span class="line">IP address: 192.168.100.100</span><br><span class="line">Subnet mask: 255.255.255.0</span><br><span class="line">Router: 192.168.100.1</span><br><span class="line">IPv6: Automatic</span><br><span class="line">IPv6 IP address: none</span><br><span class="line">IPv6 Router: none</span><br><span class="line">Ethernet Address: (null)</span><br></pre></td></tr></table></figure>
+<h3 id="代理配置"><a href="#代理配置" class="headerlink" title="代理配置"></a>代理配置</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">//ftp</span><br><span class="line">[-getftpproxy networkservice]</span><br><span class="line"></span><br><span class="line">[-setftpproxy networkservice domain portnumber authenticated username password]</span><br><span class="line"></span><br><span class="line">[-setftpproxystate networkservice on | off]</span><br></pre></td></tr></table></figure>
+<p>网页</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[-getwebproxy networkservice]</span><br><span class="line">[-setwebproxy networkservice domain portnumber authenticated username password]</span><br><span class="line">[-setwebproxystate networkservice on | off]</span><br><span class="line"></span><br><span class="line">$networksetup -setwebproxy &quot;Built-in Ethernet&quot; proxy.company.com 80</span><br><span class="line">$networksetup -setwebproxy &quot;Built-In Ethernet&quot; proxy.company.com 80 On authusername authpassword</span><br></pre></td></tr></table></figure>
+<p>Socks5 代理</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">networksetup -setsocksfirewallproxy <span class="string">"USB 10/100/1000 LAN"</span> 127.0.0.1 13659</span></span><br><span class="line"><span class="meta">$</span><span class="bash">networksetup -getsocksfirewallproxy <span class="string">"USB 10/100/1000 LAN"</span></span></span><br><span class="line">Enabled: Yes</span><br><span class="line">Server: 127.0.0.1</span><br><span class="line">Port: 13659</span><br><span class="line">Authenticated Proxy Enabled: 0</span><br></pre></td></tr></table></figure>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>mac同时连wifi(外网或者vpn)和有线(内网), 如果内网干扰了访问外部ip, 就检查路由表,调整顺序. 如果内网干扰了dns,可以通过scutil –dns查看dns顺序到系统配置里去掉不必要的resolver</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://gowa.club/macOS/macOS%E7%9A%84networksetup%E5%91%BD%E4%BB%A4%E6%9D%A5%E7%AE%A1%E7%90%86%E7%BD%91%E7%BB%9C.html" target="_blank" rel="noopener">macOS的networksetup命令来管理网络</a></p>
+<p><a href="https://www.diamondtin.com/2009/reloading-pac-script-in-mac/" target="_blank" rel="noopener">在Mac下使用脚本重载proxy自动配置脚本（pac）</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/01/网络相关知识/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -452,7 +851,12 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br><span class="line">193</span><br><span class="line">194</span><br></pre></td><td class="code"><pre><span class="line">yum install hwloc -y</span><br><span class="line">lstopo</span><br><span class="line">lstopo --logical</span><br><span class="line">lstopo --logical --output-format png &gt; lstopo.png</span><br><span class="line"></span><br><span class="line">--</span><br><span class="line">[root@hygon3 10:58 /root]  //hygon 7280 CPU</span><br><span class="line">#lstopo --logical</span><br><span class="line">Machine (503GB total)               //总内存大小</span><br><span class="line">  NUMANode L#0 (P#0 252GB)          //socket0、numa0 的内存大小</span><br><span class="line">    Package L#0</span><br><span class="line">      L3 L#0 (8192KB)               //L3 cache，对应4个物理core，8个HT</span><br><span class="line">        L2 L#0 (512KB) + L1d L#0 (32KB) + L1i L#0 (64KB) + Core L#0 // L1/L2</span><br><span class="line">          PU L#0 (P#0)</span><br><span class="line">          PU L#1 (P#64)</span><br><span class="line">        L2 L#1 (512KB) + L1d L#1 (32KB) + L1i L#1 (64KB) + Core L#1</span><br><span class="line">          PU L#2 (P#1)</span><br><span class="line">          PU L#3 (P#65)</span><br><span class="line">        L2 L#2 (512KB) + L1d L#2 (32KB) + L1i L#2 (64KB) + Core L#2</span><br><span class="line">          PU L#4 (P#2)</span><br><span class="line">          PU L#5 (P#66)</span><br><span class="line">        L2 L#3 (512KB) + L1d L#3 (32KB) + L1i L#3 (64KB) + Core L#3</span><br><span class="line">          PU L#6 (P#3)</span><br><span class="line">          PU L#7 (P#67)</span><br><span class="line">      L3 L#1 (8192KB)</span><br><span class="line">      L3 L#2 (8192KB)</span><br><span class="line">      L3 L#3 (8192KB)</span><br><span class="line">      L3 L#4 (8192KB)</span><br><span class="line">      L3 L#5 (8192KB)</span><br><span class="line">      L3 L#6 (8192KB)</span><br><span class="line">      L3 L#7 (8192KB)</span><br><span class="line">    HostBridge L#0</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 1a03:2000</span><br><span class="line">            GPU L#0 &quot;controlD64&quot;</span><br><span class="line">            GPU L#1 &quot;card0&quot;</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 1d94:7901</span><br><span class="line">          Block(Disk) L#2 &quot;sdm&quot;   //ssd系统盘，接在Node0上，绑核有优势</span><br><span class="line">    HostBridge L#4</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 1000:0097</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 1c5f:000d</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 1c5f:000d</span><br><span class="line">    HostBridge L#8</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 15b3:1015</span><br><span class="line">          Net L#3 &quot;p1p1&quot;      //万兆网卡接在Node0上</span><br><span class="line">        PCI 15b3:1015</span><br><span class="line">          Net L#4 &quot;p1p2&quot;</span><br><span class="line">    HostBridge L#10</span><br><span class="line">      PCIBridge</span><br><span class="line">        PCI 8086:1521</span><br><span class="line">          Net L#5 &quot;em1&quot;       //千兆网卡接在Node0上</span><br><span class="line">        PCI 8086:1521</span><br><span class="line">          Net L#6 &quot;em2&quot;</span><br><span class="line">  NUMANode L#1 (P#1 251GB)    //另外一个socket</span><br><span class="line">    Package L#1</span><br><span class="line">      L3 L#8 (8192KB)</span><br><span class="line">        L2 L#32 (512KB) + L1d L#32 (32KB) + L1i L#32 (64KB) + Core L#32</span><br><span class="line">        </span><br><span class="line">----------- FT2500 两路共128core</span><br><span class="line">#lstopo-no-graphics --logical</span><br><span class="line">Machine (503GB total)</span><br><span class="line">  Package L#0 + L3 L#0 (64MB)</span><br><span class="line">    NUMANode L#0 (P#0 31GB)</span><br><span class="line">      L2 L#0 (2048KB)         //4个物理core共享2M </span><br><span class="line">        L1d L#0 (32KB) + L1i L#0 (32KB) + Core L#0 + PU L#0 (P#0)</span><br><span class="line">        L1d L#1 (32KB) + L1i L#1 (32KB) + Core L#1 + PU L#1 (P#1)</span><br><span class="line">        L1d L#2 (32KB) + L1i L#2 (32KB) + Core L#2 + PU L#2 (P#2)</span><br><span class="line">        L1d L#3 (32KB) + L1i L#3 (32KB) + Core L#3 + PU L#3 (P#3)</span><br><span class="line">      L2 L#1 (2048KB)</span><br><span class="line">        L1d L#4 (32KB) + L1i L#4 (32KB) + Core L#4 + PU L#4 (P#4)</span><br><span class="line">        L1d L#5 (32KB) + L1i L#5 (32KB) + Core L#5 + PU L#5 (P#5)</span><br><span class="line">        L1d L#6 (32KB) + L1i L#6 (32KB) + Core L#6 + PU L#6 (P#6)</span><br><span class="line">        L1d L#7 (32KB) + L1i L#7 (32KB) + Core L#7 + PU L#7 (P#7)</span><br><span class="line">      HostBridge L#0</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCIBridge</span><br><span class="line">            PCIBridge</span><br><span class="line">              PCI 1000:00ac</span><br><span class="line">                Block(Disk) L#0 &quot;sdh&quot;</span><br><span class="line">                Block(Disk) L#1 &quot;sdf&quot;  // 磁盘挂在Node0上</span><br><span class="line">            PCIBridge</span><br><span class="line">              PCI 8086:1521</span><br><span class="line">                Net L#13 &quot;eth0&quot;</span><br><span class="line">              PCI 8086:1521</span><br><span class="line">                Net L#14 &quot;eth1&quot;       //网卡挂在node0上</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCIBridge</span><br><span class="line">            PCI 1a03:2000</span><br><span class="line">              GPU L#15 &quot;controlD64&quot;</span><br><span class="line">              GPU L#16 &quot;card0&quot;</span><br><span class="line">    NUMANode L#1 (P#1 31GB)</span><br><span class="line">    NUMANode L#2 (P#2 31GB)</span><br><span class="line">    NUMANode L#3 (P#3 31GB)</span><br><span class="line">    NUMANode L#4 (P#4 31GB)</span><br><span class="line">    NUMANode L#5 (P#5 31GB)</span><br><span class="line">    NUMANode L#6 (P#6 31GB)</span><br><span class="line">    NUMANode L#7 (P#7 31GB)</span><br><span class="line">      L2 L#14 (2048KB)</span><br><span class="line">        L1d L#56 (32KB) + L1i L#56 (32KB) + Core L#56 + PU L#56 (P#56)</span><br><span class="line">        L1d L#57 (32KB) + L1i L#57 (32KB) + Core L#57 + PU L#57 (P#57)</span><br><span class="line">        L1d L#58 (32KB) + L1i L#58 (32KB) + Core L#58 + PU L#58 (P#58)</span><br><span class="line">        L1d L#59 (32KB) + L1i L#59 (32KB) + Core L#59 + PU L#59 (P#59)</span><br><span class="line">      L2 L#15 (2048KB)</span><br><span class="line">        L1d L#60 (32KB) + L1i L#60 (32KB) + Core L#60 + PU L#60 (P#60)</span><br><span class="line">        L1d L#61 (32KB) + L1i L#61 (32KB) + Core L#61 + PU L#61 (P#61)</span><br><span class="line">        L1d L#62 (32KB) + L1i L#62 (32KB) + Core L#62 + PU L#62 (P#62)</span><br><span class="line">        L1d L#63 (32KB) + L1i L#63 (32KB) + Core L#63 + PU L#63 (P#63)</span><br><span class="line">  Package L#1 + L3 L#1 (64MB)   //socket2</span><br><span class="line">    NUMANode L#8 (P#8 31GB)</span><br><span class="line">      L2 L#16 (2048KB)</span><br><span class="line">        L1d L#64 (32KB) + L1i L#64 (32KB) + Core L#64 + PU L#64 (P#64)</span><br><span class="line">        L1d L#65 (32KB) + L1i L#65 (32KB) + Core L#65 + PU L#65 (P#65)</span><br><span class="line">        L1d L#66 (32KB) + L1i L#66 (32KB) + Core L#66 + PU L#66 (P#66)</span><br><span class="line">        L1d L#67 (32KB) + L1i L#67 (32KB) + Core L#67 + PU L#67 (P#67)</span><br><span class="line">      L2 L#17 (2048KB)</span><br><span class="line">        L1d L#68 (32KB) + L1i L#68 (32KB) + Core L#68 + PU L#68 (P#68)</span><br><span class="line">        L1d L#69 (32KB) + L1i L#69 (32KB) + Core L#69 + PU L#69 (P#69)</span><br><span class="line">        L1d L#70 (32KB) + L1i L#70 (32KB) + Core L#70 + PU L#70 (P#70)</span><br><span class="line">        L1d L#71 (32KB) + L1i L#71 (32KB) + Core L#71 + PU L#71 (P#71)</span><br><span class="line">      HostBridge L#7</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCIBridge</span><br><span class="line">            PCIBridge</span><br><span class="line">              PCI 15b3:1015</span><br><span class="line">                Net L#17 &quot;eth2&quot;   //node8 上的网卡，eth2、eth3做了bonding</span><br><span class="line">              PCI 15b3:1015</span><br><span class="line">                Net L#18 &quot;eth3&quot;</span><br><span class="line">            PCIBridge</span><br><span class="line">              PCI 144d:a808</span><br><span class="line">            PCIBridge</span><br><span class="line">              PCI 144d:a808</span><br><span class="line">              </span><br><span class="line"> ---鲲鹏920 每路48core 2路共4node，网卡插在node0，磁盘插在node2</span><br><span class="line"> #lstopo-no-graphics</span><br><span class="line">Machine (755GB total)</span><br><span class="line">  Package L#0</span><br><span class="line">    NUMANode L#0 (P#0 188GB)</span><br><span class="line">      L3 L#0 (24MB)</span><br><span class="line">        L2 L#0 (512KB) + L1d L#0 (64KB) + L1i L#0 (64KB) + Core L#0 + PU L#0 (P#0)</span><br><span class="line">        L2 L#1 (512KB) + L1d L#1 (64KB) + L1i L#1 (64KB) + Core L#1 + PU L#1 (P#1)</span><br><span class="line">        L2 L#22 (512KB) + L1d L#22 (64KB) + L1i L#22 (64KB) + Core L#22 + PU L#22 (P#22)</span><br><span class="line">        L2 L#23 (512KB) + L1d L#23 (64KB) + L1i L#23 (64KB) + Core L#23 + PU L#23 (P#23)</span><br><span class="line">      HostBridge L#0</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 15b3:1017</span><br><span class="line">            Net L#0 &quot;enp2s0f0&quot;</span><br><span class="line">          PCI 15b3:1017</span><br><span class="line">            Net L#1 &quot;eth1&quot;</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:1711</span><br><span class="line">            GPU L#2 &quot;controlD64&quot;</span><br><span class="line">            GPU L#3 &quot;card0&quot;</span><br><span class="line">      HostBridge L#3</span><br><span class="line">        2 x &#123; PCI 19e5:a230 &#125;</span><br><span class="line">        PCI 19e5:a235</span><br><span class="line">          Block(Disk) L#4 &quot;sda&quot;</span><br><span class="line">      HostBridge L#4</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:a222</span><br><span class="line">            Net L#5 &quot;enp125s0f0&quot;</span><br><span class="line">          PCI 19e5:a221</span><br><span class="line">            Net L#6 &quot;enp125s0f1&quot;</span><br><span class="line">          PCI 19e5:a222</span><br><span class="line">            Net L#7 &quot;enp125s0f2&quot;</span><br><span class="line">          PCI 19e5:a221</span><br><span class="line">            Net L#8 &quot;enp125s0f3&quot;</span><br><span class="line">    NUMANode L#1 (P#1 189GB) + L3 L#1 (24MB)</span><br><span class="line">      L2 L#24 (512KB) + L1d L#24 (64KB) + L1i L#24 (64KB) + Core L#24 + PU L#24 (P#24)</span><br><span class="line">  Package L#1</span><br><span class="line">    NUMANode L#2 (P#2 189GB)</span><br><span class="line">      L3 L#2 (24MB)</span><br><span class="line">        L2 L#48 (512KB) + L1d L#48 (64KB) + L1i L#48 (64KB) + Core L#48 + PU L#48 (P#48)</span><br><span class="line">      HostBridge L#6</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:3714</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:3714</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:3714</span><br><span class="line">        PCIBridge</span><br><span class="line">          PCI 19e5:3714</span><br><span class="line">      HostBridge L#11</span><br><span class="line">        PCI 19e5:a230</span><br><span class="line">        PCI 19e5:a235</span><br><span class="line">        PCI 19e5:a230</span><br><span class="line">    NUMANode L#3 (P#3 189GB) + L3 L#3 (24MB)</span><br><span class="line">      L2 L#72 (512KB) + L1d L#72 (64KB) + L1i L#72 (64KB) + Core L#72 + PU L#72 (P#72)</span><br><span class="line">  Misc(MemoryModule)</span><br></pre></td></tr></table></figure>
 <p>如果cpu core太多, interrupts 没法看的话，通过cut只看其中一部分core</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cat /proc/interrupts | grep -i &apos;eth4\|CPU&apos; | cut -c -8,865-995,1425-</span><br></pre></td></tr></table></figure>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p><a href="https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/" target="_blank" rel="noopener">网卡日志打开</a>：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">sysctl -w net.ipv4.conf.all.log_martians=1 //所有网卡</span><br><span class="line">sysctl -w net.ipv4.conf.p1p1.log_martians=1 //特定网卡</span><br><span class="line"></span><br><span class="line">/proc/sys/net/ipv4/conf/eth0.9/log_martians</span><br></pre></td></tr></table></figure>
+<p>/var/log/messages中：</p>
+<p>messages-20120101:Dec 31 09:25:45 nixcraft-router kernel: martian source 74.xx.47.yy from 10.13.106.25, on dev eth1</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.modb.pro/db/29135" target="_blank" rel="noopener">高斯在鲲鹏下跑TPCC的优化</a></p>
+<p><a href="https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/" target="_blank" rel="noopener">https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/</a></p>
 
           
         
@@ -3911,6 +4315,245 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/08/31/kubernetes容器网络/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/08/31/kubernetes容器网络/" itemprop="url">kubernetes容器网络</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-08-31T11:30:03+08:00">
+                2020-08-31
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="kubernetes-容器网络"><a href="#kubernetes-容器网络" class="headerlink" title="kubernetes 容器网络"></a>kubernetes 容器网络</h1><h2 id="cni-网络"><a href="#cni-网络" class="headerlink" title="cni 网络"></a>cni 网络</h2><blockquote>
+<p> <strong>cni0</strong> is a Linux network bridge device, all <strong>veth</strong> devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in <strong>Kubernetes Network Model</strong> and the hotel analogy above.</p>
+</blockquote>
+<h3 id="cni（Container-Network-Interface）"><a href="#cni（Container-Network-Interface）" class="headerlink" title="cni（Container Network Interface）"></a>cni（Container Network Interface）</h3><p>CNI 全称为 Container Network Interface，是用来定义容器网络的一个 <a href="https://github.com/containernetworking/cni/blob/master/SPEC.md" target="_blank" rel="noopener">规范</a>。<a href="https://github.com/containernetworking/cni" target="_blank" rel="noopener">containernetworking/cni</a> 是一个 CNCF 的 CNI 实现项目，包括基本额 bridge,macvlan等基本网络插件。</p>
+<p>一般将cni各种网络插件的可执行文件二进制放到 <code>/opt/cni/bin</code> ，在 <code>/etc/cni/net.d/</code> 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。</p>
+<p>比如：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">#ls -lh /opt/cni/bin/</span><br><span class="line">总用量 90M</span><br><span class="line">-rwxr-x--- 1 root root 4.0M 12月 23 09:39 bandwidth</span><br><span class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico</span><br><span class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico-ipam</span><br><span class="line">-rwxr-x--- 1 root root 3.0M 12月 23 09:39 flannel</span><br><span class="line">-rwxr-x--- 1 root root 3.5M 12月 23 09:39 host-local</span><br><span class="line">-rwxr-x--- 1 root root 3.1M 12月 23 09:39 loopback</span><br><span class="line">-rwxr-x--- 1 root root 3.8M 12月 23 09:39 portmap</span><br><span class="line">-rwxr-x--- 1 root root 3.3M 12月 23 09:39 tuning</span><br><span class="line"></span><br><span class="line">[root@hygon3 15:55 /root]</span><br><span class="line">#ls -lh /etc/cni/net.d/</span><br><span class="line">总用量 12K</span><br><span class="line">-rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist</span><br><span class="line">-rw-r----- 1 root root  292 12月 23 09:47 10-flannel.conflist</span><br><span class="line">-rw------- 1 root root 2.6K 12月 23 09:39 calico-kubeconfig</span><br></pre></td></tr></table></figure>
+<p>CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C/S 方式，所有参数都是通过环境变量、标准输入输出来实现的。</p>
+<p>Step-by-step communication from <strong>Pod 1</strong> to <strong>Pod 6</strong>:</p>
+<ol>
+<li><em>Package leaves</em> <strong><em>Pod 1 netns\</em></strong> <em>through the</em> <strong><em>eth1\</em></strong> <em>interface and reaches the</em> <strong><em>root netns\</em></strong> <em>through the virtual interface</em> <strong>*veth1**</strong>;*</li>
+<li><em>Package leaves</em> <strong><em>veth1\</em></strong> <em>and reaches</em> <strong>*cni0**</strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to</em> <strong>*eth0**</strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>from</em> <strong><em>Master 1\</em></strong> <em>and reaches the</em> <strong>*gateway**</strong>;*</li>
+<li><em>Package leaves the</em> <strong><em>gateway\</em></strong> <em>and reaches the</em> <strong><em>root netns\</em></strong> <em>through the</em> <strong><em>eth0\</em></strong> <em>interface on</em> <strong>*Worker 1**</strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>and reaches</em> <strong>*cni0**</strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to the</em> <strong><em>veth6\</em></strong> <em>virtual interface;</em></li>
+<li><em>Package leaves the</em> <strong><em>root netns\</em></strong> <em>through</em> <strong><em>veth6\</em></strong> <em>and reaches the</em> <strong><em>Pod 6 netns\</em></strong> <em>though the</em> <strong><em>eth6\</em></strong> <em>interface;</em></li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115124747936.png" alt="image-20220115124747936"></p>
+<h2 id="flannel-网络"><a href="#flannel-网络" class="headerlink" title="flannel 网络"></a>flannel 网络</h2><p>假如POD1访问POD4：</p>
+<ol>
+<li>从POD1中出来的包先到Bridge cni0上（因为POD1对应的veth挂在了cni0上）</li>
+<li>然后进入到宿主机网络，宿主机有路由 10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink ，也就是目标ip 10.244.2.3的包交由 flannel.1 来处理</li>
+<li>flanneld 进程将包封装成vxlan 丢到eth0从宿主机1离开（封装后的目标ip是192.168.2.91）</li>
+<li>这个封装后的vxlan udp包正确路由到宿主机2</li>
+<li>然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（<strong>这里会过宿主机iptables</strong>）</li>
+<li>cni0将包送给POD4</li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115132938290.png" alt="image-20220115132938290"></p>
+<p>对应宿主机查询到的ip、路由信息（和上图不是对应的）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">#ip -d -4 addr show cni0</span><br><span class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer  161.46 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line"></span><br><span class="line">#ip -d -4 addr show flannel.1</span><br><span class="line">474: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN group default</span><br><span class="line">    link/ether fe:49:64:ae:36:af brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    vxlan id 1 local 10.133.2.252 dev bond0 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.0/32 brd 192.168.3.0 scope global flannel.1</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">       </span><br><span class="line">[root@hygon239 20:06 /root]</span><br><span class="line">#kubectl describe node hygon252 | grep -C5 -i vtep  //可以看到VetpMAC 以及对应的宿主机IP（vxlan封包后的IP）</span><br><span class="line">Labels:             beta.kubernetes.io/arch=amd64</span><br><span class="line">                    beta.kubernetes.io/os=linux</span><br><span class="line">                    kubernetes.io/arch=amd64</span><br><span class="line">                    kubernetes.io/hostname=hygon252</span><br><span class="line">                    kubernetes.io/os=linux</span><br><span class="line">Annotations:        flannel.alpha.coreos.com/backend-data: &#123;&quot;VNI&quot;:1,&quot;VtepMAC&quot;:&quot;fe:49:64:ae:36:af&quot;&#125;</span><br><span class="line">                    flannel.alpha.coreos.com/backend-type: vxlan</span><br><span class="line">                    flannel.alpha.coreos.com/kube-subnet-manager: true</span><br><span class="line">                    flannel.alpha.coreos.com/public-ip: 10.133.2.252</span><br><span class="line">                    kubeadm.alpha.kubernetes.io/cri-socket: /var/run/dockershim.sock</span><br><span class="line">                    node.alpha.kubernetes.io/ttl: 0</span><br></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20220115133500854.png" alt="image-20220115133500854"></p>
+<h2 id="kubernetes-calico-网络"><a href="#kubernetes-calico-网络" class="headerlink" title="kubernetes calico 网络"></a>kubernetes calico 网络</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml</span><br><span class="line"></span><br><span class="line">#或者老版本的calico</span><br><span class="line">curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml</span><br></pre></td></tr></table></figure>
+<p>默认calico用的是ipip封包（这个性能跟原生网络差多少有待验证，本质也是overlay网络，比flannel那种要好很多吗？）</p>
+<p>跨宿主机的两个容器之间的流量链路是：</p>
+<blockquote>
+<p>cali-容器eth0-&gt;宿主机cali27dce37c0e8-&gt;tunl0-&gt;内核ipip模块封包-&gt;物理网卡（ipip封包后）—远程–&gt; 物理网卡-&gt;内核ipip模块解包-&gt;tunl0-&gt;cali-容器</p>
+</blockquote>
+<p><img src="/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png" alt="image.png"></p>
+<p>Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。</p>
+<h2 id="calico-ipip网络不通"><a href="#calico-ipip网络不通" class="headerlink" title="calico ipip网络不通"></a>calico ipip网络不通</h2><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，部分节点之间不通。每台机器部署好calico网络后，会分配一个 /26 CIRD 子网（64个ip）。</p>
+<h3 id="案例1"><a href="#案例1" class="headerlink" title="案例1"></a>案例1</h3><p>目标机是10.122.127.128（宿主机ip 192.168.3.112），如果从10.122.17.64（宿主机ip 192.168.3.110） ping 10.122.127.128不通，查看10.122.127.128路由表：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</span><br><span class="line">10.122.17.64/26 via 10.122.127.128 dev tunl0  //这条路由不通</span><br><span class="line">[root@az3-k8s-13 ~]# ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</span><br><span class="line"></span><br><span class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</span><br><span class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink //这样就通了</span><br></pre></td></tr></table></figure>
+<p>在10.122.127.128抓包如下，明显可以看到icmp request到了 tunl0网卡，tunl0网卡也回复了，但是回复包没有经过kernel ipip模块封装后发到eth1上：</p>
+<p><img src="/images/oss/d3111417ce646ca1475def5bea01e6b9.png" alt="image.png"></p>
+<p>正常机器应该是这样，上图不正常的时候缺少红框中的reply：</p>
+<p><img src="/images/oss/9ea9041af1211b2a5b8de4e216044465.png" alt="image.png"></p>
+<p>解决：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; </span><br><span class="line">ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</span><br></pre></td></tr></table></figure>
+<p>删除错误路由增加新的路由就可以了，新增路由的意思是从tunl0发给10.122.17.64/26的包下一跳是 192.168.3.110。</p>
+<p> via 192.168.3.110 表示下一跳的ip</p>
+<p>onlink参数的作用：<br>使用这个参数将会告诉内核，不必检查网关是否可达。因为在linux内核中，网关与本地的网段不同是被认为不可达的，从而拒绝执行添加路由的操作。</p>
+<p>因为tunl0网卡ip的 CIDR 是32，也就是不属于任何子网，那么这个网卡上的路由没有网关，配置路由的话必须是onlink, 内核存也没法根据子网来选择到这块网卡，所以还会加上 dev 指定网卡。</p>
+<h3 id="案例2"><a href="#案例2" class="headerlink" title="案例2"></a>案例2</h3><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，只有node2没有192.168.3.111这个ip，结果node2跟其他节点都不通：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">#calicoctl node status</span><br><span class="line">Calico process is running.</span><br><span class="line"></span><br><span class="line">IPv4 BGP status</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br><span class="line">| PEER ADDRESS  |     PEER TYPE     | STATE |   SINCE    |    INFO     |</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br><span class="line">| 192.168.0.111 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.112 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.113 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">| 192.168.3.114 | node-to-node mesh | up    | 2020-08-29 | Established |</span><br><span class="line">+---------------+-------------------+-------+------------+-------------+</span><br></pre></td></tr></table></figure>
+<p>从node4 ping node2，然后在node2上抓包，可以看到 icmp request都发到了node2上，但是node2收到后没有发给tunl0：</p>
+<p><img src="/images/oss/16fda9322e9a59c37c11629acc611bf3.png" alt="image.png"></p>
+<p>所以icmp没有回复，这里的问题在于<strong>kernel收到包后为什么不给tunl0</strong></p>
+<p>同样，在node2上ping node4，同时在node2上抓包，可以看到发给node4的request包和reply包：</p>
+<p><img src="/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png" alt="image.png"></p>
+<p>从request包可以看到src ip 是0.111， dest ip是 3.113，<strong>因为 node2 没有192.168.3.111这个ip</strong></p>
+<p>非常关键的我们看到node4的回复包 src ip 不是3.113，而是0.113（根据node4的路由就应该是0.113）</p>
+<p><img src="/images/oss/5c7172e2422579eb99c66e881d47bf99.png" alt="image.png"></p>
+<p>这就是问题所在，从node4过来的ipip包src ip都是0.113，实际这里ipip能认识的只是3.113. </p>
+<p>如果这个时候在3.113机器上把0.113网卡down掉，那么3.113上的：</p>
+<p>10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink 路由被自动删除，3.113将不再回复request。这是因为calico记录的node2的ip是192.168.0.111，所以会自动增加</p>
+<p>解决办法，在node4上删除这条路由记录，也就是强制让回复包走3.113网卡，这样收发的ip就能对应上了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ip route del 192.168.0.0/24 dev eth0 proto kernel scope link src 192.168.0.113</span><br><span class="line">//同时将默认路由改到3.113</span><br><span class="line">ip route del default via 192.168.0.253 dev eth0; </span><br><span class="line">ip route add default via 192.168.3.253 dev eth1</span><br></pre></td></tr></table></figure>
+<p>最终OK后，node4上的ip route是这样的：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[root@az3-k8s-14 ~]# ip route</span><br><span class="line">default via 192.168.3.253 dev eth1 </span><br><span class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink </span><br><span class="line">10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink </span><br><span class="line">10.122.127.128/26 via 192.168.3.112 dev tunl0 proto bird onlink </span><br><span class="line">blackhole 10.122.157.128/26 proto bird </span><br><span class="line">10.122.157.129 dev cali19f6ea143e3 scope link </span><br><span class="line">10.122.157.130 dev cali09e016ead53 scope link </span><br><span class="line">10.122.157.131 dev cali0ad3225816d scope link </span><br><span class="line">10.122.157.132 dev cali55a5ff1a4aa scope link </span><br><span class="line">10.122.157.133 dev cali01cf8687c65 scope link </span><br><span class="line">10.122.157.134 dev cali65232d7ada6 scope link </span><br><span class="line">10.122.173.128/26 via 192.168.3.114 dev tunl0 proto bird onlink </span><br><span class="line">172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 </span><br><span class="line">192.168.3.0/24 dev eth1 proto kernel scope link src 192.168.3.113</span><br></pre></td></tr></table></figure>
+<p>正常后的抓包, 注意这里drequest的est ip 和reply的 src ip终于一致了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">//request</span><br><span class="line">00:16:3e:02:06:1e &gt; ee:ff:ff:ff:ff:ff, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 57971, offset 0, flags [DF], proto IPIP (4), length 104)</span><br><span class="line">    192.168.0.111 &gt; 192.168.3.110: (tos 0x0, ttl 64, id 18953, offset 0, flags [DF], proto ICMP (1), length 84)</span><br><span class="line">    10.122.124.128 &gt; 10.122.17.64: ICMP echo request, id 22001, seq 4, length 64</span><br><span class="line">    </span><br><span class="line">//reply    </span><br><span class="line">ee:ff:ff:ff:ff:ff &gt; 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 2565, offset 0, flags [none], proto IPIP (4), length 104)</span><br><span class="line">    192.168.3.110 &gt; 192.168.0.111: (tos 0x0, ttl 64, id 26374, offset 0, flags [none], proto ICMP (1), length 84)</span><br><span class="line">    10.122.17.64 &gt; 10.122.124.128: ICMP echo reply, id 22001, seq 4, length 64</span><br></pre></td></tr></table></figure>
+<p>总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。</p>
+<h2 id="flannel网络不通"><a href="#flannel网络不通" class="headerlink" title="flannel网络不通"></a>flannel网络不通</h2><h3 id="firewalld"><a href="#firewalld" class="headerlink" title="firewalld"></a>firewalld</h3><p>在麒麟系统的物理机上通过kubeadm setup集群，发现有的环境flannel网络不通，在宿主机上ping 其它物理机flannel.0网卡的ip，通过在对端宿主机抓包发现icmp收到后被防火墙扔掉了，抓包中可以看到错误信息：icmp unreachable - admin prohibited</p>
+<p>下图中正常的icmp是直接ping 物理机ip</p>
+<p><img src="/images/951413iMgBlog/image-20211228203650921.png" alt="image-20211228203650921"></p>
+<blockquote>
+<p>The “admin prohibited filter” seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn’t want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.</p>
+</blockquote>
+<p>发现有问题的环境中宿主机的防火墙设置报错了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &apos;/usr/sbin/iptables -w10 -t filter -X DOCKER-ISOLATION-STAGE-1&apos; failed: iptables: No chain/target/match by that name.</span><br><span class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &apos;/usr/sbin/iptables -w10 -t filter -F DOCKER-ISOLATION-STAGE-2&apos; failed: iptables: No chain/target/match by that name.</span><br></pre></td></tr></table></figure>
+<p>应该是因为启动docker的时候 firewalld 是运行着的</p>
+<blockquote>
+<p>Do you have firewalld enabled, and was it (re)started after docker was started? If so, then it’s likely that firewalld wiped docker’s IPTables rules. Restarting the docker daemon should re-create those rules.</p>
+</blockquote>
+<p>停掉 firewalld 服务可以解决这个问题</p>
+<h3 id="掉电重启后flannel网络不通"><a href="#掉电重启后flannel网络不通" class="headerlink" title="掉电重启后flannel网络不通"></a><a href="https://github.com/flannel-io/flannel/issues/799" target="_blank" rel="noopener">掉电重启后flannel网络不通</a></h3><p>flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机，但是从flannel解开udp转送到cni的时候出了问题，大概率是iptables 拦截了包</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">It seems docker version &gt;=1.13 will add iptables rule like below,and it make this issue happen:</span><br><span class="line">iptables -P FORWARD DROP</span><br><span class="line"></span><br><span class="line">All you need to do is add a rule below:</span><br><span class="line">iptables -P FORWARD ACCEPT</span><br></pre></td></tr></table></figure>
+<h2 id="清理"><a href="#清理" class="headerlink" title="清理"></a><a href="https://serverfault.com/questions/247767/cannot-delete-gre-tunnel" target="_blank" rel="noopener">清理</a></h2><p>cni信息</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">/etc/cni/net.d/*</span><br><span class="line">/var/lib/cni/ 下存放有ip分配信息</span><br></pre></td></tr></table></figure>
+<p>calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ip link set dev tunl0 name tunl0_fallback</span><br><span class="line"></span><br><span class="line">或者</span><br><span class="line">/sbin/ip link set eth1 down</span><br><span class="line">/sbin/ip link set eth1 name eth123</span><br><span class="line">/sbin/ip link set eth123 up</span><br></pre></td></tr></table></figure>
+<p>flannel</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link delete flannel.1</span><br><span class="line">ip link delete cni0</span><br></pre></td></tr></table></figure>
+<h2 id="netns"><a href="#netns" class="headerlink" title="netns"></a><a href="https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw" target="_blank" rel="noopener">netns</a></h2><p>以下case创建一个名为 ren 的netns，然后在里面增加一对虚拟网卡veth1 veth1_p,  veth1放置在ren里面，veth1_p 放在物理机上，给他们配置上ip并up就能通了。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br></pre></td><td class="code"><pre><span class="line">1004  [2021-10-27 10:49:08] ip netns add ren</span><br><span class="line">1005  [2021-10-27 10:49:12] ip netns show</span><br><span class="line">1006  [2021-10-27 10:49:22] ip netns exec ren route   //为空</span><br><span class="line">1007  [2021-10-27 10:49:29] ip netns exec ren iptables -L</span><br><span class="line">1008  [2021-10-27 10:49:55] ip link add veth1 type veth peer name veth1_p //此时宿主机上能看到这两块网卡</span><br><span class="line">1009  [2021-10-27 10:50:07] ip link set veth1 netns ren //将veth1从宿主机默认网络空间挪到ren中，宿主机中看不到veth1了</span><br><span class="line">1010  [2021-10-27 10:50:18] ip netns exec ren route  </span><br><span class="line">1011  [2021-10-27 10:50:25] ip netns exec ren iptables -L</span><br><span class="line">1012  [2021-10-27 10:50:39] ifconfig</span><br><span class="line">1013  [2021-10-27 10:50:51] ip link list</span><br><span class="line">1014  [2021-10-27 10:51:29] ip netns exec ren ip link list</span><br><span class="line">1017  [2021-10-27 10:53:27] ip netns exec ren ip addr add 172.19.0.100/24 dev veth1 </span><br><span class="line">1018  [2021-10-27 10:53:31] ip netns exec ren ip link list</span><br><span class="line">1019  [2021-10-27 10:53:39] ip netns exec ren ifconfig</span><br><span class="line">1020  [2021-10-27 10:53:42] ip netns exec ren ifconfig -a</span><br><span class="line">1021  [2021-10-27 10:54:13] ip netns exec ren ip link set dev veth1 up</span><br><span class="line">1022  [2021-10-27 10:54:16] ip netns exec ren ifconfig</span><br><span class="line">1023  [2021-10-27 10:54:22] ping 172.19.0.100</span><br><span class="line">1024  [2021-10-27 10:54:35] ifconfig -a</span><br><span class="line">1025  [2021-10-27 10:55:03] ip netns exec ren ip addr add 172.19.0.101/24 dev veth1_p</span><br><span class="line">1026  [2021-10-27 10:55:10] ip addr add 172.19.0.101/24 dev veth1_p</span><br><span class="line">1027  [2021-10-27 10:55:16] ifconfig veth1_p</span><br><span class="line">1028  [2021-10-27 10:55:30] ip link set dev veth1_p up</span><br><span class="line">1029  [2021-10-27 10:55:32] ifconfig veth1_p</span><br><span class="line">1030  [2021-10-27 10:55:38] ping 172.19.0.101</span><br><span class="line">1031  [2021-10-27 10:55:43] ping 172.19.0.100</span><br><span class="line">1032  [2021-10-27 10:55:53] ip link set dev veth1_p down</span><br><span class="line">1033  [2021-10-27 10:55:54] ping 172.19.0.100</span><br><span class="line">1034  [2021-10-27 10:55:58] ping 172.19.0.101</span><br><span class="line">1035  [2021-10-27 10:56:08] ifconfig veth1_p</span><br><span class="line">1036  [2021-10-27 10:56:32] ping 172.19.0.101</span><br><span class="line">1037  [2021-10-27 10:57:04] ip netns exec ren route</span><br><span class="line">1038  [2021-10-27 10:57:52] ip netns exec ren ping 172.19.0.101</span><br><span class="line">1039  [2021-10-27 10:57:58] ip link set dev veth1_p up</span><br><span class="line">1040  [2021-10-27 10:57:59] ip netns exec ren ping 172.19.0.101</span><br><span class="line">1041  [2021-10-27 10:58:06] ip netns exec ren ping 172.19.0.100</span><br><span class="line">1042  [2021-10-27 10:58:14] ip netns exec ren ifconfig</span><br><span class="line">1043  [2021-10-27 10:58:19] ip netns exec ren route</span><br><span class="line">1044  [2021-10-27 10:58:26] ip netns exec ren ping 172.19.0.100 -I veth1</span><br><span class="line">1045  [2021-10-27 10:58:58] ifconfig veth1_p</span><br><span class="line">1046  [2021-10-27 10:59:10] ping 172.19.0.100</span><br><span class="line">1047  [2021-10-27 10:59:26] ip netns exec ren ping 172.19.0.101 -I veth1</span><br><span class="line"></span><br><span class="line">把网卡加入到docker0的bridge下</span><br><span class="line">1160  [2021-10-27 12:17:37] brctl show</span><br><span class="line">1161  [2021-10-27 12:18:05] ip link set dev veth3_p master docker0</span><br><span class="line">1162  [2021-10-27 12:18:09] ip link set dev veth1_p master docker0</span><br><span class="line">1163  [2021-10-27 12:18:13] ip link set dev veth2 master docker0</span><br><span class="line">1164  [2021-10-27 12:18:15] brctl show</span><br><span class="line"></span><br><span class="line">btctl showmacs br0</span><br></pre></td></tr></table></figure>
+<p>Linux 上存在一个默认的网络命名空间，Linux 中的 1 号进程初始使用该默认空间。Linux 上其它所有进程都是由 1 号进程派生出来的，在派生 clone 的时候如果没有额外特别指定，所有的进程都将共享这个默认网络空间。</p>
+<p>所有的网络设备刚创建出来都是在宿主机默认网络空间下的。可以通过 <code>ip link set 设备名 netns 网络空间名</code> 将设备移动到另外一个空间里去，socket也是归属在某一个网络命名空间下的，由创建socket进程所在的netns来决定socket所在的netns</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//file: net/socket.c</span></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">sock_create</span><span class="params">(<span class="keyword">int</span> family, <span class="keyword">int</span> type, <span class="keyword">int</span> protocol, struct socket **res)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line"> <span class="keyword">return</span> __sock_create(current-&gt;nsproxy-&gt;net_ns, family, type, protocol, res, <span class="number">0</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: include/net/sock.h</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">inline</span></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">sock_net_set</span><span class="params">(struct sock *sk, struct net *net)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line"> write_pnet(&amp;sk-&gt;sk_net, net);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。</p>
+<p><img src="/images/951413iMgBlog/640-5304524." alt="Image"></p>
+<p>每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://morven.life/notes/networking-3-ipip/" target="_blank" rel="noopener">https://morven.life/notes/networking-3-ipip/</a></p>
+<p><a href="https://www.cnblogs.com/bakari/p/10564347.html" target="_blank" rel="noopener">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
+<p><a href="https://www.cnblogs.com/goldsunshine/p/10701242.html" target="_blank" rel="noopener">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/03/MySQL JDBC StreamResult 和 net_write_timeout/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4191,589 +4834,6 @@
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/01/如何创建一个自己连自己的TCP连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/07/01/如何创建一个自己连自己的TCP连接/" itemprop="url">如何创建一个自己连自己的TCP连接</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-07-01T17:30:03+08:00">
-                2020-07-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何创建一个自己连自己的TCP连接"><a href="#如何创建一个自己连自己的TCP连接" class="headerlink" title="如何创建一个自己连自己的TCP连接"></a>如何创建一个自己连自己的TCP连接</h1><blockquote>
-<p>能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？</p>
-</blockquote>
-<p>执行</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.79 18082 -p 18082</span><br></pre></td></tr></table></figure>
-<p>然后就能看到</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18082</span><br><span class="line">tcp        0      0 192.168.0.79:18082      192.168.0.79:18082      ESTABLISHED</span><br></pre></td></tr></table></figure>
-<p>比较神奇，这个连接的srcport等于destport，并且完全可以工作，也能收发数据。这有点颠覆大家的理解，端口能重复使用？</p>
-<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地端口范围由参数控制</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </span><br><span class="line">10000	65535</span><br></pre></td></tr></table></figure>
-<p>所以也经常看到一个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
-<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>在内存、文件句柄足够的话可以创建的连接是没有限制的，那么/proc/sys/net/ipv4/ip_local_port_range指定的端口范围到底是什么意思呢？</p>
-<p>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一，比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18089</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </span><br><span class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</span><br></pre></td></tr></table></figure>
-<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。</p>
-<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
-<p>但是如果程序调用的是bind函数(bind(ip,port=0))这个时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候4元组是唯一的。</p>
-<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
-<h2 id="自己连自己的连接"><a href="#自己连自己的连接" class="headerlink" title="自己连自己的连接"></a>自己连自己的连接</h2><p>我们来看自己连自己发生了什么</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># strace nc 192.168.0.79 18084 -p 18084</span></span><br><span class="line">execve(<span class="string">"/usr/bin/nc"</span>, [<span class="string">"nc"</span>, <span class="string">"192.168.0.79"</span>, <span class="string">"18084"</span>, <span class="string">"-p"</span>, <span class="string">"18084"</span>], [/* 31 vars */]) = 0</span><br><span class="line">brk(NULL)                               = 0x23d4000</span><br><span class="line">mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f213f394000</span><br><span class="line">access(<span class="string">"/etc/ld.so.preload"</span>, R_OK)      = -1 ENOENT (No such file or directory)</span><br><span class="line">open(<span class="string">"/etc/ld.so.cache"</span>, O_RDONLY|O_CLOEXEC) = 3</span><br><span class="line">fstat(3, &#123;st_mode=S_IFREG|0644, st_size=23295, ...&#125;) = 0</span><br><span class="line">mmap(NULL, 23295, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f213f38e000</span><br><span class="line">close(3)                                = 0</span><br><span class="line">open(<span class="string">"/lib64/libssl.so.10"</span>, O_RDONLY|O_CLOEXEC) = 3</span><br><span class="line">………………</span><br><span class="line">munmap(0x7f213f393000, 4096)            = 0</span><br><span class="line">open(<span class="string">"/usr/share/ncat/ca-bundle.crt"</span>, O_RDONLY) = -1 ENOENT (No such file or directory)</span><br><span class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</span><br><span class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line"><span class="built_in">bind</span>(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"0.0.0.0"</span>)&#125;, 16) = 0</span><br><span class="line">//注意这里<span class="built_in">bind</span>后直接就是connect，没有listen</span><br><span class="line">connect(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"192.168.0.79"</span>)&#125;, 16) = -1 EINPROGRESS (Operation now <span class="keyword">in</span> progress)</span><br><span class="line">select(4, [3], [3], [3], &#123;10, 0&#125;)       = 1 (out [3], left &#123;9, 999998&#125;)</span><br><span class="line">getsockopt(3, SOL_SOCKET, SO_ERROR, [0], [4]) = 0</span><br><span class="line">select(4, [0 3], [], [], NULL</span><br></pre></td></tr></table></figure>
-<p>抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的</p>
-<p><img src="/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png" alt="image.png"></p>
-<p>这个连接算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。</p>
-<p>正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。</p>
-<p>那么这种情况为什么没有当做bug被处理呢？</p>
-<h2 id="TCP-simultanous-open"><a href="#TCP-simultanous-open" class="headerlink" title="TCP simultanous open"></a>TCP simultanous open</h2><p>在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。</p>
-<p><img src="/images/oss/b9a0144a3835759c844f697bc45103fa.png" alt="image.png"></p>
-<p>​                                                                       摘自《tcp/ip卷1》</p>
-<p>可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下内核代码 net/ipv4/tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack(发出syn后), 结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">	static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,</span><br><span class="line">                     const struct tcphdr *th)</span><br><span class="line">	&#123;</span><br><span class="line">5916         /* PAWS check. */</span><br><span class="line">5917         if (tp-&gt;rx_opt.ts_recent_stamp &amp;&amp; tp-&gt;rx_opt.saw_tstamp &amp;&amp;</span><br><span class="line">5918             tcp_paws_reject(&amp;tp-&gt;rx_opt, 0))</span><br><span class="line">5919                 goto discard_and_undo;</span><br><span class="line">5920         //在socket发送syn后收到了一个syn(正常应该收到syn+ack),这里是允许的。</span><br><span class="line">5921         if (th-&gt;syn) &#123;</span><br><span class="line">5922                 /* We see SYN without ACK. It is attempt of</span><br><span class="line">5923                  * simultaneous connect with crossed SYNs.</span><br><span class="line">5924                  * Particularly, it can be connect to self.  //自己连自己</span><br><span class="line">5925                  */</span><br><span class="line">5926                 tcp_set_state(sk, TCP_SYN_RECV);</span><br><span class="line">5927 </span><br><span class="line">5928                 if (tp-&gt;rx_opt.saw_tstamp) &#123;</span><br><span class="line">5929                         tp-&gt;rx_opt.tstamp_ok = 1;</span><br><span class="line">5930                         tcp_store_ts_recent(tp);</span><br><span class="line">5931                         tp-&gt;tcp_header_len =</span><br><span class="line">5932                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;</span><br><span class="line">5933                 &#125; else &#123;</span><br><span class="line">5934                         tp-&gt;tcp_header_len = sizeof(struct tcphdr);</span><br><span class="line">5935                 &#125;</span><br><span class="line">5936 </span><br><span class="line">5937                 tp-&gt;rcv_nxt = TCP_SKB_CB(skb)-&gt;seq + 1;</span><br><span class="line">5938                 tp-&gt;copied_seq = tp-&gt;rcv_nxt;</span><br><span class="line">5939                 tp-&gt;rcv_wup = TCP_SKB_CB(skb)-&gt;seq + 1;</span><br><span class="line">5940 </span><br><span class="line">5941                 /* RFC1323: The window in SYN &amp; SYN/ACK segments is</span><br><span class="line">5942                  * never scaled.</span><br><span class="line">5943                  */</span><br></pre></td></tr></table></figure>
-<p>也就是在发送syn进入SYN_SENT状态之后，收到对端发来的syn包后不会RST，而是处理流程如下，调用tcp_set_state(sk, TCP_SYN_RECV)进入SYN_RECV状态，以及调用tcp_send_synack(sk)向对端发送syn+ack。</p>
-<h2 id="自己连自己的原理解释"><a href="#自己连自己的原理解释" class="headerlink" title="自己连自己的原理解释"></a>自己连自己的原理解释</h2><p>第一我们要理解Kernel是支持simultaneous open（同时打开）的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。</p>
-<p>自己连自己又是simultaneous open的一个特例，特别在这个连接只有一个socket参与，发送、接收都是同一个socket，自然也会是发syn后收到了自己的syn（自己发给自己），然后依照simultaneous open连接也能创建成功。</p>
-<p>这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084 socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。</p>
-<p>可以用python来重现这个连接连自己的过程：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">import socket</span><br><span class="line">import time</span><br><span class="line"></span><br><span class="line">connected=False</span><br><span class="line">while (not connected):</span><br><span class="line">        try:</span><br><span class="line">                sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)</span><br><span class="line">                sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)</span><br><span class="line">				sock.bind((&apos;&apos;, 18084))               //sock 先bind到18084</span><br><span class="line">                sock.connect((&apos;127.0.0.1&apos;,18084))    //然后同一个socket连自己</span><br><span class="line">                connected=True</span><br><span class="line">        except socket.error,(value,message):</span><br><span class="line">                print message</span><br><span class="line"></span><br><span class="line">        if not connected:</span><br><span class="line">                print &quot;reconnect&quot;</span><br><span class="line">               </span><br><span class="line">print &quot;tcp self connection occurs!&quot;</span><br><span class="line">print &quot;netstat -an|grep 18084&quot;</span><br><span class="line">time.sleep(1800)</span><br></pre></td></tr></table></figure>
-<p>这里connect前如果没有bind那么系统就会从 local port range 分配一个可用port。</p>
-<p>bind成功后会将ip+port放入hash表来判重，这就是我们常看到的 Bind to *** failed (IOD #1): Address already in use 异常。所以一台机器上，如果有多个ip，是可以将同一个port bind多次的，但是bind的时候如果不指定ip，也就是bind(‘0’, port) 还是会冲突。</p>
-<p>connect成功后会将四元组放入ehash来判定连接的重复性。如果connect四元组冲突了就会报如下错误</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.82 8080 -p 29798 -s 192.168.0.79</span><br><span class="line">Ncat: Cannot assign requested address.</span><br></pre></td></tr></table></figure>
-<h2 id="bind-和-connect、listen"><a href="#bind-和-connect、listen" class="headerlink" title="bind 和 connect、listen"></a>bind 和 connect、listen</h2><p>当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。</p>
-<p>如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</span><br><span class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line">bind(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(&quot;0.0.0.0&quot;)&#125;, 16) = 0</span><br></pre></td></tr></table></figure>
-<p><img src="/images/oss/5373ecfe0d4496d106c64d3f370c893c.png" alt="image.png"></p>
-<h3 id="listen"><a href="#listen" class="headerlink" title="listen"></a>listen</h3><p><img src="/images/oss/4d188cab03e919f055bb9dbe3da0188c.png" alt="image-20200702131215819"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://segmentfault.com/a/1190000002396411" target="_blank" rel="noopener">https://segmentfault.com/a/1190000002396411</a></p>
-<p><a href="https://blog.csdn.net/a364572/article/details/40628171" target="_blank" rel="noopener">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
-<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="noopener">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="noopener">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/06/24/TCPRT 案例/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/06/24/TCPRT 案例/" itemprop="url">TCPRT 案例</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-06-24T17:30:03+08:00">
-                2020-06-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="TCPRT-案例-–-rtt、丢包率、rt、qps之间的关系"><a href="#TCPRT-案例-–-rtt、丢包率、rt、qps之间的关系" class="headerlink" title="TCPRT 案例 – rtt、丢包率、rt、qps之间的关系"></a>TCPRT 案例 – rtt、丢包率、rt、qps之间的关系</h1><p>在分布式、微服务场景下如果rt出现问题一般都有pinpoint、Dapper、鹰眼之类的工具能帮忙分析是哪个服务慢了，但是如果是网络慢了这些工具就没有办法区分了。</p>
-<p>TCPRT是从网络层面把整个服务的响应时间分成：网络传输时间+服务处理时间，这样一旦响应时间慢了很容易看到是网络慢了、丢包、抖动了，还是就是服务处理慢了。</p>
-<p>如下案例都有tcpdump抓包来证明TCPRT的正确性，实际上在没有TCPRT之前处理类似问题只能抓包+等待重现，来排查问题。开启TCPRT之后会实时记录每一个请求响应的网络传输时间、服务处理时间、网络丢包率等各种数据，而对性能的影响非常非常小，控制在1%以内。</p>
-<p>总的来说TCPRT区分了网络传输时间和服务处理时间，并记录了丢包、重传等各种数据，从此天下无包可抓。</p>
-<p>可以在任何节点上部署tcprt，下面案例都只是在tomcat节点上部署了tcprt服务，来监控client到tomcat以及tomcat到后面RDS的响应时间：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6f6862dec810933f34b7793018cfb0da.png" alt="image.png"></p>
-<h2 id="图形化监控数据"><a href="#图形化监控数据" class="headerlink" title="图形化监控数据"></a>图形化监控数据</h2><p>捞取同一段时间内同样压力下tcprt监控数据后展示出来的图形：</p>
-<ol>
-<li>最开始正常网络情况下QPS 40K，总RT 4.1ms（含网络），业务处理时间3.9ms，两者差就是网络传输时间；</li>
-<li>突然网络变差，rtt从0.2ms降到了17ms，相应地QPS降到了8200，总RT 19.9ms（含网络），业务处理时间2.8ms（因为压力变小了，实际业务处理时间也快了）；</li>
-<li>接着rtt回到7ms，QPS回升到16400，总RT 9.9ms（含网络），业务处理时间2.82ms；</li>
-<li>rtt恢复到0.2ms，同时client到tomcat丢包率为0.1%，QPS 39.5K，总RT 4.1ms（含网络），业务处理时间3.7ms. 对QPS的影响基本可以忽略；</li>
-<li>client到tomcat丢包率为1%，QPS 31.8K，总RT 5.08ms（含网络），业务处理时间2.87ms；</li>
-<li>tomcat到client和RDS丢包率都为1%，QPS 23.2K，总RT 7.03ms（含网络），业务处理时间4.88ms，tomcat调用RDS的rt也从2.6ms上升到了4.6ms。</li>
-</ol>
-<p>QPS随着上述6个阶段的变化图（以下所有图形都是在同一时间段所取得）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/166e466bb43215556ccdf73e8f1476e3.png" alt="image.png"></p>
-<p>响应时间和丢包率在上述6个阶段的变化图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/865355ab81bc4c1804ff26c2ab2ecf23.png" alt="image.png"></p>
-<p>应用到tomcat之间的网络消耗展示（逻辑响应时间-逻辑服务时间=网络传输时间）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7b755c9d2f19701d1409abfd91dce4c1.png" alt="image.png"></p>
-<p>tomcat到RDS之间的时间消耗：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f18f5c467cc21ead4c15a5e28bf3b8fd.png" alt="image.png"></p>
-<p>物理响应时间（RDS响应时间）上升部分是因为RDS的丢包率为1%，tomcat的TCPRT监控上能看到的只是RDS总的响应时间上升了。</p>
-<p>通过wireshark看到对应的tomcat和RDS之间的RTT数据：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/949ab8a34c9bece160e8fcff8e76a2d4.png" alt="image.png"></p>
-<p>上面都是对所有数据做平均后分析所得，接下来会通过具体的一个请求来分析，同时通过tcpdump抓包来分析对应的数据（对比验证tcprt的可靠性）</p>
-<h2 id="深圳盒子慢查询定位"><a href="#深圳盒子慢查询定位" class="headerlink" title="深圳盒子慢查询定位"></a>深圳盒子慢查询定位</h2><p>这个实例没有上线manager，只能人肉分析tcprt日志，先看慢查询日志： </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$tail -10 slow.log</span><br><span class="line">2020-08-13 14:39:46.289 - [user=zhoubingbing,host=172.30.52.43,port=54754,schema=goodarights_base]  [TDDL] select * from tbl_wm_mcht_invoice_record where mcht_no=&apos;323967&apos; ORDER BY CREATE_TIME desc;#1070#392#111413ba1b1a2000, tddl version: 5.4.3-15844389</span><br></pre></td></tr></table></figure>
-<p> 慢查询对应的tcprt记录，rtt高达35ms（正常都是2ms，而且重传了3次才把response传完），所以最终SQL执行花了差不多1.3秒（慢查询中有记录，1秒多，查询结果390行数据）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/15731f74f91099774996302da1571a51.png" alt="image.png"></p>
-<p>从60秒汇总统计日只看，慢查询发生的时间点 丢包率确实到了 0.1%：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/85a75f19422a838f64ec6dffb4a3837f.png" alt="image.png"></p>
-<p>总的平均时间统计，绿框是DRDS处理时间，红框是DRDS处理时间+网络传输时间，这个gap有点大（网络消耗比较高）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7c45a9ab360986c7e743de9a687c9549.png" alt="image.png"></p>
-<h2 id="丢包造成rt过高"><a href="#丢包造成rt过高" class="headerlink" title="丢包造成rt过高"></a>丢包造成rt过高</h2><p>如下数据中每一行代表一个请求、响应数据，第三行和第八行总rt都比较高，超过200ms（第6列），但是server处理时间在3ms以内（最后一列）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">                                                         总rt    重传       处理时间</span><br><span class="line">1593677820 311182 10.0.186.70:32610 10.0.186.97:3306 142 5885 113 0 36314730 2758</span><br><span class="line">1593677820 317068 10.0.186.70:32610 10.0.186.97:3306 142 214047 113 1 36314731 2791 &lt;?</span><br><span class="line">1593677820 533814 10.0.186.70:32610 10.0.186.97:3306 142 5905 113 0 36314732 2771</span><br><span class="line">1593677820 539722 10.0.186.70:32610 10.0.186.97:3306 142 5842 113 0 36314733 2714</span><br><span class="line">1593677820 545565 10.0.186.70:32610 10.0.186.97:3306 142 5898 113 0 36314734 2751</span><br><span class="line">1593677820 551464 10.0.186.70:32610 10.0.186.97:3306 142 5866 113 0 36314735 2746</span><br><span class="line">1593677820 557331 10.0.186.70:32610 10.0.186.97:3306 142 213762 113 1 36314736 2627 &lt;?</span><br><span class="line">1593677820 772815 10.0.186.70:32610 10.0.186.97:3306 142 5845 113 0 36314737 2731</span><br><span class="line">1593677820 778677 10.0.186.70:32610 10.0.186.97:3306 142 5868 113 0 36314738 2744</span><br></pre></td></tr></table></figure>
-<p>对应这个时间点的抓包，可以看到这两个慢的查询都是因为第一个response发给client后没有收到ack（网络丢包？网络延时高？） 200ms后再发一次response就收到ack。所以总的rt都超过了200ms，其它没丢包的rt都很快。另外抓包的请求和和上面tcprt记录都是全对应的，时间精度都在微秒级。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63da5e221c8d2d26bc25f9e50ef35779.png" alt="image.png"></p>
-<p>丢包重传的分析</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/88849848f07ca74e000db971e3246def.png" alt="image.png"></p>
-<h2 id="丢包率对性能影响"><a href="#丢包率对性能影响" class="headerlink" title="丢包率对性能影响"></a>丢包率对性能影响</h2><p>在client端设置：</p>
-<blockquote>
-<p>tc qdisc add dev eth0 root netem loss 3% delay 3ms</p>
-</blockquote>
-<p>这时可以看到tcprt stats统计到的网络丢包率基本在3%左右，第6列是丢包率千分数，可以看到tcprt吐出来的丢包率和我们用tc构造的基本一致：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">$cat tcp-rt/rt-network-stats | awk &apos;&#123; if($6!=0) print $0 &#125;&apos;</span><br><span class="line">							 丢包率	</span><br><span class="line">1593677850 all 3306 10749 3217 23 915 0 141 0 45 882895</span><br><span class="line">1593677911 all 3306 11938 2789 28 1102 0 141 0 45 795169</span><br><span class="line">1593677972 all 3306 12001 2798 29 1104 0 141 0 45 789972</span><br><span class="line">1593678034 all 3306 11919 2778 28 1103 0 141 0 45 796126</span><br><span class="line">1593678095 all 3306 12049 2832 29 1714 0 141 0 45 786661</span><br><span class="line">1593678157 all 3306 11893 2773 28 3000 0 141 0 45 797950</span><br><span class="line">1593678218 all 3306 11956 2769 29 3000 0 141 0 45 793544</span><br><span class="line">1593678280 all 3306 12032 2800 29 3000 0 141 0 45 789403</span><br><span class="line">1593678341 all 3306 11973 2761 29 3000 0 141 0 45 791959</span><br><span class="line">1593678403 all 3306 7733 3376 13 1442 0 141 0 45 1237712</span><br></pre></td></tr></table></figure>
-<h2 id="时延增加对数据的影响"><a href="#时延增加对数据的影响" class="headerlink" title="时延增加对数据的影响"></a>时延增加对数据的影响</h2><p>在Server上增加了网络17ms delay，可以看到平均rt增加了34ms，因为Server到P4192增加17，到client增加17，所以总共增加了34ms。另外QPS（最后一列）从200万/60秒降到了26万/60秒</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">$sudo tc qdisc add dev eth0 root netem  delay 17ms</span><br><span class="line">$tail -40 tcp-rt/rt-network-stats</span><br><span class="line">1593684362 all 3306 4860 4702 0 97 0 141 0 45 2022008</span><br><span class="line">1593684362 all P4192 2596 2597 0 2359 0 139 0 139 2022289</span><br><span class="line">1593684424 all 3306 4652 4493 0 97 0 141 0 45 2112538</span><br><span class="line">1593684424 all P4192 2596 2597 0 2357 0 139 0 139 2112834</span><br><span class="line">1593684485 all 3306 4858 4699 0 97 0 141 0 45 2023052</span><br><span class="line">1593684485 all P4192 2598 2599 0 2358 0 139 0 139 2023316</span><br><span class="line">---------------这里增加网络 rt 17ms---------</span><br><span class="line">1593684547 all 3306 7188 4395 0 97 0 141 0 45 1367174</span><br><span class="line">1593684547 all P4192 2593 2593 0 2355 0 139 0 139 1367466</span><br><span class="line">1593684608 all 3306 19969 2838 0 97 0 141 0 45 492234</span><br><span class="line">1593684608 all P4192 2592 2592 0 2357 0 139 0 139 492587</span><br><span class="line">1593684669 all 3306 19935 2800 0 97 0 141 0 45 493045</span><br><span class="line">1593684669 all P4192 2595 2595 0 2354 0 139 0 139 493383</span><br><span class="line">1593684731 all 3306 20020 2885 0 97 0 141 0 45 491010</span><br><span class="line">1593684731 all P4192 2674 2674 0 2362 0 139 0 139 491305</span><br><span class="line">1593684792 all 3306 10362 4319 0 114 0 141 0 45 948355</span><br><span class="line">1593684792 all P4192 3379 3379 0 2356 0 139 0 139 948710</span><br><span class="line">1593684854 all 3306 37006 19866 0 317 0 141 0 45 265711</span><br><span class="line">1593684854 all P4192 19610 19610 0 2359 0 139 0 139 265963</span><br><span class="line">1593684915 all 3306 37088 19947 0 317 0 141 0 45 264957</span><br><span class="line">1593684915 all P4192 19618 19617 0 2360 0 139 0 139 265226</span><br><span class="line">1593684977 all 3306 37008 19869 0 317 0 141 0 45 265688</span><br><span class="line">1593684977 all P4192 19625 19625 0 2356 0 139 0 139 265962</span><br><span class="line">1593685038 all 3306 36968 19830 0 317 0 141 0 45 265864</span><br><span class="line">1593685038 all P4192 19618 19618 0 2360 0 139 0 139 266145</span><br><span class="line">1593685099 all 3306 37308 20166 0 317 0 141 0 45 263501</span><br><span class="line">1593685099 all P4192 19869 19869 0 2361 0 139 0 139 263799</span><br></pre></td></tr></table></figure>
-<h2 id="delay-ack-client卡顿导致server-rt偏高"><a href="#delay-ack-client卡顿导致server-rt偏高" class="headerlink" title="delay ack + client卡顿导致server rt偏高"></a>delay ack + client卡顿导致server rt偏高</h2><p>如下tcprt日志中，问题行显示执行SQL花了14357微秒（最后一列），到结果发送给client并收到client ack花了32811微秒（第6列）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">                                                         总RT             业务处理时间</span><br><span class="line">1592470141 263882 10.0.186.79:31910 10.0.186.97:3306 142 32811 98 0 5361894 14357 &lt;&lt; ?</span><br><span class="line">1592470141 296695 10.0.186.79:31910 10.0.186.97:3306 142 13530 98 0 5361895 13389</span><br><span class="line">1592470141 310226 10.0.186.79:31910 10.0.186.97:3306 142 13419 98 0 5361896 13253</span><br><span class="line">1592470141 266860 10.0.186.79:32078 10.0.186.97:3306 142 5163 100 0 5470897 4953</span><br><span class="line">1592470141 272024 10.0.186.79:32078 10.0.186.97:3306 142 24644 100 0 5470898 6024 &lt;&lt; ?</span><br><span class="line">1592470141 296669 10.0.186.79:32078 10.0.186.97:3306 142 10371 100 0 5470899 10249</span><br><span class="line">1592470141 307041 10.0.186.79:32078 10.0.186.97:3306 142 11951 100 0 5470900 11766</span><br></pre></td></tr></table></figure>
-<h3 id="Delay-ACK-原理解析"><a href="#Delay-ACK-原理解析" class="headerlink" title="Delay ACK 原理解析"></a>Delay ACK 原理解析</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5265f9caf013baf662e400cd99ef2663.png" alt="image.png"></p>
-<h3 id="从tcpdump抓包来分析原因"><a href="#从tcpdump抓包来分析原因" class="headerlink" title="从tcpdump抓包来分析原因"></a>从tcpdump抓包来分析原因</h3><p>从实际抓包来看，32811等于：14358+18454 （红框+绿框），因为server只有收到ack后才会认为这个SQL执行完毕，但是可能由于delay ack导致client发下一个请求才将ack带回server，而client明显此时卡住了，发请求慢</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/aec0d182702772384748a4d31cc6e795.png" alt="image.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3d8c092cfee6686708973760b710cd1a.png" alt="image.png"></p>
-<p>同一时间点一批SQL都是ack慢了，跑了几个小时才抓到这么一点点ack慢导致SQL总rt偏高，统计曲线被平均掉了：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">$grep &quot; R &quot; tcp-rt/rt-network-log | awk &apos;&#123; if(($8-$12)&gt;10000) print $0 &#125;&apos; | sort -k3n,4n</span><br><span class="line">1592470141 263882 10.0.186.79:31910 10.0.186.97:3306 142 32811 98 0 5361894 14357 0 45 </span><br><span class="line">1592470141 270617 10.0.186.79:32144 10.0.186.97:3306 142 25933 98 0 5339208 6317 0 45</span><br><span class="line">1592470141 270675 10.0.186.79:32056 10.0.186.97:3306 142 26154 103 0 5511828 15901 0 45</span><br><span class="line">1592470141 270687 10.0.186.79:31828 10.0.186.97:3306 142 25939 98 0 5399141 6850 0 45</span><br><span class="line">1592470141 270701 10.0.186.79:32106 10.0.186.97:3306 142 25990 95 0 5432836 7551 0 45</span><br><span class="line">1592470141 270728 10.0.186.79:32080 10.0.186.97:3306 142 25888 98 0 5303145 6811 0 45</span><br><span class="line">1592470141 270732 10.0.186.79:31966 10.0.186.97:3306 142 26101 98 0 5529183 15906 0 45 </span><br><span class="line">1592470141 270781 10.0.186.79:31942 10.0.186.97:3306 142 26039 98 0 5478295 15603 0 45 </span><br><span class="line">1592470141 270786 10.0.186.79:32136 10.0.186.97:3306 142 25826 94 0 5375531 6743 0 45</span><br><span class="line">1592470141 270803 10.0.186.79:32008 10.0.186.97:3306 142 25884 102 0 5411914 7446 0 45 </span><br><span class="line">1592470141 270815 10.0.186.79:31868 10.0.186.97:3306 142 25793 98 0 5378825 6711 0 45</span><br><span class="line">1592470141 270856 10.0.186.79:31836 10.0.186.97:3306 142 25762 97 0 5324126 6677 0 45</span><br><span class="line">1592470141 270889 10.0.186.79:32048 10.0.186.97:3306 142 25934 102 0 5462899 15559 0 45</span><br><span class="line">1592470141 270911 10.0.186.79:32024 10.0.186.97:3306 142 25901 96 0 5441077 15340 0 45 </span><br><span class="line">1592470141 270915 10.0.186.79:32036 10.0.186.97:3306 142 25901 98 0 5455513 15399 0 45 </span><br><span class="line">1592470141 270918 10.0.186.79:31892 10.0.186.97:3306 142 25713 96 0 5312555 6624 0 45</span><br><span class="line">1592470141 270921 10.0.186.79:32058 10.0.186.97:3306 142 25905 98 0 5499044 15596 0 45 </span><br><span class="line">1592470141 270927 10.0.186.79:31962 10.0.186.97:3306 142 25758 97 0 5417673 7319 0 45</span><br><span class="line">1592470141 271894 10.0.186.79:31922 10.0.186.97:3306 142 24768 98 0 5523611 6160 0 45</span><br><span class="line">1592470141 271897 10.0.186.79:32026 10.0.186.97:3306 142 24762 98 0 5390495 6148 0 45</span><br><span class="line">1592470141 271904 10.0.186.79:31850 10.0.186.97:3306 142 24761 98 0 5505279 6147 0 45</span><br><span class="line">1592470141 272024 10.0.186.79:32078 10.0.186.97:3306 142 24644 100 0 5470898 6024 0 45</span><br></pre></td></tr></table></figure>
-<h3 id="原因总结"><a href="#原因总结" class="headerlink" title="原因总结"></a>原因总结</h3><p><strong>这个时间点发送压力的sysbench卡顿了20ms左右，导致一批请求发送慢，同时这个时候因为delay ack，server收到的ack慢了。</strong></p>
-<h2 id="delay-ack拉高实际rt的case"><a href="#delay-ack拉高实际rt的case" class="headerlink" title="delay ack拉高实际rt的case"></a>delay ack拉高实际rt的case</h2><p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
-<p>抓包来分析原因：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
-<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
-<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
-<h2 id="最后一个数据发送慢导致计时显示网络rt偏高"><a href="#最后一个数据发送慢导致计时显示网络rt偏高" class="headerlink" title="最后一个数据发送慢导致计时显示网络rt偏高"></a>最后一个数据发送慢导致计时显示网络rt偏高</h2><p>server 收到请求到查到结果后开始发送成为server-rt，从开始发送结果到client ack所有结果成为总rt（server-rt+网络传输时间）</p>
-<p>如果 limit 164567, 1 的时候只有一个response，得到所有分片都返回来才开始发数据给client；但是当 limit 164567,5 的时候因为这个SQL下推到多个分片，第一个response很快发出来，但是最后一个response需要等很久。在tcprt眼中，这里传输花了很久（一旦开始response，所有时间都是传输时间），但实际这里response卡顿了。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/07d3ca12864a69b622a6f69b933d9a82.png" alt></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/78d2cc459976ef868fa85359b33bda5a.png" alt="image.png"></p>
-<p>从 jstack 抓的堆栈看到返回最后一个包之前，应用 在做 result.close()，因为关闭流模式结果集太耗时所以卡了。可以做的一个优化是提前发出 sendPacketEnd，然后异步去做物理连接的 result.close() 和 conn.close() 。</p>
-<p>这是因为close的时候要挨个把所有记录处理掉，但是这里还在挨个做对象转换并抛弃。</p>
-<p>这可以算是通过tcprt发现了程序的bug或者说可以优化的地方。</p>
-<h2 id="重传内核监控"><a href="#重传内核监控" class="headerlink" title="重传内核监控"></a>重传内核监控</h2><p>TCP 重传率是通过解析 /proc/net/snmp 这个文件里的指标计算出来的，这个文件里面和 TCP 有关的关键指标如下：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d137e3e615cac8ba927f960a8c9a616e.png" alt="image.png"></p>
-<p>为了让 Linux 用户更方便地观察 TCP 重传事件，4.16 内核版本中专门添加了TCP tracepoint来解析 TCP 重传事件。如果你使用的操作系统是 CentOS-7 以及更老的版本，就无法使用该 Tracepoint 来观察了；如果你的版本是 CentOS-8 以及后续更新的版本，那你可以直接使用这个 Tracepoint 来追踪 TCP 重传，可以使用如下命令：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ cat /sys/kernel/debug/tracing/tracing_on</span><br><span class="line">1</span><br><span class="line">$ cd /sys/kernel/debug/tracing/</span><br><span class="line">$ echo 1 &gt; events/tcp/tcp_retransmit_skb/enable</span><br><span class="line"></span><br><span class="line">$ cat trace_pipe</span><br><span class="line">          &lt;idle&gt;-0     [007] ..s. 265119.290232: tcp_retransmit_skb: sport=22 dport=62264 saddr=172.23.245.8 daddr=172.30.18.225 saddrv6=::ffff:172.23.245.8 daddrv6=::ffff:172.30.18.225 state=TCP_ESTABLISHED</span><br><span class="line"></span><br><span class="line">          &lt;idle&gt;-0     [001] ..s. 8898413.028276: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70</span><br><span class="line">          &lt;idle&gt;-0     [000] ..s. 8898414.216218: tcp_retransmit_skb: sport=11236 dport=80 saddr=10.0.186.140 daddr=100.100.30.25 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:100.100.30.25</span><br><span class="line"></span><br><span class="line">//关闭</span><br><span class="line">$ echo 0 &gt; events/tcp/tcp_retransmit_skb/enable</span><br></pre></td></tr></table></figure>
-<p>可以看到，当 TCP 重传发生时，该事件的基本信息就会被打印出来。</p>
-<p>由于 Kprobe 是通过异常（Exception）这种方式来工作的，所以它还是有一些性能开销的，在 TCP 发包快速路径上还是要避免使用 Kprobe。不过，由于重传路径是慢速路径，所以在重传路径上添加 Kprobe 也无需担心性能开销。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/37112986" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/37112986</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/05/24/程序员如何学习和构建网络知识体系/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/05/24/程序员如何学习和构建网络知识体系/" itemprop="url">程序员如何学习和构建网络知识体系</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-05-24T17:30:03+08:00">
-                2020-05-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="程序员如何学习和构建网络知识体系"><a href="#程序员如何学习和构建网络知识体系" class="headerlink" title="程序员如何学习和构建网络知识体系"></a>程序员如何学习和构建网络知识体系</h1><p>大家学习网络知识的过程中经常发现当时看懂了，很快又忘了，最典型的比如TCP三次握手、为什么要握手，大家基本都看过，但是种感觉还差那么一点点。都要看是因为面试官总要问，所以不能不知道啊。</p>
-<p>我们来看一个典型的面试问题：</p>
-<blockquote>
-<p>问：为什么TCP是可靠的？<br>答：因为TCP有连接（或者回答因为TCP有握手）</p>
-<p>追问：为什么有连接就可靠了？（面试的人估计心里在骂，你这不是傻逼么，有连接就可靠啊）</p>
-<p>追问：这个TCP连接的本质是什么？网络上给你保留了一个带宽所以能可靠？<br>答：……懵了（或者因为TCP有ack，所以可靠）</p>
-<p>追问：握手的本质是什么？为什么握手就可靠了<br>答：因为握手需要ack<br>追问：那这个ack也只是保证握手可靠，握手是怎么保证后面可靠的？握手本质做了什么事情？</p>
-<p>追问：有了ack可靠后还会带来什么问题（比如发一个包ack一下，肯定是可行的，但是效率不行，面试官想知道的是这里TCP怎么传输的，从而引出各个buffer、拥塞窗口的概念）</p>
-</blockquote>
-<p>基本上我发现99%的程序员会回答TCP相对UDP是可靠的，70%以上的程序员会告诉你可靠是因为有ack（其他的会告诉你可靠是因为握手或者有连接），再追问下次就开始王顾左右而言他、胡言乱语。</p>
-<p>我的理解：</p>
-<blockquote>
-<p>物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的握手是指tcp是协商和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。</p>
-</blockquote>
-<p>这说明大部分程序员对问题的本质的理解上出了问题，或者教科书描述的过于教条不够接地气所以看完书本质没get到。</p>
-<p>想想 <code>费曼学习方法</code> 中对<strong>事物本质</strong>的理解的重要性。</p>
-<h2 id="来看一个案例"><a href="#来看一个案例" class="headerlink" title="来看一个案例"></a>来看一个案例</h2><p>我第一次看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a>的时候是震惊的，觉得讲述的太好了，2000字就把一本教科书的知识阐述的无比清晰、透彻。但是实际上我发现很快就忘了，而且大部分程序员基本都是这样</p>
-<blockquote>
-<p>RFC1180写的确实很好，清晰简洁，图文并茂，结构逻辑合理，但是对于95%的程序员没有什么用，当时看的时候很爽、也觉得自己理解了、学会了，实际上看完几周后就忘得差不多了。问题出在这种RFC偏理论多一点看起来完全没有体感无法感同身受，所以即使似乎当时看懂了，但是忘得也快，需要一篇结合实践的文章来帮助理解</p>
-</blockquote>
-<p>在这个问题上，让我深刻地理解到：</p>
-<blockquote>
-<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如<a href="https://book.douban.com/subject/26268767/" target="_blank" rel="noopener">《wireshark抓包艺术》</a>，人和人的学习能力有差别必须要承认。</p>
-</blockquote>
-<p>也就是我们要认识到每个个人的<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="noopener">学习能力的差异</a>，我超级认同这篇文章中的一个评论</p>
-<blockquote>
-<p>看完深有感触，尤其是后面的知识效率和工程效率型的区别。以前总是很中二的觉得自己看一遍就理解记住了，结果一次次失败又怀疑自己的智商是不是有问题，其实就是把自己当作知识效率型来用了。一个不太恰当的形容就是，有颗公主心却没公主命！</p>
-</blockquote>
-<p>嗯，大部分时候我们都觉得自己看一遍就理解了记住了能实用解决问题了，实际上了是马上忘了，停下来想想自己是不是这样的？在网络的相关知识上大部分看RFC、TCP卷1等东西是很难实际理解的，还是要靠实践来建立对知识的具体的理解，而网络相关的东西基本离大家有点远（大家不回去读tcp、ip源码，纯粹是靠对书本的理解），所以很难建立具体的概念，所以这里有个必杀技就是学会抓包和用wireshark看包，同时针对实际碰到的文题来抓包、看包分析。</p>
-<p>比如我的这篇《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="noopener">从计算机知识到落地能力，你欠缺了什么？</a>》就对上述问题最好的阐述，程序员最常碰到的网络问题就是网络为啥不通？</p>
-<p>这是最好建立对网络知识具体理解和实践的机会，你把《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="noopener">从计算机知识到落地能力，你欠缺了什么？</a>》实践完再去看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="noopener">RFC1180</a> 就明白了。通过案例把RFC1180抽象的描述给它具体化、场景化了，理解起来就很轻松不容易忘记了。</p>
-<blockquote>
-<p>经验一: 通过具体的东西(案例、抓包)来建立对网络基础的理解</p>
-</blockquote>
-<h2 id="不要追求知识的广度"><a href="#不要追求知识的广度" class="headerlink" title="不要追求知识的广度"></a>不要追求知识的广度</h2><p>学习网络知识过程中，不建议每个知识点都去看，因为很快会忘记，我的方法是只看经常碰到的问题点，碰到一个点把他学透理解明白。</p>
-<p>比如我曾经碰到过 <a href="/2019/01/09/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82ping--nslookup-OK-but-ping-fail/">nslookup OK but ping fail–看看老司机是如何解决问题的，解决问题的方法肯定比知识点重要多了，同时透过一个问题怎么样通篇来理解一大块知识，让这块原理真正在你的知识体系中扎根下来</a> , 这个问题Google上很多人在搜索，说明很普遍，但是没找到有资料能把这个问题说清楚，所以借着这个机会就把 Linux下的 NSS（name service switch）的原理搞懂了。要不然碰到问题老司机告诉你改下 /etc/hosts 或者  /etc/nsswitch 或者 /etc/resolv.conf 之类的问题就能解决，但是你一直不知道这三个文件怎么起作用的，也就是你碰到过这种问题也解决过但是下次碰到类似的问题你不一定能解决。</p>
-<p>当然对我来说为了解决这个问题最后写了4篇跟域名解析相关的文章，从windows到linux，涉及到vpn、glibc、docker等各种场景，我把他叫做场景驱动。后来换来工作环境从windows换到mac后又补了一篇mac下的路由、dns文章。</p>
-<p>关于<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="noopener">场景驱动学习的方法可以看这篇总结</a></p>
-<h2 id="TCP是最复杂的，要从实用出发"><a href="#TCP是最复杂的，要从实用出发" class="headerlink" title="TCP是最复杂的，要从实用出发"></a>TCP是最复杂的，要从实用出发</h2><p>比如拥塞算法基本大家不会用到，了解下就行。还有拥塞窗口、慢启动，这个实际中碰到的概率不高，面试要问你基本上是属于炫技类型。实际碰到更多的是传输效率（<a href="https://mp.weixin.qq.com/s/fKWJrDNSAZjLsyobolIQKw" target="_blank" rel="noopener">对BDP、Buffer、各种窗口、rt的理解和运用</a>），还有为什么连不通、<a href="https://mp.weixin.qq.com/s/yH3PzGEFopbpA-jw4MythQ" target="_blank" rel="noopener">连接建立不起来</a>、为什么收到包不回复、为什么要reset、为什么丢包了之类的问题。</p>
-<p>关于为什么连不通，我碰到了<a href="/2019/05/16/%E7%BD%91%E7%BB%9C%E9%80%9A%E4%B8%8D%E9%80%9A%E6%98%AF%E4%B8%AA%E5%A4%A7%E9%97%AE%E9%A2%98--%E5%8D%8A%E5%A4%9C%E9%B8%A1%E5%8F%AB/">这个问题</a>，随后在这个问题的基础上进行了总结，得到客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</p>
-<ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。诊断: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN” </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full， 诊断: dmesg |grep conntrack</li>
-</ul>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>一定要会用tcpdump和wireshark（纯工具，没有任何门槛，用不好只有一个原因: 懒）</li>
-<li>多实践（因为网络知识离我们有点远、有点抽象）,用好各种工具，工具能帮我们看到、摸到</li>
-<li>不要追求知识面的广度，深抠几个具体的知识点然后让这些点建立体系</li>
-<li>不要为那些基本用不到的偏门知识花太多精力，天天用的都学不过来对吧。</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4821,7 +4881,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">126</span>
+                <span class="site-state-item-count">130</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4843,7 +4903,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">225</span>
+                <span class="site-state-item-count">229</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -4895,7 +4955,7 @@
 <div class="copyright">
   
   &copy; 
-  <span itemprop="copyrightYear">2021</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
