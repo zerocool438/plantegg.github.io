@@ -292,6 +292,154 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/" itemprop="url">双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-07-26T16:30:03+08:00">
+                2018-07-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
+                    <span itemprop="name">troubleshooting</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题"><a href="#双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
+<p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
+</blockquote>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
+<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
+<p>图中CPU的消耗占21%，不太正常。</p>
+<blockquote>
+<p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到<br>@RequestMapping<br>@PathVariable<br>带来使用上的便利</p>
+</blockquote>
+<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
+<p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
+<h3 id="Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）："><a href="#Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）：" class="headerlink" title="Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）："></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) &#123;</span><br><span class="line">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);</span><br><span class="line">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);</span><br><span class="line">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);</span><br><span class="line">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);</span><br><span class="line">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);</span><br><span class="line">176</span><br><span class="line">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) &#123;</span><br><span class="line">178			return null;</span><br><span class="line">179		&#125;</span><br><span class="line">180</span><br><span class="line">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);</span><br><span class="line">182		if (patterns == null) &#123;</span><br><span class="line">183			return null;</span><br><span class="line">184		&#125;</span><br><span class="line">185</span><br><span class="line">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);</span><br><span class="line">187		if (custom == null) &#123;</span><br><span class="line">188			return null;</span><br><span class="line">189		&#125;</span><br><span class="line">190</span><br><span class="line">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());</span><br><span class="line">192	&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="doMatch-代码："><a href="#doMatch-代码：" class="headerlink" title="doMatch 代码："></a>doMatch 代码：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br></pre></td><td class="code"><pre><span class="line">96 </span><br><span class="line">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,</span><br><span class="line">98 			Map&lt;String, String&gt; uriTemplateVariables) &#123;</span><br><span class="line">99 </span><br><span class="line">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) &#123;</span><br><span class="line">101			return false;</span><br><span class="line">102		&#125;</span><br><span class="line">103</span><br><span class="line">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">106</span><br><span class="line">107		int pattIdxStart = 0;</span><br><span class="line">108		int pattIdxEnd = pattDirs.length - 1;</span><br><span class="line">109		int pathIdxStart = 0;</span><br><span class="line">110		int pathIdxEnd = pathDirs.length - 1;</span><br><span class="line">111</span><br><span class="line">112		// Match all elements up to the first **</span><br><span class="line">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">114			String patDir = pattDirs[pattIdxStart];</span><br><span class="line">115			if (&quot;**&quot;.equals(patDir)) &#123;</span><br><span class="line">116				break;</span><br><span class="line">117			&#125;</span><br><span class="line">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) &#123;</span><br><span class="line">119				return false;</span><br><span class="line">120			&#125;</span><br><span class="line">121			pattIdxStart++;</span><br><span class="line">122			pathIdxStart++;</span><br><span class="line">123		&#125;</span><br><span class="line">124</span><br><span class="line">125		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">126			// Path is exhausted, only match if rest of pattern is * or **&apos;s</span><br><span class="line">127			if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :</span><br><span class="line">129						!path.endsWith(this.pathSeparator));</span><br><span class="line">130			&#125;</span><br><span class="line">131			if (!fullMatch) &#123;</span><br><span class="line">132				return true;</span><br><span class="line">133			&#125;</span><br><span class="line">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&quot;*&quot;) &amp;&amp; path.endsWith(this.pathSeparator)) &#123;</span><br><span class="line">135				return true;</span><br><span class="line">136			&#125;</span><br><span class="line">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">138				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">139					return false;</span><br><span class="line">140				&#125;</span><br><span class="line">141			&#125;</span><br><span class="line">142			return true;</span><br><span class="line">143		&#125;</span><br><span class="line">144		else if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">145			// String not exhausted, but pattern is. Failure.</span><br><span class="line">146			return false;</span><br><span class="line">147		&#125;</span><br><span class="line">148		else if (!fullMatch &amp;&amp; &quot;**&quot;.equals(pattDirs[pattIdxStart])) &#123;</span><br><span class="line">149			// Path start definitely matches due to &quot;**&quot; part in pattern.</span><br><span class="line">150			return true;</span><br><span class="line">151		&#125;</span><br><span class="line">152</span><br><span class="line">153		// up to last &apos;**&apos;</span><br><span class="line">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">155			String patDir = pattDirs[pattIdxEnd];</span><br><span class="line">156			if (patDir.equals(&quot;**&quot;)) &#123;</span><br><span class="line">157				break;</span><br><span class="line">158			&#125;</span><br><span class="line">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) &#123;</span><br><span class="line">160				return false;</span><br><span class="line">161			&#125;</span><br><span class="line">162			pattIdxEnd--;</span><br><span class="line">163			pathIdxEnd--;</span><br><span class="line">164		&#125;</span><br><span class="line">165		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">166			// String is exhausted</span><br><span class="line">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">168				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">169					return false;</span><br><span class="line">170				&#125;</span><br><span class="line">171			&#125;</span><br><span class="line">172			return true;</span><br><span class="line">173		&#125;</span><br><span class="line">174</span><br><span class="line">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">176			int patIdxTmp = -1;</span><br><span class="line">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">178				if (pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">179					patIdxTmp = i;</span><br><span class="line">180					break;</span><br><span class="line">181				&#125;</span><br><span class="line">182			&#125;</span><br><span class="line">183			if (patIdxTmp == pattIdxStart + 1) &#123;</span><br><span class="line">184				// &apos;**/**&apos; situation, so skip one</span><br><span class="line">185				pattIdxStart++;</span><br><span class="line">186				continue;</span><br><span class="line">187			&#125;</span><br><span class="line">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between</span><br><span class="line">189			// strIdxStart &amp; strIdxEnd</span><br><span class="line">190			int patLength = (patIdxTmp - pattIdxStart - 1);</span><br><span class="line">191			int strLength = (pathIdxEnd - pathIdxStart + 1);</span><br><span class="line">192			int foundIdx = -1;</span><br><span class="line">193</span><br><span class="line">194			strLoop:</span><br><span class="line">195			for (int i = 0; i &lt;= strLength - patLength; i++) &#123;</span><br><span class="line">196				for (int j = 0; j &lt; patLength; j++) &#123;</span><br><span class="line">197					String subPat = pattDirs[pattIdxStart + j + 1];</span><br><span class="line">198					String subStr = pathDirs[pathIdxStart + i + j];</span><br><span class="line">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) &#123;</span><br><span class="line">200						continue strLoop;</span><br><span class="line">201					&#125;</span><br><span class="line">202				&#125;</span><br><span class="line">203				foundIdx = pathIdxStart + i;</span><br><span class="line">204				break;</span><br><span class="line">205			&#125;</span><br><span class="line">206</span><br><span class="line">207			if (foundIdx == -1) &#123;</span><br><span class="line">208				return false;</span><br><span class="line">209			&#125;</span><br><span class="line">210</span><br><span class="line">211			pattIdxStart = patIdxTmp;</span><br><span class="line">212			pathIdxStart = foundIdx + patLength;</span><br><span class="line">213		&#125;</span><br><span class="line">214</span><br><span class="line">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">216			if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">217				return false;</span><br><span class="line">218			&#125;</span><br><span class="line">219		&#125;</span><br><span class="line">220</span><br><span class="line">221		return true;</span><br><span class="line">222	&#125;</span><br></pre></td></tr></table></figure>
+<p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a href="http://www.cnblogs.com/ucos/articles/5542012.html" target="_blank" rel="noopener">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
+<p>以及这篇文章中给出的优化前后对比图：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/06/14/就是要你懂TCP--最经典的TCP性能问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2224,12 +2372,8 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <h2 id="容器中抓包和调试-–-nsenter"><a href="#容器中抓包和调试-–-nsenter" class="headerlink" title="容器中抓包和调试 – nsenter"></a>容器中抓包和调试 – nsenter</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</span><br><span class="line"></span><br><span class="line">进入namespace：nsenter --target 17277 --net --pid –mount</span><br><span class="line"></span><br><span class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</span><br><span class="line">nsenter --target 17277 --net </span><br><span class="line"></span><br><span class="line">// ip netns 获取容器网络信息</span><br><span class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &apos;&#123;&#123;.State.Pid&#125;&#125;&apos; ab4e471edf50   //获取容器进程id</span><br><span class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</span><br><span class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</span><br><span class="line"> </span><br><span class="line">// 宿主机上查看容器ip</span><br><span class="line"> 1026  [2021-04-14 15:54:11] ip netns list</span><br><span class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</span><br><span class="line"> </span><br><span class="line"> //nsenter调试网络</span><br><span class="line"> Get the pause container&apos;s sandboxkey: </span><br><span class="line">root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey</span><br><span class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/82ec9e32d486&quot;,</span><br><span class="line">root@worker01:~#</span><br><span class="line">Now, using nsenter you can see the container&apos;s information.</span><br><span class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ip addr show</span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">3: eth0@if7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default</span><br><span class="line">   link/ether 0a:58:0a:f4:01:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0</span><br><span class="line">   inet 10.244.1.2/24 scope global eth0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">Identify the peer_ifindex, and finally you can see the veth pair endpoint in root namespace.</span><br><span class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ethtool -S eth0</span><br><span class="line">NIC statistics:</span><br><span class="line">     peer_ifindex: 7</span><br><span class="line">root@worker01:~#</span><br><span class="line">root@worker01:~# ip -d link show | grep &apos;7: veth&apos;</span><br><span class="line">7: veth5e43ca47@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue master cni0 state UP mode DEFAULT group default</span><br><span class="line">root@worker01:~#</span><br></pre></td></tr></table></figure>
 <p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可，<a href="https://medium.com/@anilkreddyr/kubernetes-with-flannel-understanding-the-networking-part-2-78b53e5364c7" target="_blank" rel="noopener">详细case</a></p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#docker inspect cb7b05d82153 | grep -i SandboxKey   //根据 pause 容器id找network namespace</span><br><span class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/d6b2ef3cf886&quot;,</span><br><span class="line"></span><br><span class="line">[root@hygon252 19:00 /root]</span><br><span class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ip addr show</span><br><span class="line">3: eth0@if496: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default  //496对应宿主机上的veth编号</span><br><span class="line">    link/ether 1e:95:dd:d9:88:bd brd ff:ff:ff:ff:ff:ff link-netnsid 0</span><br><span class="line">    inet 192.168.3.22/24 brd 192.168.3.255 scope global eth0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ethtool -S eth0</span><br><span class="line">NIC statistics:</span><br><span class="line">     peer_ifindex: 496</span><br><span class="line">     </span><br><span class="line">#ip -d -4 addr show cni0</span><br><span class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer   43.31 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
-<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</span><br><span class="line"></span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">$ sudo modprobe dummy</span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">dummy                  12960  0 </span><br><span class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</span><br><span class="line"></span><br><span class="line">$ sudo ip link add eth10 type dummy</span><br></pre></td></tr></table></figure>
+<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">$ sudo modprobe dummy</span><br><span class="line">$ sudo lsmod | grep dummy</span><br><span class="line">dummy                  12960  0 </span><br><span class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</span><br><span class="line"></span><br><span class="line">$ sudo ip link add eth10 type dummy</span><br></pre></td></tr></table></figure>
 <h2 id="修改网卡名字"><a href="#修改网卡名字" class="headerlink" title="修改网卡名字"></a>修改网卡名字</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">ip link set ens33 down</span><br><span class="line">ip link set ens33 name eth0</span><br><span class="line">ip link set eth0 up</span><br><span class="line"></span><br><span class="line">mv /etc/sysconfig/network-scripts/ifcfg-&#123;ens33,eth0&#125;</span><br><span class="line">sed -ire &quot;s/NAME=\&quot;ens33\&quot;/NAME=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</span><br><span class="line">sed -ire &quot;s/DEVICE=\&quot;ens33\&quot;/DEVICE=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</span><br><span class="line">MAC=$(cat /sys/class/net/eth0/address)</span><br><span class="line">echo -n &apos;HWADDR=&quot;&apos;$MAC\&quot; &gt;&gt; /etc/sysconfig/network-scripts/ifcfg-eth0</span><br></pre></td></tr></table></figure>
-<h2 id="清理和创建flannel网络"><a href="#清理和创建flannel网络" class="headerlink" title="清理和创建flannel网络"></a>清理和创建flannel网络</h2><p>清理</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link delete cni0</span><br><span class="line">ip link delete flannel.1</span><br></pre></td></tr></table></figure>
-<p>创建</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">ip link add cni0 type bridge</span><br><span class="line">ip addr add dev cni0 172.30.0.0/24</span><br><span class="line"></span><br><span class="line">查看A simpler solution:</span><br><span class="line">ip -details link show</span><br><span class="line">ls -l /sys/class/net/ - virtual ones will show all in virtual and lan is on the PCI bus.</span><br><span class="line"></span><br><span class="line">brctl show cni0</span><br><span class="line">brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡</span><br></pre></td></tr></table></figure>
 <h2 id="OS版本"><a href="#OS版本" class="headerlink" title="OS版本"></a>OS版本</h2><p><strong>搞Docker就得上el7， 6的性能太差了</strong> Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。</p>
 <h2 id="清理mount文件"><a href="#清理mount文件" class="headerlink" title="清理mount文件"></a>清理mount文件</h2><p>删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk ‘{ print $3 }’ |grep overlay2| xargs umount 批量删除</p>
 <h2 id="docker-image-api"><a href="#docker-image-api" class="headerlink" title="docker image api"></a>docker image api</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">获取所有镜像名字： GET /v2/_catalog</span><br><span class="line"></span><br><span class="line">获取某个镜像的tag： GET /v2/&lt;name&gt;/tags/list</span><br></pre></td></tr></table></figure>
@@ -4585,162 +4729,6 @@ stress.
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/02/就是要你懂TCP--wireshark-dup-ack-issue/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/06/02/就是要你懂TCP--wireshark-dup-ack-issue/" itemprop="url">就是要你懂TCP--wireshark-dup-ack-issue</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-02T15:30:03+08:00">
-                2017-06-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂TCP–wireshark-dup-ack-issue"><a href="#就是要你懂TCP–wireshark-dup-ack-issue" class="headerlink" title="就是要你懂TCP–wireshark-dup-ack-issue"></a>就是要你懂TCP–wireshark-dup-ack-issue</h1><h2 id="问题："><a href="#问题：" class="headerlink" title="问题："></a>问题：</h2><p>很多同学学会抓包后，经常拿着这样一个抓包来问我是怎么回事：</p>
-<p>在wireshark中看到一个tcp会话中的两台机器突然一直互相发dup ack包，但是没有触发重传。每次重复ack都是间隔精确的20秒</p>
-<h2 id="如下截图："><a href="#如下截图：" class="headerlink" title="如下截图："></a>如下截图：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bm3W68Q.png" alt></p>
-<p>client都一直在回复收到2号包（ack=2）了，可是server跟傻了一样居然还发seq=1的包（按理，应该发比2大的包啊）</p>
-<h2 id="系统配置："><a href="#系统配置：" class="headerlink" title="系统配置："></a>系统配置：</h2><pre><code>net.ipv4.tcp_keepalive_time = 20
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_keepalive_intvl = 3
-</code></pre><h2 id="原因："><a href="#原因：" class="headerlink" title="原因："></a>原因：</h2><p>抓包不全的话wireshark有缺陷，把keepalive包识别成了dup ack包，看内容这种dup ack和keepalive似乎是一样的，flags都是0x010。keep alive的定义的是后退一格(seq少1）。</p>
-<p>2、4、6、8……号包，都有一个“tcp acked unseen segment”。这个一般表示它ack的这个包，没有被抓到。Wirshark如何作出此判断呢？前面一个包是seq=1, len=0，所以正常情况下是ack = seq + len = 1，然而Wireshark看到的确是ack = 2, 它只能判断有一个seq =1, len = 1的包没有抓到。<br>dup ack也是类似道理，这些包完全符合dup ack的定义，因为“ack = ” 某个数连续多次出现了。</p>
-<p>这一切都是因为keep alive的特殊性导致的。打开66号包的tcp层（见后面的截图），可以看到它的 next sequence number = 12583，表示正常情况下server发出的下一个包应该是seq = 12583。可是在下一个包，也就是68号包中，却是seq = 12582。keep alive的定义的确是这样，即后退一格。<br>Wireshark只有在抓到数据包（66号包）和keep alive包的情况下才有可能正确识别，前面的抓包中恰好在keep alive之前丢失了数据包，所以Wireshark就蒙了。</p>
-<h2 id="构造重现"><a href="#构造重现" class="headerlink" title="构造重现"></a>构造重现</h2><p>如果用“frame.number &gt;= 68” 过滤这个包，然后File–&gt;export specified packets保存成一个新文件，再打开那个新文件，就会发现Wireshark又蒙了。本来能够正常识别的keep alive包又被错看成dup ack了，所以一旦碰到这种情况不要慌要稳</p>
-<p>下面是知识点啦</p>
-<h2 id="Keepalive"><a href="#Keepalive" class="headerlink" title="Keepalive"></a>Keepalive</h2><p>TCP报文接收方必须回复的场景：</p>
-<p>TCP携带字节数据<br>没有字节数据，携带SYN状态位<br>没有字节数据，携带FIN状态位</p>
-<p>keepalive 提取历史发送的最后一个字节，充当心跳字节数据，依然使用该字节的最初序列号。也就是前面所说的seq回退了一个</p>
-<p>对方收到后因为seq小于TCP滑动窗口的左侧，被判定为duplicated数据包，然后扔掉了，并回复一个duplicated ack</p>
-<p>所以keepalive跟duplicated本质是一回事，就看wireshark能够正确识别了。</p>
-<h2 id="Duplication-ack是指："><a href="#Duplication-ack是指：" class="headerlink" title="Duplication ack是指："></a>Duplication ack是指：</h2><p>server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server就会ack 3，如果client还是继续发8/9号包，那么server会继续发dup ack 3#1 ; dup ack 3#2 来向客户端说明只收到了3号包，不要着急发后面的大包，把4/5/6/7给我发过来</p>
-<h2 id="TCP-Window-Update"><a href="#TCP-Window-Update" class="headerlink" title="TCP Window Update"></a>TCP Window Update</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1558941016099-bc4504f1-e9c7-4d84-85e1-a7f5c6554306.png" alt></p>
-<p>如上图，当接收方的tcp Window Size不足一个MSS的时候，为了避免 Silly Window Syndrome，Client不再发小包，而是发送探测包（跟keepalive一样，发一个回退一格的包，触发server ack同时server ack的时候会带过来新的window size）探测包间隔时间是200/400/800/1600……ms这样</p>
-<h2 id="正常的keep-alive-Case："><a href="#正常的keep-alive-Case：" class="headerlink" title="正常的keep-alive Case："></a>正常的keep-alive Case：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/DsTWFZr.png" alt></p>
-<p>keep-alive 通过发一个比实际seq小1的包，比如server都已经 ack 12583了，client故意发一个seq 12582来标识这是一个keep-Alive包</p>
-<h2 id="Duplication-ack是指：-1"><a href="#Duplication-ack是指：-1" class="headerlink" title="Duplication ack是指："></a>Duplication ack是指：</h2><p>server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server就会ack 3，如果client还是继续发8/9号包，那么server会继续发dup ack 3#1 ; dup ack 3#2 来向客户端说明只收到了3号包，不要着急发后面的大包，把4/5/6/7给我发过来</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4788,7 +4776,7 @@ net.ipv4.tcp_keepalive_intvl = 3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">130</span>
+                <span class="site-state-item-count">131</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4810,7 +4798,7 @@ net.ipv4.tcp_keepalive_intvl = 3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">229</span>
+                <span class="site-state-item-count">230</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
