@@ -103,7 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="记一次听风扇声音来定位性能瓶颈背景在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群  压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存 压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列要比5系列 CPU的性能要好、要贵）  从CPU硬件指标来看压力机2都是碾压压力机1">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:updated_time" content="2022-01-18T09:28:51.750Z">
+<meta property="og:updated_time" content="2022-02-20T01:09:27.403Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="听风扇声音来定位性能瓶颈">
 <meta name="twitter:description" content="记一次听风扇声音来定位性能瓶颈背景在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群  压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存 压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列要比5系列 CPU的性能要好、要贵）  从CPU硬件指标来看压力机2都是碾压压力机1">
@@ -388,16 +388,16 @@
 <li>压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存</li>
 <li>压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列要比5系列 CPU的性能要好、要贵）</li>
 </ul>
-<p>从CPU硬件指标来看压力机2都是碾压压力机1，但是实际测试是压力机2只能跑到接近压力机1的能力，两台机器CPU基本都跑满，并且都是业务消耗了90%以上的CPU，内核态消耗不到5%CPU</p>
+<p>从CPU硬件指标来看压力机2都是碾压压力机1，但是实际测试是压力机2只能跑到接近压力机1的能力，两台机器CPU基本都跑满，并且都是压测业务逻辑消耗了90%以上的CPU，内核态消耗不到5%CPU</p>
 <p>所以接下来需要在调试我们集群性能前先把测试机优化好，才能把压力打上来。</p>
 <h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>测试机构提供的机器上没有任何工具来评估CPU性能，也无法安装，只能<strong>仔细听196core机器的CPU风扇声音更小，说明196core的CPU出工不出力，大概是流水线在频繁地Stall</strong>（不管你信不信反正我是信的）</p>
 <p>进一步分析，首先看到 业务消耗了90%以上的CPU，内核态消耗不到5%CPU，两台机器都是这样，这说明 196core 只跑出了 72core的水平，一定是CPU效率出了问题，top看到的CPU占用率不完全是全力在运算，其实cpu 流水线stall也是占用CPU的。</p>
-<p>这个分析理论请参考我的文章<a href="https://ata.alibaba-inc.com/articles/213694?spm=ata.25287382.0.0.65d77536t9F4DX" target="_blank" rel="noopener">《Perf IPC以及CPU性能》</a></p>
+<p>这个分析理论请参考我的文章<a href="https://plantegg.github.io/2021/05/16/Perf%20IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/">《Perf IPC以及CPU性能》</a></p>
 <h2 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h2><p>通过stream测试读写内存的带宽和时延，得到如下数据：</p>
 <p>72core机器，  本路时延1.1，跨路时延1.4，因为是2路所以有50%的概率跨路，性能下降30%</p>
 <p>196core机器，本路时延1.2，跨路时延1.85，因为是4路所以有75%的概率跨路，性能下降50%</p>
 <p>从以上测试数据可以明显看到虽然196core机器拥有更强的单核能力以及更多的核数，但是因为访问内存太慢严重拖累了CPU运算能力，导致大部分时间CPU都在等待内存，这里CPU和内存的速度差了2个数量级，所以内存延时才是整体的瓶颈。</p>
-<p>测试数据和方法请参考我的文章<a href="https://ata.alibaba-inc.com/articles/212194?spm=ata.25287382.0.0.65d77536t9F4DX" target="_blank" rel="noopener">《AMD Zen CPU 架构以及不同CPU性能大PK》</a></p>
+<p>测试数据和方法请参考我的文章<a href="https://plantegg.github.io/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">《AMD Zen CPU 架构以及不同CPU性能大PK》</a></p>
 <p>有了这个数据心里非常有底问题在哪里了，但是还要想清楚怎么解释给测试机构他们才会信服，因为第一次解释他们直接说不可能，怎么会196core打不过72core呢，再说从来没有集群是测试机构196core压力机打不满的，这台压力机用了几年从来没有人说过这个问题 :(</p>
 <h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><p>接下来需要拿到更详细的硬件信息来说服测试机构了。</p>
 <p>通过dmidecode 获取两台机器内存的速度，分别是2100（196core） VS 2900（72core），同时系统也吐出了内存延时分别是 0.5ns VS 0.3 ns，这两个时间对比很直观，普通人也能看懂。</p>
@@ -458,8 +458,8 @@
         <div class="post-nav">
           <div class="post-nav-next post-nav-item">
             
-              <a href="/2021/11/26/数据库计算向量化/" rel="next" title="数据库计算向量化">
-                <i class="fa fa-chevron-left"></i> 数据库计算向量化
+              <a href="/2022/01/13/不同CPU性能大PK/" rel="next" title="不同CPU性能大PK">
+                <i class="fa fa-chevron-left"></i> 不同CPU性能大PK
               </a>
             
           </div>
@@ -540,7 +540,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">133</span>
+                <span class="site-state-item-count">134</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
