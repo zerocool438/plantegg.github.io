@@ -2389,6 +2389,17 @@
 <p>测试命令：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">for i in $(seq 0 8 127); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</span><br></pre></td></tr></table></figure>
 <p>测试结果和numactl -H 看到的node distance完全一致，芯片厂家应该就是这样测试然后把这个延迟当做距离写进去了</p>
+<h3 id="龙芯测试数据"><a href="#龙芯测试数据" class="headerlink" title="龙芯测试数据"></a>龙芯测试数据</h3><p>3A5000为龙芯，执行的命令为./lat_mem_rd 128M 4096，其中 4096 参数为跳步大小。其基本原理是，通过按 给定间隔去循环读一定大小的内存区域，测量每个读平均的时间。如果区域大小小于 L1 Cache 大 小，时间应该接近 L1 的访问延迟;如果大于 L1 小于 L2，则接近 L2 访问延迟;依此类推。图中横坐 标为访问的字节数，纵坐标为访存的拍数(cycles)。</p>
+<p><img src="/images/951413iMgBlog/image-20220221113929547.png" alt="image-20220221113929547"></p>
+<p>基于跳步访问的 3A5000 和 Zen1、Skylake 各级延迟的比较(cycles)</p>
+<p><img src="/images/951413iMgBlog/image-20220221112527936.png" alt="image-20220221112527936"></p>
+<p>下图给出了 LMbench 测试得到的访存操作的并发性，执行的命令为./par_mem。访存操作的并 发性是各级 Cache 和内存所支持并发访问的能力。在 LMbench 中，访存操作并发性的测试是设计一 个链表，不断地遍历访问下一个链表中的元素，链表所跳的距离和需要测量的 Cache 容量相关，在 一段时间能并发的发起对链表的追逐操作，也就是同时很多链表在遍历，如果发现这一段时间内 能同时完成 N 个链表的追逐操作，就认为访存的并发操作是 N。</p>
+<p><img src="/images/951413iMgBlog/image-20220221112727377.png" alt="image-20220221112727377"></p>
+<p>下图列出了三款处理器的功能部件操作延迟数据，使用的命令是./lat_ops。</p>
+<p><img src="/images/951413iMgBlog/image-20220221112853404.png" alt="image-20220221112853404"></p>
+<h4 id="龙芯stream数据"><a href="#龙芯stream数据" class="headerlink" title="龙芯stream数据"></a>龙芯stream数据</h4><p>LMbench 包含了 STREAM 带宽测试工具，可以用来测试可持续的内存访问带宽情况。图表12.25列 出了三款处理器的 STREAM 带宽数据，其中 STREAM 数组大小设置为 1 亿个元素，采用 OpenMP 版本 同时运行四个线程来测试满载带宽;相应测试平台均为 CPU 的两个内存控制器各接一根内存条， 3A5000 和 Zen1 用 DDR4 3200 内存条，Skylake 用 DDR4 2400 内存条(它最高只支持这个规格)。</p>
+<p><img src="/images/951413iMgBlog/image-20220221113037332.png" alt="image-20220221113037332"></p>
+<p>从数据可以看到，虽然硬件上 3A5000 和 Zen1 都实现了 DDR4 3200，但 3A5000 的实测可持续带宽 还是有一定差距。用户程序看到的内存带宽不仅仅和内存的物理频率有关系，也和处理器内部的 各种访存队列、内存控制器的调度策略、预取器和内存时序参数设置等相关，需要进行更多分析 来定位具体的瓶颈点。像 STREAM 这样的软件测试工具，能够更好地反映某个子系统的综合能力， 因而被广泛采用。</p>
 <h2 id="对比结论"><a href="#对比结论" class="headerlink" title="对比结论"></a>对比结论</h2><ul>
 <li>AMD单核跑分数据比较好</li>
 <li>MySQL 查询场景下Intel的性能好很多</li>
@@ -2398,7 +2409,14 @@
 <li>麒麟OS性能也比CentOS略差一些</li>
 </ul>
 <p>整体来说AMD用领先了一代的工艺（7nm VS 14nm)，在MySQL查询场景中终于可以接近Intel了，但是海光、鲲鹏、飞腾还是不给力。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/211563" target="_blank" rel="noopener">CPU的生产和概念</a><br><a href="https://topic.atatech.org/articles/210128" target="_blank" rel="noopener">CPU性能和CACHE</a><br><a href="https://www.atatech.org/articles/205974" target="_blank" rel="noopener">十年后数据库还是不敢拥抱NUMA</a><br><a href="https://www.atatech.org/articles/205002" target="_blank" rel="noopener">一次海光X86物理机资源竞争压测的调优</a><br><a href="https://www.atatech.org/articles/209957" target="_blank" rel="noopener">数据中心CPU探索和分析</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片(FT2500">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
 <p><a href="https://blog.csdn.net/xuanjian_bjtu/article/details/107178226" target="_blank" rel="noopener">lmbench测试要考虑cache等</a> </p>
 
           
@@ -5206,7 +5224,8 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p>以上结构简化成流水线就是：</p>
 <p><img src="/images/951413iMgBlog/image-20210511154816751.png" alt="image-20210511154816751"></p>
 <p>IF/ID 就是我们常说的前端，他负责不停地取指和译指，然后为后端提供译指之后的指令，最核心的优化就是要做好<strong>分支预测</strong>，终归取指是要比执行慢，只有提前做好预测才能尽量匹配上后端。后端核心优化是要做好执行单元的并发量，以及乱序执行能力，最终要将乱序执行结果正确组合并输出。</p>
-<p>五个步骤只能串行，<strong>但是可以做成pipeline提升效率</strong>，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。</p>
+<p>在流水线指令之前是单周期处理器：也就是一个始终周期完成一条指令。每个时钟周期必须完成取指、译码、读寄存器、 执行、访存等很多组合逻辑工作，为了保证在下一个时钟上升沿到来之前准备好寄存器堆的写数 据，需要将每个时钟周期的间隔拉长，导致处理器的主频无法提高。</p>
+<p>使用流水线技术可以提高处 理器的主频。五个步骤只能串行，<strong>但是可以做成pipeline提升效率</strong>，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">$sudo perf stat -a -- sleep 10</span><br><span class="line"></span><br><span class="line">Performance counter stats for &apos;system wide&apos;:</span><br><span class="line"></span><br><span class="line"> 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)</span><br><span class="line">        45,709      context-switches          #    0.191 K/sec                    (100.00%)</span><br><span class="line">         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)</span><br><span class="line">        79,586      page-faults               #    0.332 K/sec</span><br><span class="line"> 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)</span><br><span class="line"> 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)</span><br><span class="line"> 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)</span><br><span class="line"> 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles</span><br><span class="line">                                              #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)</span><br><span class="line">   447,584,805      branches                  #    1.866 M/sec                    (83.33%)</span><br><span class="line">     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)</span><br></pre></td></tr></table></figure>
 <p>stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发生停滞的时钟周期。stalled-cycles-frontend指指令读取或解码的指令步骤，而stalled-cycles-backend则是指令执行步骤。第二列中的cycles idle其实意思跟stalled是一样的，由于指令执行停滞了，所以指令管道也就空闲了，千万不要误解为CPU的空闲率。这个数值是由stalled-cycles-frontend或stalled-cycles-backend除以上面的cycles得出的。</p>
 <p>另外cpu可以同时有多条pipeline，这就是理论上最大的IPC.</p>
@@ -5216,6 +5235,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 </ul>
 <p><img src="/images/951413iMgBlog/image-20210511154859711.png" alt="image-20210511154859711"></p>
 <p>如果把多个指令的五个步骤用pipeline流水线跑起来，在理想情况下一个时钟周期就能跑完一条指令了，这样IPC就能达到1了。</p>
+<p>这种非流水线的方式将一个指令分解成多个步骤后，能提升主频，但是一个指令执行需要的时间基本没变</p>
 <ul>
 <li>标量流水线, 标量（Scalar）流水计算机是<strong>只有一条指令流水线</strong>的计算机:</li>
 </ul>
