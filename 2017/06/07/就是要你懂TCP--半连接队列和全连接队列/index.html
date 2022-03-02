@@ -115,7 +115,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a5616904df3a505572d99d557b534db2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png">
-<meta property="og:updated_time" content="2022-02-23T10:04:07.112Z">
+<meta property="og:updated_time" content="2022-03-02T08:15:05.510Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="就是要你懂TCP--半连接队列和全连接队列">
 <meta name="twitter:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚: 1)  这两个队列是干什么用的； 2）怎么设置和观察他们的最大值； 3）怎么查看这两个队列当前使用到了多少； 4）一旦">
@@ -606,7 +606,8 @@ server5
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">backlog = min(somaxconn, backlog)</span><br><span class="line">nr_table_entries = backlog</span><br><span class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog)</span><br><span class="line">nr_table_entries = max(nr_table_entries, 8)</span><br><span class="line">// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1</span><br><span class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)</span><br><span class="line">max_qlen_log = max(3, log2(nr_table_entries))</span><br><span class="line">max_queue_length = 2^max_qlen_log</span><br></pre></td></tr></table></figure>
 <p><img src="/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png" alt></p>
 <p>没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是<strong>应用层代码还没有完成 accept() 的连接</strong>）两个概念，用于存放在握手中的连接。</p>
+<p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
 <p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
 <p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
 <p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
@@ -622,32 +623,8 @@ server5
 <p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="noopener">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
 <p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="noopener">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
 <p><a href="https://developer.aliyun.com/article/804896" target="_blank" rel="noopener">从一次线上问题说起，详解 TCP 半连接队列、全连接队列–详细的实验验证各种溢出</a></p>
-<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">案例三：诡异的幽灵连接，全连接队列满后4.9内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
-<blockquote>
-<p>commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071<br>Author: Eric Dumazet <a href="mailto:&#101;&#100;&#117;&#109;&#97;&#122;&#101;&#x74;&#x40;&#x67;&#111;&#111;&#103;&#108;&#x65;&#x2e;&#x63;&#x6f;&#x6d;" target="_blank" rel="noopener">&#101;&#100;&#117;&#109;&#97;&#122;&#101;&#x74;&#x40;&#x67;&#111;&#111;&#103;&#108;&#x65;&#x2e;&#x63;&#x6f;&#x6d;</a><br>Date:   Thu Oct 27 00:27:57 2016</p>
-<pre><code>tcp/dccp: drop SYN packets if accept queue is full
-
-Per listen(fd, backlog) rules, there is really no point accepting a SYN,
-sending a SYNACK, and dropping the following ACK packet if accept queue
-is full, because application is not draining accept queue fast enough.
-
-This behavior is fooling TCP clients that believe they established a
-flow, while there is nothing at server side. They might then send about
-10 MSS (if using IW10) that will be dropped anyway while server is under
-stress.
-
--
--       /* Accept backlog is full. If we have already queued enough
--        * of warm entries in syn queue, drop request. It is better than
--        * clogging syn queue with openreqs with exponentially increasing
--        * timeout.
--        */
--       if (sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; 1) {
-+       if (sk_acceptq_is_full(sk)) {
-                NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
-                goto drop;
-        }
-</code></pre></blockquote>
+<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">commit <span class="number">5</span>ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</span><br><span class="line">Author: Eric Dumazet &lt;edumazet@google.com&gt;</span><br><span class="line">Date:   Thu Oct <span class="number">27</span> <span class="number">00</span>:<span class="number">27</span>:<span class="number">57</span> <span class="number">2016</span></span><br><span class="line"></span><br><span class="line"> tcp/dccp: drop SYN packets <span class="keyword">if</span> accept <span class="built_in">queue</span> is full</span><br><span class="line"></span><br><span class="line"> Per listen(fd, backlog) rules, there is really no point accepting a SYN,</span><br><span class="line"> sending a SYNACK, <span class="keyword">and</span> dropping the following ACK packet <span class="keyword">if</span> accept <span class="built_in">queue</span></span><br><span class="line"> is full, because application is <span class="keyword">not</span> draining accept <span class="built_in">queue</span> fast enough.</span><br><span class="line"></span><br><span class="line"> This behavior is fooling TCP clients that believe they established a</span><br><span class="line"> flow, <span class="keyword">while</span> there is nothing at server side. They might then send about</span><br><span class="line"> <span class="number">10</span> MSS (<span class="keyword">if</span> <span class="keyword">using</span> IW10) that will be dropped anyway <span class="keyword">while</span> server is under</span><br><span class="line"> stress.</span><br><span class="line"></span><br><span class="line">   -       <span class="comment">/* Accept backlog is full. If we have already queued enough</span></span><br><span class="line"><span class="comment">   -        * of warm entries in syn queue, drop request. It is better than</span></span><br><span class="line"><span class="comment">   -        * clogging syn queue with openreqs with exponentially increasing</span></span><br><span class="line"><span class="comment">   -        * timeout.</span></span><br><span class="line"><span class="comment">   -        */</span></span><br><span class="line">   -       <span class="keyword">if</span> (sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; <span class="number">1</span>) &#123;</span><br><span class="line">   +       <span class="keyword">if</span> (sk_acceptq_is_full(sk)) &#123;</span><br><span class="line">                   NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);</span><br><span class="line">                   <span class="keyword">goto</span> drop;</span><br><span class="line">           &#125;</span><br></pre></td></tr></table></figure>
 
       
     </div>
