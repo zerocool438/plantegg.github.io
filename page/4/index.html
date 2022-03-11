@@ -3331,15 +3331,15 @@ function mdelay(ms:long) %{
 %}
 </code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="noopener">使用Systemtap生成Flame Graph(火焰图) </a></p>
 <h2 id="案例3-追踪丢包"><a href="#案例3-追踪丢包" class="headerlink" title="案例3 追踪丢包"></a>案例3 追踪丢包</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">probe kernel.trace(&quot;kfree_skb&quot;)</span><br><span class="line">&#123;</span><br><span class="line"></span><br><span class="line">         printf(&quot;sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n&quot;,$skb-&gt;sk,$skb,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;rst,ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;seq),ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack_seq), symname($location));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png" alt="img"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png" alt="img"></p>
 <p>以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">probe kernel.statement(&quot;tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*&quot;)</span><br><span class="line">&#123;</span><br><span class="line">                  printf(&quot;source:%d,dest:%d,skb:%x,sk:%x,syn:%x,ack:%x,%x-%x,%s\n&quot;,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),$skb,$skb-&gt;sk,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest,pp())</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png" alt="img"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png" alt="img"></p>
 <p>以上输出对应的代码如下：</p>
-<p><img src="/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png" alt="img"></p>
-<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
-<p><img src="/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
-<p><img src="/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png" alt="img"></p>
+<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
 <h2 id="网络包大小分布"><a href="#网络包大小分布" class="headerlink" title="网络包大小分布"></a>网络包大小分布</h2><pre><code>bpftrace -e &apos;tracepoint:net:net_dev_queue{
 @txsize=hist(args-&gt;len);
 @txstat=stats(args-&gt;len);
@@ -3350,7 +3350,7 @@ tracepoint:net:netif_receive_skb
     @rxsize=hist(args-&gt;len);
     @rxstat=stats(args-&gt;len);
 }&apos;
-</code></pre><p><img src="/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
+</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
 <p>或者，采集10秒中的网络包大小直方图</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">#bpftrace -e &apos;k:tcp_sendmsg &#123; @size = hist(arg2); &#125; interval:s:10 &#123; exit(); &#125;&apos;</span><br><span class="line">Attaching 2 probes...</span><br><span class="line"></span><br><span class="line">@size:</span><br><span class="line">[16, 32)              63 |@@@@@@@                                             |</span><br><span class="line">[32, 64)             431 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|</span><br><span class="line">[64, 128)            247 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                       |</span><br><span class="line">[128, 256)            26 |@@@                                                 |</span><br><span class="line">[256, 512)            80 |@@@@@@@@@                                           |</span><br><span class="line">[512, 1K)             52 |@@@@@@                                              |</span><br><span class="line">[1K, 2K)              70 |@@@@@@@@                                            |</span><br><span class="line">[2K, 4K)               9 |@                                                   |</span><br><span class="line">[4K, 8K)              36 |@@@@                                                |</span><br><span class="line">[8K, 16K)              1 |                                                    |</span><br></pre></td></tr></table></figure>
 <h2 id="其它单行命令"><a href="#其它单行命令" class="headerlink" title="其它单行命令"></a><a href="https://lwn.net/Articles/793749/" target="_blank" rel="noopener">其它单行命令</a></h2><p>这里有一些其他的单行命令来展示 <code>bpftrace</code> 的能力，你可以把这些换成其他的内核函数：</p>
@@ -3369,7 +3369,7 @@ tracepoint:net:netif_receive_skb
 <p>获取函数调用延时的直方图，纳秒级：</p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @ts[tid] = nsecs; &#125;</span></span><br><span class="line"><span class="string">    kr:tcp_sendmsg /@ts[tid]/ &#123; @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); &#125;'</span></span><br></pre></td></tr></table></figure>
 <p>最后一个例子在探测点（线程 ID 作为主键）保存时间戳，并在另外一个探测点获得这个时间戳。这个模式可以用来计算各种延时。</p>
-<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
+<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
 <h2 id="网络连接创建rt？"><a href="#网络连接创建rt？" class="headerlink" title="网络连接创建rt？"></a>网络连接创建rt？</h2><pre><code># ./tools/bcc/tcpconnlat
 PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
 1935   java         4  10.81.177.14     100.100.110.2    80    0.21
@@ -3624,6 +3624,7 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
 <p><a href="https://yq.aliyun.com/articles/697679" target="_blank" rel="noopener">eBCC性能分析最佳实践–开启性能分析新篇章</a></p>
 <p><a href="http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/" target="_blank" rel="noopener">eBPF 内核探测：如何将任意系统调用转换成事件（2016）</a></p>
 <p><a href="http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/" target="_blank" rel="noopener">使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)</a></p>
+<p><a href="https://mp.weixin.qq.com/s/yEMp70FmFYn6qL8kCZgS8A" target="_blank" rel="noopener">使用ftrace分析函数性能</a></p>
 
           
         
@@ -4217,14 +4218,14 @@ public BufferedOutputStream(OutputStream out) {
 </ul>
 <h3 id="同步阻塞IO"><a href="#同步阻塞IO" class="headerlink" title="同步阻塞IO"></a>同步阻塞IO</h3><p>用户线程发起read后让出CPU一直阻塞直到内核把网卡数据读到内核空间，然后再拷贝到用户空间，然后唤醒用户线程</p>
 <h3 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h3><p>用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间</p>
-<p><img src="/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png" alt="undefined"> </p>
 <p><strong>阻塞和非阻塞指的是发起IO操作后是等待还是返回，同步和异步指的是应用程序与内核通信时数据从内核空间拷贝到用户空间的操作是内核主动触发（异步）还是应用程序触发（同步）</strong></p>
 <h3 id="IO多路复用、Epoll"><a href="#IO多路复用、Epoll" class="headerlink" title="IO多路复用、Epoll"></a>IO多路复用、Epoll</h3><p>一个进程虽然任一时刻只能处理一个请求，但是处理每个请求的事件时，耗时控制在 1 毫秒以内，这样 1 秒内就可以处理上千个请求，把时间拉长来看，多个请求复用了一个进程，这就是多路复用，这种思想很类似一个 CPU 并发多个进程，所以也叫做时分多路复用。</p>
 <p>epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分</p>
-<p><img src="/images/oss/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
-<p><img src="/images/oss/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/45b484a77965974c20faa9d034b734f4.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5c03818e5fab6431a709753130be5897.png" alt="image.png"></p>
 <p>用户线程读取分成两步，用户线程先发起select调用（确认内核是否准备好数据），准备好后才调用read，将数据从内核空间读取到用户空间（read这里还是阻塞）。主要是一个select线程可以向内核查多个数据通道的状态</p>
-<p><img src="/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png" alt="undefined"> </p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png" alt="undefined"> </p>
 <p><strong>IO多路复用和同步阻塞、非阻塞的区别主要是用户线程发起read的时机不一样，IO多路复用是等数据在内核空间准备好了再通过同步read去读取；而阻塞和非阻塞因为没法预先知道数据是否在内核空间准备好，所以早早触发了read然后等待，只是阻塞会一直等，而非阻塞是指触发read后不用等，反复read直到read到数据。</strong></p>
 <p>Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中的Selector，可以理解成通过Selector跳过了前面的阻塞和非阻塞，实际用户线程在数据Ready前没有触发read操作，数据到了才出发read操作。</p>
 <p>阻塞IO和NIO的主要区别是：NIO面对的是Buffer，可以做到读取完毕后再一次性处理；而阻塞IO面对的是流，只能边读取边处理</p>
@@ -4233,7 +4234,7 @@ public BufferedOutputStream(OutputStream out) {
 </blockquote>
 <h4 id="epoll-JStack-堆栈"><a href="#epoll-JStack-堆栈" class="headerlink" title="epoll JStack 堆栈"></a>epoll JStack 堆栈</h4><p>像redis就是一个进程绑定一个core，然后处理所有连接的所有事件，主要是因为redis主要是内存操作，速度比较快，这样做避免了加锁，权衡下来更有利。但是对大多服务器就不可取了，毕竟但很处理能力瓶颈摆着的，另外就是IO速度和CPU速度中间的差异也没处理好。</p>
 <p>于是出现了专门一个线程处理新连接IO（Accept），然后老的连接全部交给一个线程池（Reactor）来处理，这个线程池的线程数量可以根据机器CPU core数量来调整</p>
-<p><img src="/images/951413iMgBlog/640-6193710.png" alt="Image"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-6193710.png" alt="Image"></p>
 <p>完整的NIO中Acceptor逻辑JStack:</p>
 <pre><code>//3306 acceptor端口
 &quot;TDDLServer&quot; #32 prio=5 os_prio=0 tid=0x00007fb76cde6000 nid=0x4620 runnable [0x00007fb6db5f6000]
@@ -4257,7 +4258,7 @@ public BufferedOutputStream(OutputStream out) {
 <p>新连接进来后NIOAcceptor.select 阻塞解除，执行accept逻辑，accept返回一个channel（对socket封装），设置channel TCP options，将这个channel和一个 NIOProcessor绑定（一个NIOProcessor可以绑定多个channel，反之一个channel只能绑定到一个NIOProcessor），同时将这个channel插入(offer)到NIOProcessor里面的NIOReactor的队列中,并唤醒NIOReactor的selector，将新连接注册到 NIOReactor的selector中(进行连接的mysql协议认证)。然后阻塞在这个selector等待事件中，等待读写事件的到来</p>
 <p>也就是只有Acceptor阶段会有惊群（但是上面的代码只有一个Acceptor，所以也没有惊群了），收发数据阶段因为Socket已经绑定到了一个固定的Thread，所以不会有惊群了，但是可能会存在某个Thread有慢处理导致新进来的请求长时间得不到响应。</p>
 <p>或者这种代码, 同时处理accept、read、write：</p>
-<p><img src="/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png" alt="undefined"> </p>
 <p>Select 触发 read/write 堆栈： </p>
 <pre><code>&quot;Processor2-R&quot; #26 prio=5 os_prio=0 tid=0x00007fb76cc9a000 nid=0x4611 runnable [0x00007fb6dbdfc000]
    java.lang.Thread.State: RUNNABLE
@@ -4291,7 +4292,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>读写模式需要调用 <code>flip()</code> 方法进行切换，读模式下调用 <code>write()</code> 试图进行写操作会报错。</li>
 <li>读写不再能够接受一个简单的字节数组，而是必须是封装了字节数组的 Buffer 类型。</li>
 </ul>
-<p><img src="/images/951413iMgBlog/image-20200516195346349.png" alt="image-20200516195346349"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20200516195346349.png" alt="image-20200516195346349"></p>
 <p>目前已知 Channel 的实现类有：</p>
 <ul>
 <li><p>FileChannel 一个用来写、读、映射和操作文件的通道。</p>
@@ -4317,7 +4318,7 @@ public BufferedOutputStream(OutputStream out) {
 <li>同步：端菜上桌过程必须是阻塞，异步相当于厨师将菜送到桌子上后通知你吃</li>
 </ul>
 <h3 id="Tomcat中的NIO-多路复用的实现"><a href="#Tomcat中的NIO-多路复用的实现" class="headerlink" title="Tomcat中的NIO+多路复用的实现"></a>Tomcat中的NIO+多路复用的实现</h3><p> NIOEndpoint组件实现了NIO和IO多路复用，IO多路复用指的是Poller通过Selector处理多个Socket（SocketChannel）</p>
-<p><img src="/images/951413iMgBlog/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png" alt="undefined"> </p>
 <ul>
 <li>LimitLatch 是连接控制器，负责控制最大连接数，NIO模式下默认是10000，达到阈值后新连接被拒绝</li>
 <li>Acceptor 跑在一个单独的线程里，一旦有新连接进来accept方法返回一个SocketChannel对象，接着把SocketChannel对象封装在一个PollerEvent对象中，并将PollerEvent对象压入Poller的Queue里交给Poller处理。 Acceptor和Poller之间是典型的生产者-消费者模式</li>
@@ -4345,9 +4346,9 @@ serverSock.configureBlocking(true);
 <p>Select和epoll本质是为了IO多路复用（多个连接共用一个线程–监听是否连接有数据到达）。有报文进来的时候触发Select，Select轮询所有连接确认是哪个连接有报文进来了。连接过多放大了这种无用轮询。<br>epoll通过一颗红黑树维护所有连接，同时将有数据进来的连接通过回调更新到一个队列中，那么epoll每次检查的时候只需要检查队列而不是整个红黑树，效率大大提高了。</p>
 <p>事件驱动适合于I/O密集型服务，多进程或线程适合于CPU密集型服务<br>多路复用有很多种实现，在linux上，2.4内核前主要是select和poll，现在主流是epoll<br>select解决了一个线程监听多个socket的问题，但是因为依靠fd_set结构体记录所监控的socket，带来了能监听的socket数量有限（不超过1024）<br>poll在select的基础上解决了1024个的问题，但是还是要依次轮询这1024个socket，效率太低<br>epoll 异步非阻塞多路复用</p>
 <p>闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程</p>
-<p><img src="/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c09f7457cd7914fc26573d9a4625de4.png" alt="image.png"></p>
 <p>netty自带telnet server的example中，一个boss epoll负责listen新连接，新连接分配给多个worker epoll(worker则使用默认的CPU数*2.)，每个连接之后的读写都由固定的一个worker来处理</p>
-<p><img src="/images/951413iMgBlog/image_epoll_worker-7648812.png" alt></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image_epoll_worker-7648812.png" alt></p>
 <p>以上netty结构中：</p>
 <ul>
 <li><p>BOSS负责accept连接（通过BOSS监听的channel的read事件），然后实例化新连接的channel</p>
@@ -4357,7 +4358,7 @@ serverSock.configureBlocking(true);
 <li>BOSS <strong>提交Channel.regist任务到worker线程组，之后BOSS任务结束，转入继续listen</strong></li>
 </ul>
 <h3 id="MySQL-Thread-Pool-带来的问题"><a href="#MySQL-Thread-Pool-带来的问题" class="headerlink" title="MySQL Thread Pool 带来的问题"></a>MySQL Thread Pool 带来的问题</h3><p>MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲–类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。</p>
-<p><img src="/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/80c19a50442290e7f79e97d94a585cc3.png" alt="image.png"></p>
 <p>连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。</p>
 <p><strong>MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。</strong></p>
 <p>group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
@@ -4383,18 +4384,18 @@ serverSock.configureBlocking(true);
 <p>目前主流语言基本上都选择了多线程作为并发设施，与线程相关的概念是抢占式多任务（Preemptive multitasking），而与协程相关的是协作式多任务。不管是进程还是线程，每次阻塞、切换都需要陷入系统调用 (system call)，先让 CPU 执行操作系统的调度程序，然后再由调度程序决定该哪一个进程 (线程) 继续执行。</p>
 <p>由于抢占式调度执行顺序无法确定，我们使用线程时需要非常小心地处理同步问题，而协程完全不存在这个问题。因为协作式的任务调度，是要用户自己来负责任务的让出的。如果一个任务不主动让出，其他任务就不会得到调度。这是协程的一个弱点，但是如果使用得当，这其实是一个可以变得很强大的优点。</p>
 <h3 id="同步、异步、协程的比较"><a href="#同步、异步、协程的比较" class="headerlink" title="同步、异步、协程的比较"></a>同步、异步、协程的比较</h3><h4 id="同步调用"><a href="#同步调用" class="headerlink" title="同步调用"></a>同步调用</h4><p>切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。</p>
-<p><img src="/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/090682cb3deeb9a35a9dfad06b88e288.png" alt="image.png"></p>
 <h4 id="改成异步化后："><a href="#改成异步化后：" class="headerlink" title="改成异步化后："></a>改成异步化后：</h4><p>把上图中本来由内核实现的请求切换工作，交由用户态的代码来完成就可以了，异步化编程通过应用层代码实现了请求切换，降低了切换成本和内存占用空间。异步化依赖于 IO 多路复用机制，比如 Linux 的 epoll 或者 Windows 上的 iocp，同时，必须把阻塞方法更改为非阻塞方法，才能避免内核切换带来的巨大消耗。Nginx、Redis 等高性能服务都依赖异步化实现了百万量级的并发。</p>
-<p><img src="/images/oss/167657b454322840ae3a4204781f1bf5.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/167657b454322840ae3a4204781f1bf5.png" alt="image.png"></p>
 <p>然而，写异步化代码很容易出错。因为所有阻塞函数，都需要通过非阻塞的系统调用拆分成两个函数。虽然这两个函数共同完成一个功能，但调用方式却不同。第一个函数由你显式调用，第二个函数则由多路复用机制调用。这种方式违反了软件工程的内聚性原则，函数间同步数据也更复杂。特别是条件分支众多、涉及大量系统调用时，异步化的改造工作会非常困难。</p>
 <h4 id="用协程来实现"><a href="#用协程来实现" class="headerlink" title="用协程来实现"></a>用协程来实现</h4><p>协程与异步编程相似的地方在于，它们必须使用非阻塞的系统调用与内核交互，把切换请求的权力牢牢掌握在用户态的代码中。但不同的地方在于，协程把异步化中的两段函数，封装为一个阻塞的协程函数。这个函数执行时，会使调用它的协程无感知地放弃执行权，由协程框架切换到其他就绪的协程继续执行。当这个函数的结果满足后，协程框架再选择合适的时机，切换回它所在的协程继续执行。</p>
 <p><img src="https://static001.geekbang.org/resource/image/e4/57/e47ec54ff370cbda4528e285e3378857.jpg" alt="img"></p>
 <p>实际上，用户态的代码切换协程，与内核切换线程的原理是一样的。内核通过管理 CPU 的寄存器来切换线程，我们以最重要的栈寄存器和指令寄存器为例，看看协程切换时如何切换程序指令与内存。</p>
 <p>每个线程有独立的栈，而栈既保留了变量的值，也保留了函数的调用关系、参数和返回值，CPU 中的栈寄存器 SP 指向了当前线程的栈，而指令寄存器 IP 保存着下一条要执行的指令地址。因此，从线程 1 切换到线程 2 时，首先要把 SP、IP 寄存器的值为线程 1 保存下来，再从内存中找出线程 2 上一次切换前保存好的寄存器值，写入 CPU 的寄存器，这样就完成了线程切换。（其他寄存器也需要管理、替换，原理与此相同，不再赘述。）</p>
 <h3 id="协程的切换"><a href="#协程的切换" class="headerlink" title="协程的切换"></a>协程的切换</h3><p>协程的切换与此相同，只是把内核的工作转移到协程框架实现而已，下图是协程切换前的状态：</p>
-<p><img src="/images/oss/9a90497373211d65186a2a256212e3bf.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9a90497373211d65186a2a256212e3bf.png" alt="image.png"></p>
 <p>从协程 1 切换到协程 2 后的状态如下图所示：</p>
-<p><img src="/images/oss/0d997ee52fd79d752d1af9636ac6c858.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d997ee52fd79d752d1af9636ac6c858.png" alt="image.png"></p>
 <p>协程就是用户态的线程。然而，为了保证所有切换都在用户态进行，协程必须重新封装所有的阻塞系统调用，否则，一旦协程触发了线程切换，会导致这个线程进入休眠状态，进而其上的所有协程都得不到执行。比如，普通的 sleep 函数会让当前线程休眠，由内核来唤醒线程，而协程化改造后，sleep 只会让当前协程休眠，由协程框架在指定时间后唤醒协程。再比如，线程间的互斥锁是使用信号量实现的，而信号量也会导致线程休眠，协程化改造互斥锁后，同样由框架来协调、同步各协程的执行。</p>
 <p>非阻塞+epoll+同步编程 = 协程</p>
 <p>协程主要是将IO Wait等场景自动识别然后以非常小的代价切换到其它任务处理，一旦Wait完毕再切换回来。</p>
@@ -4406,7 +4407,7 @@ serverSock.configureBlocking(true);
 <p>操作系统调用不知道内部具体实现，代价包含：上下文切换（几百个指令？）、PageCache<br>语言自己调度（协程）一般是执行完，基于栈的切换只需要保存栈指针；一定是在同一个线程/进程内切换，各种Cache还有效。</p>
 <h2 id="多线程下的真正开销代价"><a href="#多线程下的真正开销代价" class="headerlink" title="多线程下的真正开销代价"></a>多线程下的真正开销代价</h2><p>系统调用开销其实不大，上下文切换同样也是<a href="https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S?spm=ata.13261165.0.0.675273b65vwzFO#L282" target="_blank" rel="noopener">数十条cpu指令可以完成</a></p>
 <p>多线程调度下的热点火焰图：</p>
-<p><img src="/images/oss/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
 <p><strong>多线程下真正的开销来源于线程阻塞唤醒调度</strong>，系统调用和上下文切换伴随着多线程，所以导致大家一直认为系统调用和上下文切换过多导致了多线程慢。</p>
 <h3 id="以ajdk的Wisp2协程为例"><a href="#以ajdk的Wisp2协程为例" class="headerlink" title="以ajdk的Wisp2协程为例"></a>以ajdk的Wisp2协程为例</h3><p>对于很快的锁，Wisp2可以很好地解决，因为任务切换不频繁，最多也就CPU核数量的任务在切换，拿到锁的协程会很快执行完然后释放锁，所以其他协程再执行的时候容易拿到锁。</p>
 <p>但是对于像logback日志同步输出doAppend()的锁（比较慢，并发度高）Wisp2就基本无能为力了。</p>
@@ -5340,7 +5341,7 @@ dip： destination
 <li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
 <li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
 </ul>
-<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
 <p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
 <ol>
 <li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
@@ -5353,7 +5354,7 @@ dip： destination
 <p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
 <p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
 <p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
-<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
 <p>优点：</p>
 <ul>
 <li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
@@ -5368,10 +5369,10 @@ dip： destination
 <h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
 <h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
 <h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
-<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
 <p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
 <h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
-<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
 <p>基本流程：</p>
 <ol>
 <li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
@@ -5381,7 +5382,7 @@ dip： destination
 <li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
 <li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
 </ol>
-<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
 <p>优点：</p>
 <ul>
 <li>配置简单</li>
@@ -5396,7 +5397,7 @@ dip： destination
 <li>一般而言需要将VIP配置成RS的网关</li>
 </ul>
 <h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
-<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
 <p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
 <h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
 <ol>
@@ -5417,7 +5418,7 @@ dip： destination
 </ul>
 <h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
 <h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
-<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
 <p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
 <p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
 <h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
@@ -5445,7 +5446,7 @@ dip： destination
 <p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
 <h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
 <h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
-<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
 <p>最后说一下不太常用的 TUN模型</p>
 <h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
 <ol>
@@ -5468,7 +5469,7 @@ dip： destination
 <p><strong>DR模式中LVS修改的是目的MAC</strong></p>
 <h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
 <h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
-<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
 <p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
 <p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
 <h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
@@ -5477,7 +5478,7 @@ dip： destination
 <p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
 <p>所以推出NGLB来解决这个问题</p>
 <h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
-<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
 <h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
 <li>toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/<code>uname -r</code>/kernel/net/toa/toa.ko）。</li>
 <li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
@@ -5489,11 +5490,10 @@ dip： destination
 <p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。<br>当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。<br>如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。</p>
 </blockquote>
 <h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
-<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
-<p>案例:</p>
-<p>主机房通过bgp协议发送/27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
 <p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
-<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
 <h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
 <h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
 <h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
