@@ -1,0 +1,846 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css" />
+
+
+  <meta name="keywords" content="Linux,yum,iso,createrepo,yum-utils," />
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml" />
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1" />
+
+
+
+
+
+
+<meta name="description" content="如何制作本地yum repository某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。 收集所有rpm包创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件： 123456789101112-rwxr-xr-x 1">
+<meta name="keywords" content="Linux,yum,iso,createrepo,yum-utils">
+<meta property="og:type" content="article">
+<meta property="og:title" content="如何制作本地yum repository">
+<meta property="og:url" content="https://plantegg.github.io/2020/01/24/如何制作本地yum repository/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="如何制作本地yum repository某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。 收集所有rpm包创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件： 123456789101112-rwxr-xr-x 1">
+<meta property="og:updated_time" content="2022-04-13T09:55:45.938Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="如何制作本地yum repository">
+<meta name="twitter:description" content="如何制作本地yum repository某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。 收集所有rpm包创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件： 123456789101112-rwxr-xr-x 1">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2020/01/24/如何制作本地yum repository/"/>
+
+
+
+
+
+  <title>如何制作本地yum repository | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br />
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br />
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br />
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/24/如何制作本地yum repository/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">如何制作本地yum repository</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-24T17:30:03+08:00">
+                2020-01-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv" ></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="如何制作本地yum-repository"><a href="#如何制作本地yum-repository" class="headerlink" title="如何制作本地yum repository"></a>如何制作本地yum repository</h1><p>某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。</p>
+<h2 id="收集所有rpm包"><a href="#收集所有rpm包" class="headerlink" title="收集所有rpm包"></a>收集所有rpm包</h2><p>创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">-rwxr-xr-x 1 root root  73K 7月  12 14:22 audit-libs-python-2.8.4-4.el7.x86_64.rpm</div><div class="line">-rwxr-xr-x 1 root root 295K 7月  12 14:22 checkpolicy-2.5-8.el7.x86_64.rpm</div><div class="line">-rwxr-xr-x 1 root root  23M 7月  12 14:22 containerd.io-1.2.2-3.el7.x86_64.rpm</div><div class="line">-rwxr-xr-x 1 root root  26K 7月  12 14:22 container-selinux-2.9-4.el7.noarch.rpm</div><div class="line">-rwxr-xr-x 1 root root  37K 7月  12 14:22 container-selinux-2.74-1.el7.noarch.rpm</div><div class="line">-rwxr-xr-x 1 root root  14M 7月  12 14:22 docker-ce-cli-18.09.0-3.el7.x86_64.rpm</div><div class="line">-rwxr-xr-x 1 root root  29K 7月  12 14:22 docker-ce-selinux-17.03.2.ce-1.el7.centos.noarch.rpm</div><div class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-2.el7.x86_64.rpm</div><div class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-1.el7.x86_64.rpm</div><div class="line">-r-xr-xr-x 1 root root 154K 7月  12 14:23 PyYAML-3.10-11.el7.x86_64.rpm</div><div class="line">-r-xr-xr-x 1 root root  29K 7月  12 14:23 python-six-1.9.0-2.el7.noarch.rpm</div><div class="line">-r-xr-xr-x 1 root root 397K 7月  12 14:23 python-setuptools-0.9.8-7.el7.noarch.rpm</div></pre></td></tr></table></figure>
+<p>收集方法：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">//先安装yum工具</div><div class="line">yum install yum-utils -y</div><div class="line">//将 ansible 依赖包都下载下来</div><div class="line">repoquery --requires --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible</div><div class="line">//将ansible rpm自己下载回来</div><div class="line">yumdownloader --destdir=/tmp/ansible --resolve ansible</div><div class="line">//验证一下依赖关系是完整的</div><div class="line">//repotrack ansible</div></pre></td></tr></table></figure>
+<h2 id="创建仓库索引"><a href="#创建仓库索引" class="headerlink" title="创建仓库索引"></a>创建仓库索引</h2><p>需要安装工具 yum install createrepo -y：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line"># createrepo ./public_yum/</div><div class="line">Spawning worker 0 with 6 pkgs</div><div class="line">Spawning worker 1 with 6 pkgs</div><div class="line">Spawning worker 23 with 5 pkgs</div><div class="line">Workers Finished</div><div class="line">Saving Primary metadata</div><div class="line">Saving file lists metadata</div><div class="line">Saving other metadata</div><div class="line">Generating sqlite DBs</div><div class="line">Sqlite DBs complete</div></pre></td></tr></table></figure>
+<p>会在yum文件夹下生成一个索引文件夹 repodata</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">drwxr-xr-x 2 root root 4.0K 7月  12 14:25 repodata</div><div class="line">[root@az1-drds-79 yum]# ls repodata/</div><div class="line">5e15c62fec1fe43c6025ecf4d370d632f4b3f607500016e045ad94b70f87bac3-filelists.xml.gz</div><div class="line">7a314396d6e90532c5c534567f9bd34eee94c3f8945fc2191b225b2861ace2b6-other.xml.gz</div><div class="line">ce9dce19f6b426b8856747b01d51ceaa2e744b6bbd5fbc68733aa3195f724590-primary.xml.gz</div><div class="line">ee33b7d79e32fe6ad813af92a778a0ec8e5cc2dfdc9b16d0be8cff6a13e80d99-filelists.sqlite.bz2</div><div class="line">f7e8177e7207a4ff94bade329a0f6b572a72e21da106dd9144f8b1cdf0489cab-primary.sqlite.bz2</div><div class="line">ff52e1f1859790a7b573d2708b02404eb8b29aa4b0c337bda83af75b305bfb36-other.sqlite.bz2</div><div class="line">repomd.xml</div></pre></td></tr></table></figure>
+<h2 id="生成iso镜像文件"><a href="#生成iso镜像文件" class="headerlink" title="生成iso镜像文件"></a>生成iso镜像文件</h2><p>非必要步骤，如果需要带到客户环境可以先生成iso，不过不够灵活。</p>
+<p>也可以不用生成iso，直接在drds.repo中指定 createrepo 的目录也可以，记得要先执行 yum clean all和yum update </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">#mkisofs -r -o docker_ansible.iso ./yum/</div><div class="line">I: -input-charset not specified, using utf-8 (detected in locale settings)</div><div class="line">Using PYTHO000.RPM;1 for  /python-httplib2-0.7.7-3.el7.noarch.rpm (python-httplib2-0.9.1-3.el7.noarch.rpm)</div><div class="line">Using MARIA006.RPM;1 for  /mariadb-5.5.56-2.el7.x86_64.rpm (mariadb-libs-5.5.56-2.el7.x86_64.rpm)</div><div class="line">Using LIBTO001.RPM;1 for  /libtomcrypt-1.17-25.el7.x86_64.rpm (libtomcrypt-1.17-26.el7.x86_64.rpm)</div><div class="line">  6.11% done, estimate finish Sun Jul 12 14:26:47 2020</div><div class="line"> 97.60% done, estimate finish Sun Jul 12 14:26:48 2020</div><div class="line">Total translation table size: 0</div><div class="line">Total rockridge attributes bytes: 14838</div><div class="line">Total directory bytes: 2048</div><div class="line">Path table size(bytes): 26</div><div class="line">Max brk space used 21000</div><div class="line">81981 extents written (160 MB)</div></pre></td></tr></table></figure>
+<h2 id="将-生成的-iso挂载到目标机器上"><a href="#将-生成的-iso挂载到目标机器上" class="headerlink" title="将 生成的 iso挂载到目标机器上"></a>将 生成的 iso挂载到目标机器上</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"># mkdir /mnt/iso</div><div class="line"># mount ./docker_ansible.iso /mnt/iso</div><div class="line">mount: /dev/loop0 is write-protected, mounting read-only</div></pre></td></tr></table></figure>
+<h2 id="配置本地-yum-源"><a href="#配置本地-yum-源" class="headerlink" title="配置本地 yum 源"></a>配置本地 yum 源</h2><p>yum repository不是必须要求iso挂载，直接指向rpm文件夹（必须要有 createrepo 建立索引了）也可以</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line"># cat /etc/yum.repos.d/drds.repo </div><div class="line">[drds]</div><div class="line">name=drds Extra Packages for Enterprise Linux 7 - $basearch</div><div class="line">enabled=1</div><div class="line">failovermethod=priority</div><div class="line">baseurl=file:///mnt/repo #baseurl=http://192.168.1.91:8000/ 本地内网</div><div class="line">priority=1  #添加priority=1，数字越小优先级越高，也可以修改网络源的priority的值</div><div class="line">gpgcheck=0</div><div class="line">#gpgkey=file:///mnt/cdrom/RPM-GPG-KEY-CentOS-5    #注：这个你cd /mnt/cdrom/可以看到这个key，这里仅仅是个例子， 因为gpgcheck是0 ，所以gpgkey不需要了</div></pre></td></tr></table></figure>
+<p>到此就可以在没有网络环境的机器上直接：yum install ansible docker -y 了 </p>
+<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>测试的话可以指定repo 源： yum install ansible –enablerepo=drds （drds 优先级最高）</p>
+<p>本地会cache一些rpm的版本信息，可以执行 yum clean all 得到一个干净的测试环境</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">yum clean all</div><div class="line">yum list</div><div class="line">yum deplist ansible</div></pre></td></tr></table></figure>
+<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="external">Yum commands error “pycurl.so: undefined symbol”</a></p>
+<h2 id="xargs-作用"><a href="#xargs-作用" class="headerlink" title="xargs 作用"></a>xargs 作用</h2><p><code>xargs</code>命令的作用，是将标准输入转为命令行参数。因为有些命令是不接受标准输入的，比如echo</p>
+<p><code>xargs</code>的作用在于，大多数命令（比如<code>rm</code>、<code>mkdir</code>、<code>ls</code>）与管道一起使用时，都需要<code>xargs</code>将标准输入转为命令行参数。</p>
+<h2 id="dnf-使用"><a href="#dnf-使用" class="headerlink" title="dnf 使用"></a>dnf 使用</h2><p><strong>DNF</strong> 是新一代的rpm软件包管理器。他首先出现在 Fedora 18 这个发行版中。而最近，它取代了yum，正式成为 Fedora 22 的包管理器。</p>
+<p>DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》</p>
+<p>DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：</p>
+<ol>
+<li>在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。</li>
+<li>在 DNF 中没有判断哪个包提供了指定依赖的 resolvedep 命令。</li>
+<li>在 DNF 中没有用来列出某个软件依赖包的 deplist 命令。</li>
+<li>当你在 DNF 中排除了某个软件库，那么该操作将会影响到你之后所有的操作，不像在 YUM 下那样，你的排除操作只会咋升级和安装软件时才起作用。</li>
+</ol>
+<h2 id="安装yum源"><a href="#安装yum源" class="headerlink" title="安装yum源"></a>安装yum源</h2><p>安装7.70版本curl yum源</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm</div></pre></td></tr></table></figure>
+<h2 id="其它技巧"><a href="#其它技巧" class="headerlink" title="其它技巧"></a>其它技巧</h2><h3 id="rpm依赖查询"><a href="#rpm依赖查询" class="headerlink" title="rpm依赖查询"></a>rpm依赖查询</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">rpm -q --whatprovides file-name //查询一个文件来自哪个rpm包</div><div class="line">rpm -qf /usr/lib/systemd/libsystemd-shared-239.so // 查询一个so lib来自哪个rpm包</div><div class="line">或者 yum whatprovides /usr/lib/systemd/libsystemd-shared-239.so</div><div class="line">yum provides */libmysqlclient.so.18</div></pre></td></tr></table></figure>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html" target="_blank" rel="external">xargs 命令教程</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Linux/" rel="tag"># Linux</a>
+          
+            <a href="/tags/yum/" rel="tag"># yum</a>
+          
+            <a href="/tags/iso/" rel="tag"># iso</a>
+          
+            <a href="/tags/createrepo/" rel="tag"># createrepo</a>
+          
+            <a href="/tags/yum-utils/" rel="tag"># yum-utils</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2020/01/22/kubernetes service/" rel="next" title="kubernetes service">
+                <i class="fa fa-chevron-left"></i> kubernetes service
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2020/01/25/ssd san和sas 磁盘性能比较/" rel="prev" title="ssd/san/sas  磁盘 光纤性能比较">
+                ssd/san/sas  磁盘 光纤性能比较 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap" >
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image"
+               src="/images/avatar.gif"
+               alt="weibo @plantegg" />
+          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">231</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#如何制作本地yum-repository"><span class="nav-number">1.</span> <span class="nav-text">如何制作本地yum repository</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#收集所有rpm包"><span class="nav-number">1.1.</span> <span class="nav-text">收集所有rpm包</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#创建仓库索引"><span class="nav-number">1.2.</span> <span class="nav-text">创建仓库索引</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#生成iso镜像文件"><span class="nav-number">1.3.</span> <span class="nav-text">生成iso镜像文件</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#将-生成的-iso挂载到目标机器上"><span class="nav-number">1.4.</span> <span class="nav-text">将 生成的 iso挂载到目标机器上</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#配置本地-yum-源"><span class="nav-number">1.5.</span> <span class="nav-text">配置本地 yum 源</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#测试"><span class="nav-number">1.6.</span> <span class="nav-text">测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#yum-源问题处理"><span class="nav-number">1.7.</span> <span class="nav-text">yum 源问题处理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#xargs-作用"><span class="nav-number">1.8.</span> <span class="nav-text">xargs 作用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#dnf-使用"><span class="nav-number">1.9.</span> <span class="nav-text">dnf 使用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#安装yum源"><span class="nav-number">1.10.</span> <span class="nav-text">安装yum源</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#其它技巧"><span class="nav-number">1.11.</span> <span class="nav-text">其它技巧</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#rpm依赖查询"><span class="nav-number">1.11.1.</span> <span class="nav-text">rpm依赖查询</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.12.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright" >
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

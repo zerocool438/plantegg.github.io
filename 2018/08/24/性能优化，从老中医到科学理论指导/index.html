@@ -1,0 +1,847 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css" />
+
+
+  <meta name="keywords" content="performance,Linux,network,troubleshooting," />
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml" />
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1" />
+
+
+
+
+
+
+<meta name="description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
+<meta name="keywords" content="performance,Linux,network,troubleshooting">
+<meta property="og:type" content="article">
+<meta property="og:title" content="性能优化，从老中医到科学理论指导">
+<meta property="og:url" content="https://plantegg.github.io/2018/08/24/性能优化，从老中医到科学理论指导/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
+<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211103175727900.png">
+<meta property="og:updated_time" content="2022-04-13T09:55:45.789Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="性能优化，从老中医到科学理论指导">
+<meta name="twitter:description" content="性能优化，从老中医到科学理论指导简单原理：  追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；  QPS=并发/RT   利特尔法则[编辑]利特尔法则（英语：Little’s law），基于等候理论，由约翰·利特尔在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：  在一个稳定的系统中，长期的平均顾客人数（L），等于">
+<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211103175727900.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2018/08/24/性能优化，从老中医到科学理论指导/"/>
+
+
+
+
+
+  <title>性能优化，从老中医到科学理论指导 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br />
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br />
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br />
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/24/性能优化，从老中医到科学理论指导/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">性能优化，从老中医到科学理论指导</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-24T16:30:03+08:00">
+                2018-08-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv" ></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><p>简单原理：</p>
+<ul>
+<li><p>追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；</p>
+</li>
+<li><p>QPS=并发/RT</p>
+</li>
+</ul>
+<h2 id="利特尔法则-编辑"><a href="#利特尔法则-编辑" class="headerlink" title="利特尔法则[编辑]"></a>利特尔法则[<a href="https://zh.wikipedia.org/w/index.php?title=利特爾法則&amp;action=edit&amp;section=0&amp;summary=/* top */" target="_blank" rel="external">编辑</a>]</h2><p><strong>利特尔法则</strong>（英语：Little’s law），基于<a href="https://zh.wikipedia.org/wiki/等候理論" target="_blank" rel="external">等候理论</a>，由<a href="https://zh.wikipedia.org/w/index.php?title=約翰·利特爾&amp;action=edit&amp;redlink=1" target="_blank" rel="external">约翰·利特尔</a>在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：</p>
+<blockquote>
+<p>在一个稳定的系统中，长期的平均顾客人数（L），等于长期的有效抵达率（λ），乘以顾客在这个系统中平均的等待时间（W）</p>
+</blockquote>
+<p>或者，我们可以用一个代数式来表达：</p>
+<p>L=λW</p>
+<p>利特尔法则可用来确定在途存货的数量。此法则认为，系统中的平均存货等于存货单位离开系统的比率（亦即平均需求率）与存货单位在系统中平均时间的乘积。</p>
+<p>虽然此公式看起来直觉性的合理，它依然是个非常杰出的推导结果，因为此一关系式“不受到货流程分配、服务分配、服务顺序，或任何其他因素影响”。</p>
+<p>此一理论适用于所有系统，而且它甚至更适合用于系统中的系统。举例来说，在一间银行里，顾客等待的队伍就是一个子系统，而每一位柜员也可以被视为一个等待的子系统，而利特尔法则可以套用到任何一个子系统，也可以套用到整个银行的等待队伍之母系统。</p>
+<p>唯一的条件就是，这个系统必须是长期稳定的，而且不能有插队抢先的情况发生，这样才能排除换场状况的可能性，例如开业或是关厂。</p>
+<h3 id="案例："><a href="#案例：" class="headerlink" title="案例："></a>案例：</h3><p>需要的线程数 = qps * latency(单位秒)。 依据是little’s law，类似的应用是tcp中的bandwidth-delay product。如果这个数目远大于核心数量，应该考虑用异步接口。<br>举例：</p>
+<ul>
+<li>qps = 2000，latency = 10ms，计算结果 = 2000 * 0.01s = 20。和常见核数在同一个数量级，用同步。</li>
+<li>qps = 100, latency = 5s, 计算结果 = 100 * 5s = 500。和常见核数不在同一个数量级，用异步。</li>
+<li>qps = 500, latency = 100ms，计算结果 = 500 * 0.1s = 50。和常见核数在同一个数量级，可用同步。如果未来延时继续增长，考虑异步。</li>
+</ul>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
+<h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量</p>
+<p>单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
+<p>最佳线程数量 rt(total)/rt(cpu)</p>
+<p>维持住rt</p>
+<p>这一点占性能优化领域的50%</p>
+<p>从单线程跑出QPS、各个环节的RT、CPU占用等数据</p>
+<p>然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里</p>
+<h2 id="思路严谨"><a href="#思路严谨" class="headerlink" title="思路严谨"></a>思路严谨</h2><p>最难讲清楚</p>
+<h2 id="老中医经验不可缺少"><a href="#老中医经验不可缺少" class="headerlink" title="老中医经验不可缺少"></a>老中医经验不可缺少</h2><p>量变到质变</p>
+<h2 id="找瓶颈，先干掉瓶颈才能优化其它"><a href="#找瓶颈，先干掉瓶颈才能优化其它" class="headerlink" title="找瓶颈，先干掉瓶颈才能优化其它"></a>找瓶颈，先干掉瓶颈才能优化其它</h2><p>没有找到瓶颈，所做的其它优化会看不出效果，误入歧途，瞎蒙</p>
+<h2 id="全栈能力，一文钱难倒英雄好汉"><a href="#全栈能力，一文钱难倒英雄好汉" class="headerlink" title="全栈能力，一文钱难倒英雄好汉"></a>全栈能力，一文钱难倒英雄好汉</h2><p>因为关键是找瓶颈，作为java程序员如果只能看jstack、jstat可能发现的不是瓶颈</p>
+<h2 id="案列"><a href="#案列" class="headerlink" title="案列"></a>案列</h2><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">https://www.atatech.org/articles/73174</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/performance/" rel="tag"># performance</a>
+          
+            <a href="/tags/Linux/" rel="tag"># Linux</a>
+          
+            <a href="/tags/network/" rel="tag"># network</a>
+          
+            <a href="/tags/troubleshooting/" rel="tag"># troubleshooting</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2018/08/21/vxlan网络性能测试/" rel="next" title="vxlan网络性能测试">
+                <i class="fa fa-chevron-left"></i> vxlan网络性能测试
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2018/08/25/方舟域名和服务/" rel="prev" title="部分机器网络不通">
+                部分机器网络不通 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap" >
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image"
+               src="/images/avatar.gif"
+               alt="weibo @plantegg" />
+          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">231</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#性能优化，从老中医到科学理论指导"><span class="nav-number">1.</span> <span class="nav-text">性能优化，从老中医到科学理论指导</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#利特尔法则-编辑"><span class="nav-number">1.1.</span> <span class="nav-text">利特尔法则[编辑]</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#案例："><span class="nav-number">1.1.1.</span> <span class="nav-text">案例：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#理解最佳线程数量"><span class="nav-number">1.2.</span> <span class="nav-text">理解最佳线程数量</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#思路严谨"><span class="nav-number">1.3.</span> <span class="nav-text">思路严谨</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#老中医经验不可缺少"><span class="nav-number">1.4.</span> <span class="nav-text">老中医经验不可缺少</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#找瓶颈，先干掉瓶颈才能优化其它"><span class="nav-number">1.5.</span> <span class="nav-text">找瓶颈，先干掉瓶颈才能优化其它</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#全栈能力，一文钱难倒英雄好汉"><span class="nav-number">1.6.</span> <span class="nav-text">全栈能力，一文钱难倒英雄好汉</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案列"><span class="nav-number">1.7.</span> <span class="nav-text">案列</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright" >
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

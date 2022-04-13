@@ -1,0 +1,852 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css" />
+
+
+  <meta name="keywords" content="Linux,LVM," />
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml" />
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1" />
+
+
+
+
+
+
+<meta name="description" content="Linux LVM使用LVM是 Logical Volume Manager（逻辑卷管理）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。 从一块硬盘到能使用LV文件系统的步骤： ​     硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式">
+<meta name="keywords" content="Linux,LVM">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux LVM使用">
+<meta property="og:url" content="https://plantegg.github.io/2018/02/25/Linux LVM使用/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Linux LVM使用LVM是 Logical Volume Manager（逻辑卷管理）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。 从一块硬盘到能使用LV文件系统的步骤： ​     硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式">
+<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png">
+<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228185144635.png">
+<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bV6Ra.png">
+<meta property="og:updated_time" content="2022-04-13T09:55:45.708Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Linux LVM使用">
+<meta name="twitter:description" content="Linux LVM使用LVM是 Logical Volume Manager（逻辑卷管理）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。 从一块硬盘到能使用LV文件系统的步骤： ​     硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式">
+<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2018/02/25/Linux LVM使用/"/>
+
+
+
+
+
+  <title>Linux LVM使用 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br />
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br />
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br />
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/25/Linux LVM使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">Linux LVM使用</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv" ></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p>LVM是 Logical Volume Manager（逻辑<a href="https://baike.baidu.com/item/卷管理" target="_blank" rel="external">卷管理</a>）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。</p>
+<p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
+<p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png" alt="img"></p>
+<p><strong>lvreduce 缩小LV</strong></p>
+<p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ==谨慎用==</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</div><div class="line"></div><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$lsblk  -f</div><div class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</div><div class="line">sda                                                                              </div><div class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</div><div class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</div><div class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</div><div class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </div><div class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</div><div class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</div><div class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</div><div class="line">nvme0n1                                                                          </div><div class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</div><div class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </div><div class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </div><div class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</div></pre></td></tr></table></figure>
+<h2 id="LVM-创建、扩容"><a href="#LVM-创建、扩容" class="headerlink" title="LVM 创建、扩容"></a>LVM 创建、扩容</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div></pre></td><td class="code"><pre><div class="line">sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1</div><div class="line">如果报错：</div><div class="line">  Can&apos;t open /dev/nvme1n1 exclusively.  Mounted filesystem?</div><div class="line">  Can&apos;t open /dev/nvme0n1 exclusively.  Mounted filesystem?</div><div class="line">是说/dev/nvme0n1已经mounted了，需要先umount</div><div class="line"></div><div class="line">vgdisplay </div><div class="line">sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1</div><div class="line">sudo mkfs.ext4 /dev/vg1/u03   </div><div class="line">sudo mkdir /lvm</div><div class="line">sudo fdisk -l</div><div class="line">sudo umount /lvm</div><div class="line">sudo lvresize -L 5.8T /dev/vg1/u03 //lv 扩容</div><div class="line">sudo e2fsck -f /dev/vg1/u03 </div><div class="line">sudo resize2fs /dev/vg1/u03</div><div class="line">sudo mount /dev/vg1/u03 /lvm</div><div class="line">cd /lvm/</div><div class="line">lvdisplay </div><div class="line">sudo vgdisplay vg1</div><div class="line">lsblk -l</div><div class="line">lsblk </div><div class="line">sudo vgextend vg1 /dev/nvme3n1  //vg 扩容, 增加一块磁盘到vg1</div><div class="line">ls /u01</div><div class="line">sudo vgdisplay </div><div class="line">sudo fdisk  -l</div><div class="line">sudo pvdisplay </div><div class="line">sudo lvcreate -L 1T -n lv2 vg1  //从vg1中再分配一块1T大小的磁盘</div><div class="line">sudo lvdisplay </div><div class="line">sudo mkfs.ext4 /dev/vg1/lv2 </div><div class="line">mkdir /lv2</div><div class="line">ls /</div><div class="line">sudo mkdir /lv2</div><div class="line">sudo mount /dev/vg1/lv2 /lv2</div><div class="line">df -lh</div></pre></td></tr></table></figure>
+<h2 id="创建LVM"><a href="#创建LVM" class="headerlink" title="创建LVM"></a>创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">function create_polarx_lvm_V62()&#123;</div><div class="line">    vgremove vgpolarx</div><div class="line"></div><div class="line">    #sed -i "97 a\    types = ['nvme', 252]" /etc/lvm/lvm.conf</div><div class="line">    parted -s /dev/nvme0n1 rm 1</div><div class="line">    parted -s /dev/nvme1n1 rm 1</div><div class="line">    parted -s /dev/nvme2n1 rm 1</div><div class="line">    parted -s /dev/nvme3n1 rm 1</div><div class="line">    dd if=/dev/zero of=/dev/nvme0n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme1n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme2n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme3n1  count=10000 bs=512</div><div class="line"></div><div class="line">    #lvmdiskscan</div><div class="line">    vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1</div><div class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</div><div class="line">    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">    sed  -i  "/polarx/d" /etc/fstab</div><div class="line">    mkdir -p /polarx</div><div class="line">    echo "LABEL=polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0" &gt;&gt; /etc/fstab</div><div class="line">    mount -a</div><div class="line">&#125;</div><div class="line"></div><div class="line">create_polarx_lvm_V62</div></pre></td></tr></table></figure>
+<h2 id="复杂版创建LVM"><a href="#复杂版创建LVM" class="headerlink" title="复杂版创建LVM"></a>复杂版创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div></pre></td><td class="code"><pre><div class="line">function disk_part()&#123;</div><div class="line">    set -e</div><div class="line">    if [ $# -le 1 ]</div><div class="line">    then</div><div class="line">        echo "disk_part argument error"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line">    action=$1</div><div class="line">    disk_device_list=(`echo $*`)</div><div class="line"></div><div class="line">    echo $disk_device_list</div><div class="line">    unset disk_device_list[0]</div><div class="line"></div><div class="line">    echo $action</div><div class="line">    echo $&#123;disk_device_list[*]&#125;</div><div class="line">    len=`echo $&#123;#disk_device_list[@]&#125;`</div><div class="line">    echo "start remove origin partition  "</div><div class="line">    for dev in  $&#123;disk_device_list[@]&#125;</div><div class="line">    do</div><div class="line">        #echo $&#123;dev&#125;</div><div class="line">        `parted -s $&#123;dev&#125; rm 1` || true</div><div class="line">        dd if=/dev/zero of=$&#123;dev&#125;  count=100000 bs=512</div><div class="line">    done</div><div class="line"><span class="meta">#</span>替换98行，插入的话r改成a</div><div class="line">    sed -i "98 r\    types = ['aliflash' , 252 , 'nvme' ,252 , 'venice', 252 , 'aocblk', 252]" /etc/lvm/lvm.conf</div><div class="line">    sed  -i  "/flash/d" /etc/fstab</div><div class="line"></div><div class="line">    if [ x$&#123;1&#125; == x"split" ]</div><div class="line">    then</div><div class="line">        echo "split disk "</div><div class="line">        #lvmdiskscan</div><div class="line">    echo $&#123;disk_device_list&#125;</div><div class="line">        vgcreate -s 32 vgpolarx $&#123;disk_device_list[*]&#125;</div><div class="line">    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 75%VG  -i $&#123;len&#125; -n volume1 vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 100%FREE  -i $&#123;len&#125; -n volume2 vgpolarx</div><div class="line">        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">        sed  -i  "/polarx/d" /etc/fstab</div><div class="line">        mkdir -p /polarx</div><div class="line">    opt="defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0"</div><div class="line">        echo "LABEL=polarx /polarx     ext4        $&#123;opt&#125;    0 0" &gt;&gt; /etc/fstab</div><div class="line">        mount -a</div><div class="line">    else</div><div class="line">        echo "unkonw action "</div><div class="line">    fi</div><div class="line"></div><div class="line">&#125;</div><div class="line"></div><div class="line">function format_nvme_mysql()&#123;</div><div class="line"></div><div class="line">    if [ `df |grep flash|wc -l` -eq $1  ]</div><div class="line">    then</div><div class="line">        echo "check success"</div><div class="line">        echo "start umount partition "</div><div class="line">        parttion_list=`df |grep flash|awk -F ' ' '&#123;print $1&#125;'`</div><div class="line">        for partition in $&#123;parttion_list[@]&#125;</div><div class="line">        do</div><div class="line">            echo $partition</div><div class="line">            umount $partition</div><div class="line">        done</div><div class="line"></div><div class="line">    else</div><div class="line">        echo "check host fail"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line"></div><div class="line">  disk_device_list=(`ls -l /dev/|grep -v ^l|awk '&#123;print $NF&#125;'|grep -E "^nvme[0-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$"`)</div><div class="line">  full_disk_device_list=()</div><div class="line">    for i in $&#123;!disk_device_list[@]&#125;</div><div class="line">  do</div><div class="line">        echo $&#123;i&#125;</div><div class="line">    full_disk_device_list[$&#123;i&#125;]=/dev/$&#123;disk_device_list[$&#123;i&#125;]&#125;</div><div class="line">  done</div><div class="line">    echo $&#123;full_disk_device_list[@]&#125;</div><div class="line">    disk_part split $&#123;full_disk_device_list[@]&#125;</div><div class="line">&#125;</div><div class="line"></div><div class="line">if [ ! -d "/polarx" ]; then</div><div class="line">    umount /dev/vgpolarx/polarx</div><div class="line">    vgremove -f vgpolarx</div><div class="line">    dmsetup --force --retry --deferred remove vgpolarx-polarx</div><div class="line">    format_nvme_mysql $1</div><div class="line">else</div><div class="line">   echo "the lvm exists."</div><div class="line">fi</div></pre></td></tr></table></figure>
+<p>LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样</p>
+<h2 id="dmsetup查看LVM"><a href="#dmsetup查看LVM" class="headerlink" title="dmsetup查看LVM"></a>dmsetup查看LVM</h2><p>管理工具dmsetup是 Device mapper in the kernel 中的一个</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">dmsetup ls</div><div class="line">dmsetup info /dev/dm-0</div></pre></td></tr></table></figure>
+<h2 id="reboot-失败"><a href="#reboot-失败" class="headerlink" title="reboot 失败"></a>reboot 失败</h2><p>在麒麟下OS reboot的时候可能因为<code>mount: /polarx: 找不到 LABEL=/polarx.</code> 导致OS无法启动，可以进入紧急模式，然后注释掉 /etc/fstab 中的polarx 行，再reboot</p>
+<p>这是因为LVM的label、uuid丢失了，导致挂载失败。</p>
+<p>查看设备的label</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo lsblk -o name,mountpoint,label,size,uuid  or lsblk -f</div></pre></td></tr></table></figure>
+<p>修复：</p>
+<p>紧急模式下修改 /etc/fstab 去掉有问题的挂载; 修改标签</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#blkid   //查询uuid、label</div><div class="line">/dev/mapper/klas-root: UUID=&quot;c4793d67-867e-4f14-be87-f6713aa7fa36&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot;</div><div class="line">/dev/sda2: UUID=&quot;8DCEc5-b4P7-fW0y-mYwR-5YTH-Yf81-rH1CO8&quot; TYPE=&quot;LVM2_member&quot; PARTUUID=&quot;4ffd9bfa-02&quot;</div><div class="line">/dev/nvme0n1: UUID=&quot;nJAHxP-d15V-Fvmq-rxa3-GKJg-TCqe-gD1A2Z&quot; TYPE=&quot;LVM2_member&quot;</div><div class="line">/dev/sda1: UUID=&quot;29f59517-91c6-4b3c-bd22-0a47c800d7f4&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot; PARTUUID=&quot;4ffd9bfa-01&quot;</div><div class="line">/dev/mapper/vgpolarx-polarx: LABEL=&quot;polarx&quot; UUID=&quot;025a3ac5-d38a-42f1-80b6-563a55cba12a&quot; BLOCK_SIZE=&quot;4096&quot; TYPE=&quot;ext4&quot;</div><div class="line"></div><div class="line">e2label /dev/mapper/vgpolarx-polarx polarx</div></pre></td></tr></table></figure>
+<p>比如，下图右边的是启动失败的</p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228185144635.png" alt="image-20211228185144635"></p>
+<h2 id="软RAID"><a href="#软RAID" class="headerlink" title="软RAID"></a><a href="https://xiaoz.co/2020/04/28/array-with-mdadm/" target="_blank" rel="external">软RAID</a></h2><blockquote>
+<p>mdadm(multiple devices admin)是一个非常有用的管理软raid的工具，可以用它来创建、管理、监控raid设备，当用mdadm来创建磁盘阵列时，可以使用整块独立的磁盘(如/dev/sdb,/dev/sdc)，也可以使用特定的分区(/dev/sdb1,/dev/sdc1)</p>
+</blockquote>
+<p>mdadm使用手册</p>
+<blockquote>
+<p>mdadm –create device –level=Y –raid-devices=Z devices<br>    -C | –create /dev/mdn<br>    -l | –level  0|1|4|5<br>    -n | –raid-devices device [..]<br>    -x | –spare-devices device [..]</p>
+</blockquote>
+<p><a href="https://www.cxyzjd.com/article/weixin_51486343/113114906" target="_blank" rel="external">创建</a> -l 0表示raid0， -l 10表示raid10</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line">mdadm -C /dev/md0 -a yes -l 0 -n2 /dev/nvme&#123;6,7&#125;n1  //raid0</div><div class="line">mdadm -D /dev/md0</div><div class="line">mkfs.ext4 /dev/md0</div><div class="line">mkdir /md0</div><div class="line">mount /dev/md0 /md0</div><div class="line"></div><div class="line">//条带</div><div class="line">mdadm --create --verbose /dev/md0 --level=linear --raid-devices=2 /dev/sdb /dev/sdc</div><div class="line">检查</div><div class="line">mdadm -E /dev/nvme[0-5]n1</div></pre></td></tr></table></figure>
+<p>删除</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">umount /md0 </div><div class="line">mdadm -S /dev/md0</div></pre></td></tr></table></figure>
+<p>监控raid</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">#cat /proc/mdstat</div><div class="line">Personalities : [raid0] [raid6] [raid5] [raid4]</div><div class="line">md6 : active raid6 nvme3n1[3] nvme2n1[2] nvme1n1[1] nvme0n1[0]</div><div class="line">      7501211648 blocks super 1.2 level 6, 512k chunk, algorithm 2 [4/4] [UUUU]</div><div class="line">      [=&gt;...................]  resync =  7.4% (280712064/3750605824) finish=388.4min speed=148887K/sec</div><div class="line">      bitmap: 28/28 pages [112KB], 65536KB chunk //raid6一直在异步刷数据</div><div class="line"></div><div class="line">md0 : active raid0 nvme7n1[3] nvme6n1[2] nvme4n1[0] nvme5n1[1]</div><div class="line">      15002423296 blocks super 1.2 512k chunks</div></pre></td></tr></table></figure>
+<p>控制刷盘速度</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep raid</div><div class="line">dev.raid.speed_limit_max = 0</div><div class="line">dev.raid.speed_limit_min = 0</div></pre></td></tr></table></figure>
+<h2 id="nvme-cli"><a href="#nvme-cli" class="headerlink" title="nvme-cli"></a>nvme-cli</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">nvme id-ns /dev/nvme1n1 -H</div><div class="line">for i in `seq 0 1 2`; do nvme format --lbaf=3 /dev/nvme$&#123;i&#125;n1 ; done  //格式化，选择不同的扇区大小，默认512，可选4K</div><div class="line"></div><div class="line">fuser -km /data/</div></pre></td></tr></table></figure>
+<h2 id="raid硬件卡"><a href="#raid硬件卡" class="headerlink" title="raid硬件卡"></a>raid硬件卡</h2><p><a href="http://aijishu.com/a/1060000000225602" target="_blank" rel="external">raid卡外观</a></p>
+<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bV6Ra.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/" target="_blank" rel="external">https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/</a></p>
+<p><a href="https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/" target="_blank" rel="external">pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?</a></p>
+<p>软RAID配置方法<a href="https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/" target="_blank" rel="external">参考这里</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Linux/" rel="tag"># Linux</a>
+          
+            <a href="/tags/LVM/" rel="tag"># LVM</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2018/02/24/Linux LVS配置/" rel="next" title="Linux LVS 配置">
+                <i class="fa fa-chevron-left"></i> Linux LVS 配置
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2018/02/25/Docker常见问题/" rel="prev" title="Docker 常见问题">
+                Docker 常见问题 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap" >
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image"
+               src="/images/avatar.gif"
+               alt="weibo @plantegg" />
+          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">231</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux-LVM使用"><span class="nav-number">1.</span> <span class="nav-text">Linux LVM使用</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#LVM-创建、扩容"><span class="nav-number">1.1.</span> <span class="nav-text">LVM 创建、扩容</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#创建LVM"><span class="nav-number">1.2.</span> <span class="nav-text">创建LVM</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#复杂版创建LVM"><span class="nav-number">1.3.</span> <span class="nav-text">复杂版创建LVM</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#dmsetup查看LVM"><span class="nav-number">1.4.</span> <span class="nav-text">dmsetup查看LVM</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#reboot-失败"><span class="nav-number">1.5.</span> <span class="nav-text">reboot 失败</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#软RAID"><span class="nav-number">1.6.</span> <span class="nav-text">软RAID</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#nvme-cli"><span class="nav-number">1.7.</span> <span class="nav-text">nvme-cli</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#raid硬件卡"><span class="nav-number">1.8.</span> <span class="nav-text">raid硬件卡</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.9.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright" >
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
