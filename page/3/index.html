@@ -1366,7 +1366,7 @@
 <p>从这里的描述来看，数据小的时候第一种方式还能接受，但是数据大了容易OOM，方式三看起来不错，但是要特别注意 net_write_timeout。</p>
 <p>1和3对MySQL Server来说处理上没有啥区别，也感知不到这两种方式的不同。只是对1来说从OS Buffer中的数据复制到JVM内存中速度快，JVM攒多了数据内存就容易爆掉；对3来说JDBC一条条将OS Buffer中的数据复制到JVM(内存复制速度快)同时返回给execute挨个处理（慢），一般来说挨个处理要慢一些，这就导致了从OS Buffer中复制数据较慢，容易导致 TCP Receive Buffer满了，那么MySQL Server感知到的就是TCP 传输窗口为0了，导致暂停传输数据。</p>
 <p>在数据量很小的时候方式三没什么优势，因为总是多一次set net_write_tiemout，也就是多了一次RTT。</p>
-<h2 id="net-write-timeout"><a href="#net-write-timeout" class="headerlink" title="net_write_timeout"></a>net_write_timeout</h2><p>先看下 <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout" target="_blank" rel="external"><code>net_write_timeout</code></a>的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. </p>
+<h2 id="net-write-timeout"><a href="#net-write-timeout" class="headerlink" title="net_write_timeout"></a>net_write_timeout</h2><p>先看下 <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout" target="_blank" rel="external"><code>net_write_timeout</code></a>的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。</p>
 <table>
 <thead>
 <tr>
@@ -1406,10 +1406,10 @@
 </tbody>
 </table>
 <blockquote>
-<p><strong>案例</strong>：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，知道MySQL  Server 触发 net_write_timeout，报异常</p>
+<p><strong>案例</strong>：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，直到MySQL  Server 触发 net_write_timeout 异常</p>
 <p>首先可以尝试在 DRDS jdbcurl 配置 netTimeoutForStreamingResults 参数,设置为 0 可以使其一直等待,或设置一个合理的值(秒).</p>
 </blockquote>
-<p>从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery（）方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：</p>
+<p>从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery() 方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">if (doStreaming &amp;&amp; this.connection.getNetTimeoutForStreamingResults() &gt; 0) &#123;  </div><div class="line">            java.sql.Statement stmt = null;  </div><div class="line">            try &#123;  </div><div class="line">                stmt = this.connection.createStatement();                    ((com.mysql.jdbc.StatementImpl)stmt).executeSimpleNonQuery(this.connection, &quot;SET net_write_timeout=&quot;   </div><div class="line">                        + this.connection.getNetTimeoutForStreamingResults());  </div><div class="line">            &#125; finally &#123;  </div><div class="line">                if (stmt != null) &#123;  </div><div class="line">                    stmt.close();  </div><div class="line">                &#125;  </div><div class="line">            &#125;  </div><div class="line">        &#125;</div></pre></td></tr></table></figure>
 <p>而 this.connection.getNetTimeoutForStreamingResults() 默认是600秒，或者在JDBC连接串种通过属性 netTimeoutForStreamingResults 来指定。</p>
 <p>一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：</p>
@@ -5089,7 +5089,7 @@ test.x86_64.rpm
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-count">136</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
