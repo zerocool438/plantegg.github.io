@@ -102,13 +102,13 @@
 <meta property="og:url" content="https://plantegg.github.io/2021/11/26/数据库计算向量化/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 Perf IPC以及CPU性能 CPU性能和CACHE CPU 性能和Cache Line 十年后数据库还是不敢拥抱NUMA？ In">
-<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/relation-algebra.png">
-<meta property="og:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png">
-<meta property="og:updated_time" content="2022-04-13T09:55:45.846Z">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/relation-algebra.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image6.png">
+<meta property="og:updated_time" content="2022-04-26T12:57:13.149Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="数据库计算向量化">
 <meta name="twitter:description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 Perf IPC以及CPU性能 CPU性能和CACHE CPU 性能和Cache Line 十年后数据库还是不敢拥抱NUMA？ In">
-<meta name="twitter:image" content="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/relation-algebra.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/relation-algebra.png">
 
 
 
@@ -399,7 +399,7 @@
 <p>在做向量化之前数据库一直用的是volcano模型来处理SQL</p>
 <h2 id="volcano火山模型"><a href="#volcano火山模型" class="headerlink" title="volcano火山模型"></a>volcano火山模型</h2><p>对于如下一条SQL, 数据库会将它解析成一颗树，这棵树每个节点就是一个operator(简单理解就是一个函数，进行一次计算处理)</p>
 <figure class="highlight sql"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">SELECT</span> pv.siteId, user.nickame</div><div class="line"><span class="keyword">FROM</span> pv <span class="keyword">JOIN</span> <span class="keyword">user</span></div><div class="line"><span class="keyword">ON</span> pv.siteId = user.siteId <span class="keyword">AND</span> pv.userId = user.id</div><div class="line"><span class="keyword">WHERE</span> pv.siteId = <span class="number">123</span>;</div></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/relation-algebra.png" alt="Relation Algebra"></p>
+<p><img src="/images/951413iMgBlog/relation-algebra.png" alt="Relation Algebra"></p>
 <p>可以看到火山模型实现简单，只需要根据不同的计算提供一堆算子(operator)就可以了，然后根据不同的SQL只需要将operator进行组装（类似搭积木一样），就能得到一个递归调用结构（火山模型），每行数据按照这个调用逻辑经过每个operator进行嵌套处理就得到最终结果。</p>
 <p>火山模型不但实现简单，框架结构性也非常好容易扩展。</p>
 <p>但是火山模型效率不高: </p>
@@ -417,7 +417,7 @@
 <p>如下图，表示的是for循环每次跳K个int，在K小于16的时候虽然循环次数逐渐减少到原来的1/16, 但是总时间没变，因为一直是访问的同一个cache里面的数据。 到16个之后就会产生突变（跨了cache_line），再后面32、64、128的时间减少来源于循环次数的减少，因为如论如何每次循环都需要访问内存加载数据到cache_line中. </p>
 <p>Cache_line大小是64，正好16个int，也就是存取1个或者16个int的代价基本是一样的。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">for (int i = 0; i &lt; arr.Length; i += K) arr[i] *= 3;</div></pre></td></tr></table></figure>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png" alt="running times of this loop for different step values (https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png)"></p>
+<p><img src="/images/951413iMgBlog/image6.png" alt="running times of this loop for different step values (/images/951413iMgBlog/image6.png)"></p>
 <p>另外 一个大家耳熟能详的案例是对一个二维数组<strong>逐行遍历</strong>和<strong>逐列遍历</strong>的时间差异，循环次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好，最终按行访问效率更高:</p>
 <figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">const</span> <span class="keyword">int</span> row = <span class="number">1024</span>;</div><div class="line"><span class="keyword">const</span> <span class="keyword">int</span> col = <span class="number">512</span></div><div class="line"><span class="keyword">int</span> matrix[row][col];</div><div class="line"><span class="comment">//逐行遍历耗时0.081ms</span></div><div class="line"><span class="keyword">int</span> sum_row=<span class="number">0</span>;</div><div class="line"><span class="keyword">for</span>(<span class="keyword">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++) &#123;</div><div class="line">    <span class="keyword">for</span>(<span class="keyword">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++)&#123;</div><div class="line">        sum_row += matrix[_r][_c];</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"><span class="comment">//逐列遍历耗时1.069ms</span></div><div class="line"><span class="keyword">int</span> sum_col=<span class="number">0</span>;</div><div class="line"><span class="keyword">for</span>(<span class="keyword">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++) &#123;</div><div class="line">    <span class="keyword">for</span>(<span class="keyword">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++)&#123;</div><div class="line">        sum_col += matrix[_r][_c];</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
 <p>了解了以上CPU运算的原理我们再来看向量化就很简单了</p>

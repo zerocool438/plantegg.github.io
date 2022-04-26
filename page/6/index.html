@@ -384,16 +384,16 @@
             <h1 id="如何徒手撕Bug"><a href="#如何徒手撕Bug" class="headerlink" title="如何徒手撕Bug"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
 <p>所以不到万不得已不要碰复杂的源代码</p>
 <h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
+<p><img src="/images/oss/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
 <p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
-<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
+<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="/images/oss/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
 <pre><code>$sudo fuser /run/xtables.lock 
 /run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
 </code></pre><p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
 <h2 id="跟踪具体拿到锁的进程"><a href="#跟踪具体拿到锁的进程" class="headerlink" title="跟踪具体拿到锁的进程"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
 iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
 </code></pre><p>通过strace这个拿到锁的进程可以看到：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
+<p><img src="/images/oss/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
 <p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
 <p>看看物理机上的dns服务器配置：</p>
 <pre><code>$cat /etc/resolv.conf   
@@ -402,13 +402,13 @@ nameserver 10.0.0.1
 nameserver 10.0.0.2
 nameserver 10.0.0.3
 </code></pre><p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
-<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
+<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="/images/oss/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
 <p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
 <h2 id="strace工作原理"><a href="#strace工作原理" class="headerlink" title="strace工作原理"></a>strace工作原理</h2><blockquote>
 <p>strace -T -tt -ff -p pid -o strace.out</p>
 <p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
 </blockquote>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
+<p><img src="/images/oss/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
 <p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
 <p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
 <p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
@@ -742,7 +742,7 @@ nameserver 10.0.0.3
 <li>qps = 100, latency = 5s, 计算结果 = 100 * 5s = 500。和常见核数不在同一个数量级，用异步。</li>
 <li>qps = 500, latency = 100ms，计算结果 = 500 * 0.1s = 50。和常见核数在同一个数量级，可用同步。如果未来延时继续增长，考虑异步。</li>
 </ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
+<p><img src="/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
 <h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量</p>
 <p>单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
 <p>最佳线程数量 rt(total)/rt(cpu)</p>
@@ -1378,7 +1378,7 @@ msg_size  =4 KiB (4,096)
 </tr>
 </tbody>
 </table>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png" alt="image.png"></p>
+<p><img src="/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png" alt="image.png"></p>
 <p>吞吐量数据汇总：</p>
 <table>
 <thead>
@@ -1458,7 +1458,7 @@ msg_size  =4 KiB (4,096)
 </tr>
 </tbody>
 </table>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png" alt="image.png"></p>
+<p><img src="/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png" alt="image.png"></p>
 <p>从延迟上来看，rama与calico-bgp相差不大，从数据上略低于host性能，略高于flannel-vxlan；从吞吐量上看，区别会明显一些，当报文长度大于4096 KB 时，均观察到各网络插件的吞吐量达到最大值，从最大值上来看可以初步得出以下结论：</p>
 <p><strong>host &gt; rama不开启mac nat &gt;</strong> <strong>rama开启mac nat</strong> ≈ <strong>calico-bgp &gt;</strong> <strong>flannel-vxlan</strong></p>
 <p>rama不开启mac nat时性能最高，开启mac nat功能，性能与calico-bgp基本相同，并且性能大幅度高于flannel-vxlan；虽然rama开启mac nat之后的性能与每个节点上的pod数量直接相关，但由于测试 rama开启mac nat方案 的时候，取的是两个个节点上50个pod中预计性能最差的pod，基本可以反映一般情况</p>
@@ -1600,18 +1600,18 @@ msg_size  =4 KiB (4,096)
             <h1 id="双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题"><a href="#双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
 <p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
 </blockquote>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
-<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
+<p><img src="/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
+<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
 <p>图中CPU的消耗占21%，不太正常。</p>
 <blockquote>
 <p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到<br>@RequestMapping<br>@PathVariable<br>带来使用上的便利</p>
 </blockquote>
-<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
+<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
 <p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
 <h3 id="Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）："><a href="#Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）：" class="headerlink" title="Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）："></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) &#123;</div><div class="line">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);</div><div class="line">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);</div><div class="line">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);</div><div class="line">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);</div><div class="line">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);</div><div class="line">176</div><div class="line">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) &#123;</div><div class="line">178			return null;</div><div class="line">179		&#125;</div><div class="line">180</div><div class="line">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);</div><div class="line">182		if (patterns == null) &#123;</div><div class="line">183			return null;</div><div class="line">184		&#125;</div><div class="line">185</div><div class="line">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);</div><div class="line">187		if (custom == null) &#123;</div><div class="line">188			return null;</div><div class="line">189		&#125;</div><div class="line">190</div><div class="line">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());</div><div class="line">192	&#125;</div></pre></td></tr></table></figure>
 <h3 id="doMatch-代码："><a href="#doMatch-代码：" class="headerlink" title="doMatch 代码："></a>doMatch 代码：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div></pre></td><td class="code"><pre><div class="line">96 </div><div class="line">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,</div><div class="line">98 			Map&lt;String, String&gt; uriTemplateVariables) &#123;</div><div class="line">99 </div><div class="line">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) &#123;</div><div class="line">101			return false;</div><div class="line">102		&#125;</div><div class="line">103</div><div class="line">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);</div><div class="line">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);</div><div class="line">106</div><div class="line">107		int pattIdxStart = 0;</div><div class="line">108		int pattIdxEnd = pattDirs.length - 1;</div><div class="line">109		int pathIdxStart = 0;</div><div class="line">110		int pathIdxEnd = pathDirs.length - 1;</div><div class="line">111</div><div class="line">112		// Match all elements up to the first **</div><div class="line">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">114			String patDir = pattDirs[pattIdxStart];</div><div class="line">115			if (&quot;**&quot;.equals(patDir)) &#123;</div><div class="line">116				break;</div><div class="line">117			&#125;</div><div class="line">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) &#123;</div><div class="line">119				return false;</div><div class="line">120			&#125;</div><div class="line">121			pattIdxStart++;</div><div class="line">122			pathIdxStart++;</div><div class="line">123		&#125;</div><div class="line">124</div><div class="line">125		if (pathIdxStart &gt; pathIdxEnd) &#123;</div><div class="line">126			// Path is exhausted, only match if rest of pattern is * or **&apos;s</div><div class="line">127			if (pattIdxStart &gt; pattIdxEnd) &#123;</div><div class="line">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :</div><div class="line">129						!path.endsWith(this.pathSeparator));</div><div class="line">130			&#125;</div><div class="line">131			if (!fullMatch) &#123;</div><div class="line">132				return true;</div><div class="line">133			&#125;</div><div class="line">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&quot;*&quot;) &amp;&amp; path.endsWith(this.pathSeparator)) &#123;</div><div class="line">135				return true;</div><div class="line">136			&#125;</div><div class="line">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">138				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">139					return false;</div><div class="line">140				&#125;</div><div class="line">141			&#125;</div><div class="line">142			return true;</div><div class="line">143		&#125;</div><div class="line">144		else if (pattIdxStart &gt; pattIdxEnd) &#123;</div><div class="line">145			// String not exhausted, but pattern is. Failure.</div><div class="line">146			return false;</div><div class="line">147		&#125;</div><div class="line">148		else if (!fullMatch &amp;&amp; &quot;**&quot;.equals(pattDirs[pattIdxStart])) &#123;</div><div class="line">149			// Path start definitely matches due to &quot;**&quot; part in pattern.</div><div class="line">150			return true;</div><div class="line">151		&#125;</div><div class="line">152</div><div class="line">153		// up to last &apos;**&apos;</div><div class="line">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">155			String patDir = pattDirs[pattIdxEnd];</div><div class="line">156			if (patDir.equals(&quot;**&quot;)) &#123;</div><div class="line">157				break;</div><div class="line">158			&#125;</div><div class="line">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) &#123;</div><div class="line">160				return false;</div><div class="line">161			&#125;</div><div class="line">162			pattIdxEnd--;</div><div class="line">163			pathIdxEnd--;</div><div class="line">164		&#125;</div><div class="line">165		if (pathIdxStart &gt; pathIdxEnd) &#123;</div><div class="line">166			// String is exhausted</div><div class="line">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">168				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">169					return false;</div><div class="line">170				&#125;</div><div class="line">171			&#125;</div><div class="line">172			return true;</div><div class="line">173		&#125;</div><div class="line">174</div><div class="line">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">176			int patIdxTmp = -1;</div><div class="line">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">178				if (pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">179					patIdxTmp = i;</div><div class="line">180					break;</div><div class="line">181				&#125;</div><div class="line">182			&#125;</div><div class="line">183			if (patIdxTmp == pattIdxStart + 1) &#123;</div><div class="line">184				// &apos;**/**&apos; situation, so skip one</div><div class="line">185				pattIdxStart++;</div><div class="line">186				continue;</div><div class="line">187			&#125;</div><div class="line">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between</div><div class="line">189			// strIdxStart &amp; strIdxEnd</div><div class="line">190			int patLength = (patIdxTmp - pattIdxStart - 1);</div><div class="line">191			int strLength = (pathIdxEnd - pathIdxStart + 1);</div><div class="line">192			int foundIdx = -1;</div><div class="line">193</div><div class="line">194			strLoop:</div><div class="line">195			for (int i = 0; i &lt;= strLength - patLength; i++) &#123;</div><div class="line">196				for (int j = 0; j &lt; patLength; j++) &#123;</div><div class="line">197					String subPat = pattDirs[pattIdxStart + j + 1];</div><div class="line">198					String subStr = pathDirs[pathIdxStart + i + j];</div><div class="line">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) &#123;</div><div class="line">200						continue strLoop;</div><div class="line">201					&#125;</div><div class="line">202				&#125;</div><div class="line">203				foundIdx = pathIdxStart + i;</div><div class="line">204				break;</div><div class="line">205			&#125;</div><div class="line">206</div><div class="line">207			if (foundIdx == -1) &#123;</div><div class="line">208				return false;</div><div class="line">209			&#125;</div><div class="line">210</div><div class="line">211			pattIdxStart = patIdxTmp;</div><div class="line">212			pathIdxStart = foundIdx + patLength;</div><div class="line">213		&#125;</div><div class="line">214</div><div class="line">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">216			if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">217				return false;</div><div class="line">218			&#125;</div><div class="line">219		&#125;</div><div class="line">220</div><div class="line">221		return true;</div><div class="line">222	&#125;</div></pre></td></tr></table></figure>
 <p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a href="http://www.cnblogs.com/ucos/articles/5542012.html" target="_blank" rel="external">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
-<p>以及这篇文章中给出的优化前后对比图：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
+<p>以及这篇文章中给出的优化前后对比图：<br><img src="/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
 
           
         
@@ -1751,7 +1751,7 @@ msg_size  =4 KiB (4,096)
 <h2 id="问题的原因"><a href="#问题的原因" class="headerlink" title="问题的原因"></a>问题的原因</h2><p>因为TCP协议为了对带宽利用率、性能方面优化，而做了一些特殊处理。比如Delay Ack和Nagle算法。</p>
 <p>这个原因对大家理解TCP基本的概念后能在实战中了解一些TCP其它方面的性能和影响。</p>
 <h3 id="什么是delay-ack"><a href="#什么是delay-ack" class="headerlink" title="什么是delay ack"></a>什么是delay ack</h3><p>由我前面的TCP介绍文章大家都知道，TCP是可靠传输，可靠的核心是收到包后回复一个ack来告诉对方收到了。</p>
-<p>来看一个例子：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/06e6b04614ce57e4624346ea6311a411.png" alt="image.png"></p>
+<p>来看一个例子：<br><img src="/images/oss/06e6b04614ce57e4624346ea6311a411.png" alt="image.png"></p>
 <p>截图中的Nignx(8085端口），收到了一个http request请求，然后立即回复了一个ack包给client，接着又回复了一个http response 给client。大家注意回复的ack包长度66，实际内容长度为0，ack信息放在TCP包头里面，也就是这里发了一个66字节的空包给客户端来告诉客户端我收到你的请求了。</p>
 <p>这里没毛病，逻辑很对，符合TCP的核心可靠传输的意义。但是带来的一个问题是：性能不够好（用了一个空包用于特意回复ack，有点浪费）。那能不能优化呢？</p>
 <p>这里的优化方法就是delay ack。</p>
@@ -1793,10 +1793,10 @@ end if
 <p>前面68个整包很快发出去也收到ack回复了，然后发了第69个整包，剩下88bytes（不够一个整包）根据Nagle算法要等一等，server收到第69个ack后，因为delay ack不回复（手里只攒下一个没有回复的包），所以client、server两边等在等，一直等到server的delay ack超时了。</p>
 </blockquote>
 <p>挺奇怪和挺有意思吧，作者还给出了传输数据的图表：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Fail.jpg" alt=""></p>
+<p><img src="/images/951413iMgBlog/Fail.jpg" alt=""></p>
 <p>这是有问题的传输图，明显有个平台层，这个平台层就是两边在互相等，整个速度肯定就上不去。</p>
 <p>如果传输的都是99,900，那么整个图形就很平整：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Pass.jpg" alt=""></p>
+<p><img src="/images/951413iMgBlog/Pass.jpg" alt=""></p>
 <h2 id="回到前面的问题"><a href="#回到前面的问题" class="headerlink" title="回到前面的问题"></a>回到前面的问题</h2><p>服务写好后，开始测试都没有问题，rt很正常（一般测试的都是小对象），没有触发这个问题。后来碰到一个300K的rt就到几百毫秒了，就是因为这个原因。</p>
 <p>另外有些http post会故意把包头和包内容分成两个包，再加一个Expect参数之类的，更容易触发这个问题。</p>
 <p>这是修改后的C代码</p>
@@ -1835,15 +1835,15 @@ if (CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_URL, oss.str().c_str())) 
 <li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
 <li>tcp_wmem 对应send buffer，也就是滑动窗口大小</li>
 </ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
 <p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
 <p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
 <h3 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h3><ul>
 <li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
 <li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
 </ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
 <ul>
 <li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
 <li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
@@ -1852,7 +1852,7 @@ if (CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_URL, oss.str().c_str())) 
 <li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
 <li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
 </ul>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
 <h3 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h3><h4 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h4><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
 <p>这种友善的保护机制，对于 CDN 来说是帮倒忙，因此我们可以通过命令将此功能关闭，以提高 HTTP Connection: keep-alive 环境下的用户体验感。</p>
 <pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
@@ -1884,13 +1884,13 @@ sudo ip tcp_metrics delete 100.118.58.7
 <h4 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h4><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
 <p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
 <h4 id="socket-send-rcv-buf"><a href="#socket-send-rcv-buf" class="headerlink" title="socket send/rcv buf"></a>socket send/rcv buf</h4><p>有些应用会默认设置 socketSendBuffer 为16K，在高rt的环境下，延时20ms，带宽100M，如果一个查询结果22M的话需要25秒</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
 <p>细化看下问题所在：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
 <p>这个时候也就是buf中的16K数据全部发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、OS什么都不能做。</p>
 <p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
 <p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
 <pre><code>$sudo sysctl -a | grep --color wmem
 vm.lowmem_reserve_ratio = 256   256     32
 net.core.wmem_max = 131071
@@ -2078,7 +2078,7 @@ net.ipv4.udp_wmem_min = 4096
 <p><strong>所以新进入一个领域的时候要去找他的大图和抓手。</strong></p>
 <p>好的书籍或者培训总是能很轻易地把这个大图交给你，再顺便给你几个抓手，你就基本入门了，这就是培训的魅力，这种情况肯定比自学效率高多了。但是目前绝大部分的书籍和培训都做不到这点</p>
 <h3 id="好的逻辑又怎么来？"><a href="#好的逻辑又怎么来？" class="headerlink" title="好的逻辑又怎么来？"></a>好的逻辑又怎么来？</h3><p><strong>实践、复盘</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/webp-5540564.jpg" alt="img"></p>
+<p><img src="/images/951413iMgBlog/webp-5540564.jpg" alt="img"></p>
 <h2 id="讲个前同事的故事"><a href="#讲个前同事的故事" class="headerlink" title="讲个前同事的故事"></a>讲个前同事的故事</h2><p>有一个前同事是5Q过来的，负责技术（所有解决不了的问题都找他），这位同学从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。这位同学让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
 <h3 id="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"><a href="#应用刚启动连接到数据库的时候比较慢，但又不是慢查询" class="headerlink" title="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"></a>应用刚启动连接到数据库的时候比较慢，但又不是慢查询</h3><ol>
 <li>这位同学的解决办法是通过tcpdump来分析网络通讯包，看具体卡在哪里把这个问题硬生生地给找到了。</li>
@@ -2086,14 +2086,14 @@ net.ipv4.udp_wmem_min = 4096
 <li>如果是MySQL的老司机，一上来就知道 <strong>skip-name-resolve</strong> 这个参数要改改默认值。</li>
 </ol>
 <p>在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的业务知识+方法论就可以更普遍地解决各种问题。</p>
-<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
+<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我<strong>再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么</strong>（这个动作没有任何难度吧，你照着做就是了，实际我发现绝对不会有10%的同学会去分析history的，而我则是通过history 搞到了各种黑科技 :) ）。</p>
 <h2 id="场景式学习、体感的来源、面对问题学习"><a href="#场景式学习、体感的来源、面对问题学习" class="headerlink" title="场景式学习、体感的来源、面对问题学习"></a>场景式学习、体感的来源、面对问题学习</h2><p>前面提到的对知识的深入理解这有点空，如何才能做到深入理解？</p>
 <h3 id="举个学习TCP三次握手例子"><a href="#举个学习TCP三次握手例子" class="headerlink" title="举个学习TCP三次握手例子"></a>举个学习TCP三次握手例子</h3><p>经历稍微丰富点的工程师都觉得TCP三次握手看过很多次、很多篇文章了，但是文章写得再好似乎当时理解了，但是总是过几个月就忘了或者一看就懂，过一阵子被人一问就模模糊糊了，或者多问两个为什么就答不上了，自己都觉得自己的回答是在猜或者不确定。</p>
 <p>为什么会这样呢？而学其它知识就好通畅多了，我觉得这里最主要的是我们对TCP缺乏<strong>体感</strong>，比如没有几个工程师去看过TCP握手的代码，也没法想象真正的TCP握手是如何在电脑里运作的（打电话能给你一些类似的体感，但是细节覆盖面不够）。</p>
 <p>如果这个时候你一边学习的时候一边再用wireshark抓包看看三次握手具体在干什么、交换了什么信息，比抽象的描述具象实在多了，你能看到握手的一来一回，并且看到一来一回带了哪些内容，这些内容又是用来做什么、为什么要带，这个时候你再去看别人讲解的理论顿时会觉得好理解多了，以后也很难忘记。</p>
 <p>但是这里很多人执行能力不强，想去抓包，但是觉得要下载安装wireshark，要学习wireshark就放弃了。<strong>只看不动手当然是最舒适的，但是这个最舒适给了你在学习的假象，没有结果</strong>。</p>
 <p>这是不是跟你要解决一个难题非常像，这个难题需要你去做很多事，比如下载源代码（翻不了墙，放弃）；比如要编译（还要去学习那些编译参数，放弃）；比如要搭建环境（太琐屑，放弃）。你看这中间九九八十一难你放弃了一难都取不了真经。这也是为什么同样学习、同样的问题，他能学会，他能解决，你不可以。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/167211888bc4f2a368df3d16c68e6d51.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
+<p><img src="/images/951413iMgBlog/167211888bc4f2a368df3d16c68e6d51.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
 <h2 id="空洞的口号"><a href="#空洞的口号" class="headerlink" title="空洞的口号"></a>空洞的口号</h2><p>很多文章都会教大家：举一反三、灵活运用、活学活用、多做多练。但是只有这些口号是没法落地的，落地的基本原则就是前面提到的，却总是被忽视了。</p>
 <p>还有些人做事情第六感很好，他自己也不一定能阐述清楚合理的逻辑，就是感觉对了，让他给你讲道理，你还真学不来。</p>
 <p>我这里主要是在描述<strong>能复制的一些具体做法</strong>，少喊些放哪里都正确的口号。不要那些抽象的套路，主要是不一定适合你和能复制。</p>
@@ -2252,7 +2252,7 @@ net.ipv4.udp_wmem_min = 4096
 <p>这就是向身边的牛人学习，同时很快超过他的办法。这就是为什么高考前你做了10套模拟题还不如其他人做一套的效果好</p>
 <p><strong>知识+逻辑 基本等于你的能力</strong>，知识让你知道那个东西，逻辑让你把东西和问题联系起来</p>
 <p><strong>这里的问题你可以理解成方案、架构、设计等</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/webp-5540564.jpg" alt="img"></p>
+<p><img src="/images/951413iMgBlog/webp-5540564.jpg" alt="img"></p>
 <h3 id="系统化的知识哪里来？"><a href="#系统化的知识哪里来？" class="headerlink" title="系统化的知识哪里来？"></a>系统化的知识哪里来？</h3><p>知识之间是可以联系起来的并且像一颗大树一样自我生长，但是当你都没理解透彻，自然没法产生联系，也就不能够自我生长了。</p>
 <p>真正掌握好的知识点会慢慢生长连接最终组成一张大网</p>
 <p>但是我们最容易陷入的就是掌握的深度、系统化（工作中碎片时间过多，学校里缺少时间）不够，所以一个知识点每次碰到花半个小时学习下来觉得掌握了，但是3个月后就又没印象了。总是感觉自己在懵懵懂懂中，或者一个领域学起来总是不得要领，根本的原因还是在于：宏观整体大图了解不够（缺乏体系，每次都是盲人摸象）；关键知识点深度不够，理解不透彻，这些关键点就是这个领域的骨架、支点、抓手。缺了抓手自然不能生长，缺了宏观大图容易误入歧途。</p>
@@ -2349,7 +2349,7 @@ net.ipv4.udp_wmem_min = 4096
 <p>使劲挖掘自己在知识效率型方面的能力吧，两者之间当然没有明显的界限，知识积累多了逻辑训练好了在别人看来你的智商就高了</p>
 <h2 id="知识分两种"><a href="#知识分两种" class="headerlink" title="知识分两种"></a>知识分两种</h2><p>一种是通用知识（不是说对所有人通用，而是说在一个专业领域去到哪个公司都能通用）；另外一种是跟业务公司绑定的特定知识</p>
 <p>通用知识没有任何疑问碰到后要非常饥渴地扑上去掌握他们（受益终生，这还有什么疑问吗？）。对于特定知识就要看你对业务需要掌握的深度了，肯定也是需要掌握一些的，特定知识掌握好的一般在公司里混的也会比较好</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210723142126157.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
+<p><img src="/images/951413iMgBlog/image-20210723142126157.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
 
           
         
@@ -2528,7 +2528,7 @@ net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
 net.ipv4.route.min_pmtu = 552
 </code></pre><p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="external">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
 <p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="external">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p><img src="/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
 <li>通过这个案例对mtu/mss等有了进一步的了解</li>
@@ -2682,7 +2682,7 @@ net.ipv4.route.min_pmtu = 552
 <h2 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
 <p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
 <h3 id="tcpdump-抓包所看到的问题表现"><a href="#tcpdump-抓包所看到的问题表现" class="headerlink" title="tcpdump 抓包所看到的问题表现"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
-<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
+<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
 <p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
 <p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
 <h3 id="开发增加debug日志"><a href="#开发增加debug日志" class="headerlink" title="开发增加debug日志"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据–实际不能排除）</p>
@@ -2708,7 +2708,7 @@ net.ipv4.route.min_pmtu = 552
       jstack();
 }
 </code></pre><p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
+<p><img src="/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
 <p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
 <p>实际上这里可能有几个问题：</p>
 <ol>
@@ -2893,7 +2893,7 @@ net.ipv4.route.min_pmtu = 552
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">iptables -t raw -A OUTPUT -p icmp -j TRACE</div><div class="line">iptables -t raw -A PREROUTING -p icmp -j TRACE</div></pre></td></tr></table></figure>
 <h2 id="端口转发"><a href="#端口转发" class="headerlink" title="端口转发"></a><a href="https://www.cnblogs.com/dongzhiquan/p/11427461.html" target="_blank" rel="external">端口转发</a></h2><h3 id="iptables"><a href="#iptables" class="headerlink" title="iptables"></a>iptables</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">iptables -t nat -A PREROUTING -d 10.176.7.5 -p tcp --dport 8507 -j DNAT --to-destination 10.176.7.6:3307</div><div class="line">iptables -t nat -D PREROUTING  -p tcp --dport 18080 -j DNAT --to-destination 10.176.7.245:8080</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将访问8022端口的进出流量转发到22端口</span></div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8022 -j REDIRECT --to-ports 22 </div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将本机的端口转发到其他机器</span></div><div class="line">iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80</div><div class="line">iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">清空nat表的所有链</span></div><div class="line">iptables -t nat -F PREROUTING</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">禁止访问某个端口</span></div><div class="line">iptables -A OUTPUT -p tcp --dport 31165 -j DROP</div></pre></td></tr></table></figure>
 <p>iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-7027461." alt="Image"></p>
+<p><img src="/images/951413iMgBlog/640-7027461." alt="Image"></p>
 <h3 id="ncat端口转发"><a href="#ncat端口转发" class="headerlink" title="ncat端口转发"></a>ncat端口转发</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口</div><div class="line">ncat --sh-exec &quot;ncat 192.168.172.131 80&quot; -l 9876  --keep-open</div></pre></td></tr></table></figure>
 <p>scat</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">在本地监听12345端口，并将请求转发至192.168.172.131的22端口。</div><div class="line">socat TCP4-LISTEN:12345,reuseaddr,fork TCP4:192.168.172.131:22</div></pre></td></tr></table></figure>
@@ -3289,7 +3289,7 @@ else
     pathmunge /usr/sbin after
 fi
 </code></pre><p>这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。</p>
-<p><strong>用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口</strong>：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ae3095f063dede80a8c1ee79ec25685c.png" alt="image.png"></p>
+<p><strong>用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口</strong>：<br><img src="/images/oss/ae3095f063dede80a8c1ee79ec25685c.png" alt="image.png"></p>
 <p>像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？</p>
 <p>在 /etc/profile.d/ 下创建一个文件：/etc/profile.d/my_bashenv.sh 内容如下：</p>
 <pre><code>$cat /etc/profile.d/my_bashenv.sh 
@@ -3758,9 +3758,9 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
 <p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
 <h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
+<p><img src="/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
 <p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
+<p><img src="/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
 <p>猜测是 alios 的bug</p>
 <h2 id="systemctl-start-docker"><a href="#systemctl-start-docker" class="headerlink" title="systemctl start docker"></a>systemctl start docker</h2><p>Failed to start docker.service: Unit not found.</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">UNIT LOAD PATH</div><div class="line">          Unit files are loaded from a set of paths determined during </div><div class="line">          compilation, described in the two tables below. Unit files found </div><div class="line">          in directories listed earlier override files with the same name </div><div class="line">          in directories lower in the list.</div><div class="line"></div><div class="line">           Table 1.  Load path when running in system mode (--system).</div><div class="line">           ┌────────────────────────┬─────────────────────────────┐</div><div class="line">           │Path                    │ Description                 │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/etc/systemd/system     │ Local configuration         │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/run/systemd/system     │ Runtime units               │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/usr/lib/systemd/system │ Units of installed packages │</div><div class="line">           └────────────────────────┴─────────────────────────────┘</div></pre></td></tr></table></figure>
@@ -3943,7 +3943,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
             <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p>LVM是 Logical Volume Manager（逻辑<a href="https://baike.baidu.com/item/卷管理" target="_blank" rel="external">卷管理</a>）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。</p>
 <p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
 <p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/949069-20200416104045527-1858978940.png" alt="img"></p>
 <p><strong>lvreduce 缩小LV</strong></p>
 <p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ==谨慎用==</strong></p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</div><div class="line"></div><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$lsblk  -f</div><div class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</div><div class="line">sda                                                                              </div><div class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</div><div class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</div><div class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</div><div class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </div><div class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</div><div class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</div><div class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</div><div class="line">nvme0n1                                                                          </div><div class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</div><div class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </div><div class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </div><div class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</div></pre></td></tr></table></figure>
@@ -3961,7 +3961,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <p>紧急模式下修改 /etc/fstab 去掉有问题的挂载; 修改标签</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#blkid   //查询uuid、label</div><div class="line">/dev/mapper/klas-root: UUID=&quot;c4793d67-867e-4f14-be87-f6713aa7fa36&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot;</div><div class="line">/dev/sda2: UUID=&quot;8DCEc5-b4P7-fW0y-mYwR-5YTH-Yf81-rH1CO8&quot; TYPE=&quot;LVM2_member&quot; PARTUUID=&quot;4ffd9bfa-02&quot;</div><div class="line">/dev/nvme0n1: UUID=&quot;nJAHxP-d15V-Fvmq-rxa3-GKJg-TCqe-gD1A2Z&quot; TYPE=&quot;LVM2_member&quot;</div><div class="line">/dev/sda1: UUID=&quot;29f59517-91c6-4b3c-bd22-0a47c800d7f4&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot; PARTUUID=&quot;4ffd9bfa-01&quot;</div><div class="line">/dev/mapper/vgpolarx-polarx: LABEL=&quot;polarx&quot; UUID=&quot;025a3ac5-d38a-42f1-80b6-563a55cba12a&quot; BLOCK_SIZE=&quot;4096&quot; TYPE=&quot;ext4&quot;</div><div class="line"></div><div class="line">e2label /dev/mapper/vgpolarx-polarx polarx</div></pre></td></tr></table></figure>
 <p>比如，下图右边的是启动失败的</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228185144635.png" alt="image-20211228185144635"></p>
+<p><img src="/images/951413iMgBlog/image-20211228185144635.png" alt="image-20211228185144635"></p>
 <h2 id="软RAID"><a href="#软RAID" class="headerlink" title="软RAID"></a><a href="https://xiaoz.co/2020/04/28/array-with-mdadm/" target="_blank" rel="external">软RAID</a></h2><blockquote>
 <p>mdadm(multiple devices admin)是一个非常有用的管理软raid的工具，可以用它来创建、管理、监控raid设备，当用mdadm来创建磁盘阵列时，可以使用整块独立的磁盘(如/dev/sdb,/dev/sdc)，也可以使用特定的分区(/dev/sdb1,/dev/sdc1)</p>
 </blockquote>
@@ -3979,7 +3979,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep raid</div><div class="line">dev.raid.speed_limit_max = 0</div><div class="line">dev.raid.speed_limit_min = 0</div></pre></td></tr></table></figure>
 <h2 id="nvme-cli"><a href="#nvme-cli" class="headerlink" title="nvme-cli"></a>nvme-cli</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">nvme id-ns /dev/nvme1n1 -H</div><div class="line">for i in `seq 0 1 2`; do nvme format --lbaf=3 /dev/nvme$&#123;i&#125;n1 ; done  //格式化，选择不同的扇区大小，默认512，可选4K</div><div class="line"></div><div class="line">fuser -km /data/</div></pre></td></tr></table></figure>
 <h2 id="raid硬件卡"><a href="#raid硬件卡" class="headerlink" title="raid硬件卡"></a>raid硬件卡</h2><p><a href="http://aijishu.com/a/1060000000225602" target="_blank" rel="external">raid卡外观</a></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bV6Ra.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/bV6Ra.png" alt="image.png"></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/" target="_blank" rel="external">https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/</a></p>
 <p><a href="https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/" target="_blank" rel="external">pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?</a></p>
 <p>软RAID配置方法<a href="https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/" target="_blank" rel="external">参考这里</a></p>
@@ -4155,9 +4155,9 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <p>3.LVS由用户空间的ipvsadm和内核空间的IPVS组成，ipvsadm用来定义规则，IPVS利用ipvsadm定义的规则工作，IPVS工作在INPUT链上,当数据包到达INPUT链时，首先会被IPVS检查，如果数据包里面的目的地址及端口没有在规则里面，那么这条数据包将被放行至用户空间。 </p>
 <p>4.如果数据包里面的目的地址及端口在规则里面，那么这条数据报文将被修改目的地址为事先定义好的后端服务器，并送往POSTROUTING链。 </p>
 <p>5.最后经由POSTROUTING链发往后端服务器。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png" alt="image.png"></p>
+<p><img src="/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png" alt="image.png"></p>
 <h2 id="netfilter-原理"><a href="#netfilter-原理" class="headerlink" title="netfilter 原理"></a>netfilter 原理</h2><p>Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：<code>raw table</code>, <code>mangle table</code>, <code>nat table</code>, <code>filter table</code>。Netfilter 默认的链有：<code>INPUT</code>, <code>OUTPUT</code>, <code>FORWARD</code>, <code>PREROUTING</code>, <code>POSTROUTING</code>，根据<code>表</code>的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png" alt="image.png"></p>
 <h2 id="OSPF-LVS"><a href="#OSPF-LVS" class="headerlink" title="OSPF + LVS"></a>OSPF + LVS</h2><p>OSPF：Open Shortest Path First 开放最短路径优先，SPF算法也被称为Dijkstra算法，这是因为最短路径优先算法SPF是由荷兰计算机科学家狄克斯特拉于1959年提出的。</p>
 <p>通过OSPF来替换keepalived，解决两个LVS节点的高可用，以及流量负载问题。keepalived两个节点只能是master-slave模式，而OSPF两个节点都是master，同时都有流量</p>
 <p><img src="https://bbsmax.ikafan.com/static/L3Byb3h5L2h0dHAvczMuNTFjdG8uY29tL3d5ZnMwMi9NMDEvMjMvRkUvd0tpb20xTktBSnpqN2JNS0FBRTRQTzI1LVh3ODY2LmpwZw==.jpg" alt="img"></p>
@@ -4320,7 +4320,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <li>接入集团DRC来保障数据的高可用</li>
 <li>对业务进行改造支持Amazon的全链路压测</li>
 </ul>
-<h2 id="主要的压测过程"><a href="#主要的压测过程" class="headerlink" title="主要的压测过程"></a>主要的压测过程</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6b24a854d91aba4dcdbd4f0155683d93.png" alt="screenshot.png"></p>
+<h2 id="主要的压测过程"><a href="#主要的压测过程" class="headerlink" title="主要的压测过程"></a>主要的压测过程</h2><p><img src="/images/oss/6b24a854d91aba4dcdbd4f0155683d93.png" alt="screenshot.png"></p>
 <p><strong>上图是压测过程中主要的阶段中问题和改进,主要的问题和优化过程如下：</strong></p>
 <pre><code>- docker bridge网络性能问题和网络中断si不均衡    (优化后：500-&gt;1000TPS)
 - 短连接导致的local port不够                   (优化后：1000-3000TPS)
@@ -4335,26 +4335,26 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <li>userservice    处理登录后的业务逻辑，比如将优酷账号和淘宝账号绑定</li>
 </ul>
 <p>为了更好地利用资源每台物理加上部署三个docker 容器，跑在不同的端口上(8081、8082、8083），通过bridge网络来互相通讯</p>
-<h3 id="Passport机器大致结构"><a href="#Passport机器大致结构" class="headerlink" title="Passport机器大致结构"></a>Passport机器大致结构</h3><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b509b30218dd22e03149985cf5e15f8e.png" alt="screenshot.png"></p>
+<h3 id="Passport机器大致结构"><a href="#Passport机器大致结构" class="headerlink" title="Passport机器大致结构"></a>Passport机器大致结构</h3><p><img src="/images/oss/b509b30218dd22e03149985cf5e15f8e.png" alt="screenshot.png"></p>
 <!--这里的500 TPS到5400 TPS是指登录和将优酷账号和淘宝账号绑定的TPS，也是促销活动主要的瓶颈-->
 <h3 id="userservice服务网络相关的各种问题"><a href="#userservice服务网络相关的各种问题" class="headerlink" title="userservice服务网络相关的各种问题"></a>userservice服务网络相关的各种问题</h3><hr>
-<h4 id="太多SocketConnect异常-如上图）"><a href="#太多SocketConnect异常-如上图）" class="headerlink" title="太多SocketConnect异常(如上图）"></a>太多SocketConnect异常(如上图）</h4><p>在userservice机器上通过netstat也能看到大量的SYN_SENT状态，如下图：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/99bf952b880f17243953da790ff0e710.png" alt="image.png"></p>
-<h4 id="因为docker-bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上"><a href="#因为docker-bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上" class="headerlink" title="因为docker bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上"></a>因为docker bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上</h4><p>这时SocketConnect异常不再出现<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6ed62fd6b50ad2785e5b57687d95ad6e.png" alt="image.png"></p>
+<h4 id="太多SocketConnect异常-如上图）"><a href="#太多SocketConnect异常-如上图）" class="headerlink" title="太多SocketConnect异常(如上图）"></a>太多SocketConnect异常(如上图）</h4><p>在userservice机器上通过netstat也能看到大量的SYN_SENT状态，如下图：<br><img src="/images/oss/99bf952b880f17243953da790ff0e710.png" alt="image.png"></p>
+<h4 id="因为docker-bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上"><a href="#因为docker-bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上" class="headerlink" title="因为docker bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上"></a>因为docker bridge通过nat来实现，尝试去掉docker，让tomcat直接跑在物理机上</h4><p>这时SocketConnect异常不再出现<br><img src="/images/oss/6ed62fd6b50ad2785e5b57687d95ad6e.png" alt="image.png"></p>
 <h4 id="从新梳理一下网络流程"><a href="#从新梳理一下网络流程" class="headerlink" title="从新梳理一下网络流程"></a>从新梳理一下网络流程</h4><p>docker(bridge)—-短连接—&gt;访问淘宝API(淘宝open api只能短连接访问），性能差，cpu都花在si上； </p>
 <p>如果 docker(bridge)—-长连接到宿主机的某个代理上(比如haproxy）—–短连接—&gt;访问淘宝API， 性能就能好一点。问题可能是短连接放大了Docker bridge网络的性能损耗</p>
-<h4 id="当时看到的cpu-si非常高，截图如下："><a href="#当时看到的cpu-si非常高，截图如下：" class="headerlink" title="当时看到的cpu si非常高，截图如下："></a>当时看到的cpu si非常高，截图如下：</h4><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4c1eff0f925f59977e2557acff5cf03b.png" alt="image.png"></p>
+<h4 id="当时看到的cpu-si非常高，截图如下："><a href="#当时看到的cpu-si非常高，截图如下：" class="headerlink" title="当时看到的cpu si非常高，截图如下："></a>当时看到的cpu si非常高，截图如下：</h4><p><img src="/images/oss/4c1eff0f925f59977e2557acff5cf03b.png" alt="image.png"></p>
 <p>去掉Docker后，性能有所提升，继续通过perf top看到内核态寻找可用的Local Port消耗了比较多的CPU，gif动态截图如下(可以点击看高清大图）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/fff502ca73e3112e585560ffe4a4dbf1.gif" alt="perf-top-netLocalPort-issue.gif"></p>
+<p><img src="/images/oss/fff502ca73e3112e585560ffe4a4dbf1.gif" alt="perf-top-netLocalPort-issue.gif"></p>
 <p><strong>注意图中ipv6_rcv_saddr_equal和inet_csk_get_port 总共占了30%的CPU</strong> (系统态的CPU使用率高意味着共享资源有竞争或者I/O设备之间有大量的交互。)</p>
 <p><strong>一般来说一台机器默认配置的可用 Local Port 3万多个，如果是短连接的话，一个连接释放后默认需要60秒回收，30000/60 =500 这是大概的理论TPS值【这里只考虑连同一个server IP:port 的时候】</strong></p>
 <p>这500的tps算是一个老中医的经验。不过有些系统调整过Local Port取值范围，比如从1024到65534，那么这个tps上限就是1000附近。</p>
-<p>同时观察这个时候CPU的主要花在sy上，最理想肯定是希望CPU主要用在us上，截图如下：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/05703c168e63e96821ea9f921d83712b.png" alt="image.png"></p>
+<p>同时观察这个时候CPU的主要花在sy上，最理想肯定是希望CPU主要用在us上，截图如下：<br><img src="/images/oss/05703c168e63e96821ea9f921d83712b.png" alt="image.png"></p>
 <p><strong>规则：性能优化要先把CPU从SI、SY上的消耗赶到US上去(通过架构、系统配置）；然后提升 US CPU的效率(代码级别的优化）</strong></p>
-<p>sy占用了30-50%的CPU，这太不科学了，同时通过 netstat 分析连接状态，确实看到很多TIME_WAIT：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2ae2cb8b0cb324b68ca22c48c019e029.png" alt="localportissue-time-wait.png"></p>
+<p>sy占用了30-50%的CPU，这太不科学了，同时通过 netstat 分析连接状态，确实看到很多TIME_WAIT：<br><img src="/images/oss/2ae2cb8b0cb324b68ca22c48c019e029.png" alt="localportissue-time-wait.png"></p>
 <p><strong>cpu要花在us上，这部分才是我们代码吃掉的</strong></p>
 <p><strong><em>于是让PE修改了tcp相关参数：降低 tcp_max_tw_buckets和开启tcp_tw_reuse，这个时候TPS能从1000提升到3000</em></strong></p>
 <p>鼓掌，赶紧休息，迎接双11啊</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/91353fb9c88116be3ff109e3528a4651.png" alt="image.png"></p>
+<p><img src="/images/oss/91353fb9c88116be3ff109e3528a4651.png" alt="image.png"></p>
 <h2 id="测试环境优化到3000-TPS后上线继续压测"><a href="#测试环境优化到3000-TPS后上线继续压测" class="headerlink" title="测试环境优化到3000 TPS后上线继续压测"></a>测试环境优化到3000 TPS后上线继续压测</h2><p><strong>居然性能又回到了500，太沮丧了</strong>，其实最开始账号绑定慢，Passport这边就怀疑taobao api是不是在大压力下不稳定，一般都是认为自己没问题，有问题的一定是对方。我不觉得这有什么问题，要是知道自己有什么问题不早就优化掉了，但是这里缺乏证据支撑，也就是如果你觉得自己没有问题或者问题在对方，一定要拿出证据来(有证据那么大家可以就证据来讨论，而不是互相苍白地推诿）。</p>
 <p>这个时候Passport更加理直气壮啊，好不容易在测试环境优化到3000，怎么一调taobao api就掉到500呢，这么点压力你们就扛不住啊。 但是taobao api那边给出调用数据都是1ms以内就返回了(alimonitor监控图表–拿证据说话）。</p>
 <p>看到alimonitor给出的api响应时间图表后，我开始怀疑从优酷的机器到淘宝的机器中间链路上有瓶颈，但是需要设计方案来证明这个问题在链路上，要不各个环节都会认为自己没有问题的，问题就会卡死。但是当时Passport的开发也只能拿到Login和Userservice这两组机器的权限，中间的负载均衡、交换机都没有权限接触到。</p>
@@ -4374,21 +4374,21 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <h3 id="进一步挖掘代码中的优化空间"><a href="#进一步挖掘代码中的优化空间" class="headerlink" title="进一步挖掘代码中的优化空间"></a>进一步挖掘代码中的优化空间</h3><p>双11前的这段封网其实是比较无聊的，于是和Passport的开发同学们一起挖掘代码中的可以优化的部分。这个过程中使用到的主要工具是这三个：火焰图、perf、perf-map-java。相关链接：<a href="http://www.brendangregg.com/perf.html" target="_blank" rel="external">http://www.brendangregg.com/perf.html</a> ; <a href="https://github.com/jrudolph/perf-map-agent" target="_blank" rel="external">https://github.com/jrudolph/perf-map-agent</a></p>
 <h3 id="通过Perf发现的一个SpringMVC-的性能问题"><a href="#通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="通过Perf发现的一个SpringMVC 的性能问题"></a>通过Perf发现的一个SpringMVC 的性能问题</h3><p>这个问题具体参考我之前发表的优化文章<a href="http://www.atatech.org/articles/65232" title="spring mvc issue" target="_blank" rel="external">http://www.atatech.org/articles/65232</a> 。 主要是通过火焰图发现spring mapping path消耗了过多CPU的性能问题，CPU热点都在methodMapping相关部分，于是修改代码去掉spring中的methodMapping解析后性能提升了40%，TPS能从3000提升到4200.</p>
 <h3 id="著名的fillInStackTrace导致的性能问题"><a href="#著名的fillInStackTrace导致的性能问题" class="headerlink" title="著名的fillInStackTrace导致的性能问题"></a>著名的fillInStackTrace导致的性能问题</h3><p>代码中的第二个问题是我们程序中很多异常(fillInStackTrace），实际业务上没有这么多错误，应该是一些不重要的异常，不会影响结果，但是异常频率很高，对这种我们可以找到触发的地方，catch住，然后不要抛出去(也就是别触发fillInStackTrace)，打印一行error日志就行，这块也能省出10%的CPU，对应到TPS也有几百的提升。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/36ef4b16c3c400abf6eb7e6b0fbb2f58.png" alt="screenshot.png"></p>
-<p>部分触发fillInStackTrace的场景和具体代码行(点击看高清大图）：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7eb2cbb4afc2c7d7007c35304c95342a.png" alt="screenshot.png"></p>
-<p>对应的火焰图(点击看高清大图）：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/894bd736dd03060e89e3fa49cc98ae5e.png" alt="screenshot.png"></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2bb7395a2cc6833c9c7587b38402a301.png" alt="screenshot.png"></p>
-<h3 id="解析useragent-代码部分的性能问题"><a href="#解析useragent-代码部分的性能问题" class="headerlink" title="解析useragent 代码部分的性能问题"></a>解析useragent 代码部分的性能问题</h3><p>整个useragent调用堆栈和cpu占用情况，做了个汇总(useragent不启用TPS能从4700提升到5400）<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8a4a97cb74724b8baa3b90072a1914e0.png" alt="screenshot.png"></p>
-<p>实际火焰图中比较分散：<br><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/afacc681a9550cd087838c2383be54c8.png" alt="screenshot.png"></p>
+<p><img src="/images/oss/36ef4b16c3c400abf6eb7e6b0fbb2f58.png" alt="screenshot.png"></p>
+<p>部分触发fillInStackTrace的场景和具体代码行(点击看高清大图）：<br><img src="/images/oss/7eb2cbb4afc2c7d7007c35304c95342a.png" alt="screenshot.png"></p>
+<p>对应的火焰图(点击看高清大图）：<br><img src="/images/oss/894bd736dd03060e89e3fa49cc98ae5e.png" alt="screenshot.png"></p>
+<p><img src="/images/oss/2bb7395a2cc6833c9c7587b38402a301.png" alt="screenshot.png"></p>
+<h3 id="解析useragent-代码部分的性能问题"><a href="#解析useragent-代码部分的性能问题" class="headerlink" title="解析useragent 代码部分的性能问题"></a>解析useragent 代码部分的性能问题</h3><p>整个useragent调用堆栈和cpu占用情况，做了个汇总(useragent不启用TPS能从4700提升到5400）<br><img src="/images/oss/8a4a97cb74724b8baa3b90072a1914e0.png" alt="screenshot.png"></p>
+<p>实际火焰图中比较分散：<br><img src="/images/oss/afacc681a9550cd087838c2383be54c8.png" alt="screenshot.png"></p>
 <p><strong>最终通过对代码的优化勉勉强强将TPS从3000提升到了5400(太不容易了，改代码过程太辛苦，不如改配置来得快）</strong></p>
 <p>优化代码后压测tps可以跑到5400，截图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/38bb043c85c7b50007609484c7bf5698.png" alt="image.png"></p>
+<p><img src="/images/oss/38bb043c85c7b50007609484c7bf5698.png" alt="image.png"></p>
 <h2 id="最后再次总结整个压测过程的问题和优化历程"><a href="#最后再次总结整个压测过程的问题和优化历程" class="headerlink" title="最后再次总结整个压测过程的问题和优化历程"></a>最后再次总结整个压测过程的问题和优化历程</h2><pre><code>- docker bridge网络性能问题和网络中断si不均衡    (优化后：500-&gt;1000TPS)
 - 短连接导致的local port不够                   (优化后：1000-3000TPS）
 - 生产环境snat单核导致的网络延时增大             (优化后能达到测试环境的3000TPS）
 - Spring MVC Path带来的过高的CPU消耗           (优化后：3000-&gt;4200TPS)
 - 其他业务代码的优化(比如异常、agent等）         (优化后：4200-&gt;5400TPS)
-</code></pre><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2be2799d1eef982d77e5c0a5c896a0e9.png" alt="image.png"></p>
+</code></pre><p><img src="/images/oss/2be2799d1eef982d77e5c0a5c896a0e9.png" alt="image.png"></p>
 
           
         
@@ -4593,14 +4593,14 @@ curl -H &quot;Content-Type: application/json&quot; -X POST -d &apos;{&quot;Netwo
 
 sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/events
 </code></pre><h2 id="Unix-Domain-Socket工作原理"><a href="#Unix-Domain-Socket工作原理" class="headerlink" title="Unix Domain Socket工作原理"></a><a href="https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A" target="_blank" rel="external">Unix Domain Socket工作原理</a></h2><p>接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-0054201." alt="Image"></p>
+<p><img src="/images/951413iMgBlog/640-0054201." alt="Image"></p>
 <p>主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。</p>
 <p>直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) = sk 和 unix_peer(sk) = newsk 这两句。</p>
 <figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//file: net/unix/af_unix.c</span></div><div class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">int</span> <span class="title">unix_stream_connect</span><span class="params">(struct socket *sock, struct sockaddr *uaddr,</span></span></div><div class="line">          <span class="keyword">int</span> addr_len, <span class="keyword">int</span> flags)</div><div class="line">&#123;</div><div class="line"> <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_un</span> *<span class="title">sunaddr</span> = (<span class="title">struct</span> <span class="title">sockaddr_un</span> *)<span class="title">uaddr</span>;</span></div><div class="line"></div><div class="line"> <span class="comment">// 1. 为服务器侧申请一个新的 socket 对象</span></div><div class="line"> newsk = unix_create1(sock_net(sk), <span class="literal">NULL</span>);</div><div class="line"></div><div class="line"> <span class="comment">// 2. 申请一个 skb，并关联上 newsk</span></div><div class="line"> skb = sock_wmalloc(newsk, <span class="number">1</span>, <span class="number">0</span>, GFP_KERNEL);</div><div class="line"> ...</div><div class="line"></div><div class="line"> <span class="comment">// 3. 建立两个 sock 对象之间的连接</span></div><div class="line"> unix_peer(newsk) = sk;</div><div class="line"> newsk-&gt;sk_state  = TCP_ESTABLISHED;</div><div class="line"> newsk-&gt;sk_type  = sk-&gt;sk_type;</div><div class="line"> ...</div><div class="line"> sk-&gt;sk_state = TCP_ESTABLISHED;</div><div class="line"> unix_peer(sk) = newsk;</div><div class="line"></div><div class="line"> <span class="comment">// 4. 把连接中的一头（新 socket）放到服务器接收队列中</span></div><div class="line"> __skb_queue_tail(&amp;other-&gt;sk_receive_queue, skb);</div><div class="line">&#125;</div><div class="line"></div><div class="line"><span class="comment">//file: net/unix/af_unix.c</span></div><div class="line"><span class="meta">#<span class="meta-keyword">define</span> unix_peer(sk) (unix_sk(sk)-&gt;peer)</span></div></pre></td></tr></table></figure>
 <p>收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，<strong>直接把 skb 给放到对端的接收队列里了</strong></p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
+<p><img src="/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
 <p>Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。</p>
-<h2 id="tcpdump原理"><a href="#tcpdump原理" class="headerlink" title="tcpdump原理"></a>tcpdump原理</h2><p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0923eefc85c1bf87f47591222532f1f2.png" alt="image.png"></p>
+<h2 id="tcpdump原理"><a href="#tcpdump原理" class="headerlink" title="tcpdump原理"></a>tcpdump原理</h2><p><img src="/images/oss/0923eefc85c1bf87f47591222532f1f2.png" alt="image.png"></p>
 <p>tcpdump 抓包使用的是 libpcap 这种机制。它的大致原理是：在收发包时，如果该包符合 tcpdump 设置的规则（BPF filter），那么该网络包就会被拷贝一份到 tcpdump 的内核缓冲区，然后以 PACKET_MMAP 的方式将这部分内存映射到 tcpdump 用户空间，解析后就会把这些内容给输出了。</p>
 <p>通过上图你也可以看到，在收包的时候，如果网络包已经被网卡丢弃了，那么 tcpdump 是抓不到它的；在发包的时候，如果网络包在协议栈里被丢弃了，比如因为发送缓冲区满而被丢弃，tcpdump 同样抓不到它。我们可以将 tcpdump 的能力范围简单地总结为：网卡以内的问题可以交给 tcpdump 来处理；对于网卡以外（包括网卡上）的问题，tcpdump 可能就捉襟见肘了。这个时候，你需要在对端也使用 tcpdump 来抓包。</p>
 <h3 id="tcpdump-技巧"><a href="#tcpdump-技巧" class="headerlink" title="tcpdump 技巧"></a>tcpdump 技巧</h3><blockquote>
@@ -4610,7 +4610,7 @@ sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div></pre></td><td class="code"><pre><div class="line">#tcpdump -D</div><div class="line">1.eth0</div><div class="line">2.bond0</div><div class="line">3.docker0</div><div class="line">4.nflog (Linux netfilter log (NFLOG) interface)</div><div class="line">5.nfqueue (Linux netfilter queue (NFQUEUE) interface)</div><div class="line">6.eth1</div><div class="line">7.usbmon1 (USB bus number 1)</div><div class="line">8.usbmon2 (USB bus number 2)</div><div class="line">9.veth6f2ee76</div><div class="line">10.veth8cb61c2</div><div class="line">11.veth9d9d363</div><div class="line">12.veth16c25ac</div><div class="line">13.veth190f0fc</div><div class="line">14.veth07103d7</div><div class="line">15.veth09119c0</div><div class="line">16.veth9770e1a</div><div class="line">17.any (Pseudo-device that captures on all interfaces)</div><div class="line">18.lo [Loopback]</div><div class="line"></div><div class="line"># tcpdump -X //解析内容</div></pre></td></tr></table></figure>
 <h2 id="TCP-疑难问题的轻量级分析手段：TCP-Tracepoints"><a href="#TCP-疑难问题的轻量级分析手段：TCP-Tracepoints" class="headerlink" title="TCP 疑难问题的轻量级分析手段：TCP Tracepoints"></a>TCP 疑难问题的轻量级分析手段：TCP Tracepoints</h2><p>Tracepoint 是我分析问题常用的手段之一，在遇到一些疑难问题时，我通常都会把一些相关的 Tracepoint 打开，把 Tracepoint 输出的内容保存起来，然后再在线下环境中分析。通常，我会写一些 Python 脚本来分析这些内容，毕竟 Python 在数据分析上还是很方便的。</p>
 <p>对于 TCP 的相关问题，我也习惯使用这些 TCP Tracepoints 来分析问题。要想使用这些 Tracepoints，你的内核版本需要为 <strong>4.16</strong> 及以上。这些常用的 TCP Tracepoints 路径位于 /sys/kernel/debug/tracing/events/tcp/ 和 /sys/kernel/debug/tracing/events/sock/，它们的作用如下表所示：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/32f29686127beb5a3279e630259903ae.png" alt="image.png"></p>
+<p><img src="/images/oss/32f29686127beb5a3279e630259903ae.png" alt="image.png"></p>
 <h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/" target="_blank" rel="external">https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/</a>    </p>
 <p><a href="https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump" target="_blank" rel="external">https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump</a></p>
 <p><a href="https://payloads.online/tools/socat" target="_blank" rel="external">https://payloads.online/tools/socat</a></p>
@@ -4749,7 +4749,7 @@ sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/
           
             <h1 id="从知识到能力，你到底欠缺了什么"><a href="#从知识到能力，你到底欠缺了什么" class="headerlink" title="从知识到能力，你到底欠缺了什么"></a>从知识到能力，你到底欠缺了什么</h1><h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>前面推送过文章<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="external">《毕业3年，为何技术能力相差越来越大？》</a> 有些同学觉得还是不知道如何落地，那么本文希望借助一个程序员经常遇到的一个问题：网络为什么不通？ 来具体展开实践一下怎么将书本上的死知识真正变成我们解决问题的能力。</p>
 <h2 id="大学学到的基本概念"><a href="#大学学到的基本概念" class="headerlink" title="大学学到的基本概念"></a>大学学到的基本概念</h2><p>我相信你脑子里关于网络基础知识的概念都在下面这张图上，但是有点乱，都认识，又都模模糊糊，更谈不上将他们转化成生产力，用来解决实际问题了。这就是因为知识没有贯通、没有实践、没有组织。</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
+<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
 <p>上图中知识点的作用在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="external">RFC1180</a>中讲的无比的通熟易懂了，看第一遍你也许就看懂了，但是一个月后又忘记了。其实这些东西我们在大学也学了，但是还是忘了（能够理解，缺少实操环境和条件），或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
 <p><strong>所以接下来我们将示范书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
 <h2 id="还是从一个网络不通的问题入手"><a href="#还是从一个网络不通的问题入手" class="headerlink" title="还是从一个网络不通的问题入手"></a>还是从一个网络不通的问题入手</h2><p>最近的环境碰到一个网络ping不通的问题，当时的网络链路是（大概是这样，略有简化）：</p>
@@ -4842,7 +4842,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 </code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
 <h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关进行转发(知识点–网关的作用)，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
 <p>从本机1.1.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走1.1.15.254这个网关，如下截图：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/85e8fc6b2614aed26bc3a6d70050bf36.png" alt="image.png"></p>
+<p><img src="/images/oss/85e8fc6b2614aed26bc3a6d70050bf36.png" alt="image.png"></p>
 <p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关1.1.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到1.1.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
 <p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
 <pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
@@ -4864,7 +4864,7 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
 <p>对于1能通，我认为这个测试不严格，新物理机所用的mac不一样，并且所接的交换机口也不一样，影响了测试结果。</p>
 <h3 id="祭出万能手段–抓包"><a href="#祭出万能手段–抓包" class="headerlink" title="祭出万能手段–抓包"></a>祭出万能手段–抓包</h3><p><strong>抓包在网络问题中是万能的，但是第一次容易被tcpdump抓包命令的众多参数吓晕，不去操作你永远上不了手，差距也就拉开了，你看差距有时候只是你对一条命令的执行</strong></p>
 <p>在物理机2上抓包：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cab05a87298fc4b6ff6152b2ff4c061b.png" alt="image.png"></p>
+<p><img src="/images/oss/cab05a87298fc4b6ff6152b2ff4c061b.png" alt="image.png"></p>
 <pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
 f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
 10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
@@ -4874,7 +4874,7 @@ f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102:
 <p>同时在物理机1上抓包（抓包截图略掉）只能看到ping包出去，回包没有到物理机1（所以回包肯定不会回到容器里了）</p>
 <p><strong>到这里问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
 <p>同时观察到的不正常延时都在网关那一跳：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7a6acf5f4897118e511e7165059b33c5.png" alt="image.png"></p>
+<p><img src="/images/oss/7a6acf5f4897118e511e7165059b33c5.png" alt="image.png"></p>
 <h3 id="最终的原因"><a href="#最终的原因" class="headerlink" title="最终的原因"></a>最终的原因</h3><p>最后在交换机上分析包没正确发到物理机1上的原因跟客户交换机使用了HSRP（热备份路由器协议，就是多个交换机HA高可用，也就是同一子网可以有多个网关的IP），停掉HSRP后所有IP容器都能通了，并且前面的某些容器延时也恢复正常了。</p>
 <p><strong>通俗点说就是HSRP把回包拐跑了，有些回包拐跑了又送回来了（延时200ms那些）</strong></p>
 <p>至于HSRP为什么会这么做，要厂家出来解释了。这里关键在于能让客户认同问题出现在交换机上还是前面的抓包证据充分，无可辩驳。实际中我们都习惯不给证据就说：我的程序没问题，就是你的问题。这样表述没有一点意义，我们是要拿着证据这么说，对方也好就着证据来反驳，这叫优雅地甩锅。</p>
@@ -4900,11 +4900,11 @@ telnet: connect to address 11.239.161.60: Connection refused
 <li>有很多这样的异常日志：[Server  SocketTimeoutException]</li>
 </ol>
 <p>检查一下当时的网络状态非常好，出问题时间段的网卡的流量信息也非常正常：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/81199130d4b2d5cf441944d9e11cc5fd.png" alt="image.png"></p>
+<p><img src="/images/oss/81199130d4b2d5cf441944d9e11cc5fd.png" alt="image.png"></p>
 <p>上图是通过sar监控到的9号 v24d9e0f23d40 这个网卡的流量，看起来也是正常，流量没有出现明显的波动</p>
 <p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求访问这个http server，基本认识告诉我们如果网络丢包、卡顿严重，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常–宁愿写个工具都不背锅（主要是背了锅也不一定能解决掉问题）。</p>
 <p>从实际监控来看，应用出现异常的时候我的http服务是正常的（写了脚本判断日志的连续性）：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
+<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
 <p>这也强有力地证明了网络没问题，所以写业务代码的同学一门心思集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
 <p>如果基础知识缺乏一点那么甩过来的这个锅网络是扛不动的，同时也阻碍了问题的真正发现。</p>
 <h3 id="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp"><a href="#TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp" class="headerlink" title="TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp"></a>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp</h3><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做扛包侠，只有找到真正的原因解决问题才会更快，要不在错误的方向上怎么发力都不对。准确的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
