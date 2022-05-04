@@ -102,7 +102,7 @@
 <meta property="og:url" content="https://plantegg.github.io/2018/03/14/如何设置git Proxy/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="如何设置git Proxygit http proxy 首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。 Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658  下面的例子假设你的socks5代理是： 127.0.0.1:13658 配置git http">
-<meta property="og:updated_time" content="2022-04-21T02:29:52.931Z">
+<meta property="og:updated_time" content="2022-05-04T06:46:17.379Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Git HTTP Proxy and SSH Proxy">
 <meta name="twitter:description" content="如何设置git Proxygit http proxy 首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。 Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658  下面的例子假设你的socks5代理是： 127.0.0.1:13658 配置git http">
@@ -422,6 +422,13 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <blockquote>
 <p><strong>-X</strong> <em>proxy_version</em><br>Requests that <strong>nc</strong> should use the specified protocol when talking to the proxy server. Supported protocols are ‘’4’’ (SOCKS v.4), ‘’5’’ (SOCKS v.5) and ‘’connect’’ (HTTPS proxy). If the protocol is not specified, SOCKS version 5 is used.</p>
 </blockquote>
+<h2 id="自动启动阿里郎网络加速"><a href="#自动启动阿里郎网络加速" class="headerlink" title="自动启动阿里郎网络加速"></a>自动启动阿里郎网络加速</h2><p>有时候网络加速会关掉，还得手工打开阿里郎开始网络加速，很不流畅<br>可以用如下命令拉起：</p>
+<blockquote>
+<p>Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2</p>
+</blockquote>
+<p>上面的参数1、参数2可以先手工拉起网络加速，然后 ps | grep 得到，写到脚本里面就好了</p>
+<h2 id="我的拉起代理自动脚本"><a href="#我的拉起代理自动脚本" class="headerlink" title="我的拉起代理自动脚本"></a>我的拉起代理自动脚本</h2><p>下面的脚本总共拉起了三个socks5代理，端口13657-13659，其中13659是阿里郎网络加速的代理<br>最后还启动了一个8123的http 代理（有些场景只支持http代理）</p>
+<p>macos：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13658&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    #sh ~/ssh-jump.sh</div><div class="line">    nohup ssh -qTfnN -D 13658 root@jump vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13658&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13657&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    nohup ssh -qTfnN -D 13657 azureuser@yu2 vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13657&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13659&quot; |grep LISTEN`</div><div class="line">#if [ &quot;$listPort&quot; != &quot;tcp4       0      0  127.0.0.1.13659        *.*                    LISTEN     &quot; ]; then</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2 &gt;~/jump.log 2&gt;&amp;1</div><div class="line">    echo &quot;start listPort $listPort&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.8123 &quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    polipo socksParentProxy=127.0.0.1:13659 1&gt;~/jump.log 2&gt;1&amp;</div><div class="line">    echo &quot;start polipo http proxy at 8123&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">#分别测试http和socks5代理能工作</div><div class="line">#curl --proxy http://127.0.0.1:8123 https://www.google.com</div><div class="line">#curl -x socks5h://localhost:13657 http://www.google.com/</div></pre></td></tr></table></figure></p>
 
       
     </div>
@@ -554,7 +561,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">133</span>
+                <span class="site-state-item-count">134</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -618,7 +625,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#如何设置git-Proxy"><span class="nav-number">1.</span> <span class="nav-text">如何设置git Proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#git-http-proxy"><span class="nav-number">1.1.</span> <span class="nav-text">git http proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#配置git-http-proxy"><span class="nav-number">1.1.1.</span> <span class="nav-text">配置git http proxy</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#配置git-ssh-proxy"><span class="nav-number">1.2.</span> <span class="nav-text">配置git ssh proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#配置git-走socks"><span class="nav-number">1.2.1.</span> <span class="nav-text">配置git 走socks</span></a></li></ol></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#如何设置git-Proxy"><span class="nav-number">1.</span> <span class="nav-text">如何设置git Proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#git-http-proxy"><span class="nav-number">1.1.</span> <span class="nav-text">git http proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#配置git-http-proxy"><span class="nav-number">1.1.1.</span> <span class="nav-text">配置git http proxy</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#配置git-ssh-proxy"><span class="nav-number">1.2.</span> <span class="nav-text">配置git ssh proxy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#配置git-走socks"><span class="nav-number">1.2.1.</span> <span class="nav-text">配置git 走socks</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#自动启动阿里郎网络加速"><span class="nav-number">1.3.</span> <span class="nav-text">自动启动阿里郎网络加速</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#我的拉起代理自动脚本"><span class="nav-number">1.4.</span> <span class="nav-text">我的拉起代理自动脚本</span></a></li></ol></li></ol></div>
             
 
           </div>

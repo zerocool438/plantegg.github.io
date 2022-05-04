@@ -291,6 +291,323 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/26/MySQL知识体系的三驾马车/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/26/MySQL知识体系的三驾马车/" itemprop="url">MySQL知识体系的三驾马车</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-26T17:30:03+08:00">
+                2019-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL知识体系的三驾马车"><a href="#MySQL知识体系的三驾马车" class="headerlink" title="MySQL知识体系的三驾马车"></a>MySQL知识体系的三驾马车</h1><p>在我看来要掌握好MySQL的话要理解好这三个东西：</p>
+<ul>
+<li>索引（B+树）</li>
+<li>日志（WAL）</li>
+<li>事务(可见性)</li>
+</ul>
+<p>索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了；</p>
+<p>而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写；</p>
+<p>事务则是数据库的皇冠。</p>
+<h2 id="索引"><a href="#索引" class="headerlink" title="索引"></a>索引</h2><p>索引主要是解决查询性能的问题，数据一般都是写少查多，而且要满足各种查，所以使用数据库过程中最常见的问题就是索引的优化。</p>
+<p>MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索引，能使得索引保持比较小，更容易加载到内存中；数据全部放在B+树的叶节点上，整个叶节点又是个有序双向链表，这样非常合适区间查找。</p>
+<p>如果用平衡二叉树当索引，想象一下一棵 100 万节点的平衡二叉树，树高 20。一次查询可能需要访问 20 个数据块。在机械硬盘时代，从磁盘随机读一个数据块需要 10 ms 左右的寻址时间。也就是说，对于一个 100 万行的表，如果使用二叉树来存储，单独访问一个行可能需要 20 个 10 ms 的时间，这个查询可真够慢的</p>
+<p>对比一下 InnoDB 的一个整数字段B+数索引为例，B+树的杈数一般是 1200。这棵树高是 4 的时候，就可以存 1200 的 3 次方个值，这已经 17 亿了。考虑到树根的数据块总是在内存中的，一个 10 亿行的表上一个整数字段的索引，查找一个值最多只需要访问 3 次磁盘。其实，树的第二层也有很大概率在内存中，那么访问磁盘的平均次数就更少了。</p>
+<p>明确以下几点：</p>
+<ul>
+<li>B+树是N叉树，以一个整数字段索引来看，N基本等于1200。数据库里的树高一般在2-4层。</li>
+<li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
+<li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
+</ul>
+<p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
+<p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="B-树"><a href="#B-树" class="headerlink" title="B+树"></a>B+树</h3><p>MySQL的索引结构主要是B+树，也可以选hash</p>
+<p>B+树特点：</p>
+<ul>
+<li>叶子结点才有数据，这些数据形成一个有序链表</li>
+<li>非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）</li>
+<li>删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除</li>
+<li>B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO</li>
+<li>因为叶子节点的有序链表存在，支持范围查找</li>
+</ul>
+<p>B+树的标准结构：</p>
+<p><img src="/images/951413iMgBlog/640-9735668." alt="Image"></p>
+<p>innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）</p>
+<p><img src="/images/951413iMgBlog/640-20211217181055800" alt="Image"></p>
+<h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
+<p>MySQL一个查询只能用一个索引。</p>
+<h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
+<p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>select <em> from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<em>*回表</em></em>导致非常慢。</p>
+<p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
+<p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
+<p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
+<h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
+<p>写数据除了记录redo-log之外还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</div></pre></td></tr></table></figure>
+<p><img src="/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<h3 id="Buffer-POOL"><a href="#Buffer-POOL" class="headerlink" title="Buffer POOL"></a>Buffer POOL</h3><p>（1）缓冲池(buffer pool)是一种<strong>常见的降低磁盘访问的机制；</strong></p>
+<p>（2）缓冲池通常<strong>以页(page)为单位缓存数据；</strong></p>
+<p>（3）缓冲池的<strong>常见管理算法是LRU</strong>，memcache，OS，InnoDB都使用了这种算法；</p>
+<p>（4）InnoDB对普通LRU进行了优化：</p>
+<p>  - 将缓冲池分为<strong>老生代和新生代</strong>，入缓冲池的页，优先进入老生代，页被访问，才进入新生代，以解决预读失效的问题</p>
+<p>  - 页被访问（预读的丢到old区），且在老生代<strong>停留时间超过配置阈值（innodb_old_blocks_time）</strong>的，才进入新生代，以解决批量数据访问，大量热数据淘汰的问题</p>
+<p><img src="/images/951413iMgBlog/640-8001413.png" alt="图片"></p>
+<p><strong>只有同时满足「被访问」与「在 old 区域停留时间超过 1 秒」两个条件，才会被插入到 young 区域头部</strong></p>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
+<h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
+<p>这是数据库优化的关键。</p>
+<h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
+<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性。</p>
+<p>MySQL 日志刷新策略通过 sync_binlog 参数进行配置，其有 3 个可选配置：</p>
+<ol>
+<li>sync_binlog=0：MySQL 应用将完全不负责日志同步到磁盘，将缓存中的日志数据刷新到磁盘全权交给操作系统来完成；</li>
+<li>sync_binlog=1：MySQL 应用在事务提交前将缓存区的日志刷新到磁盘；</li>
+<li>sync_binlog=N：当 N 不为 0 与 1 时，MySQL 在收集到 N 个日志提交后，才会将缓存区的日志同步到磁盘。</li>
+</ol>
+<h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
+<p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
+<p>redo-log和bin-log的比较：</p>
+<ul>
+<li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。redo-log保证了crash-safe的问题，binlog只能用于归档，保证不了safe。</li>
+<li>redo log 是物理日志，记录的是“在某个数据页上做了什么修改”；binlog 是逻辑日志，记录的是这个语句的原始逻辑，比如“给 ID=2 这一行的 c 字段加 1 ”。</li>
+<li>redo log 是循环写的，空间固定会用完；binlog 是可以追加写入的。“追加写”是指 binlog 文件写到一定大小后会切换到下一个，并不会覆盖以前的日志。</li>
+</ul>
+<p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
+<p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
+<p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<p>redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是<strong>Physiological Logging</strong>的方式，来兼得二者的优势。</p>
+<p>所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：</p>
+<blockquote>
+<p>（Page ID，Record Offset，(Filed 1, Value 1) … (Filed i, Value i) … )</p>
+</blockquote>
+<p>其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。</p>
+<p>Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入<strong>Double Write Buffer</strong>的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。</p>
+<p>InnoDB给每个REDO记录一个全局唯一递增的标号<strong>LSN(Log Sequence Number)</strong>。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
+<ol>
+<li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
+<li>如果redo-log里面事务只有完整的prepare，则去检查事务对应的binlog是否完整<ol>
+<li>如果binlog完整则提交事务</li>
+<li>如果不完整则回滚事务</li>
+</ol>
+</li>
+<li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
+</ol>
+<h3 id="组提交"><a href="#组提交" class="headerlink" title="组提交"></a>组提交</h3><p>在没有开启binlog时，Redo log的刷盘操作将会是最终影响MySQL TPS的瓶颈所在。为了缓解这一问题，MySQL使用了组提交，将多个刷盘操作合并成一个，如果说10个事务依次排队刷盘的时间成本是10，那么将这10个事务一次性一起刷盘的时间成本则近似于1。</p>
+<p>但是开启binlog后，binlog作为事务的协调者每次commit都需要落盘，这导致了Redo log的组提交失去了意义。</p>
+<p><img src="/images/951413iMgBlog/image-20211108152328424.png" alt="image-20211108152328424"></p>
+<p>Group Commit的方案中，其正确性的前提在于一个group内的事务没有并发冲突，因此即便并行也不会破坏事务的执行顺序。这个方案的局限性在于一个group 内的并行度仍然有限</p>
+<h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
+<ul>
+<li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。<strong>这时写性能跌0，这个场景对性能影响最大</strong>。</li>
+<li>系统内存不够，也需要将内存中的脏页释放，释放前需要先刷入到表空间。</li>
+<li>系统内存不够，但是redo-log空间够，也会刷脏，也就是刷脏不只是脏页写到redo-log，还要考虑读取情况。刷脏页后redo-log位点也一定会向前推荐</li>
+<li>系统空闲的时候也会趁机刷脏</li>
+<li>刷脏的时候默认还会连带刷邻居脏页（innodb_flush_neighbors)</li>
+</ul>
+<p>当然如果一次性要淘汰的脏页太多，也会导致查询卡顿严重，可以通过设置innodb_io_capacity（一般设置成磁盘的iops），这个值越小的话一次刷脏页的数量越小，如果刷脏页速度还跟不上脏页生成速度就会造成脏页堆积，影响查询、更新性能。</p>
+<p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
+<p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
+<p>表空间会刷进去没有提交的事务（比如大事务change buffer和redo-log都不够的时候），这个修改虽然在表空间中，但是通过可见性来控制是否可见。</p>
+<h3 id="落盘"><a href="#落盘" class="headerlink" title="落盘"></a>落盘</h3><p>innodb_flush_method 参数目前有 6 种可选配置值：</p>
+<ol>
+<li>fdatasync；</li>
+<li>O_DSYNC</li>
+<li>O_DIRECT</li>
+<li>O_DIRECT_NO_FSYNC</li>
+<li>littlesync</li>
+<li>nosync</li>
+</ol>
+<p>其中，littlesync 与 nosync 仅仅用于内部性能测试，并不建议使用。</p>
+<ul>
+<li>fdatasync，即取值 0，这是默认配置值。对 log files 以及 data files 都采用 fsync 的方式进行同步；</li>
+<li>O_DSYNC，即取值 1。对 log files 使用 O_SYNC 打开与刷新日志文件，使用 fsync 来刷新 data files 中的数据；</li>
+<li>O_DIRECT，即取值 4。利用 Direct I/O 的方式打开 data file，并且每次写操作都通过执行 fsync 系统调用的方式落盘；</li>
+<li>O_DIRECT_NO_FSYNC，即取值 5。利用 Direct I/O 的方式打开 data files，但是每次写操作并不会调用 fsync 系统调用进行落盘；</li>
+</ul>
+<p><strong>为什么有 O_DIRECT 与 O_DIRECT_NO_FSYNC 配置的区别？</strong></p>
+<p>首先，我们需要理解更新操作落盘分为两个具体的子步骤：①文件数据更新落盘②文件元数据更新落盘。O_DIRECT 的在部分操作系统中会导致文件元数据不落盘，除非主动调用 fsync，为此，MySQL 提供了 O_DIRECT 以及 O_DIRECT_NO_FSYNC 这两个配置。</p>
+<p>如果你确定在自己的操作系统上，即使不进行 fsync 调用，也能够确保文件元数据落盘，那么请使用 O_DIRECT_NO_FSYNC 配置，这对 MySQL 性能略有帮助。否则，请使用 O_DIRECT，不然文件元数据的丢失可能会导致 MySQL 运行错误。</p>
+<h3 id="Double-Write"><a href="#Double-Write" class="headerlink" title="Double Write"></a>Double Write</h3><p>MySQL默认数据页是16k，而操作系统内核的页目前为4k。因此当一个16k的MySQL页写入过程中突然断电，可能只写入了一部分，即数据存在不一致的情况。MySQL为了防止这种情况，每写一个数据页时，会先写在磁盘上的一个固定位置，然后再写入到真正的位置。如果第二次写入时掉电，MySQL会从第一次写入的位置恢复数据。开启double write之后数据被写入两次，如果能将其优化掉，对用户的性能将会有不小的提升。</p>
+<p>MySQL 8.0关掉Double Write能有5%左右的性能提升</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>在 MySQL/InnoDB 中，使用MVCC(Multi Version Concurrency Control) 来实现事务。每个事务修改数据之后，会创建一个新的版本，用事务id作为版本号；一行数据的多个版本会通过指针连接起来，通过指针即可遍历所有版本。</p>
+<p>当事务读取数据时，会根据隔离级别选择合适的版本。例如对于 Read Committed 隔离级别来说，每条SQL都会读取最新的已提交版本；而对于Repeatable Read来说，会在事务开始时选择已提交的最新版本，后续的每条SQL都会读取同一个版本的数据。</p>
+<p><img src="/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png" alt="img"></p>
+<p>Postgres用Old to New，INNODB使用的是New to Old, 即主表存最新的版本，用链表指向旧的版本。当读取最新版本数据时，由于索引直接指向了最新版本，因此较低；与之相反，读取旧版本的数据代价会随之增加，需要沿着链表遍历。</p>
+<p>INNODB中旧版本的数据存储于undo log中。这里的undo log起到了几个目的，一个是事务的回滚，事务回滚时从undo log可以恢复出原先的数据，另一个目的是实现MVCC，对于旧的事务可以从undo 读取旧版本数据。</p>
+<h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
+<p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
+<p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
+<p>如果两次读过程中，有一个别的事务修改了数据并提交了，第二次读到的还是别的事务修改前的数据，也就是这个修改后的数据不可见，因为别的事务在本事务之后。</p>
+<p>如果一个在本事务启动之后的事务已经提交了，本事务会读到最新的数据，但是因为隔离级别的设置，会要求MySQL判断这个数据不可见，这样只能按照undo-log去反推修改前的数据，如果有很多这样的已经提交的事务，那么需要反推很多次，也会造成卡顿。</p>
+<p>总结下，可见性的关键在于两个事务开始的先后关系：</p>
+<ul>
+<li>如果是可重复读RR（Repeatable Read），后开始的事务提交的结果对前面的事务<strong>不</strong>可见</li>
+<li>如果是读已提交RC（Read Committed），后开始的事务提交的结果对前面的事务可见</li>
+</ul>
+<h3 id="当前读"><a href="#当前读" class="headerlink" title="当前读"></a>当前读</h3><p><strong>更新数据都是先读后写的</strong>，而这个读，只能读当前的值，称为”<strong>当前读</strong>“（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。</p>
+<p>事务的可重复读的能力是怎么实现的？</p>
+<p>可重复读的核心就是一致性读（consistent read）；而<strong>事务更新数据的时候，只能用当前读</strong>。如果当前的记录的行锁被其他事务占用的话，就需要进入锁等待。</p>
+<p>而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：</p>
+<ul>
+<li>在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共<br>用这个一致性视图；</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。</li>
+</ul>
+<h3 id="幻读"><a href="#幻读" class="headerlink" title="幻读"></a>幻读</h3><p>幻读指的是一个事务中前后两次读到的数据不一致（读到了新插入的行）</p>
+<p>可重复读是不会出现幻读的，但是更新数据时只能用当前读，当前读要求读到其它事务的修改（新插入行）</p>
+<p><strong>Innodb 引擎为了解决「可重复读」隔离级别使用「当前读」而造成的幻读问题，就引出了 next-key 锁</strong>，就是记录锁和间隙锁的组合。</p>
+<ul>
+<li>记录锁，锁的是记录本身；</li>
+<li>间隙锁，锁的就是两个值之间的空隙，以防止其他事务在这个空隙间插入新的数据，从而避免幻读现象。</li>
+</ul>
+<h3 id="可重复读、当前读以及行锁案例"><a href="#可重复读、当前读以及行锁案例" class="headerlink" title="可重复读、当前读以及行锁案例"></a>可重复读、当前读以及行锁案例</h3><p>案例表结构</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line"></div><div class="line">mysql&gt; CREATE TABLE `t` (</div><div class="line">  `id` int(11) NOT NULL,</div><div class="line">  `k` int(11) DEFAULT NULL,</div><div class="line">  PRIMARY KEY (`id`)</div><div class="line">) ENGINE=InnoDB;</div><div class="line">insert into t(id, k) values(1,1),(2,2);</div></pre></td></tr></table></figure>
+<p>上表执行如下三个事务</p>
+<p><img src="/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png" alt="img"></p>
+<blockquote>
+<p>begin/start transaction 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果你想要马上启动一个事务，可以使用 start transaction with consistent snapshot 这个命令。</p>
+<p>“start transaction with consistent snapshot; ”的意思是从这个语句开始，创建一个持续整个事务的一致性快照</p>
+<p>在读提交隔离级别(RC)下，这个用法就没意义了，等效于普通的 start transaction。</p>
+</blockquote>
+<p>因为以上案例是RR(start transaction with consistent snapshot;), 也就是可重复读隔离级别。</p>
+<p>那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。</p>
+<p>事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.</p>
+<p>如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。</p>
+<h4 id="MySQL和PG事务实现上的差异"><a href="#MySQL和PG事务实现上的差异" class="headerlink" title="MySQL和PG事务实现上的差异"></a>MySQL和PG事务实现上的差异</h4><p>这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
+<p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
+<p>事务则是数据库皇冠。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/" target="_blank" rel="external">https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/</a> 回表</p>
+<p><a href="https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause" target="_blank" rel="external">https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/24/网络包的流转/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -7329,6 +7646,13 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 <blockquote>
 <p><strong>-X</strong> <em>proxy_version</em><br>Requests that <strong>nc</strong> should use the specified protocol when talking to the proxy server. Supported protocols are ‘’4’’ (SOCKS v.4), ‘’5’’ (SOCKS v.5) and ‘’connect’’ (HTTPS proxy). If the protocol is not specified, SOCKS version 5 is used.</p>
 </blockquote>
+<h2 id="自动启动阿里郎网络加速"><a href="#自动启动阿里郎网络加速" class="headerlink" title="自动启动阿里郎网络加速"></a>自动启动阿里郎网络加速</h2><p>有时候网络加速会关掉，还得手工打开阿里郎开始网络加速，很不流畅<br>可以用如下命令拉起：</p>
+<blockquote>
+<p>Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2</p>
+</blockquote>
+<p>上面的参数1、参数2可以先手工拉起网络加速，然后 ps | grep 得到，写到脚本里面就好了</p>
+<h2 id="我的拉起代理自动脚本"><a href="#我的拉起代理自动脚本" class="headerlink" title="我的拉起代理自动脚本"></a>我的拉起代理自动脚本</h2><p>下面的脚本总共拉起了三个socks5代理，端口13657-13659，其中13659是阿里郎网络加速的代理<br>最后还启动了一个8123的http 代理（有些场景只支持http代理）</p>
+<p>macos：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13658&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    #sh ~/ssh-jump.sh</div><div class="line">    nohup ssh -qTfnN -D 13658 root@jump vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13658&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13657&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    nohup ssh -qTfnN -D 13657 azureuser@yu2 vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13657&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13659&quot; |grep LISTEN`</div><div class="line">#if [ &quot;$listPort&quot; != &quot;tcp4       0      0  127.0.0.1.13659        *.*                    LISTEN     &quot; ]; then</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2 &gt;~/jump.log 2&gt;&amp;1</div><div class="line">    echo &quot;start listPort $listPort&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.8123 &quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    polipo socksParentProxy=127.0.0.1:13659 1&gt;~/jump.log 2&gt;1&amp;</div><div class="line">    echo &quot;start polipo http proxy at 8123&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">#分别测试http和socks5代理能工作</div><div class="line">#curl --proxy http://127.0.0.1:8123 https://www.google.com</div><div class="line">#curl -x socks5h://localhost:13657 http://www.google.com/</div></pre></td></tr></table></figure></p>
 
           
         
@@ -9012,247 +9336,6 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/08/28/netstat 等网络工具/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/08/28/netstat 等网络工具/" itemprop="url">netstat timer keepalive RTO explain</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-08-28T10:30:03+08:00">
-                2017-08-28
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="netstat-等网络工具"><a href="#netstat-等网络工具" class="headerlink" title="netstat 等网络工具"></a>netstat 等网络工具</h1><h2 id="netstat-和重传–-timer"><a href="#netstat-和重传–-timer" class="headerlink" title="netstat 和重传– timer"></a>netstat 和重传– timer</h2><p>经常碰到一些断网环境下需要做快速切换，那么断网后需要多久tcp才能感知到这个断网，并断开连接触发上层的重连（一般会连向新的server）</p>
-<p>netstat -st命令中，tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp</p>
-<h3 id="keepalive"><a href="#keepalive" class="headerlink" title="keepalive"></a>keepalive</h3><p>from: <a href="https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers" target="_blank" rel="external">https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers</a></p>
-<p>The timer column has two fields (from your o/p above):</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">keepalive     (6176.47/0/0)  </div><div class="line">&lt;1st field&gt;   &lt;2nd field&gt;</div></pre></td></tr></table></figure>
-<p>The 1st field can have values:<br>keepalive - when the keepalive timer is ON for the socket  </p>
-<p>on - when the retransmission timer is ON for the socket  </p>
-<p>off - none of the above is ON</p>
-<p>on - #表示是重发（retransmission）的时间计时</p>
-<p>off - #表示没有时间计时</p>
-<p>timewait - #表示等待（timewait）时间计时</p>
-<p>keepalive 是指在连接闲置状态发送心跳包来检测连接是否还有效（比如对方掉电后肯定就无效了，tcp得靠这个keepalive来感知）。如果有流量在传输过程中对方掉电后会不停地 retransmission ，这个时候看到的就是 on，然后重传间隔和次数跟keepalive参数无关，只和 net.ipv4.tcp_retries1、net.ipv4.tcp_retries2相关了。</p>
-<p>keepalive 状态下的连接：</p>
-<p><img src="/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png" alt="image.png"></p>
-<p>The 2nd field has THREE subfields:</p>
-<p>(6176.47/0/0) -&gt; (a/b/c)<br>a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)  </p>
-<p>b=number of retransmissions that have occurred  </p>
-<p>c=number of keepalive probes that have been sent</p>
-<blockquote>
-<p>/proc/sys/net/ipv4/tcp_keepalive_time<br>当keepalive起用的时候，TCP发送keepalive消息的频度。缺省是2小时。</p>
-<p>/proc/sys/net/ipv4/tcp_keepalive_intvl<br>当探测没有确认时，重新发送探测的频度。缺省是75秒。</p>
-<p>/proc/sys/net/ipv4/tcp_keepalive_probes<br>在认定连接失效之前，发送多少个TCP的keepalive探测包。缺省值是9。这个值乘以tcp_keepalive_intvl之后决定了，一个连接发送了keepalive之后可以有多少时间没有回应</p>
-</blockquote>
-<p>For example, I had two sockets opened between a client &amp; a server (not loopback). The keepalive setting are:</p>
-<p>KEEPALIVE_IDLETIME   30<br>KEEPALIVE_NUMPROBES   4<br>KEEPALIVE_INTVL      10  </p>
-<p>And I did a shutdown of the client machine, so at …SHED on (2.47/254/2)  </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.39/254/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (0.31/254/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (2.19/255/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.12/255/2)</div></pre></td></tr></table></figure>
-<p>As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.</p>
-<p>Hope this explains the netstat –timer option well.</p>
-<h2 id="RTO-重传"><a href="#RTO-重传" class="headerlink" title="RTO 重传"></a><a href="https://pracucci.com/linux-tcp-rto-min-max-and-tcp-retries2.html" target="_blank" rel="external">RTO</a> 重传</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">#define TCP_RTO_MAX ((unsigned)(120*HZ)) //HZ 通常为1秒 </div><div class="line">#define TCP_RTO_MIN ((unsigned)(HZ/5))</div></pre></td></tr></table></figure>
-<p>Linux 2.6+ uses HZ of 1000ms, so <code>TCP_RTO_MIN</code> is ~200 ms and <code>TCP_RTO_MAX</code> is ~120 seconds. Given a default value of <code>tcp_retries</code> set to <code>15</code>, it means that <strong>it takes 924.6 seconds</strong> before a broken network link is notified to the upper layer (ie. application), since the connection is detected as broken when the last (15th) retry expires.</p>
-<p><img src="https://pracucci.com/assets/2018-04-27-linux-tcp-rto-retries2-b71ad2ef586126c2ad4180543f78d8b0a4bf66925fb88d69889f04c4b7aedeaa.png" alt="2018-04-27-linux-tcp-rto-retries2.png"></p>
-<p>The <code>tcp_retries2</code> sysctl can be <strong>tuned</strong> via <code>/proc/sys/net/ipv4/tcp_retries2</code> or the sysctl <code>net.ipv4.tcp_retries2</code>.</p>
-<h3 id="查看重传状态"><a href="#查看重传状态" class="headerlink" title="查看重传状态"></a>查看重传状态</h3><p>重传状态的连接：</p>
-<p><img src="/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png" alt="image.png"></p>
-<p>前两个 syn_sent 状态明显是 9031端口不work了，握手不上。</p>
-<p>最后 established 状态的连接, 是22端口给53795发了136字节的数据但是没有收到ack，所以在倒计时准备重传中。</p>
-<blockquote>
-<p><strong>net.ipv4.tcp_retries1 = 3</strong></p>
-</blockquote>
-<p>放弃回应一个TCP <strong>连接请求前</strong>﹐需要进行多少次重试。RFC 规定最低的数值是3﹐这也是默认值﹐根据RTO的值大约在3秒 - 8分钟之间。(注意:这个值同时还决定进入的syn连接)</p>
-<p><strong>(第二种解释：它表示的是TCP传输失败时不检测路由表的最大的重试次数，当超过了这个值，我们就需要检测路由表了)</strong></p>
-<p>从kernel代码可以看到，一旦重传超过阈值tcp_retries1，主要的动作就是更新路由缓存。<br>用以避免由于路由选路变化带来的问题。<strong>这个时候tcp连接没有关闭</strong></p>
-<blockquote>
-<p> <strong>net.ipv4.tcp_retries2 = 15</strong></p>
-</blockquote>
-<p><strong>在丢弃激活(已建立通讯状况)</strong>的TCP连接之前﹐需要进行多少次重试。默认值为15，根据RTO的值来决定，相当于13-30分钟(RFC1122规定，必须大于100秒).(这个值根据目前的网络设置,可以适当地改小,我的网络内修改为了5)</p>
-<p><strong>(第二种解释：表示重试最大次数，只不过这个值一般要比上面的值大。和上面那个不同的是，当重试次数超过这个值，我们就必须关闭连接了)</strong></p>
-<p>from：Documentation/networking/ip-sysctl.txt</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">tcp_retries1 - INTEGER</div><div class="line">    This value influences the time, after which TCP decides, that</div><div class="line">    something is wrong due to unacknowledged RTO retransmissions,</div><div class="line">    and reports this suspicion to the network layer.</div><div class="line">    See tcp_retries2 for more details.</div><div class="line"></div><div class="line">    RFC 1122 recommends at least 3 retransmissions, which is the</div><div class="line">    default.</div><div class="line"></div><div class="line">tcp_retries2 - INTEGER</div><div class="line">    This value influences the timeout of an alive TCP connection,</div><div class="line">    when RTO retransmissions remain unacknowledged.</div><div class="line">    Given a value of N, a hypothetical TCP connection following</div><div class="line">    exponential backoff with an initial RTO of TCP_RTO_MIN would</div><div class="line">    retransmit N times before killing the connection at the (N+1)th RTO.</div><div class="line"></div><div class="line">    The default value of 15 yields a hypothetical timeout of 924.6</div><div class="line">    seconds and is a lower bound for the effective timeout.</div><div class="line">    TCP will effectively time out at the first RTO which exceeds the</div><div class="line">    hypothetical timeout.</div><div class="line"></div><div class="line">    RFC 1122 recommends at least 100 seconds for the timeout,</div><div class="line">    which corresponds to a value of at least 8.</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png" alt="img"></p>
-<h3 id="retries限制的重传次数吗"><a href="#retries限制的重传次数吗" class="headerlink" title="retries限制的重传次数吗"></a>retries限制的重传次数吗</h3><p>咋一看文档，很容易想到retries的数字就是限定的重传的次数，甚至源码中对于retries常量注释中都写着”This is how many retries it does…”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">#define TCP_RETR1       3   /*</div><div class="line">                             * This is how many retries it does before it</div><div class="line">                             * tries to figure out if the gateway is</div><div class="line">                             * down. Minimal RFC value is 3; it corresponds</div><div class="line">                             * to ~3sec-8min depending on RTO.</div><div class="line">                             */</div><div class="line"></div><div class="line">#define TCP_RETR2       15  /*</div><div class="line">                             * This should take at least</div><div class="line">                             * 90 minutes to time out.</div><div class="line">                             * RFC1122 says that the limit is 100 sec.</div><div class="line">                             * 15 is ~13-30min depending on RTO.</div><div class="line">                             */</div></pre></td></tr></table></figure>
-<p>那就就来看看retransmits_timed_out的具体实现，看看到底是不是限制的重传次数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div></pre></td><td class="code"><pre><div class="line">/* This function calculates a &quot;timeout&quot; which is equivalent to the timeout of a</div><div class="line"> * TCP connection after &quot;boundary&quot; unsuccessful, exponentially backed-off</div><div class="line"> * retransmissions with an initial RTO of TCP_RTO_MIN or TCP_TIMEOUT_INIT if</div><div class="line"> * syn_set flag is set.</div><div class="line"> */</div><div class="line">static bool retransmits_timed_out(struct sock *sk,</div><div class="line">                              unsigned int boundary,</div><div class="line">                              unsigned int timeout,</div><div class="line">                              bool syn_set)</div><div class="line">&#123;</div><div class="line">    unsigned int linear_backoff_thresh, start_ts;</div><div class="line">    // 如果是在三次握手阶段，syn_set为真</div><div class="line">    unsigned int rto_base = syn_set ? TCP_TIMEOUT_INIT : TCP_RTO_MIN;</div><div class="line"></div><div class="line">    if (!inet_csk(sk)-&gt;icsk_retransmits)</div><div class="line">            return false;</div><div class="line"></div><div class="line">    // retrans_stamp记录的是数据包第一次发送的时间，在tcp_retransmit_skb()中设置</div><div class="line">    if (unlikely(!tcp_sk(sk)-&gt;retrans_stamp))</div><div class="line">            start_ts = TCP_SKB_CB(tcp_write_queue_head(sk))-&gt;when;</div><div class="line">    else</div><div class="line">            start_ts = tcp_sk(sk)-&gt;retrans_stamp;</div><div class="line"></div><div class="line">    // 如果用户态未指定timeout，则算一个出来</div><div class="line">    if (likely(timeout == 0)) &#123;</div><div class="line">            /* 下面的计算过程，其实就是算一下如果以rto_base为第一次重传间隔，</div><div class="line">             * 重传boundary次需要多长时间</div><div class="line">             */</div><div class="line">            linear_backoff_thresh = ilog2(TCP_RTO_MAX/rto_base);</div><div class="line"></div><div class="line">            if (boundary &lt;= linear_backoff_thresh)</div><div class="line">                    timeout = ((2 &lt;&lt; boundary) - 1) * rto_base;</div><div class="line">            else</div><div class="line">                    timeout = ((2 &lt;&lt; linear_backoff_thresh) - 1) * rto_base +</div><div class="line">                            (boundary - linear_backoff_thresh) * TCP_RTO_MAX;</div><div class="line">    &#125;</div><div class="line">    // 如果数据包第一次发送的时间距离现在的时间间隔，超过了timeout值，则认为重传超于阈值了</div><div class="line">    return (tcp_time_stamp - start_ts) &gt;= timeout;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>从以上的代码分析可以看到，真正起到限制重传次数的并不是真正的重传次数。<br>而是以tcp_retries1或tcp_retries2为boundary，以rto_base(如TCP_RTO_MIN 200ms)为初始RTO，计算得到一个timeout值出来。如果重传间隔超过这个timeout，则认为超过了阈值。<br>上面这段话太绕了，下面举两个个例子来说明</p>
-<blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">&gt; 以判断是否放弃TCP流为例，如果tcp_retries2=15，那么计算得到的timeout=924600ms。</div><div class="line">&gt; </div><div class="line">&gt; 1. 如果RTT比较小，那么RTO初始值就约等于下限200ms</div><div class="line">&gt;    由于timeout总时长是924600ms，表现出来的现象刚好就是重传了15次，超过了timeout值，从而放弃TCP流</div><div class="line">&gt; </div><div class="line">&gt; 2. 如果RTT较大，比如RTO初始值计算得到的是1000ms</div><div class="line">&gt;    那么根本不需要重传15次，重传总间隔就会超过924600ms。</div><div class="line">&gt;    比如我测试的一个RTT=400ms的情况，当tcp_retries2=10时，仅重传了3次就放弃了TCP流</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<p>一些重传的其它问题</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">&gt;&gt; effective timeout指的是什么？  </div><div class="line">&lt;&lt; 就是retransmits_timed_out计算得到的timeout值</div><div class="line"></div><div class="line">&gt;&gt; 924.6s是怎么算出来的？</div><div class="line">&lt;&lt; 924.6s = (( 2 &lt;&lt; 9) -1) * 200ms + (15 - 9) * 120s</div><div class="line"></div><div class="line">&gt;&gt; 为什么924.6s是lower bound？</div><div class="line">&lt;&lt; 重传总间隔必须大于timeout值，即 (tcp_time_stamp - start_ts) &gt;= timeout</div><div class="line"></div><div class="line">&gt;&gt; 那RTO超时的间隔到底是不是源码注释的&quot;15 is ~13-30min depending on RTO.&quot;呢？  </div><div class="line">&lt;&lt; 显然不是! 虽然924.6s(15min)是一个lower bound，但是它同时也是一个upper bound!</div><div class="line">   怎么理解？举例说明  </div><div class="line">        1. 如果某个RTO值导致，在已经重传了14次后，总重传间隔开销是924s</div><div class="line">        那么它还需要重传第15次，即使离924.6s只差0.6s。这就是发挥了lower bound的作用</div><div class="line">        2. 如果某个RTO值导致，在重传了10次后，总重传间隔开销是924s</div><div class="line">        重传第11次后，第12次超时触发时计算得到的总间隔变为1044s，超过924.6s</div><div class="line">        那么此时会放弃第12次重传，这就是924.6s发挥了upper bound的作用</div><div class="line">   总的来说，在Linux3.10中，如果tcp_retres2设置为15。总重传超时周期应该在如下范围内</div><div class="line">        [924.6s, 1044.6s)</div></pre></td></tr></table></figure>
-<h3 id="RTO重传案例"><a href="#RTO重传案例" class="headerlink" title="RTO重传案例"></a>RTO重传案例</h3><p>我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快</p>
-<p><img src="/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png" alt="image.png"></p>
-<p>上图中垂直方向基本都是发出3-5个包，然后休息120秒，继续发3-5个 包，速度肯定慢，下图可以看到具体的包：</p>
-<p><img src="/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png" alt="image.png"></p>
-<p>来看下到9627的RTT，基本稳定在245秒或者122秒，这RTT也实在太大了。可以看到：</p>
-<ol>
-<li><p>网络质量很不好，丢包有点多；</p>
-</li>
-<li><p>rtt高得离谱，导致rto计算出来120秒了，所以一旦丢包就卡120秒以上。</p>
-</li>
-</ol>
-<p>下图是RTT图</p>
-<p><img src="/images/oss/932b5124b7d445ee82c82a5f65a98321.png" alt="image.png"></p>
-<p>两个原因一叠加，就出现了奇慢无比.</p>
-<p>正常情况下RTO是从200ms开始翻倍，实际上OS层面限制了最小RTO 200ms、最大RTO 120秒，由于RTT都超过120秒了，计算所得的RTO必定也大于120秒，所以最终就是我们看到的一上来第一个RTO不是常见的200ms，直接干到了120秒。</p>
-<h2 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h2><p>netstat -s统计，有两个和timestamp stamp reject相关的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">netstat -st | grep stamp | grep reject</div><div class="line">18 passive connections rejected because of time stamp</div><div class="line">1453 packets rejects in established connections because of timestamp</div></pre></td></tr></table></figure>
-<p>丢包统计：</p>
-<blockquote>
-<p>netstat -s |egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
-<p>nstat -z -t 1 | egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
-</blockquote>
-<p>netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp</p>
-<h2 id="nc-测试"><a href="#nc-测试" class="headerlink" title="nc 测试"></a>nc 测试</h2><p>nc -v -u -z -w 3 10.101.0.1 53 //测试server 的53端口上的udp服务能否通</p>
-<h3 id="nc-6-5-快速fin"><a href="#nc-6-5-快速fin" class="headerlink" title="nc 6.5 快速fin"></a>nc 6.5 快速fin</h3><p><img src="/images/951413iMgBlog/1607660605575-1305739f-1621-4a01-89ad-0f81eef94922.png" alt="img"></p>
-<p> nc -i 3 10.97.170.11 3306 -w 4 -p 1234</p>
-<p>-i 3 表示握手成功后 等三秒钟nc退出（发fin）</p>
-<p>nc 6.5 握手后立即发fin断开连接，导致可能收不到Greeting，换成7.5或者mysql client就OK了</p>
-<p>也就是用nc 6.5来验证mysql 服务是否正常可能会碰到nc自己断的太快，实际mysql还是正常的，从而像是mysql没有回复Greeting，从而产生误判。</p>
-<p>nc 7.5的抓包，明显可以看到nc在发fin前会先等3秒钟：</p>
-<p><img src="/images/951413iMgBlog/1607660937618-d66c4074-9aa2-44cb-8054-f7d3680d1181.png" alt="img"></p>
-<h2 id="ping"><a href="#ping" class="headerlink" title="ping"></a>ping</h2><p>sudo ping -f ip 大批量的icmp包</p>
-<p>ping -D  带时间戳 或者：ping -i 5 google.com | xargs -L 1 -I ‘{}’ date ‘+%Y-%m-%d %H:%M:%S: {}’  或者 ping www.google.fr | while read pong; do echo “$(date): $pong”; done</p>
-<p>ping -O  不通的时候输出：no answer yet for icmp_seq=xxx </p>
-<p>或者-D + awk</p>
-<blockquote>
-<p>ping -D 114.114.114.114 | awk ‘{ if(gsub(/[|]/, “”, $1)) $1=strftime(“[%F %T]”, $1); print}’</p>
-</blockquote>
-<p>Linux 下直接增加如下函数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">ping.ts()&#123;</div><div class="line">    if [ -t 1 ]; then</div><div class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[\033[34m%F %T\033[0m]&quot;, $1); print; fflush()&#125;&apos;</div><div class="line">    else</div><div class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[%F %T]&quot;, $1); print; fflush()&#125;&apos;</div><div class="line">    fi  </div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<h2 id="mtr"><a href="#mtr" class="headerlink" title="mtr"></a>mtr</h2><p>若需要将mtr的结果提供给第三方，建议可以使用-rc参数，r代表不使用交互界面，而是在最后给出一个探测结果报告；c参数指定需要作几次探测（一般建议是至少200个包，可以配合-i参数减少包间隔来加快得到结果的时间）。</p>
-<h2 id="traceroute"><a href="#traceroute" class="headerlink" title="traceroute"></a>traceroute</h2><p>和mtr不同的是，traceroute默认使用UDP作为四层协议，下层还是依靠IP头的TTL来控制中间的节点返回ICMP差错报文，来获得中间节点的IP和延时。唯一的区别是，在达到目标节点时，若是ICMP协议，目标大概率是会回复ICMP reply；如果是UDP协议，按照RFC协议规定，系统是要回复ICMP 端口不可达的差错报文，虽然三大平台Windows/MacOS/Linux都实现了这个行为，但出于某些原因，这个包可能还是会在链路上被丢弃，导致路由跟踪的结果无法显示出最后一跳。所以建议在一般的情况下，traceroute命令可以加上-I参数，让程序使用ICMP协议来发送探测数据包。</p>
-<h2 id="dstat"><a href="#dstat" class="headerlink" title="dstat"></a>dstat</h2><p><a href="https://www.huaweicloud.com/articles/9fc282e450af6f9b2878008a9e938d4d.html" target="_blank" rel="external">dstat 监控</a></p>
-<p><img src="/images/951413iMgBlog/image-20210425082343156.png" alt="image-20210425082343156"></p>
-<p>dstat -cdgilmnrsy –aio –fs –lock –raw</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/" target="_blank" rel="external">http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/</a></p>
-<p><a href="ttps://github.com/huigher/tcpping2" target="_blank" rel="external">tcpping2</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -9302,7 +9385,7 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">133</span>
+                <span class="site-state-item-count">134</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
