@@ -103,7 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="Linux环境变量问题汇总测试好的脚本放到 crontab 里就报错: 找不到命令写好一个脚本，测试没有问题，然后放到crontab 想要定时执行，但是总是报错，去看日志的话显示某些命令找不到，这种一般都是因为PATH环境变量变了导致的 自己在shell命令行下测试的时候当前环境变量就是这个用户的环境变量，可以通过命令：env 看到，脚本放到crontab 里面后一般都加了sudo 这个时候 en">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/ae3095f063dede80a8c1ee79ec25685c.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:14.128Z">
+<meta property="og:updated_time" content="2022-05-05T10:20:23.052Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux环境变量问题汇总">
 <meta name="twitter:description" content="Linux环境变量问题汇总测试好的脚本放到 crontab 里就报错: 找不到命令写好一个脚本，测试没有问题，然后放到crontab 想要定时执行，但是总是报错，去看日志的话显示某些命令找不到，这种一般都是因为PATH环境变量变了导致的 自己在shell命令行下测试的时候当前环境变量就是这个用户的环境变量，可以通过命令：env 看到，脚本放到crontab 里面后一般都加了sudo 这个时候 en">
@@ -396,7 +396,7 @@
 <p>大概就能理解这里的区别了。</p>
 <p>本文后面的回复中有同学提到了：</p>
 <blockquote>
-<p>第一个问题，sudo -E在阿里的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source “/etc/profile.d/dockerenv.sh”才行</p>
+<p>第一个问题，sudo -E在集团的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source “/etc/profile.d/dockerenv.sh”才行</p>
 </blockquote>
 <p>我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里</p>
 <h3 id="docker-容器中admin取不到env参数"><a href="#docker-容器中admin取不到env参数" class="headerlink" title="docker 容器中admin取不到env参数"></a>docker 容器中admin取不到env参数</h3><p>docker run的时候带入一堆参数，用root能env中能看到这些参数，admin用户也能看见这些参数，但是通过crond用admin就没法启动应用了，因为读不到这些env。</p>
@@ -421,7 +421,7 @@ PATH=/usr/local/bin:/usr/bin
 </ul>
 <p>也就是nog-login少了前面两步，我们先看后面两步。</p>
 <p>下面是一个 .bashrc 的内容：</p>
-<pre><code>[ ~]$ cat .bashrc 
+<pre><code>$ cat .bashrc 
 # .bashrc
 
 # Source global definitions
@@ -430,15 +430,8 @@ if [ -f /etc/bashrc ]; then
 fi
 </code></pre><p>基本没有什么内容，它主要是去加载 /etc/bashrc  而他里面也没有看到sbin相关的东西</p>
 <p>那我们再看non-login少的两步： ① /etc/profile ② ~/.bash_profile </p>
-<p>cat /etc/profile :</p>
-<pre><code>if [ &quot;$EUID&quot; = &quot;0&quot; ]; then
-    pathmunge /usr/sbin
-    pathmunge /usr/local/sbin
-else
-    pathmunge /usr/local/sbin after
-    pathmunge /usr/sbin after
-fi
-</code></pre><p>这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。</p>
+<p>cat /etc/profile :<br>    if [ “$EUID” = “0” ]; then<br>        pathmunge /usr/sbin<br>        pathmunge /usr/local/sbin<br>    else<br>        pathmunge /usr/local/sbin after<br>        pathmunge /usr/sbin after<br>    fi</p>
+<p>这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。</p>
 <p><strong>用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口</strong>：<br><img src="/images/oss/ae3095f063dede80a8c1ee79ec25685c.png" alt="image.png"></p>
 <p>像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？</p>
 <p>在 /etc/profile.d/ 下创建一个文件：/etc/profile.d/my_bashenv.sh 内容如下：</p>
@@ -716,7 +709,7 @@ cp is /usr/bin/cp
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">134</span>
+                <span class="site-state-item-count">135</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

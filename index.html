@@ -6416,6 +6416,165 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/05/05/cache_line对齐实践/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/05/05/cache_line对齐实践/" itemprop="url">Netty和Disruptor的cache_line对齐实践</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-05-05T18:20:03+08:00">
+                2021-05-05
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Netty和Disruptor的cache-line对齐实践"><a href="#Netty和Disruptor的cache-line对齐实践" class="headerlink" title="Netty和Disruptor的cache_line对齐实践"></a>Netty和Disruptor的cache_line对齐实践</h1><p>原理先看这篇：<a href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/">CPU 性能和Cache Line</a></p>
+<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。</p>
+<h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设CPU的两个核 A 和 B, 都在各自本地 Cache Line 里有同一个变量1的拷贝时，此时该 Cache Line 处于 Shared 状态。当 核A 在本地修改了变量2，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个 核B 读另一个变量2前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
+<p>上面这个过程也叫false-share, 即伪共享，因为变量1、2不是真的关联共享，本来变量1失效不应该导致变量2失效，但是因为cache line机制的存在导致 变量2也失效了，所以这里变量1、2叫false-share</p>
+<h2 id="Disruptor中对cache-line的使用"><a href="#Disruptor中对cache-line的使用" class="headerlink" title="Disruptor中对cache_line的使用"></a>Disruptor中对cache_line的使用</h2><p>Disruptor中为了保护下面的那几个final 成员变量，前后都加了 p1-p7就是为了避免这4个final成员不要和别的变量放到同一个cache line中。</p>
+<p>重点留意下面代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div></pre></td><td class="code"><pre><div class="line">abstract class RingBufferPad</div><div class="line">&#123;</div><div class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</div><div class="line">&#125;</div><div class="line">  </div><div class="line">abstract class RingBufferFields&lt;E&gt; extends RingBufferPad</div><div class="line">&#123;</div><div class="line">    ......    </div><div class="line">    private final long indexMask;</div><div class="line">    private final Object[] entries;</div><div class="line">    protected final int bufferSize;</div><div class="line">    protected final Sequencer sequencer;</div><div class="line">    ......    </div><div class="line">&#125;</div><div class="line"></div><div class="line">public final class RingBuffer&lt;E&gt; extends RingBufferFields&lt;E&gt; implements Cursored, EventSequencer&lt;E&gt;, EventSink&lt;E&gt;</div><div class="line">&#123;</div><div class="line">    ......    </div><div class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</div><div class="line">    ......</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>结果如下图所示绿色部分很好地被保护起来一定是独占一个cache line，本来绿色部分都是final，也就是你理解成只读的，不会更改了，这样不会因为共享cache line的变量被修改导致他们所在的cache失效（完全没必要）</p>
+<p><img src="/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png" alt="image.png"></p>
+<p>队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中</p>
+<p><img src="/images/951413iMgBlog/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689-1744256.png" alt="image"></p>
+<p>数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache</p>
+<h2 id="Netty中cache-line的对齐"><a href="#Netty中cache-line的对齐" class="headerlink" title="Netty中cache line的对齐"></a>Netty中cache line的对齐</h2><p><a href="https://github.com/arthur-zhang/netty/blob/e8250372cafe4cf5435a1dbc4c8e400072fb9791/common/src/main/java/io/netty/util/internal/InternalThreadLocalMap.java" target="_blank" rel="external">注意下图12行</a>的代码，重点也请注意下11行的注释</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div></pre></td><td class="code"><pre><div class="line">// String-related thread-locals</div><div class="line">private StringBuilder stringBuilder;</div><div class="line">private Map&lt;Charset, CharsetEncoder&gt; charsetEncoderCache;</div><div class="line">private Map&lt;Charset, CharsetDecoder&gt; charsetDecoderCache;</div><div class="line"></div><div class="line">// ArrayList-related thread-locals</div><div class="line">private ArrayList&lt;Object&gt; arrayList;</div><div class="line"></div><div class="line">private BitSet cleanerFlags;</div><div class="line"></div><div class="line">/** @deprecated These padding fields will be removed in the future. */</div><div class="line">public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8;</div><div class="line"></div><div class="line">static &#123;</div><div class="line">    STRING_BUILDER_INITIAL_SIZE =</div><div class="line">            SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.initialSize&quot;, 1024);</div><div class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.initialSize: &#123;&#125;&quot;, STRING_BUILDER_INITIAL_SIZE);</div><div class="line"></div><div class="line">    STRING_BUILDER_MAX_SIZE = SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.maxSize&quot;, 1024 * 4);</div><div class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.maxSize: &#123;&#125;&quot;, STRING_BUILDER_MAX_SIZE);</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>一看这里也和Disruptor一样想保护某个变量尽量少失效，可是这个实现我看不出来想要保护哪个变量，因为这种保护办法只对齐了一边，还有一边是和别的变量共享cache line。</p>
+<p>另外这个代码之前是9个long rp来对齐，这个<a href="https://github.com/netty/netty/pull/12309" target="_blank" rel="external">PR</a>改成了8个，9个就实在是迷惑了（9个long占72bytes了）对齐也是64bytes就好了</p>
+<p>还是按照11行注释所说去掉这个对齐的rp吧，要不明确要保护哪些变量，前后夹击真正保护起来，并且做好对比测试</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Netty的这段代码纸上谈兵更多一点，Donald E. Knuth 告诉我们不要提前优化</p>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/04/06/为什么这么多CLOSE_WAIT/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -11018,204 +11177,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/02/举三反一--从理论知识到实际问题的推导/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/11/02/举三反一--从理论知识到实际问题的推导/" itemprop="url">举三反一--从理论知识到实际问题的推导</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-02T10:30:03+08:00">
-                2020-11-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="举三反一–从理论知识到实际问题的推导"><a href="#举三反一–从理论知识到实际问题的推导" class="headerlink" title="举三反一–从理论知识到实际问题的推导"></a>举三反一–从理论知识到实际问题的推导</h1><blockquote>
-<p>怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。</p>
-</blockquote>
-<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举三反一，这是知识效率，这种人非常少；</p>
-<p>大多数普通人都是看点知识然后结合实践来强化理解理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
-<p>对于费曼（参考费曼学习法）这样的聪明人就是很容易看到一个理论知识就能理解这个理论知识背后的本质。</p>
-<p>肯定知识效率最牛逼，但是拥有这种能力的人毕竟非常少。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快地掌握一个新知识。剩下的绝大部分只能拼时间(刷题)+方法+总结等也能掌握一些知识</p>
-<p>但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
-<p>使劲挖掘自己在知识效率型方面的能力吧，即使灰色地带也行啊。</p>
-<p>接下来看看TCP状态中的CLOSE_WAIT状态的含义</p>
-<h2 id="先看TCP连接状态图"><a href="#先看TCP连接状态图" class="headerlink" title="先看TCP连接状态图"></a>先看TCP连接状态图</h2><p>这是网络、书本上凡是描述TCP状态一定会出现的状态图，理论上看这个图能解决任何TCP状态问题。</p>
-<p><img src="/images/oss/b3d075782450b0c8d2615c5d2b75d923.png" alt="image.png"></p>
-<p>反复看这个图的右下部分的CLOSE_WAIT ，从这个图里可以得到如下结论：</p>
-<p><strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong></p>
-<p>基本上这一结论要能帮助解决所有CLOSE_WAIT相关的问题，如果不能说明对这个知识点理解的不够。</p>
-<h2 id="server端大量close-wait案例"><a href="#server端大量close-wait案例" class="headerlink" title="server端大量close_wait案例"></a>server端大量close_wait案例</h2><p>用实际案例来检查自己对CLOSE_WAIT 理论（<strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong>）的掌握 – 能不能用这个结论来解决实际问题。同时也可以看看自己从知识到问题的推理能力（跟前面的知识效率呼应一下）。</p>
-<h3 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h3><blockquote>
-<p>服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）</p>
-</blockquote>
-<p>根据这个描述先不要往下看，自己推理分析下可能的原因。</p>
-<p>我的推理如下：</p>
-<p>从这里看起来，client跟server成功建立了somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这个连接，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时Server上这个连接变成了CLOSE_WAIT .</p>
-<p>也就是从开始到结束这些连接都在accept queue中，没有被应用accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。</p>
-<p>如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到server是否accept()了，只是发了数据后server的os代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。</p>
-<p>得检查server 应用为什么没有accept。</p>
-<p><img src="/images/951413iMgBlog/20190706093602331.png" alt="Recv-Q和Send-Q"></p>
-<p>如上是老司机的思路靠经验缺省了一些理论推理，缺省还是对理论理解不够， 这个分析抓住了 大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）但是没有抓住 CLOSE_WAIT 背后的核心原因</p>
-<h3 id="更简单的推理"><a href="#更简单的推理" class="headerlink" title="更简单的推理"></a>更简单的推理</h3><p>如果没有任何实战经验，只看上面的状态图的学霸应该是这样推理的：</p>
-<p>看到server上有大量的CLOSE_WAIT说明client主动断开了连接，server的OS收到client 发的fin，并回复了ack，这个过程不需要应用感知，进而连接从ESTABLISHED进入CLOSE_WAIT，此时在等待server上的应用调用close连关闭连接（处理完所有收发数据后才会调close()） —- 结论：server上的应用一直卡着没有调close().</p>
-<p>同时这里很奇怪的现象： 服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn，进而可以猜测是不是连接建立后很快accept队列满了（应用也没有accept() ), 导致 大量CLOSE_WAIT 个数正好 等于somaxconn —- 结论： server 上的应用不但没有调close(), 连close() 前面必须调用 accept() 都一直卡着没调 （这个结论需要有accept()队列的理论知识)</p>
-<p><strong>从上面两个结论可以清楚地看到 server的应用卡住了</strong></p>
-<h3 id="实际结论："><a href="#实际结论：" class="headerlink" title="实际结论："></a>实际结论：</h3><blockquote>
-<p>这个case的最终原因是因为<strong>OS的open files设置的是1024,达到了上限</strong>，进而导致server不能accept，但这个时候的tcp连接状态已经是ESTABLISHED了（这个状态变换是取决于内核收发包，跟应用是否accept()无关）。</p>
-<p>同时从这里可以推断 netstat 即使看到一个tcp连接状态是ESTABLISHED也不能代表占用了 open files句柄。此时client可以正常发送数据了，只是应用服务在accept之前没法receive数据和close连接。</p>
-</blockquote>
-<p>这个结论的图解如下：</p>
-<p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
-<p>假如全连接队列满了，握手第三步后对于client端来说是无法感知的，client端只需要回复ack后这个连接对于client端就是ESTABLISHED了，这时client是可以发送数据的。但是Server会扔掉收到的ack，回复syn+ack给client。</p>
-<p>如果全连接队列没满，但是fd不够，那么在Server端这个Socket也是ESTABLISHED，但是只是暂存在全连接队列中，等待应用来accept，这个时候client端同样无法感知这个连接没有被accept，client是可以发送数据的，这个数据会保存在tcp receive memory buffer中，等到accept后再给应用。</p>
-<p>如果自己无法得到上面的分析，那么再来看看如果把 CLOSE_WAIT 状态更细化地分析下(类似有老师帮你把知识点揉开跟实际案例联系下—-未必是上面的案例)，看完后再来分析下上面的案例。</p>
-<h2 id="CLOSE-WAIT-状态拆解"><a href="#CLOSE-WAIT-状态拆解" class="headerlink" title="CLOSE_WAIT 状态拆解"></a>CLOSE_WAIT 状态拆解</h2><p>通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着被动关闭的一方没有及时发出 FIN 包，一般有如下几种可能：</p>
-<ul>
-<li><strong>程序问题</strong>：如果代码层面忘记了 close 相应的 socket 连接，那么自然不会发出 FIN 包，从而导致 CLOSE_WAIT 累积；或者代码不严谨，出现死循环之类的问题，导致即便后面写了 close 也永远执行不到。</li>
-<li>响应太慢或者超时设置过小：如果连接双方不和谐，一方不耐烦直接 timeout，另一方却还在忙于耗时逻辑，就会导致 close 被延后。响应太慢是首要问题，不过换个角度看，也可能是 timeout 设置过小。</li>
-<li>BACKLOG 太大：此处的 backlog 不是 syn backlog，而是 accept 的 backlog，如果 backlog 太大的话，设想突然遭遇大访问量的话，即便响应速度不慢，也可能出现来不及消费的情况，导致多余的请求还在<a href="http://jaseywang.me/2014/07/20/tcp-queue-的一些问题/" target="_blank" rel="external">队列</a>里就被对方关闭了。</li>
-</ul>
-<p>如果你通过「netstat -ant」或者「ss -ant」命令发现了很多 CLOSE_WAIT 连接，请注意结果中的「Recv-Q」和「Local Address」字段，通常「Recv-Q」会不为空，它表示应用还没来得及接收数据，而「Local Address」表示哪个地址和端口有问题，我们可以通过「lsof -i:<port>」来确认端口对应运行的是什么程序以及它的进程号是多少。</port></p>
-<p>如果是我们自己写的一些程序，比如用 HttpClient 自定义的蜘蛛，那么八九不离十是程序问题，如果是一些使用广泛的程序，比如 Tomcat 之类的，那么更可能是响应速度太慢或者 timeout 设置太小或者 BACKLOG 设置过大导致的故障。</p>
-<p>看完这段 CLOSE_WAIT 更具体深入点的分析后再来分析上面的案例看看，能否推导得到正确的结论。</p>
-<h2 id="一些疑问"><a href="#一些疑问" class="headerlink" title="一些疑问"></a>一些疑问</h2><h3 id="连接都没有被accept-client端就能发送数据了？"><a href="#连接都没有被accept-client端就能发送数据了？" class="headerlink" title="连接都没有被accept(), client端就能发送数据了？"></a>连接都没有被accept(), client端就能发送数据了？</h3><p>答：是的。只要这个连接在OS看来是ESTABLISHED的了就可以，因为握手、接收数据都是由内核完成的，内核收到数据后会先将数据放在内核的tcp buffer中，然后os回复ack。另外三次握手之后client端是没法知道server端是否accept()了。</p>
-<h3 id="CLOSE-WAIT与accept-queue有关系吗？"><a href="#CLOSE-WAIT与accept-queue有关系吗？" class="headerlink" title="CLOSE_WAIT与accept queue有关系吗？"></a>CLOSE_WAIT与accept queue有关系吗？</h3><p>答：没有关系。只是本案例中因为open files不够了，影响了应用accept(), 导致accept queue满了，同时因为即使应用不accept（三次握手后，server端是否accept client端无法感知），client也能发送数据和发 fin断连接，这些响应都是os来负责，跟上层应用没关系，连接从握手到ESTABLISHED再到CLOSE_WAIT都不需要fd，也不需要应用参与。CLOSE_WAIT只跟应用不调 close() 有关系。 </p>
-<h3 id="CLOSE-WAIT与accept-queue为什么刚好一致并且联动了？"><a href="#CLOSE-WAIT与accept-queue为什么刚好一致并且联动了？" class="headerlink" title="CLOSE_WAIT与accept queue为什么刚好一致并且联动了？"></a>CLOSE_WAIT与accept queue为什么刚好一致并且联动了？</h3><p>答：这里他们的数量刚好一致是因为所有新建连接都没有accept，堵在queue中。同时client发现问题后把所有连接都fin了，也就是所有queue中的连接从来没有被accept过，但是他们都是ESTABLISHED，过一阵子之后client端发了fin所以所有accept queue中的连接又变成了 CLOSE_WAIT, 所以二者刚好一致并且联动了</p>
-<h3 id="openfiles和accept-的关系是？"><a href="#openfiles和accept-的关系是？" class="headerlink" title="openfiles和accept()的关系是？"></a>openfiles和accept()的关系是？</h3><p>答：accept()的时候才会创建文件句柄，消耗openfiles</p>
-<h3 id="一个连接如果在accept-queue中了，但是还没有被应用-accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？"><a href="#一个连接如果在accept-queue中了，但是还没有被应用-accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？" class="headerlink" title="一个连接如果在accept queue中了，但是还没有被应用 accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？"></a>一个连接如果在accept queue中了，但是还没有被应用 accept，那么这个时候在server上看这个连接的状态他是ESTABLISHED的吗？</h3><p>答：是</p>
-<h3 id="如果server的os参数-open-files到了上限（就是os没法打开新的文件句柄了）会导致这个accept-queue中的连接一直没法被accept对吗？"><a href="#如果server的os参数-open-files到了上限（就是os没法打开新的文件句柄了）会导致这个accept-queue中的连接一直没法被accept对吗？" class="headerlink" title="如果server的os参数 open files到了上限（就是os没法打开新的文件句柄了）会导致这个accept queue中的连接一直没法被accept对吗？"></a>如果server的os参数 open files到了上限（就是os没法打开新的文件句柄了）会导致这个accept queue中的连接一直没法被accept对吗？</h3><p>答：对</p>
-<h3 id="如果通过gdb-attach-应用进程，故意让进程accept，这个时候client还能连上应用吗？"><a href="#如果通过gdb-attach-应用进程，故意让进程accept，这个时候client还能连上应用吗？" class="headerlink" title="如果通过gdb attach 应用进程，故意让进程accept，这个时候client还能连上应用吗？"></a>如果通过gdb attach 应用进程，故意让进程accept，这个时候client还能连上应用吗？</h3><p>答： 能，这个时候在client和server两边看到的连接状态都是 ESTABLISHED，只是Server上的全连接队列占用加1。连接握手并切换到ESTABLISHED状态都是由OS来负责的，应用不参与，ESTABLISHED后应用才能accept，进而收发数据。也就是能放入到全连接队列里面的连接肯定都是 ESTABLISHED 状态的了</p>
-<h3 id="接着上面的问题，如果新连接继续连接进而全连接队列满了呢？"><a href="#接着上面的问题，如果新连接继续连接进而全连接队列满了呢？" class="headerlink" title="接着上面的问题，如果新连接继续连接进而全连接队列满了呢？"></a>接着上面的问题，如果新连接继续连接进而全连接队列满了呢？</h3><p>答：那就连不上了，server端的OS因为全连接队列满了直接扔掉第一个syn握手包，这个时候连接在client端是SYN_SENT，Server端没有这个连接，这是因为syn到server端就直接被OS drop 了。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">//如下图，本机测试，只有一个client端发起的syn_send, 3306的server端没有任何连接</div><div class="line">$netstat -antp  |grep -i 127.0.0.1:3306</div><div class="line">tcp     0   1 127.0.0.1:61106      127.0.0.1:3306    SYN_SENT    21352/telnet</div></pre></td></tr></table></figure>
-<p>能进入到accept queue中的连接都是 ESTABLISHED，不管用户态有没有accept，用户态accept后队列大小减1</p>
-<h3 id="如果一个连接握手成功进入到accept-queue但是应用accept前被对方RESET了呢？"><a href="#如果一个连接握手成功进入到accept-queue但是应用accept前被对方RESET了呢？" class="headerlink" title="如果一个连接握手成功进入到accept queue但是应用accept前被对方RESET了呢？"></a>如果一个连接握手成功进入到accept queue但是应用accept前被对方RESET了呢？</h3><p>答： 如果此时收到对方的RESET了，那么OS会释放这个连接。但是内核认为所有 listen 到的连接, 必须要 accept 走, 因为用户有权利知道有过这么一个连接存在过。所以OS不会到全连接队列拿掉这个连接，全连接队列数量也不会减1，直到应用accept这个连接，然后read/write才发现这个连接断开了，报communication failure异常</p>
-<h3 id="什么时候连接状态变成-ESTABLISHED"><a href="#什么时候连接状态变成-ESTABLISHED" class="headerlink" title="什么时候连接状态变成 ESTABLISHED"></a>什么时候连接状态变成 ESTABLISHED</h3><p>三次握手成功就变成 ESTABLISHED 了，不需要用户态来accept，如果握手第三步的时候OS发现全连接队列满了，这时OS会扔掉这个第三次握手ack，并重传握手第二步的syn+ack, 在OS端这个连接还是 SYN_RECV 状态的，但是client端是 ESTABLISHED状态的了。</p>
-<p>这是在4000（tearbase）端口上<strong>全连接队列没满，但是应用不再accept了</strong>，nc用12346端口去连4000（tearbase）端口的结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"># netstat -at |grep &quot;:12346 &quot;</div><div class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //server</div><div class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 ESTABLISHED //client</div><div class="line">[root@dcep-blockchain-1 cfl-sm2-sm3]# ss -lt</div><div class="line">State       Recv-Q Send-Q      Local Address:Port         Peer Address:Port   </div><div class="line">LISTEN      73     1024            *:terabase                 *:*</div></pre></td></tr></table></figure>
-<p>这是在4000（tearbase）端口上<strong>全连接队列满掉</strong>后，nc用12346端口去连4000（tearbase）端口的结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"># netstat -at |grep &quot;:12346 &quot;  </div><div class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 SYN_RECV    //server</div><div class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //client</div><div class="line"># ss -lt</div><div class="line">State       Recv-Q Send-Q      Local Address:Port       Peer Address:Port   </div><div class="line">LISTEN      1025   1024             *:terabase              *:*</div></pre></td></tr></table></figure>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -11265,7 +11226,7 @@ sudo ip tcp_metrics delete 100.118.58.7
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">134</span>
+                <span class="site-state-item-count">135</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
