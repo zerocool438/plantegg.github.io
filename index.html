@@ -533,6 +533,7 @@
         
           
             <h1 id="Netty和Disruptor的cache-line对齐实践"><a href="#Netty和Disruptor的cache-line对齐实践" class="headerlink" title="Netty和Disruptor的cache_line对齐实践"></a>Netty和Disruptor的cache_line对齐实践</h1><p>原理先看这篇：<a href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/">CPU 性能和Cache Line</a></p>
+<p>写这篇文章的起因是这个 <a href="https://mp.weixin.qq.com/s/vkCskOVSpzxt3Umzc_GYrQ" target="_blank" rel="external">记一次 Netty PR 的提交</a>，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题</p>
 <h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。</p>
 <h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设CPU的两个核 A 和 B, 都在各自本地 Cache Line 里有同一个变量1的拷贝时，此时该 Cache Line 处于 Shared 状态。当 核A 在本地修改了变量2，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个 核B 读另一个变量2前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
 <p>上面这个过程也叫false-share, 即伪共享，因为变量1、2不是真的关联共享，本来变量1失效不应该导致变量2失效，但是因为cache line机制的存在导致 变量2也失效了，所以这里变量1、2叫false-share</p>
@@ -2090,6 +2091,10 @@
 <p><img src="/images/951413iMgBlog/image-20211231202402561.png" alt="image-20211231202402561"></p>
 <h3 id="AMD-EPYC-7H12"><a href="#AMD-EPYC-7H12" class="headerlink" title="AMD EPYC 7H12"></a>AMD EPYC 7H12</h3><p>AMD EPYC 7H12 64-Core（ECS，非物理机），最大IPC能到5. </p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> lscpu</span></div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                64</div><div class="line">On-line CPU(s) list:   0-63</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    16</div><div class="line">座：                 2</div><div class="line">NUMA 节点：         2</div><div class="line">厂商 ID：           AuthenticAMD</div><div class="line">CPU 系列：          23</div><div class="line">型号：              49</div><div class="line">型号名称：        AMD EPYC 7H12 64-Core Processor</div><div class="line">步进：              0</div><div class="line">CPU MHz：             2595.124</div><div class="line">BogoMIPS：            5190.24</div><div class="line">虚拟化：           AMD-V</div><div class="line">超管理器厂商：  KVM</div><div class="line">虚拟化类型：     完全</div><div class="line">L1d 缓存：          32K</div><div class="line">L1i 缓存：          32K</div><div class="line">L2 缓存：           512K</div><div class="line">L3 缓存：           16384K</div><div class="line">NUMA 节点0 CPU：    0-31</div><div class="line">NUMA 节点1 CPU：    32-63</div></pre></td></tr></table></figure>
+<p>AMD EPYC 7T83 ECS </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div></pre></td><td class="code"><pre><div class="line">[root@bugu88 cpu0]# cat cache/index0/size</div><div class="line">32K</div><div class="line">[root@bugu88 cpu0]# cat cache/index1/size</div><div class="line">32K</div><div class="line">[root@bugu88 cpu0]# cat cache/index2/size</div><div class="line">512K</div><div class="line">[root@bugu88 cpu0]# cat cache/index3/size</div><div class="line">32768K</div><div class="line">[root@bugu88 cpu0]# lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                16</div><div class="line">On-line CPU(s) list:   0-15</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    8</div><div class="line">座：                 1</div><div class="line">NUMA 节点：         1</div><div class="line">厂商 ID：           AuthenticAMD</div><div class="line">CPU 系列：          25</div><div class="line">型号：              1</div><div class="line">型号名称：        AMD EPYC 7T83 64-Core Processor</div><div class="line">步进：              1</div><div class="line">CPU MHz：             2545.218</div><div class="line">BogoMIPS：            5090.43</div><div class="line">超管理器厂商：  KVM</div><div class="line">虚拟化类型：     完全</div><div class="line">L1d 缓存：          32K</div><div class="line">L1i 缓存：          32K</div><div class="line">L2 缓存：           512K</div><div class="line">L3 缓存：           32768K</div><div class="line">NUMA 节点0 CPU：    0-15</div></pre></td></tr></table></figure>
+<p>stream：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">[root@bugu88 lmbench-master]# for i in $(seq 0 15); do echo $i; numactl -C $i -m 0 ./bin/stream -W 5 -N 5 -M 64M; done</div><div class="line">0</div><div class="line">STREAM copy latency: 0.68 nanoseconds</div><div class="line">STREAM copy bandwidth: 23509.84 MB/sec</div><div class="line">STREAM scale latency: 0.69 nanoseconds</div><div class="line">STREAM scale bandwidth: 23285.51 MB/sec</div><div class="line">STREAM add latency: 0.96 nanoseconds</div><div class="line">STREAM add bandwidth: 25043.73 MB/sec</div><div class="line">STREAM triad latency: 1.40 nanoseconds</div><div class="line">STREAM triad bandwidth: 17121.79 MB/sec</div><div class="line">1</div><div class="line">STREAM copy latency: 0.68 nanoseconds</div><div class="line">STREAM copy bandwidth: 23513.96 MB/sec</div><div class="line">STREAM scale latency: 0.68 nanoseconds</div><div class="line">STREAM scale bandwidth: 23580.06 MB/sec</div><div class="line">STREAM add latency: 0.96 nanoseconds</div><div class="line">STREAM add bandwidth: 25049.96 MB/sec</div><div class="line">STREAM triad latency: 1.35 nanoseconds</div><div class="line">STREAM triad bandwidth: 17741.93 MB/sec</div></pre></td></tr></table></figure>
 <h3 id="Intel-8163"><a href="#Intel-8163" class="headerlink" title="Intel 8163"></a>Intel 8163</h3><p>这次对比测试的Intel 8163 CPU信息如下，最大IPC 是4：</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">lscpu</span></div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                96</div><div class="line">On-line CPU(s) list:   0-95</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    24</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          1</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 85</div><div class="line">Model name:            Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz</div><div class="line">Stepping:              4</div><div class="line">CPU MHz:               2499.121</div><div class="line">CPU max MHz:           3100.0000</div><div class="line">CPU min MHz:           1000.0000</div><div class="line">BogoMIPS:              4998.90</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              1024K</div><div class="line">L3 cache:              33792K</div><div class="line">NUMA node0 CPU(s):     0-95</div><div class="line"></div><div class="line">-----8269CY</div><div class="line"><span class="meta">#</span><span class="bash">lscpu</span></div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                104</div><div class="line">On-line CPU(s) list:   0-103</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    26</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          2</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 85</div><div class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">Stepping:              7</div><div class="line">CPU MHz:               3200.000</div><div class="line">CPU max MHz:           3800.0000</div><div class="line">CPU min MHz:           1200.0000</div><div class="line">BogoMIPS:              4998.89</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              1024K</div><div class="line">L3 cache:              36608K</div><div class="line">NUMA node0 CPU(s):     0-25,52-77</div><div class="line">NUMA node1 CPU(s):     26-51,78-103</div></pre></td></tr></table></figure>
 <h3 id="鲲鹏920"><a href="#鲲鹏920" class="headerlink" title="鲲鹏920"></a>鲲鹏920</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div></pre></td><td class="code"><pre><div class="line">[root@ARM 19:15 /root/lmbench3]</div><div class="line">#numactl -H</div><div class="line">available: 4 nodes (0-3)</div><div class="line">node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23</div><div class="line">node 0 size: 192832 MB</div><div class="line">node 0 free: 146830 MB</div><div class="line">node 1 cpus: 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47</div><div class="line">node 1 size: 193533 MB</div><div class="line">node 1 free: 175354 MB</div><div class="line">node 2 cpus: 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71</div><div class="line">node 2 size: 193533 MB</div><div class="line">node 2 free: 175718 MB</div><div class="line">node 3 cpus: 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95</div><div class="line">node 3 size: 193532 MB</div><div class="line">node 3 free: 183643 MB</div><div class="line">node distances:</div><div class="line">node   0   1   2   3</div><div class="line">  0:  10  12  20  22</div><div class="line">  1:  12  10  22  24</div><div class="line">  2:  20  22  10  12</div><div class="line">  3:  22  24  12  10</div><div class="line">  </div><div class="line">  #lscpu</div><div class="line">Architecture:          aarch64</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                96</div><div class="line">On-line CPU(s) list:   0-95</div><div class="line">Thread(s) per core:    1</div><div class="line">Core(s) per socket:    48</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          4</div><div class="line">Model:                 0</div><div class="line">CPU max MHz:           2600.0000</div><div class="line">CPU min MHz:           200.0000</div><div class="line">BogoMIPS:              200.00</div><div class="line">L1d cache:             64K</div><div class="line">L1i cache:             64K</div><div class="line">L2 cache:              512K</div><div class="line">L3 cache:              24576K</div><div class="line">NUMA node0 CPU(s):     0-23</div><div class="line">NUMA node1 CPU(s):     24-47</div><div class="line">NUMA node2 CPU(s):     48-71</div><div class="line">NUMA node3 CPU(s):     72-95</div><div class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma dcpop asimddp asimdfhm</div></pre></td></tr></table></figure>
@@ -2737,7 +2742,285 @@
         
           
             <h1 id="网络抓包常用命令"><a href="#网络抓包常用命令" class="headerlink" title="网络抓包常用命令"></a>网络抓包常用命令</h1><p>参考阅读：<a href="https://plantegg.github.io/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/">就是要你懂抓包–WireShark之命令行版tshark</a></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div><div class="line">134</div><div class="line">135</div><div class="line">136</div><div class="line">137</div><div class="line">138</div><div class="line">139</div><div class="line">140</div><div class="line">141</div><div class="line">142</div><div class="line">143</div><div class="line">144</div><div class="line">145</div><div class="line">146</div><div class="line">147</div><div class="line">148</div><div class="line">149</div><div class="line">150</div><div class="line">151</div><div class="line">152</div><div class="line">153</div><div class="line">154</div><div class="line">155</div><div class="line">156</div><div class="line">157</div><div class="line">158</div><div class="line">159</div><div class="line">160</div><div class="line">161</div><div class="line">162</div><div class="line">163</div><div class="line">164</div><div class="line">165</div><div class="line">166</div><div class="line">167</div><div class="line">168</div><div class="line">169</div><div class="line">170</div><div class="line">171</div><div class="line">172</div><div class="line">173</div><div class="line">174</div><div class="line">175</div><div class="line">176</div><div class="line">177</div><div class="line">178</div><div class="line">179</div><div class="line">180</div></pre></td><td class="code"><pre><div class="line">用tcpdump抓取并保存包：</div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"></div><div class="line">抓到的包存储在plantegg.cap中，可以用作wireshark、tshark详细分析</div><div class="line">如果明确知道目的ip、端口等可以通过指定条件来明确只抓取某个连接的包</div><div class="line"></div><div class="line"></div><div class="line">抓取详细SQL语句：</div><div class="line">sudo tshark -i eth0 -Y "mysql.command==3" -T fields -e mysql.query</div><div class="line">sudo tshark -i eth0 -R mysql.query        -T fields -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line"><span class="meta"></span></div><div class="line">#parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</div><div class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query 'port 8507'</div><div class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y " ((tcp.port eq 4444 )  )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"></div><div class="line">如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</div><div class="line"></div><div class="line">查看SQL具体内容</div><div class="line">sudo tshark -r gege_plantegg.cap -Y "mysql.query or (  tcp.stream==1)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"></div><div class="line"></div><div class="line">按mysql查询分析响应时间</div><div class="line">对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</div><div class="line"></div><div class="line">以上抓包结果文件可以用tshark进行详细分析</div><div class="line"></div><div class="line">分析MySQL rt，倒数第四列基本就是rt</div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"></div><div class="line">或者排序一下</div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div><div class="line"></div><div class="line">MySQL响应时间直方图【第八列的含义-- Time since previous frame in this TCP stream: seconds】：</div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"></div><div class="line">按http response分析响应时间</div><div class="line">tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y "http.request or http.response" -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</div><div class="line"></div><div class="line">分析rtt、丢包、deplicate等等，可以得到整体网络状态</div><div class="line"><span class="meta">$</span> tshark -r retrans.cap -q -z io,stat,1,"AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt","COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission","COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission","COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack","COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment","MIN(tcp.window_size)tcp.window_size"</div><div class="line"></div><div class="line">===================================================================================</div><div class="line">| IO Statistics                                                                   |</div><div class="line">|                                                                                 |</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">|                                                                                 |</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line">1</div><div class="line">===================================================================================</div><div class="line">2</div><div class="line">| IO Statistics                                                                   |</div><div class="line">3</div><div class="line">|                                                                                 |</div><div class="line">4</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">5</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">6</div><div class="line">|                                                                                 |</div><div class="line">7</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">8</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">9</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">10</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">11</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">12</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">13</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">14</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">15</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">16</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">17</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">18</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">19</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">20</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">21</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">22</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">23</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">24</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">25</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">26</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">27</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">28</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">29</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">30</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">31</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">32</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line"><span class="meta"></span></div><div class="line"></div><div class="line">#tshark</div><div class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"><span class="meta"></span></div><div class="line">#用tcpdump抓取并保存包：</div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"><span class="meta"></span></div><div class="line">#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</div><div class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 3 -W 5 -Z root</div><div class="line"><span class="meta"></span></div><div class="line">#每隔30分钟生成一个包并压缩</div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_%Y-%m-%d_%H:%M:%S.pcap' -G 1800 -W 48 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#file size 1000M </div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_' -C 1000 -W 300 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"><span class="meta"></span></div><div class="line">#query time</div><div class="line">sudo tshark -i eth0 -Y " ((tcp.port eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"><span class="meta"></span></div><div class="line">#如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</div><div class="line"></div><div class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y " tcp.analysis.retransmission "  -T fields -e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</div><div class="line"><span class="meta"></span></div><div class="line">#MySQL响应时间直方图【第八列的含义-- Time since previous frame in this TCP stream: seconds】：</div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"><span class="meta"></span></div><div class="line">#分析MySQL rt，倒数第四列基本就是rt</div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"><span class="meta"></span></div><div class="line">#或者排序一下</div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div><div class="line">134</div><div class="line">135</div><div class="line">136</div><div class="line">137</div><div class="line">138</div><div class="line">139</div><div class="line">140</div><div class="line">141</div><div class="line">142</div><div class="line">143</div><div class="line">144</div><div class="line">145</div><div class="line">146</div><div class="line">147</div><div class="line">148</div><div class="line">149</div><div class="line">150</div><div class="line">151</div><div class="line">152</div><div class="line">153</div><div class="line">154</div><div class="line">155</div><div class="line">156</div><div class="line">157</div><div class="line">158</div><div class="line">159</div><div class="line">160</div><div class="line">161</div><div class="line">162</div><div class="line">163</div><div class="line">164</div><div class="line">165</div><div class="line">166</div><div class="line">167</div><div class="line">168</div><div class="line">169</div><div class="line">170</div><div class="line">171</div><div class="line">172</div><div class="line">173</div><div class="line">174</div><div class="line">175</div><div class="line">176</div><div class="line">177</div><div class="line">178</div><div class="line">179</div><div class="line">180</div><div class="line">181</div><div class="line">182</div><div class="line">183</div><div class="line">184</div><div class="line">185</div></pre></td><td class="code"><pre><div class="line">用tcpdump抓取并保存包：</div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"></div><div class="line">抓到的包存储在plantegg.cap中，可以用作wireshark、tshark详细分析</div><div class="line">如果明确知道目的ip、端口等可以通过指定条件来明确只抓取某个连接的包</div><div class="line"></div><div class="line"></div><div class="line">抓取详细SQL语句：</div><div class="line">sudo tshark -i eth0 -Y "mysql.command==3" -T fields -e mysql.query</div><div class="line">sudo tshark -i eth0 -R mysql.query        -T fields -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</span></div><div class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query 'port 8507'</div><div class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y " ((tcp.port eq 4444 )  )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"></div><div class="line">如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</div><div class="line"></div><div class="line">查看SQL具体内容</div><div class="line">sudo tshark -r gege_plantegg.cap -Y "mysql.query or (  tcp.stream==1)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"></div><div class="line"></div><div class="line">按mysql查询分析响应时间</div><div class="line">对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</div><div class="line"></div><div class="line">以上抓包结果文件可以用tshark进行详细分析</div><div class="line"></div><div class="line">分析MySQL rt，倒数第四列基本就是rt</div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"></div><div class="line">或者排序一下</div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div><div class="line"></div><div class="line">MySQL响应时间直方图【第八列的含义-- Time since previous frame in this TCP stream: seconds】：</div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"></div><div class="line">按http response分析响应时间</div><div class="line">tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y "http.request or http.response" -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</div><div class="line"></div><div class="line">分析rtt、丢包、deplicate等等，可以得到整体网络状态</div><div class="line"><span class="meta">$</span><span class="bash"> tshark -r retrans.cap -q -z io,<span class="built_in">stat</span>,1,<span class="string">"AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt"</span>,<span class="string">"COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission"</span>,<span class="string">"COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission"</span>,<span class="string">"COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack"</span>,<span class="string">"COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment"</span>,<span class="string">"MIN(tcp.window_size)tcp.window_size"</span></span></div><div class="line"></div><div class="line">===================================================================================</div><div class="line">| IO Statistics                                                                   |</div><div class="line">|                                                                                 |</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">|                                                                                 |</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line">1</div><div class="line">===================================================================================</div><div class="line">2</div><div class="line">| IO Statistics                                                                   |</div><div class="line">3</div><div class="line">|                                                                                 |</div><div class="line">4</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">5</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">6</div><div class="line">|                                                                                 |</div><div class="line">7</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">8</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">9</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">10</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">11</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">12</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">13</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">14</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">15</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">16</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">17</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">18</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">19</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">20</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">21</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">22</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">23</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">24</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">25</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">26</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">27</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">28</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">29</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">30</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">31</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">32</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line"><span class="meta"></span></div><div class="line"></div><div class="line">#<span class="bash">tshark</span></div><div class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">用tcpdump抓取并保存包：</span></div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span></div><div class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 3 -W 5 -Z root</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">每隔30分钟生成一个包并压缩</span></div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_%Y-%m-%d_%H:%M:%S.pcap' -G 1800 -W 48 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">file size 1000M </span></div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_' -C 1000 -W 300 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span></div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">query time</span></div><div class="line">sudo tshark -i eth0 -Y " ((tcp.port eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=<span class="literal">false</span></span></div><div class="line"></div><div class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y " tcp.analysis.retransmission "  -T fields -e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">MySQL响应时间直方图【第八列的含义-- Time since previous frame <span class="keyword">in</span> this TCP stream: seconds】：</span></div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">分析MySQL rt，倒数第四列基本就是rt</span></div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">或者排序一下</span></div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将 tls key和抓包文件合并</span></div><div class="line">editcap --inject-secrets tls,key.log in.pcap out.pcap</div><div class="line"><span class="meta">#</span><span class="bash">把包长截掉，只保留前面54，可以脱敏包内容</span></div><div class="line">editcap -s 54 old.pcap new.pcap</div></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/01/01/Apple_M1_Pro和Intel_I9-12900K谁强/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2022/01/01/Apple_M1_Pro和Intel_I9-12900K谁强/" itemprop="url">Apple M1 Pro 和 Intel I9-12900K到底谁强</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2022-01-01T12:30:03+08:00">
+                2022-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Apple-M1-Pro-和-Intel-I9-12900K到底谁强"><a href="#Apple-M1-Pro-和-Intel-I9-12900K到底谁强" class="headerlink" title="Apple M1 Pro 和 Intel I9-12900K到底谁强"></a>Apple M1 Pro 和 Intel I9-12900K到底谁强</h1><p>主要比较 M1 Pro和 I9-12900K，从芯片的参数来分析他们的差异。不和M1Max、M1Ultra比是因为从成本看没有可比性，M1Max、M1Ultra应该比I9贵多了，比起来意义不大，M1Max、M1Ultra的场景不一样。结论在最后</p>
+<p>网上很多拿I9-12900K和M1 Max比实际没有意义，CPU core方面M1 Max和M1 Pro是一样的（跑分结果一样），干嘛不挑个便宜的去比较！</p>
+<h2 id="The-M1-Pro"><a href="#The-M1-Pro" class="headerlink" title="The M1 Pro"></a><strong>The M1 Pro</strong></h2><p>The M1 Pro takes this higher, with:</p>
+<ul>
+<li>33.7 billion transistors on a 240mm squared die.</li>
+<li>8 performance cores, 24MB L2 Cache，每个core 3MB，cache跟不要钱一样的堆</li>
+<li>2 efficiency cores with 4MB L2 cache，每个core 2MB</li>
+<li>16 GPU Cores.</li>
+<li>32GB DDR5 memory at 200GB/s.</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20220402101632476-8873839.png" alt="image-20220402101632476"></p>
+<p><strong>从性能来看不推荐买M1</strong>，内存还是DDR4，M1Pro以上就都是DDR5了（文后有惊喜告诉你怎么用M1的价格买到M1 Pro） </p>
+<p><img src="/images/951413iMgBlog/image-20220402104020407-8873873.png" alt="image-20220402104020407"></p>
+<p>上图中PCPU就是高性能核，共8个，PCPU左边的是低频节能的2个ECPU，机器不忙的时候可以用ECPU，节能。一旦有复杂任务就可以用PCPU。至于M1 Max在狂堆 GPU, 然后M1 Ultra学习AMD把两块M1 Max封装在一起，有没有用就看你的应用场景了，比如搞程序编译、跑跑Idea用M1 Pro就够了，没必要多花几倍的钱用在GPU上，搞视频编辑、图片处理可以考虑Max、Ultra。</p>
+<h3 id="The-M1-Max"><a href="#The-M1-Max" class="headerlink" title="The M1 Max"></a><strong>The M1 Max</strong></h3><p>The M1 Max provides:（相对M1 Pro主要是多堆了 16个GPU，CPU方面是一样的，大多数跑分是M1 Pro和Max几乎一样，多花钱买那16个GPU不一定值得）</p>
+<ul>
+<li>57 billion transistors on a 420mm squared die.</li>
+<li>8 performance cores, 24MB L2 Cache.</li>
+<li>2 efficiency cores with 4MB L2 cache.</li>
+<li>32 GPU Cores.</li>
+<li>64GB DDR5 memory at 400GB/s.</li>
+</ul>
+<h3 id="And-the-new-M1-Ultra"><a href="#And-the-new-M1-Ultra" class="headerlink" title="And the new M1 Ultra"></a><strong>And the new M1 Ultra</strong></h3><p>The M1 Ultra brings you:（下面的数据完全是M1 Max的2倍，实际就是封装两块M1 Max）</p>
+<ul>
+<li>114 billion transistors on a 840mm squared die.</li>
+<li>16 performance cores, 48MB L2 Cache.</li>
+<li>4 efficiency cores with 4MB L2 cache.</li>
+<li>64 GPU Cores.</li>
+<li>Up to 128GB DDR5 memory at 800GB/s.</li>
+</ul>
+<h3 id="M1-Pro主板拆解"><a href="#M1-Pro主板拆解" class="headerlink" title="M1 Pro主板拆解"></a>M1 Pro主板拆解</h3><p><img src="/images/951413iMgBlog/image-20220506142049220.png" alt="image-20220506142049220"></p>
+<p>上图中，红框是 M1 Pro 芯片，黄框是三星 8GB 内存（共两块），绿框是铠侠的 128GB 闪存（共两块）。</p>
+<h2 id="Inel-I9-12900K"><a href="#Inel-I9-12900K" class="headerlink" title="Inel I9-12900K"></a>Inel I9-12900K</h2><p>对比下 i9-12900K，i9也有GPU只是没有说多少个，它的GPU频率在0.3到1.55GHz之间</p>
+<p><img src="/images/951413iMgBlog/400px-alder_lake_die_2.png" alt="alder lake die 2.png"></p>
+<table>
+<thead>
+<tr>
+<th>ISA</th>
+<th>x86-64 (x86)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Microarchitecture</td>
+<td><a href="https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake" target="_blank" rel="external">Alder Lake</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove" target="_blank" rel="external">Golden Cove</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/gracemont" target="_blank" rel="external">Gracemont</a></td>
+</tr>
+<tr>
+<td>Process</td>
+<td><a href="https://en.wikichip.org/w/index.php?title=Intel_7_process&amp;action=edit&amp;redlink=1" target="_blank" rel="external">Intel 7</a></td>
+</tr>
+<tr>
+<td>Die</td>
+<td>215.25 mm²” 20.5 mm × 10.5 mm</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>No (1 dies)</td>
+</tr>
+<tr>
+<td>Cores</td>
+<td>16</td>
+</tr>
+<tr>
+<td>Threads</td>
+<td>24</td>
+</tr>
+<tr>
+<td><a href="https://en.wikichip.org/wiki/Property:l1$_size" target="_blank" rel="external">l1$ size</a></td>
+<td>0.75 MiB (768 KiB, 786,432 B, 7.324219e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.75-20MiB" target="_blank" rel="external">+</a> and 0.625 MiB (640 KiB, 655,360 B, 6.103516e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.625-20MiB" target="_blank" rel="external">+</a></td>
+</tr>
+<tr>
+<td><a href="https://en.wikichip.org/wiki/Property:l1d$_size" target="_blank" rel="external">l1d$ size</a></td>
+<td>0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.25-20MiB" target="_blank" rel="external">+</a> and 0.375 MiB (384 KiB, 393,216 B, 3.662109e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.375-20MiB" target="_blank" rel="external">+</a></td>
+</tr>
+<tr>
+<td><a href="https://en.wikichip.org/wiki/Property:l1i$_size" target="_blank" rel="external">l1i$ size</a></td>
+<td>0.5 MiB (512 KiB, 524,288 B, 4.882812e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.5-20MiB" target="_blank" rel="external">+</a> and 0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.25-20MiB" target="_blank" rel="external">+</a></td>
+</tr>
+<tr>
+<td><a href="https://en.wikichip.org/wiki/Property:l2$_size" target="_blank" rel="external">l2$ size</a></td>
+<td>4 MiB (4,096 KiB, 4,194,304 B, 0.00391 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/4-20MiB" target="_blank" rel="external">+</a> and 10 MiB (10,240 KiB, 10,485,760 B, 0.00977 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/10-20MiB" target="_blank" rel="external">+</a> 共14Mb</td>
+</tr>
+<tr>
+<td><a href="https://en.wikichip.org/wiki/Property:l3$_size" target="_blank" rel="external">l3$ size</a></td>
+<td>6 MiB (6,144 KiB, 6,291,456 B, 0.00586 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/6-20MiB" target="_blank" rel="external">+</a> and 24 MiB (24,576 KiB, 25,165,824 B, 0.0234 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/24-20MiB" target="_blank" rel="external">+</a> 共30Mb</td>
+</tr>
+<tr>
+<td>TDP</td>
+<td>125 W</td>
+</tr>
+</tbody>
+</table>
+<p>从下面的芯片分布图来看，绿色部分是8个高性能物理core，每个2 thread，绿色其右边的蓝色E Cores是8个低频节能core，没开超线程，所以24个threads就是2*8PCPU+8ECPU。真正打起仗来从蓝色部分的面积占比来看基本可以忽略，重点得靠绿色的PCPU。</p>
+<p><img src="/images/951413iMgBlog/arch2_small.jpg" alt="img"></p>
+<h2 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h2><p>从上面分析来看 I9-12900K和M1 Pro的比较最终回到了各自8个PCPU的较量。Intel/X86的超线程在大部分场景下可以提升单核计算能力的1.5倍左右，所以这里就是Intel的12core打M1 Pro的，另外Intel主频也比M1 Pro要高，如果比较单core的计算能力Intel能睿频到5GHz以上，所以不考虑视频、图片、矩阵等简单计算场景，Intel的性能应该还是要强很多的。但是如果作为笔记本来说一定要考虑功耗，125W VS 45W，我的建议是买Apple（M1的软件兼容性也是个问题）。如果是当服务器工作站使用还是建议买I9. 价钱就不好比较了M1 Pro不单独卖没法估计价格。</p>
+<p>I9弱在内存还是DDR4，而M1 Pro是DDR5了，另外就是M1 Pro的L2要大。当然I9也有DDR5的内存的。</p>
+<p>笔记本领域M1整体来看应该优势明显，尤其是经过几年的生态发展能够把软件生态补上的话。</p>
+<h2 id="购买建议"><a href="#购买建议" class="headerlink" title="购买建议"></a>购买建议</h2><p>如果想买苹果，推荐买这款：</p>
+<p><img src="/images/951413iMgBlog/image-20220402103153047-8874337.png" alt="image-20220402103153047"></p>
+<p>这种<a href="https://ata.alibaba-inc.com/articles/211563" target="_blank" rel="external">非标8核的M1（就是10核关闭了2核），便宜了2500，特别值</a>。苹果从来没有发布过8核的M1 Pro芯片，但是这款售卖的CPU号称是M1 Pro，比正常的M1 Pro少了两个CPU core和两个GPU。这点差异是不会重新设计一个新的芯片多搞一条生产线的，一般是正常的M1 Pro生产线下来检测发现坏了个别的core，扔了太浪费，于是关掉坏core当低配的M1 Pro在卖，价钱便宜了快一半了，实际性能其实差得不多。</p>
+<p>如果是买Intel i9的话，从性价比上来看如果能买到i5-12600K也是非常不错的，实际就是i9关掉(坏掉)了2个PCPU和4个ECPU，价钱是i9的一半不到，PCPU少了但是Base主频反而高了，因为总核少了，发热就能控制，所以单核能跑到的频率更高一些。</p>
+<p><img src="/images/951413iMgBlog/image_19.jpg" alt="image 19"></p>
+<p>其实I9、I7、I5都是同一条生产线、同样的工艺下制造出来的，差别在于帮I9分摊成本，比如你看看<a href="https://en.wikichip.org/wiki/intel/core_i5/i5-12600k" target="_blank" rel="external">i5-12600k的参数</a>和i9-12900K基本是一样的，重点在215.25 mm² 的 Die Size：</p>
+<table>
+<thead>
+<tr>
+<th>ISA</th>
+<th>x86-64 (x86)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Microarchitecture</td>
+<td><a href="https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake" target="_blank" rel="external">Alder Lake</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove" target="_blank" rel="external">Golden Cove</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/gracemont" target="_blank" rel="external">Gracemont</a></td>
+</tr>
+<tr>
+<td>Process</td>
+<td><a href="https://en.wikichip.org/w/index.php?title=Intel_7_process&amp;action=edit&amp;redlink=1" target="_blank" rel="external">Intel 7</a></td>
+</tr>
+<tr>
+<td>Die</td>
+<td>215.25 mm² 20.5 mm × 10.5 mm</td>
+</tr>
+<tr>
+<td>Cores</td>
+<td>10</td>
+</tr>
+<tr>
+<td>Threads</td>
+<td>16</td>
+</tr>
+</tbody>
+</table>
+<p>即使把 <a href="https://www.techpowerup.com/review/intel-core-i5-12600k-alder-lake-12th-gen/2.html" target="_blank" rel="external">i5-12600k拆开</a>用放大镜看也是和i9-12900K 一样的：</p>
+<p><img src="/images/951413iMgBlog/arch1_small.jpg" alt="img"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>笔记本建议买M1 Pro</li>
+<li>M1和M1 Pro如果看重性能的话肯定要买M1 Pro了</li>
+<li>M1 Pro 建议买8 core的，买到就是赚到</li>
+<li>集团内M1 Pro想要轻便就选14寸的，综合考虑我还是推荐14寸的</li>
+<li>I9的笔记本建议买I7、I5，平时使用性能差得不多</li>
+<li>性能还是I9强，做服务器更合适 </li>
+</ul>
+<p>最后我手里头既没有I9也没有M1，结论靠键盘 :)，买错了别找我。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://ata.alibaba-inc.com/articles/211563" target="_blank" rel="external">CPU的生产和概念</a></p>
 
           
         
@@ -5447,6 +5730,7 @@
 <p><a href="https://coolshell.cn/articles/10249.html" target="_blank" rel="external">7个示例科普CPU CACHE</a></p>
 <p><a href="https://coolshell.cn/articles/20793.html" target="_blank" rel="external">与程序员相关的CPU缓存知识</a></p>
 <p><a href="http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj" target="_blank" rel="external">Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?</a> 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share</p>
+<p><a href="https://zhuanlan.zhihu.com/p/58881925" target="_blank" rel="external">CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈</a></p>
 
           
         
@@ -9126,15 +9410,15 @@ sudo ip tcp_metrics delete 100.118.58.7
         
           
             <h1 id="一次春节大促性能压测不达标的瓶颈推演"><a href="#一次春节大促性能压测不达标的瓶颈推演" class="headerlink" title="一次春节大促性能压测不达标的瓶颈推演"></a>一次春节大促性能压测不达标的瓶颈推演</h1><p>本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。</p>
-<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>某客户通过PTS来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
-<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， DRDS rt 5ms，QPS 10万+</p>
-<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个容器运行tomcat监听9108端口上） -&gt; slb -&gt; drds集群 -&gt; RDS集群</p>
-<p>性能不达标，怀疑DRDS或者RDS性能不行，作为数据库需要自证清白，所以从RDS和DRDS开始分析问题在哪里。</p>
-<p>略过一系列在DRDS、RDS上分析数据和监控图表都证明DRDS和RDS没问题的过程。</p>
-<p>在明确给出证据DRDS和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
-<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到DRDS的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到DRDS的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到DRDS的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到DRDS的一个连接分析：</h2><p><img src="/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
-<p>DRDS每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 = 6万 ， 跟压测看到基本一致</p>
-<p>300个容器，每个容器 10个连接到DRDS</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
+<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 10万+</p>
+<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个容器运行tomcat监听9108端口上） -&gt; slb -&gt; 数据库代理服务集群 -&gt; RDS集群</p>
+<p>性能不达标，怀疑数据库代理服务或者RDS性能不行，作为数据库需要自证清白，所以从RDS和数据库代理服务开始分析问题在哪里。</p>
+<p>略过一系列在数据库代理服务、RDS上分析数据和监控图表都证明数据库代理服务和RDS没问题的过程。</p>
+<p>在明确给出证据数据库代理服务和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
+<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析：</h2><p><img src="/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
+<p>数据库代理服务每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 = 6万 ， 跟压测看到基本一致</p>
+<p>300个容器，每个容器 10个连接到数据库代理服务</p>
 <p>如果300个容器上的并发压力不够的话就没法将3000个连接跑满，所以看到的QPS是5万。</p>
 <p><strong>从300个容器可以计算得到这个集群能支持的tps： 300*10（10个连接）* 1000/15(每秒钟每个连接能处理的请求数）=20万个tps （关键分析能力）</strong></p>
 <p>也就是说通过单QPS 15ms，我们计算可得整个后端的吞吐能力在20万QPS。所以目前问题不在后端，而是压力没有打到后端就出现瓶颈了。</p>
@@ -9152,11 +9436,11 @@ sudo ip tcp_metrics delete 100.118.58.7
 <p>5分钟时间，QPS是5万+，HTTP的平均rt是15ms， HTTP的最大rt才79ms，和前面抓包分析一致。</p>
 <h2 id="从后端分析的总结"><a href="#从后端分析的总结" class="headerlink" title="从后端分析的总结"></a>从后端分析的总结</h2><p><strong>从9108端口响应时间15ms来看是符合预期的，为什么PTS看到的RT是900ms+，所以压力还没有打到APP上（也就是9108端口）</strong></p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>最后发现是 eip 带宽不足，只有200M，调整到1G后 tps 也翻了5倍到了25万。</p>
-<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; drds -&gt; RDS</p>
+<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS</p>
 <p>这个案例有意思的地方是可以通过抓包就能分析出集群能扛的QPS20万（实际只有5万），那么可以把这个分析原则在每个角色上挨个分析一下，来看瓶颈出在了哪个环节。</p>
 <p>应用端看到的rt是900ms，从后段开始往前面应用端来撸，看看每个环节的rt数据。</p>
 <h2 id="教训"><a href="#教训" class="headerlink" title="教训"></a>教训</h2><ul>
-<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; drds -&gt; RDS </li>
+<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS </li>
 <li>压不上去得从发压力端开始往后端撸，撸每个产品的rt，每个产品给出自己的rt来自证清白</li>
 <li>应用有arms的话学会看arms对平均rt和QPS的统计，不要纠结个别请求的rt抖动，看平均rt</li>
 <li>通过抓包完全可以分析出来系统能扛多少并发，以及可能的瓶颈位置</li>
@@ -10933,250 +11217,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/11/如何在工作中学习--V2.0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/11/11/如何在工作中学习--V2.0/" itemprop="url">如何在工作中学习--V2.0</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-11T12:30:03+08:00">
-                2020-11-11
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/技巧/" itemprop="url" rel="index">
-                    <span itemprop="name">技巧</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何在工作中学习–V2-0"><a href="#如何在工作中学习–V2-0" class="headerlink" title="如何在工作中学习–V2.0"></a>如何在工作中学习–V2.0</h1><p>本文被网友翻译的<a href="https://medium.com/@cai.eason/learn-and-improve-the-right-technical-skills-7a0bc5123e1" target="_blank" rel="external">英文版</a> （medium 需要梯子）</p>
-<blockquote>
-<p>先说一件值得思考的事情：高考的时候大家都是一样的教科书，同一个教室，同样的老师辅导，时间精力基本差不多，可是最后别人考的是清华北大或者一本，而你的实力只能考个三本，为什么？ 当然这里主要是智商的影响，那么其他因素呢？智商解决的问题能不能后天用其他方式来补位一下？</p>
-</blockquote>
-<p>大家平时都看过很多方法论的文章，看的时候很爽觉得非常有用，但是一两周后基本还是老样子了。其中有很大一部分原因那些方法对脑力有要求、或者方法论比较空缺少落地的步骤。 下文中描述的方式方法是不需要智商也能学会的，非常具体的。</p>
-<h2 id="关键问题点"><a href="#关键问题点" class="headerlink" title="关键问题点"></a>关键问题点</h2><h3 id="为什么你的知识积累不了？"><a href="#为什么你的知识积累不了？" class="headerlink" title="为什么你的知识积累不了？"></a>为什么你的知识积累不了？</h3><p>有些知识看过就忘、忘了再看，实际碰到问题还是联系不上这个知识，这其实是知识的积累出了问题，没有深入的理解自然就不能灵活运用，也就谈不上解决问题了。这跟大家一起看相同的高考教科书但是高考结果不一样是一个原因。问题出在了理解上，每个人的理解能力不一样（智商），绝大多数人对知识的理解要靠不断地实践（做题）来巩固。</p>
-<h3 id="同样实践效果不一样？"><a href="#同样实践效果不一样？" class="headerlink" title="同样实践效果不一样？"></a>同样实践效果不一样？</h3><p>同样工作一年碰到了10个问题（或者说做了10套高考模拟试卷），但是结果不一样，那是因为在实践过程中方法不够好。或者说你对你为什么做对了、为什么做错了没有去复盘</p>
-<p>假如碰到一个问题，身边的同事解决了，而我解决不了。那么我就去想这个问题他是怎么解决的，他看到这个问题后的逻辑和思考是怎么样的，有哪些知识指导了他这么逻辑推理，这些知识哪些我也知道但是我没有想到这么去运用推理（说明我对这个知识理解的不到位导致灵活运用缺乏）；这些知识中又有哪些是我不知道的（知识缺乏，没什么好说的快去Google什么学习下–有场景案例和目的加持，学习理解起来更快）。</p>
-<p>等你把这个问题基本按照你同事掌握的知识和逻辑推理想明白后，需要再去琢磨一下他的逻辑推理解题思路中有没有不对的，有没有啰嗦的地方，有没有更直接的方式（对知识更好地运用）。</p>
-<p>我相信每个问题都这么去实践的话就不应该再抱怨灵活运用、举一反三，同时知识也积累下来了，这种场景下积累到的知识是不会那么容易忘记的。</p>
-<p>这就是向身边的牛人学习，同时很快超过他的办法。这就是为什么高考前你做了10套模拟题还不如其他人做一套的效果好</p>
-<p><strong>知识+逻辑 基本等于你的能力</strong>，知识让你知道那个东西，逻辑让你把东西和问题联系起来</p>
-<p><strong>这里的问题你可以理解成方案、架构、设计等</strong></p>
-<h3 id="系统化的知识哪里来？"><a href="#系统化的知识哪里来？" class="headerlink" title="系统化的知识哪里来？"></a>系统化的知识哪里来？</h3><p>知识之间是可以联系起来的并且像一颗大树一样自我生长，但是当你都没理解透彻，自然没法产生联系，也就不能够自我生长了。</p>
-<p>真正掌握好的知识点会慢慢生长连接最终组成一张大网</p>
-<p>但是我们最容易陷入的就是掌握的深度、系统化（工作中碎片时间过多，学校里缺少时间）不够，所以一个知识点每次碰到花半个小时学习下来觉得掌握了，但是3个月后就又没印象了。总是感觉自己在懵懵懂懂中，或者一个领域学起来总是不得要领，根本的原因还是在于：宏观整体大图了解不够（缺乏体系，每次都是盲人摸象）；关键知识点深度不够，理解不透彻，这些关键点就是这个领域的骨架、支点、抓手。缺了抓手自然不能生长，缺了宏观大图容易误入歧途。</p>
-<p>我们有时候发现自己在某个领域学起来特别快，但是换个领域就总是不得要领，问题出在了上面，即使花再多时间也是徒然。这也就是为什么学霸看两个小时的课本比你看两天效果还好，感受下来还觉得别人好聪明，是不是智商比我高啊。</p>
-<p>所以新进入一个领域的时候要去找他的大图和抓手。</p>
-<p>好的同事总是能很轻易地把这个大图交给你，再顺便给你几个抓手，你就基本入门了，这就是培训的魅力，这种情况肯定比自学效率高多了。但是目前绝大部分的培训都做不到这点</p>
-<h3 id="好的逻辑又怎么来？"><a href="#好的逻辑又怎么来？" class="headerlink" title="好的逻辑又怎么来？"></a>好的逻辑又怎么来？</h3><p>实践、复盘</p>
-<p><img src="/images/951413iMgBlog/webp-5540564.jpg" alt="img"></p>
-<h2 id="讲个前同事的故事"><a href="#讲个前同事的故事" class="headerlink" title="讲个前同事的故事"></a>讲个前同事的故事</h2><p>有一个前同事是5Q过来的，负责技术（所有解决不了的问题都找他），这位同学从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。这位同学让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
-<h3 id="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"><a href="#应用刚启动连接到数据库的时候比较慢，但又不是慢查询" class="headerlink" title="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"></a>应用刚启动连接到数据库的时候比较慢，但又不是慢查询</h3><ol>
-<li>这位同学的解决办法是通过tcpdump来分析网络包，看网络包的时间戳和网络包的内容，然后找到了具体卡在了哪里。</li>
-<li>如果是专业的DBA可能会通过show processlist 看具体连接在做什么，比如看到这些连接状态是 <strong>authentication</strong> 状态，然后再通过Google或者对这个状态的理解知道创建连接的时候MySQL需要反查IP、域名这里比较耗时，通过配置参数 <strong>skip-name-resolve</strong> 跳过去就好了。</li>
-<li><p>如果是MySQL的老司机，一上来就知道连接慢的话跟 <strong>skip-name-resolve</strong> 关系最大。</p>
-<p> 在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的知识就把问题解决了。</p>
-</li>
-</ol>
-<p>我当时跟着他从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
-<h2 id="有哪些好的行为帮你更好地掌握知识"><a href="#有哪些好的行为帮你更好地掌握知识" class="headerlink" title="有哪些好的行为帮你更好地掌握知识"></a>有哪些好的行为帮你更好地掌握知识</h2><h2 id="笔记-写博客"><a href="#笔记-写博客" class="headerlink" title="笔记+写博客"></a>笔记+写博客</h2><p>看东西的时候要做笔记，要不当时看得再爽也很容易忘记，我们需要反复复习来加深印象和理解，复习的根据就是笔记（不可能再完整又看一次），笔记整理出里面的要点和你的盲点。</p>
-<p>一段时间后把相关的笔记整理成一篇体系性的博客文章，这样既加深了理解又系统化了相关知识。以后再看到跟这篇博客相关的案例、知识点时不断地更新博客（完善你的知识点）</p>
-<h2 id="场景式学习、体感的来源、面对问题学习"><a href="#场景式学习、体感的来源、面对问题学习" class="headerlink" title="场景式学习、体感的来源、面对问题学习"></a>场景式学习、体感的来源、面对问题学习</h2><p>前面提到的对知识的深入理解这有点空，如何才能做到深入理解？</p>
-<h3 id="举个学习TCP三次握手例子"><a href="#举个学习TCP三次握手例子" class="headerlink" title="举个学习TCP三次握手例子"></a>举个学习TCP三次握手例子</h3><p>经历稍微丰富点的工程师都觉得TCP三次握手看过很多次、很多篇文章了，但是文章写得再好似乎当时理解了，但是总是过几个月就忘了或者一看就懂，过一阵子被人一问就模模糊糊了，或者两个为什么就答不上了，自己都觉得自己的回答是在猜或者不确定</p>
-<p>为什么会这样呢？而学其它知识就好通畅多了，我觉得这里最主要的是我们对TCP缺乏体感，比如没有几个工程师去看过TCP握手的代码，也没法想象真正的TCP握手是如何在电脑里运作的（打电话能给你一些类似的体感，但是细节覆盖面不够）。</p>
-<p>如果这个时候你一边学习的时候一边再用wireshark抓包看看三次握手具体在干什么，比抽象的描述实在多了，你能看到具体握手的一来一回，并且看到一来一回带了哪些内容，这些内容又是用来做什么、为什么要带，这个时候你再去看别人讲解的理论顿时会觉得好理解多了，以后也很难忘记。</p>
-<p>但是这里很多人执行能力不强，想去抓包，但是觉得要下载安装wireshark，要学习wireshark就放弃了。只看不动手当然是最舒适的，但是这个最舒适给了你在学习的假象，没有结果。</p>
-<p>这是不是跟你要解决一个难题非常像，这个难题需要你去做很多事，比如下载源代码（翻不了墙，放弃）；比如要编译（还要去学习那些编译参数，放弃）；比如要搭建环境（太琐屑，放弃）。你看这中间九九八十一难你放弃了一难都取不了真经。这也是为什么同样学习、同样的问题，他能学会，他能解决，你不可以。</p>
-<p><img src="/images/951413iMgBlog/167211888bc4f2a368df3d16c68e6d51.png" alt="167211888bc4f2a368df3d16c68e6d51.png"></p>
-<h3 id="再来看一个解决问题的例子"><a href="#再来看一个解决问题的例子" class="headerlink" title="再来看一个解决问题的例子"></a>再来看一个解决问题的例子</h3><p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">会员系统双11优化这个问题</a>对我来说，我是个外来者，完全不懂这里面的部署架构、业务逻辑。但是在问题的关键地方（会员认为自己没问题–压力测试正常的；淘宝API更是认为自己没问题，alimonitor监控显示正常），结果就是会员的同学说我们没有问题，淘宝API肯定有问题，然后就不去思考自己这边可能出问题的环节了。思想上已经甩包了，那么即使再去review流程、环节也就不会那么仔细，自然更是发现不了问题了。</p>
-<p>但是我的经验告诉我要有证据地甩包，或者说拿着证据优雅地甩包，这迫使我去找更多的细节证据（证据要给力哦，不能让人家拍回来）。如果我是这么说的，这个问题在淘宝API这里，你看理由是…………，我做了这些实验，看到了这些东东。那么淘宝API那边想要证明我的理由错了就会更积极地去找一些数据。</p>
-<p>事实上我就是做这些实验找证据过程中发现了会员的问题，这就是态度、执行力、知识、逻辑能力综合下来拿到的一个结果。我最不喜欢的一句话就是我的程序没问题，因为我的逻辑是这样的，不会错的。你当然不会写你知道的错误逻辑，程序之所以有错误都是在你的逻辑、意料之外的东西。有很多次一堆人电话会议中扯皮的时候，我一般把电话静音了，直接上去人肉一个个过对方的逻辑，一般来说电话会议还没有结束我就给出来对方逻辑之外的东西。</p>
-<h2 id="钉子式学习方法和系统性学习方法"><a href="#钉子式学习方法和系统性学习方法" class="headerlink" title="钉子式学习方法和系统性学习方法"></a>钉子式学习方法和系统性学习方法</h2><p>系统性学习方法就是想掌握MySQL，那么搞几本MySQL专著和MySQL 官方DOC看下来，一般课程设计的好的话还是比较容易掌握下来，绝大部分时候都是这种学习方法，可是在种学习方法的问题在于学完后当时看着似乎理解了，但是很容易忘记，一片一片地系统性的忘记，并且缺少应用能力（理解不深）。这是因为一般人对知识的理解没那么容易真正<strong>理解（掌握或者说应用）</strong>。</p>
-<p>钉子式的学习方式，就是在一大片知识中打入几个桩，反复演练将这个桩不停地夯实，夯稳，做到在这个知识点上用通俗的语言跟小白都能讲明白，然后再这几个桩中间发散像星星之火燎原一样把整个一片知识都掌握下来。这种学习方法的缺点就是很难找到一片知识点的这个点，然后没有很好整合的话知识过于零散。</p>
-<p>钉子式学习方法看着慢但是因为这样掌握的更透彻和牢固实际最终反而快。</p>
-<p>我们常说的一个人很聪明，就是指系统性的看看书就都理解了，是真的理解那种，还能灵活运用，但是大多数普通人就不是这样的，看完书似乎理解了，实际几周后基本都忘记了，真正实践需要用的时候还是用不好。</p>
-<h3 id="举个Open-SSH的例子"><a href="#举个Open-SSH的例子" class="headerlink" title="举个Open-SSH的例子"></a>举个Open-SSH的例子</h3><p>为了做通 SSH 的免密登陆，大家都需要用到 ssh-keygen/ssh-copy-id， 如果我们把这两个命令当一个小的钉子的话，会去了解ssh-keygen做了啥（生成了密钥对），或者ssh-copy-id 的时候报错了（原来是需要秘钥对），然后将 ssh-keygen 生成的pub key复制到server的~/.ssh/authorized_keys 中。</p>
-<p>然后你应该会对这个原理要有一些理解（更大的钉子），于是理解了密钥对，和ssh验证的流程，顺便学会怎么看ssh debug信息，那么接下来网络上各种ssh攻略、各种ssh卡顿的解决都是很简单的事情了。</p>
-<p>比如你通过SSH可以解决这些问题：</p>
-<ul>
-<li>免密登陆</li>
-<li>ssh卡顿</li>
-<li>怎么去掉ssh的时候需要手工多输入yes</li>
-<li>我的ssh怎么很快就断掉了</li>
-<li>我怎么样才能一次通过跳板机ssh到目标机器</li>
-<li>我怎么样通过ssh科学上网</li>
-<li>我的ansible（底层批量命令都是基于ssh）怎么这么多问题，到底是为什么</li>
-<li>我的git怎么报网络错误了</li>
-<li>X11 forward我怎么配置不好</li>
-<li>https为什么需要随机数加密，还需要签名</li>
-<li>…………</li>
-</ul>
-<p>这些问题都是一步步在扩大ssh的外延，让这个钉子变成一个巨大的桩。</p>
-<p>然后就会学习到一些<a href="/2018/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82SSH--SSH%E8%8A%B1%E5%BC%8F%E7%8E%A9%E6%B3%95/">高级一些的ssh配置</a>，比如干掉经常ssh的时候要yes一下(StrictHostKeyChecking=no), 或者怎么配置一下ssh就不会断线了（ServerAliveInterval=15），或者将 ssh跳板机-&gt;ssh server的过程做成 ssh server一步就可以了(ProxyCommand)，进而发现用 ssh的ProxyCommand很容易科学上网了，或者git有问题的时候轻而易举地把ssh debug打开，对git进行debug了……</p>
-<p>这基本都还是ssh的本质范围，像ansible、git在底层都是依赖ssh来通讯的，你会发现学、调试X11、ansible和git简直太容易了。</p>
-<p>另外理解了ssh的秘钥对，也就理解了非对称加密，同时也很容易理解https流程（SSL），同时知道对称和非对称加密各自的优缺点，SSL为什么需要用到这两种加密算法了。</p>
-<p>你看一个简单日常的知识我们只要沿着它用钉子精神，深挖细挖你就会发现知识之间的连接，这个小小的知识点成为你知识体系的一根结实的柱子。</p>
-<p>我见过太多的老的工程师、年轻的工程师，天天在那里ssh 密码，ssh 跳板机，ssh 目标机，一小会ssh断了，重来一遍；或者ssh后卡住了，等吧……</p>
-<p>在这个问题上表现得没有求知欲、没有探索精神、没有一次把问题搞定的魄力，所以就习惯了</p>
-<h2 id="空洞的口号"><a href="#空洞的口号" class="headerlink" title="空洞的口号"></a>空洞的口号</h2><p>很多老师和文章都会教大家：举一反三、灵活运用、活学活用、多做多练。但是只有这些口号是没法落地的，落地的基本步骤就是前面提到的，却总是被忽视了。</p>
-<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举一反三，这是知识效率，这种人非常少；</p>
-<p>大多数普通人都是看点知识然后结合实践来强化理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
-<p>肯定知识效率最牛逼，但是拥有这种技能的人毕竟非常少（天生的高智商吧）。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快的掌握一个新知识，非常气人。剩下的绝大部分只能拼时间+方法+总结等也能掌握一些知识</p>
-<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
-<p>使劲挖掘自己在知识效率型方面的能力吧，两者之间当然没有明显的界限，知识积累多了逻辑训练好了在别人看来你的智商就高了</p>
-<h2 id="知识分两种"><a href="#知识分两种" class="headerlink" title="知识分两种"></a>知识分两种</h2><p>一种是通用知识（不是说对所有人通用，而是说在一个专业领域去到哪个公司都能通用）；另外一种是跟业务公司绑定的特定知识</p>
-<p>通用知识没有任何疑问碰到后要非常饥渴地扑上去掌握他们（受益终生，这还有什么疑问吗？）。对于特定知识就要看你对业务需要掌握的深度了，肯定也是需要掌握一些的，特定知识掌握好的一般在公司里混的也会比较好。</p>
-<p>一个具体知识体系里面又有一些核心知识点（抓手、essential knowledge），也就是掌握可以快速帮你膨胀、延伸到其他相关知识的知识点。</p>
-<p>还有一些知识、工具一旦掌握就能帮你贯穿、具象、理解别的知识点，比如网络知识体系中的wireshark；理工科中的数学；知识体系中的学习方法、行为方式。我们要多去发现这些知识、工具（how？）</p>
-<h2 id="哪些品质能够决定一个人学习好坏"><a href="#哪些品质能够决定一个人学习好坏" class="headerlink" title="哪些品质能够决定一个人学习好坏"></a>哪些品质能够决定一个人学习好坏</h2><h3 id="排在第一名的品质是复盘、总结能力"><a href="#排在第一名的品质是复盘、总结能力" class="headerlink" title="排在第一名的品质是复盘、总结能力"></a>排在第一名的品质是复盘、总结能力</h3><p>简单的说，这个能力就是这个孩子心里是否有个“小教练”，能够每次跳脱出当前任务，帮助自己分析，失败在哪里，成功在哪里，如何进阶，如何训练等等。</p>
-<p>举几个例子：</p>
-<ol>
-<li><p>如果写不出作文，这个“小教练”能告诉孩子，是没有素材，还是文字能力不强。</p>
-<p>如果是文字能力不强，应该如何训练（是造句，还是拆段落）</p>
-</li>
-<li><p>如果数学题做不出来，这个“小教练”能告诉孩子，我的弱点在哪里，哪个类型题我有重大问题，是因为哪里没有理解和打通。</p>
-</li>
-</ol>
-<p>有内化的“自我教练”，这个能力系数是1.67。也就是其他能力相当，学习效果可以翻1.67倍。</p>
-<h3 id="排在第二名的是建构能力。简单的说是逻辑推理，做事顺序等等"><a href="#排在第二名的是建构能力。简单的说是逻辑推理，做事顺序等等" class="headerlink" title="排在第二名的是建构能力。简单的说是逻辑推理，做事顺序等等"></a>排在第二名的是建构能力。简单的说是逻辑推理，做事顺序等等</h3><p>在内心“小教练”能把问题进行拆解之后，建构能力能把这些问题进行排序，应该怎么做更合理。</p>
-<p>最终怎么把训练步骤整合。遇见一个问题，先干什么，再干什么等等。</p>
-<p>有很强的顺序能力，系数为1.44。也就是其他能力相当，学习效果可以翻1.44倍。</p>
-<h3 id="排在第三名的能力是智商和过去成绩"><a href="#排在第三名的能力是智商和过去成绩" class="headerlink" title="排在第三名的能力是智商和过去成绩"></a>排在第三名的能力是智商和过去成绩</h3><p>这个毋庸置疑，聪明做事就会简单一些。平均效应系数为0.67。</p>
-<p>也就是说，其他能力相当，智商高和过去成绩好，学习效果提升67%</p>
-<p>智商重要程度应该比这里更高，但是实际高智商的太少，<strong>大多都是因为基础知识好给人产生了智商高的误解！</strong></p>
-<h3 id="排在第四名的能力是自我驱动力"><a href="#排在第四名的能力是自我驱动力" class="headerlink" title="排在第四名的能力是自我驱动力"></a>排在第四名的能力是自我驱动力</h3><p>简单的说，知道自己为什么学习，能够自我鼓励，遇见失败能抗挫，有很强的心理驱动力。</p>
-<p>平均效应系数为0.48。也就是说，其他能力相当，有自我驱动力的人，学习效果提升48%。</p>
-<h3 id="排在第五名的才是集中注意力"><a href="#排在第五名的才是集中注意力" class="headerlink" title="排在第五名的才是集中注意力"></a>排在第五名的才是集中注意力</h3><p>也就是说，注意力强。注意力对学习影响，并没有很多家长想象的那么大。</p>
-<p>注意力的平均效应系数为0.44</p>
-<p>也就是说，其他能力相当，注意力好的孩子，效果能提升44%</p>
-<p>———总结一下——-</p>
-<p>学习提升的个人因素：</p>
-<p>自我分析，自我教练的元认知能力 》 逻辑排序与制定计划的建构能力》 智商和过去成绩 》自我驱动力》 集中注意力。</p>
-<p>很多家长痴迷于“专注力”。当然专注力是一个效应量很强的学习力，但是从整体数据看，对学习的提升效果，仅仅排到第五名。</p>
-<p>帮助孩子建立元认知能力和建构能力的培训，才能给他们对终身学习有帮助的技能包</p>
-<p>以上缺少了对方法的落地执行能力的评估，实际这是影响最大的</p>
-<h2 id="为什么一直努力却没有结果"><a href="#为什么一直努力却没有结果" class="headerlink" title="为什么一直努力却没有结果"></a><strong>为什么一直努力却没有结果</strong></h2><p>人生不是走斜坡，你持续走就可以走到巅峰；人生像走阶梯（有时候需要跳上台阶），每一阶有每一阶的难点，学物理有物理的难点，学漫画有漫画的难点，你没有克服难点，再怎么努力都是原地跳。所以当你克服难点，你跳上去就不会下来了。</p>
-<p>这里的克服难点可以理解成真正掌握知识点，大多时候只是似是而非，所以一直在假忙碌、假学习，只有真正掌握后才像是上了个台阶。</p>
-<p>这句话本身就是对知识的具象化理解，本来要描述的是有些人很容易达到目的、有些人则很难，我们很容易归结到天赋等原因，但是还是不能完全理解这个事情，知道天赋差异也不会帮助到我们跳楼梯，而这句话给出了一个形象的描述，一下子就会记住并在日常中尽量尝试跳上去和脱离假忙碌的状态。</p>
-<p><img src="/images/951413iMgBlog/6856fb6af3fa3b940c38c71edbc3bb73.png" alt="image.png"></p>
-<p>在上述截图中，温伯格拿他自己玩弹子球游戏的经验，来描述”跃迁模式”。<br>　 为啥在跃迁之前会出现一个【低谷】捏？温伯格认为：要想提升到一个新的 level，你需要放弃某些你擅长的技能，然后尝试你所【不】擅长的技能。<br>温伯格以他的弹子球游戏举例说：<br>    为了得到更高的分数，他必须放弃以前熟悉的【低】难度技巧，转而尝试某种【高】难度技巧。在练习高难度技巧的过程中，他的分数会跌得比原先更低（也就是截图中下凹的低谷）。经过了一段时间的练习，当他掌握了高难度技巧，他的游戏得分就突然飞跃到一个新的 level。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -11226,7 +11266,7 @@ sudo ip tcp_metrics delete 100.118.58.7
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-count">136</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -11248,7 +11288,7 @@ sudo ip tcp_metrics delete 100.118.58.7
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">231</span>
+                <span class="site-state-item-count">233</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

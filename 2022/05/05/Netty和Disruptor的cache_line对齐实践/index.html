@@ -95,19 +95,19 @@
 
 
 
-<meta name="description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。 cac">
+<meta name="description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 写这篇文章的起因是这个 记一次 Netty PR 的提交，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是6">
 <meta name="keywords" content="performance,Linux,CPU,cache_line">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Netty和Disruptor的cache_line对齐实践">
 <meta property="og:url" content="https://plantegg.github.io/2022/05/05/Netty和Disruptor的cache_line对齐实践/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。 cac">
+<meta property="og:description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 写这篇文章的起因是这个 记一次 Netty PR 的提交，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是6">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689-1744256.png">
-<meta property="og:updated_time" content="2022-05-05T10:28:11.267Z">
+<meta property="og:updated_time" content="2022-05-22T10:36:18.447Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Netty和Disruptor的cache_line对齐实践">
-<meta name="twitter:description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。 cac">
+<meta name="twitter:description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 写这篇文章的起因是这个 记一次 Netty PR 的提交，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是6">
 <meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png">
 
 
@@ -386,6 +386,7 @@
 
       
         <h1 id="Netty和Disruptor的cache-line对齐实践"><a href="#Netty和Disruptor的cache-line对齐实践" class="headerlink" title="Netty和Disruptor的cache_line对齐实践"></a>Netty和Disruptor的cache_line对齐实践</h1><p>原理先看这篇：<a href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/">CPU 性能和Cache Line</a></p>
+<p>写这篇文章的起因是这个 <a href="https://mp.weixin.qq.com/s/vkCskOVSpzxt3Umzc_GYrQ" target="_blank" rel="external">记一次 Netty PR 的提交</a>，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题</p>
 <h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。</p>
 <h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设CPU的两个核 A 和 B, 都在各自本地 Cache Line 里有同一个变量1的拷贝时，此时该 Cache Line 处于 Shared 状态。当 核A 在本地修改了变量2，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个 核B 读另一个变量2前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
 <p>上面这个过程也叫false-share, 即伪共享，因为变量1、2不是真的关联共享，本来变量1失效不应该导致变量2失效，但是因为cache line机制的存在导致 变量2也失效了，所以这里变量1、2叫false-share</p>
@@ -543,7 +544,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">135</span>
+                <span class="site-state-item-count">136</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -565,7 +566,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">231</span>
+                <span class="site-state-item-count">233</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
