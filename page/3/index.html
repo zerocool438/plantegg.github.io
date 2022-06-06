@@ -1396,6 +1396,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <blockquote>
 <p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
 <p> 硬中断发生在哪一个核上，它发出的软中断就由哪个核来处理。可以通过加大网卡队列数，这样硬中断工作、软中断工作都会有更多的核心参与进来。</p>
+<p> <strong>napi_schedule干两件事情，一件事情是把struct napi_struct 挂到struct softnet_data 上，注意softnet_data是一个per cpu变量，换句话说，软中断结构是挂在触发硬中断的同一个CPU上；另一件事情是调用</strong>raise_softirq_irqoff 把irq_stat的__softirq_pending 字段置位，irq_stat 也是个per cpu 变量，表示当前这个cpu上有软中断待处理。</p>
 </blockquote>
 <p><img src="/images/951413iMgBlog/640-20211027133622981" alt="Image"></p>
 <p>从上图可以看到tcpdump在协议栈之前，也就是netfilter过滤规则对tcpdump无效，发包则是反过来：</p>
@@ -1432,21 +1433,27 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。<strong>收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段</strong>。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
 <h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
 <li>应用调 sendmsg</li>
+<li>数据拷贝到sk_write_queue上的最后一个skb中，如果该skb指向的数据区已经满了，则调用sk_stream_alloc_skb创建一个新的skb，并挂到这个sk_write_queue上</li>
 <li>TCP 分片 skb_buff</li>
 <li>根据 tcp_wmem 缓存需要发送的包</li>
 <li>构造TCP包头(src/dst port)</li>
 <li>ipv4 调用 tcp_write_xmit 和 tcp_transmit_skb</li>
-<li>ip_queue_xmit, 构建 ip 包头(获取目标ip和port)</li>
-<li>进入 netfilter 流程 nf_hook()</li>
-<li>路由流程 POST_ROUTING</li>
+<li>ip_queue_xmit, 构建 ip 包头(获取目标ip和port，找路由)</li>
+<li>进入 netfilter 流程 nf_hook()，iptables规则在这里生效</li>
+<li>路由流程 POST_ROUTING，iptables 的nat和mangle表会在这里设置规则，对数据包进行一些修改</li>
 <li>ip_output 分片</li>
-<li>进入L2 dev_queue_xmit</li>
+<li>进入L2 dev_queue_xmit，tc 网络流控在这里</li>
 <li>填入 txqueuelen 队列</li>
 <li>进入发送 Ring Buffer tx</li>
 <li>驱动触发软中断 soft IRQ (NET_TX_SOFTIRQ)</li>
 </ol>
+<p>在传输层的出口函数tcp_transmit_skb中，会对这个skb进行克隆（skb_clone），克隆得到的子skb和原先的父skb 指向共同的数据区，如下图所示。并且会把struct skb_shared_info的dataref 的计数加一。</p>
+<p>传输层以下各层处理的skb 实际就是这个克隆出来的skb，而原先的skb保留在TCP连接的发送队列上。</p>
+<p>克隆skb再经过协议栈层层处理后进入到驱动程序的RingBuffer 中。随后网卡驱动真正将数据发送出去，当发送完成时，由硬中断通知 CPU，然后由中断处理程序来清理 RingBuffer中指向的skb。注意，这里只释放了这个skb结构本身，而skb指向的数据区，由于dataref而不会被释放。要等到<strong>TCP层接收到ACK</strong>后，再释放父skb的同时，释放数据区。</p>
+<p>比如ip_queue_xmit发现无法路由到目标地址，就会丢弃发送包，这里丢弃的是克隆包，原始包还在发送队列里，所以TCP层就会在<strong>定时器到期后进行重传</strong>。</p>
 <h3 id="典型的发送堆栈"><a href="#典型的发送堆栈" class="headerlink" title="典型的发送堆栈"></a>典型的发送堆栈</h3><p><img src="/images/951413iMgBlog/1557292508719-5b5a2507-a638-4035-a47a-a8599e69f879.png" alt="undefined"> </p>
 <h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="/images/951413iMgBlog/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<p>发包流程对应源代码：</p>
 <p><img src="/images/951413iMgBlog/640-5685512." alt="Image"></p>
 <p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
 <p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
@@ -1601,7 +1608,7 @@ tx-frame-high: 0
 <p>netdev_max_backlog(接收)和txqueuelen(发送)相对应 </p>
 <h4 id="softnet-stat"><a href="#softnet-stat" class="headerlink" title="softnet_stat"></a>softnet_stat</h4><p>关于<code>/proc/net/softnet_stat</code> 的重要细节:</p>
 <ol>
-<li>每一行代表一个 <code>struct softnet_data</code> 变量。因为每个 CPU 只有一个该变量，所以每行 其实代表一个 CPU</li>
+<li>每一行代表一个 <code>struct softnet_data</code> 变量。因为每个 CPU core 都有一个该变量，所以每行 其实代表一个 CPU core</li>
 <li>每列用空格隔开，数值用 16 进制表示</li>
 <li>第一列 <code>sd-&gt;processed</code>，是处理的网络帧的数量。如果你使用了 ethernet bonding， 那这个值会大于总的网络帧的数量，因为 ethernet bonding 驱动有时会触发网络数据被 重新处理（re-processed）</li>
 <li>第二列，<code>sd-&gt;dropped</code>，是因为处理不过来而 drop 的网络帧数量。后面会展开这一话题</li>
@@ -2761,7 +2768,7 @@ void test_stub1(void)
       
         
           
-            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat change_kernel_parameter.sh </span></div><div class="line"><span class="meta">#</span><span class="bash">cat /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">grep <span class="string">''</span> /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /sys/kernel/mm/transparent_hugepage/enabled</span></div><div class="line"><span class="meta">#</span><span class="bash">transparent_hugepage=always</span></div><div class="line"><span class="meta">#</span><span class="bash">noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</span></div><div class="line"><span class="meta">#</span><span class="bash">追加nopti nospectre_v2到内核启动参数中</span></div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="built_in">limit</span> the journald <span class="built_in">log</span> to 500M</span></div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span><span class="bash">重启系统</span></div><div class="line"><span class="meta">#</span><span class="bash">sudo reboot</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 选择不同的kernel启动</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grep <span class="string">"menuentry "</span> /boot/grub2/grub.cfg | grep -n menu</span></div><div class="line"><span class="meta">#</span><span class="bash"><span class="comment">#grub认的index从0开始数的</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grub2-reboot 0; sudo reboot</span></div></pre></td></tr></table></figure>
+            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span>cat change_kernel_parameter.sh </div><div class="line"><span class="meta">#</span>cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>grep '' /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"><span class="meta"></span></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line"><span class="meta">#</span>transparent_hugepage=always</div><div class="line"><span class="meta">#</span>noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line"><span class="meta">#</span>追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span>重启系统</div><div class="line"><span class="meta">#</span>sudo reboot</div><div class="line"><span class="meta"></span></div><div class="line">## 选择不同的kernel启动</div><div class="line"><span class="meta">#</span>sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu</div><div class="line"><span class="meta">#</span>#grub认的index从0开始数的</div><div class="line"><span class="meta">#</span>sudo grub2-reboot 0; sudo reboot</div><div class="line">or</div><div class="line"><span class="meta">#</span>grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot</div></pre></td></tr></table></figure>
 <h2 id="修改是否启用透明大页"><a href="#修改是否启用透明大页" class="headerlink" title="修改是否启用透明大页"></a>修改是否启用透明大页</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
 <h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
@@ -5440,7 +5447,7 @@ nameserver 10.0.0.3
 </ul>
 <p><img src="/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
 <h2 id="RT"><a href="#RT" class="headerlink" title="RT"></a><a href="https://www.cnblogs.com/huangyingsheng/p/13744422.html" target="_blank" rel="external">RT</a></h2><p>什么是 RT ？是概念还是名词还是理论？</p>
-<p>RT其实也没那么玄乎，就是 Response Time，只不过看你目前在什么场景下，也许你是c端（app、pc等）的用户，响应时间是你请求服务器到服务器响应你的时间间隔，对于我们后端优化来说，就是接受到请求到响应用户的时间间隔。这听起来怎么感觉这不是在说废话吗？这说的不都是服务端的处理时间吗？不同在哪里？其实这里有个容易被忽略的因素，叫做网络开销。<br>所以服务端RT ≈ 网络开销 + 客户端RT。也就是说，一个差的网络环境会导致两个RT差距的悬殊（比如，从深圳访问上海的请求RT，远大于上海本地内的请求RT）</p>
+<p>RT其实也没那么玄乎，就是 Response Time，只不过看你目前在什么场景下，也许你是c端（app、pc等）的用户，响应时间是你请求服务器到服务器响应你的时间间隔，对于我们后端优化来说，就是接受到请求到响应用户的时间间隔。这听起来怎么感觉这不是在说废话吗？这说的不都是服务端的处理时间吗？不同在哪里？其实这里有个容易被忽略的因素，叫做网络开销。<br>所以客户端RT ≈ 网络开销 + 服务端RT。也就是说，一个差的网络环境会导致两个RT差距的悬殊（比如，从深圳访问上海的请求RT，远大于上海本地内的请求RT）</p>
 <p>客户端的RT则会直接影响客户体验，要降低客户端RT，提升用户的体验，必须考虑两点，第一点是服务端的RT，第二点是网络。对于网络来说常见的有CDN、AND、专线等等，分别适用于不同的场景，有机会写个blog聊一下这个话题。</p>
 <p>对于服务端RT来说，主要看服务端的做法。<br>有个公式：RT = Thread CPU Time + Thread Wait Time<br>从公式中可以看出，要想降低RT，就要降低 Thread CPU Time 或者 Thread Wait Time。这也是马上要重点深挖的一个知识点。</p>
 <p><strong>Thread CPU Time（简称CPU Time）</strong></p>
@@ -9747,7 +9754,7 @@ telnet: connect to address 11.239.161.60: Connection refused
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">136</span>
+                <span class="site-state-item-count">137</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

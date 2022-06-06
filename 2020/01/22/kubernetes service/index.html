@@ -118,7 +118,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1b69dfd206a91dc4007781163fd55f41.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:13.830Z">
+<meta property="og:updated_time" content="2022-06-06T07:28:26.185Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="kubernetes service">
 <meta name="twitter:description" content="kubernetes service 和 kube-proxy详解service 模式根据创建Service的type类型不同，可分成4种模式：  ClusterIP： 默认方式。根据是否生成ClusterIP又可分为普通Service和Headless Service两类： 普通Service：通过为Kubernetes的Service分配一个集群内部可访问的固定虚拟IP（Cluster IP）">
@@ -497,13 +497,13 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"># ipvsadm -L -n  |grep 70.130 -A12</div><div class="line">TCP  10.68.70.130:12380 rr</div><div class="line">  -&gt; 172.20.185.217:9376          Masq    1      0          0</div></pre></td></tr></table></figure>
 <h3 id="kuberletes对iptables的修改-图中黄色部分-："><a href="#kuberletes对iptables的修改-图中黄色部分-：" class="headerlink" title="kuberletes对iptables的修改(图中黄色部分)："></a>kuberletes对iptables的修改(图中黄色部分)：</h3><p><img src="/images/oss/b64e5edf67ec76613616efbd7eba20a3.png" alt="image.png"></p>
 <h2 id="kube-proxy"><a href="#kube-proxy" class="headerlink" title="kube-proxy"></a>kube-proxy</h2><p>在 Kubernetes v1.0 版本，代理完全在 userspace 实现。Kubernetes v1.1 版本新增了 <a href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#iptables-代理模式" target="_blank" rel="external">iptables 代理模式</a>，但并不是默认的运行模式。从 Kubernetes v1.2 起，默认使用 iptables 代理。在 Kubernetes v1.8.0-beta.0 中，添加了 <a href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#ipvs-代理模式" target="_blank" rel="external">ipvs 代理模式</a></p>
-<p>kube-proxy相当于service的管理方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。</p>
+<p>kube-proxy相当于service的管控方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。</p>
 <p>kube-proxy的三种模式：</p>
 <p><img src="/images/oss/075e2955c5fbd08986bd34afaa5034ba.png" alt="image.png"></p>
 <p><strong>一直以来，基于 iptables 的 Service 实现，都是制约 Kubernetes 项目承载更多量级的 Pod 的主要障碍。</strong></p>
 <p>ipvs 就是用于解决在大量 Service 时，iptables 规则同步变得不可用的性能问题。与 iptables 比较像的是，ipvs 的实现虽然也基于 netfilter 的钩子函数，但是它却使用哈希表作为底层的数据结构并且工作在内核态，这也就是说 ipvs 在重定向流量和同步代理规则有着更好的性能。</p>
 <p>除了能够提升性能之外，ipvs 也提供了多种类型的负载均衡算法，除了最常见的 Round-Robin 之外，还支持最小连接、目标哈希、最小延迟等算法，能够很好地提升负载均衡的效率。</p>
-<p>而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价。这也正印证了我在前面提到过的，“将重要操作放入内核态”是提高性能的重要手段。</p>
+<p>而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价，“将重要操作放入内核态”是提高性能的重要手段。</p>
 <p><strong>IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。</strong></p>
 <p>ipvs 和 iptables 都是基于 Netfilter 实现的。</p>
 <p>Kubernetes 中已经使用 ipvs 作为 kube-proxy 的默认代理模式。</p>
@@ -783,7 +783,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">136</span>
+                <span class="site-state-item-count">137</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
