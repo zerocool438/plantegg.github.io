@@ -129,7 +129,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/c47d2bd0e4d9d0f005d0e1132b385eab.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:12.939Z">
+<meta property="og:updated_time" content="2022-06-20T09:09:31.723Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">
 <meta name="twitter:description" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的本文记录专有云场景下Tomcat+MySQL集群的一次全表扫描性能优化过程 经验总结，长链路下性能瓶颈发现规则（最容易互相扯皮、协调难度大）：  从一个压测线程开始压，记录tps、rt；然后增加线程数量，到tps明显不再增加，分析此时各个环节的rt，看哪个环节rt增加最明显，瓶颈就在哪个环节 如果监控没法得到各个环节的rt数据(太">
@@ -656,12 +656,61 @@ while (true) {
 <p><img src="/images/oss/2a5245c81a37d166c7e0b2ace45b9e4b.png" alt="image.png"></p>
 <p>我们举个具体的例子来看看这四个状态的转换：</p>
 <ol>
-<li>当 A 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 A 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；</li>
-<li>然后 B 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 A 号 CPU 核心已经缓存了该数据，所以会把数据返回给 B 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；</li>
-<li>当 A 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，<strong>然后 A 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了</strong>。</li>
-<li>如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。</li>
-<li>如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。</li>
+<li>当 0 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 0 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；</li>
+<li>然后 1 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 0 号 CPU 核心已经缓存了该数据，所以会把数据返回给 1 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；</li>
+<li>当 0 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，<strong>然后 0 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了</strong>。</li>
+<li>如果 0 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。</li>
+<li>如果 0 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。</li>
 </ol>
+<p>下面是个示例（如果你想看一下动画演示的话，这里有一个网页（<a href="https://www.scss.tcd.ie/Jeremy.Jones/VivioJS/caches/MESIHelp.htm" target="_blank" rel="external">MESI Interactive Animations</a>），你可以进行交互操作，这个动画演示中使用的Write Through算法）：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:left">当前操作</th>
+<th style="text-align:left">CPU0</th>
+<th style="text-align:left">CPU1</th>
+<th style="text-align:left">Memory</th>
+<th style="text-align:left">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">1) CPU0 read(x)</td>
+<td style="text-align:left">x=1 (E)</td>
+<td style="text-align:left"></td>
+<td style="text-align:left">x=1</td>
+<td style="text-align:left">只有一个CPU有 x 变量， 所以，状态是 Exclusive</td>
+</tr>
+<tr>
+<td style="text-align:left">2) CPU1 read(x)</td>
+<td style="text-align:left">x=1 (S)</td>
+<td style="text-align:left">x=1(S)</td>
+<td style="text-align:left">x=1</td>
+<td style="text-align:left">有两个CPU都读取 x 变量， 所以状态变成 Shared</td>
+</tr>
+<tr>
+<td style="text-align:left">3) CPU0 write(x,9)</td>
+<td style="text-align:left">x=9 (M)</td>
+<td style="text-align:left">x=1(I)</td>
+<td style="text-align:left">x=1</td>
+<td style="text-align:left">变量改变，在CPU0中状态 变成 Modified，在CPU1中 状态变成 Invalid</td>
+</tr>
+<tr>
+<td style="text-align:left">4) 变量 x 写回内存</td>
+<td style="text-align:left">x=9 (M)</td>
+<td style="text-align:left">X=1(I)</td>
+<td style="text-align:left">x=9</td>
+<td style="text-align:left">目前的状态不变</td>
+</tr>
+<tr>
+<td style="text-align:left">5) CPU1 read(x)</td>
+<td style="text-align:left">x=9 (S)</td>
+<td style="text-align:left">x=9(S)</td>
+<td style="text-align:left">x=9</td>
+<td style="text-align:left">变量同步到所有的Cache中， 状态回到Shared</td>
+</tr>
+</tbody>
+</table>
 <p><img src="/images/951413iMgBlog/fa98835c78c879ab69fd1f29193e54d1.jpeg" alt="img"></p>
 <p>可以发现当 Cache Line 状态是「已修改」或者「独占」状态时，修改更新其数据不需要发送广播给其他 CPU 核心，这在一定程度上减少了总线带宽压力。 </p>
 <p><img src="/images/oss/29c4ae48501984787dfc232e4673b86d.png" alt="image.png"></p>
@@ -840,7 +889,7 @@ while (true) {
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">137</span>
+                <span class="site-state-item-count">139</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -862,7 +911,7 @@ while (true) {
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">233</span>
+                <span class="site-state-item-count">234</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

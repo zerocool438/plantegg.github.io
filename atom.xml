@@ -5,7 +5,7 @@
   <link href="/atom.xml" rel="self"/>
   
   <link href="https://plantegg.github.io/"/>
-  <updated>2022-04-27T13:06:35.931Z</updated>
+  <updated>2022-06-20T09:09:39.325Z</updated>
   <id>https://plantegg.github.io/</id>
   
   <author>
@@ -20,12 +20,12 @@
     <link href="https://plantegg.github.io/2117/06/07/%E5%85%B3%E4%BA%8E%E6%9C%AC%E5%8D%9A/"/>
     <id>https://plantegg.github.io/2117/06/07/关于本博/</id>
     <published>2117-06-07T10:30:03.000Z</published>
-    <updated>2022-04-27T13:06:35.931Z</updated>
+    <updated>2022-06-20T09:09:39.325Z</updated>
     
     <content type="html"><![CDATA[<h2 id="关于本博"><a href="#关于本博" class="headerlink" title="关于本博"></a>关于本博</h2><p>关注基础知识，一次把问题搞清楚，从案例出发深挖相关知识。</p>
 <p>以前觉得自己一看就懂，实际是一问就打鼓，一用就糊涂。所以现在开始记录并总结再联系案例，一般是先把零散知识记录下来（看到过），慢慢地相关知识积累更多，直到碰到实践案例或是有点领悟到于是发现这块知识可以整理成一篇系统些的文章（基本快懂了）。</p>
 <p>“技术变化太快，容易过时”，我的看法是网络知识、操作系统、计算机原理等核心概念知识的寿命会比你的职业生涯还长。这些都是40岁之后还会还会很有用，你看我40多了还在学习这些 :)</p>
-<p><a href="https://plantegg.github.io/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/">如何在工作中学习</a> 所有方法我都记录在这篇文章中了，希望对你能有所帮助</p>
+<p><a href="https://plantegg.github.io/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/">如何在工作中学习</a> 所有方法我都记录在这篇文章中了，希望对你能有所帮助。</p>
 <p>所有新文章从<a href="https://plantegg.github.io/archives">这里可以看到</a>，即使再简单的一篇总结我可以持续总结三五年，有新的发现、感悟都是直接在原文上增减，不会发表新的文章。</p>
 <p><img src="/images/951413iMgBlog/image-20220421102225491.png" alt="image-20220421102225491"></p>
 <p>为什么写博客而不是公众号，我见过20年前的互联网，深度依赖搜索引擎，所以还是喜欢博客。另外技术类文章更适合电脑阅读（随时摘录、实验）</p>
@@ -61,6 +61,102 @@
       <category term="tcpdump" scheme="https://plantegg.github.io/tags/tcpdump/"/>
     
       <category term="TCP queue" scheme="https://plantegg.github.io/tags/TCP-queue/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>上下文切换的代价</title>
+    <link href="https://plantegg.github.io/2022/06/05/%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%E5%BC%80%E9%94%80/"/>
+    <id>https://plantegg.github.io/2022/06/05/上下文切换开销/</id>
+    <published>2022-06-05T09:30:00.000Z</published>
+    <updated>2022-06-20T09:09:33.448Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="上下文切换的代价"><a href="#上下文切换的代价" class="headerlink" title="上下文切换的代价"></a>上下文切换的代价</h1><h2 id="概念"><a href="#概念" class="headerlink" title="概念"></a>概念</h2><p>进程切换、软中断、内核态用户态切换、CPU超线程切换</p>
+<p>内核态用户态切换：还是在一个线程中，只是由用户态进入内核态为了安全等因素需要更多的指令，系统调用具体多做了啥请看：<a href="https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S#L145" target="_blank" rel="external">https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S#L145</a></p>
+<p>软中断：比如网络包到达，触发ksoftirqd(每个核一个)进程来处理，是进程切换的一种</p>
+<p>进程切换是里面最重的，少不了上下文切换，代价还有进程阻塞唤醒调度。另外进程切换有主动让出CPU的切换、也有时间片用完后被切换</p>
+<p>CPU超线程切换：最轻，发生在CPU内部，OS、应用都无法感知</p>
+<p>多线程调度下的热点火焰图：</p>
+<p><img src="/images/951413iMgBlog/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
+<p>上下文切换后还会因为调度的原因导致线程卡顿更久</p>
+<p>Linux 内核进程调度时间片一般是HZ的倒数，HZ在编译的时候一般设置为1000，倒数也就是1ms，也就是每个进程的时间片是1ms（早年是10ms–HZ 为100的时候），如果进程1阻塞让出CPU进入调度队列，这个时候调度队列前还有两个进程2/3在排队，也就是最差会在2ms后才轮到1被调度执行。负载决定了排队等待调度队列的长短，如果轮到调度的进程已经ready那么性能没有浪费，反之如果轮到被调度但是没有ready（比如网络回包没到达）相当浪费了一次调度</p>
+<blockquote>
+<p><code>sched_min_granularity_ns</code> is the most prominent setting. In the original <a href="https://elixir.bootlin.com/linux/v2.6.25/source/Documentation/scheduler/sched-design-CFS.txt#L82" target="_blank" rel="external">sched-design-CFS.txt</a> this was described as the only “tunable” setting, “to tune the scheduler from ‘desktop’ (low latencies) to ‘server’ (good batching) workloads.”</p>
+<p>In other words, we can change this setting to reduce overheads from context-switching, and therefore improve throughput at the cost of responsiveness (“latency”).</p>
+<p>The CFS setting as mimicking the previous build-time setting, <a href="https://elixir.bootlin.com/linux/v2.6.25/source/kernel/Kconfig.hz" target="_blank" rel="external">CONFIG_HZ</a>. In the first version of the CFS code, the default value was 1 ms, equivalent to 1000 Hz for “desktop” usage. Other supported values of CONFIG_HZ were 250 Hz (the default), and 100 Hz for the “server” end. 100 Hz was also useful when running Linux on very slow CPUs, this was one of the reasons given <a href="https://lwn.net/Articles/56378/" target="_blank" rel="external">when CONFIG_HZ was first added as an build setting on X86</a>.</p>
+</blockquote>
+<p>或者参数调整：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep -i sched_ |grep -v cpu</div><div class="line">kernel.sched_autogroup_enabled = 0</div><div class="line">kernel.sched_cfs_bandwidth_slice_us = 5000</div><div class="line">kernel.sched_cfs_bw_burst_enabled = 1</div><div class="line">kernel.sched_cfs_bw_burst_onset_percent = 0</div><div class="line">kernel.sched_child_runs_first = 0</div><div class="line">kernel.sched_latency_ns = 24000000</div><div class="line">kernel.sched_migration_cost_ns = 500000</div><div class="line">kernel.sched_min_granularity_ns = 3000000</div><div class="line">kernel.sched_nr_migrate = 32</div><div class="line">kernel.sched_rr_timeslice_ms = 100</div><div class="line">kernel.sched_rt_period_us = 1000000</div><div class="line">kernel.sched_rt_runtime_us = 950000</div><div class="line">kernel.sched_schedstats = 1</div><div class="line">kernel.sched_tunable_scaling = 1</div><div class="line">kernel.sched_wakeup_granularity_ns = 4000000</div></pre></td></tr></table></figure>
+<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><h3 id="How-long-does-it-take-to-make-a-context-switch"><a href="#How-long-does-it-take-to-make-a-context-switch" class="headerlink" title="How long does it take to make a context switch?"></a><a href="https://blog.tsunanet.net/2010/11/how-long-does-it-take-to-make-context.html" target="_blank" rel="external">How long does it take to make a context switch?</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div></pre></td><td class="code"><pre><div class="line">model name : Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">2 physical CPUs, 26 cores/CPU, 2 hardware threads/core = 104 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 1144720626ns (114.5ns/syscall)</div><div class="line">2000000 process context switches in 6280519812ns (3140.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 6417846724ns (3208.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 147035970ns (73.5ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 1109675081ns (111.0ns/syscall)</div><div class="line">2000000 process context switches in 4204573541ns (2102.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2740739815ns (1370.4ns/ctxsw)</div><div class="line">2000000  thread context switches in 474815006ns (237.4ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 1039827099ns (104.0ns/syscall)</div><div class="line">2000000 process context switches in 5622932975ns (2811.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 5697704164ns (2848.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 143474146ns (71.7ns/ctxsw)</div><div class="line">----------</div><div class="line">model name : Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</div><div class="line">2 physical CPUs, 16 cores/CPU, 2 hardware threads/core = 64 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 772827735ns (77.3ns/syscall)</div><div class="line">2000000 process context switches in 4009838007ns (2004.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 5234823470ns (2617.4ns/ctxsw)</div><div class="line">2000000  thread context switches in 193276269ns (96.6ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 746578449ns (74.7ns/syscall)</div><div class="line">2000000 process context switches in 3598569493ns (1799.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2475733882ns (1237.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 381484302ns (190.7ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 746674401ns (74.7ns/syscall)</div><div class="line">2000000 process context switches in 4129856807ns (2064.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 4226458450ns (2113.2ns/ctxsw)</div><div class="line">2000000  thread context switches in 193047255ns (96.5ns/ctxsw)</div><div class="line">---------</div><div class="line">model name : Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz</div><div class="line">2 physical CPUs, 24 cores/CPU, 2 hardware threads/core = 96 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 765013680ns (76.5ns/syscall)</div><div class="line">2000000 process context switches in 5906908170ns (2953.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 6741875538ns (3370.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 173271254ns (86.6ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 764139687ns (76.4ns/syscall)</div><div class="line">2000000 process context switches in 4040915457ns (2020.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 2327904634ns (1164.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 378847082ns (189.4ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 762375921ns (76.2ns/syscall)</div><div class="line">2000000 process context switches in 5827318932ns (2913.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 6360562477ns (3180.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 173019064ns (86.5ns/ctxsw)</div><div class="line">--------ECS</div><div class="line">model name : Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">1 physical CPUs, 2 cores/CPU, 2 hardware threads/core = 4 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 561242906ns (56.1ns/syscall)</div><div class="line">2000000 process context switches in 3025706345ns (1512.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 3333843503ns (1666.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 145410372ns (72.7ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 586742944ns (58.7ns/syscall)</div><div class="line">2000000 process context switches in 2369203084ns (1184.6ns/ctxsw)</div><div class="line">2000000  thread context switches in 1929627973ns (964.8ns/ctxsw)</div><div class="line">2000000  thread context switches in 335827569ns (167.9ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 630259940ns (63.0ns/syscall)</div><div class="line">2000000 process context switches in 3027444795ns (1513.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 3172677638ns (1586.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 144168251ns (72.1ns/ctxsw)</div><div class="line">---------kupeng 920</div><div class="line">2 physical CPUs, 96 cores/CPU, 1 hardware threads/core = 192 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 1216730780ns (121.7ns/syscall)</div><div class="line">2000000 process context switches in 4653366132ns (2326.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 4689966324ns (2345.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 167871167ns (83.9ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 1220106854ns (122.0ns/syscall)</div><div class="line">2000000 process context switches in 3420506934ns (1710.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2962106029ns (1481.1ns/ctxsw)</div><div class="line">2000000  thread context switches in 543325133ns (271.7ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 1216466158ns (121.6ns/syscall)</div><div class="line">2000000 process context switches in 2797948549ns (1399.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 3119316050ns (1559.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 167728516ns (83.9ns/ctxsw)</div></pre></td></tr></table></figure>
+<p>测试代码仓库：<a href="https://github.com/tsuna/contextswitch" target="_blank" rel="external">https://github.com/tsuna/contextswitch</a></p>
+<p>Source code: <a href="https://github.com/tsuna/contextswitch/blob/master/timectxsw.c" target="_blank" rel="external">timectxsw.c</a> Results:</p>
+<ul>
+<li>Intel 5150: ~4300ns/context switch</li>
+<li>Intel E5440: ~3600ns/context switch</li>
+<li>Intel E5520: ~4500ns/context switch</li>
+<li>Intel X5550: ~3000ns/context switch</li>
+<li>Intel L5630: ~3000ns/context switch</li>
+<li>Intel E5-2620: ~3000ns/context switch</li>
+</ul>
+<p>如果绑核后上下文切换能提速在66-45%之间</p>
+<p>系统调用代价</p>
+<p>Source code: <a href="https://github.com/tsuna/contextswitch/blob/master/timesyscall.c" target="_blank" rel="external">timesyscall.c</a> Results:</p>
+<ul>
+<li>Intel 5150: 105ns/syscall</li>
+<li>Intel E5440: 87ns/syscall</li>
+<li>Intel E5520: 58ns/syscall</li>
+<li>Intel X5550: 52ns/syscall</li>
+<li>Intel L5630: 58ns/syscall</li>
+<li>Intel E5-2620: 67ns/syscall</li>
+</ul>
+<p><a href="https://mp.weixin.qq.com/s/uq5s5vwk5vtPOZ30sfNsOg" target="_blank" rel="external">https://mp.weixin.qq.com/s/uq5s5vwk5vtPOZ30sfNsOg</a> 进程/线程切换究竟需要多少开销？</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div></pre></td><td class="code"><pre><div class="line"><span class="comment">/*</span></div><div class="line">创建两个进程并在它们之间传送一个令牌。其中一个进程在读取令牌时就会引起阻塞。另一个进程发送令牌后等待其返回时也处于阻塞状态。如此往返传送一定的次数，然后统计他们的平均单次切换时间开销</div><div class="line">代码来自：https://www.jianshu.com/p/be3250786a91</div><div class="line">*/</div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdlib.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/time.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;time.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sched.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/types.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;      //pipe()  </span></span></div><div class="line">  </div><div class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">()</span>  </span></div><div class="line">&#123;  </div><div class="line">    <span class="keyword">int</span> x, i, fd[<span class="number">2</span>], p[<span class="number">2</span>];  </div><div class="line">    <span class="keyword">char</span> send    = <span class="string">'s'</span>;  </div><div class="line">    <span class="keyword">char</span> receive;  </div><div class="line">    pipe(fd);  </div><div class="line">    pipe(p);  </div><div class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">timeval</span> <span class="title">tv</span>;</span>  </div><div class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">sched_param</span> <span class="title">param</span>;</span>  </div><div class="line">    param.sched_priority = <span class="number">0</span>;  </div><div class="line">  </div><div class="line">    <span class="keyword">while</span> ((x = fork()) == <span class="number">-1</span>); </div><div class="line">    <span class="keyword">if</span> (x==<span class="number">0</span>) &#123;  </div><div class="line">        sched_setscheduler(getpid(), SCHED_FIFO, &amp;param);  </div><div class="line">        gettimeofday(&amp;tv, <span class="literal">NULL</span>);  </div><div class="line">        <span class="built_in">printf</span>(<span class="string">"Before Context Switch Time%u s, %u us\n"</span>, tv.tv_sec, tv.tv_usec);  </div><div class="line">        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">10000</span>; i++) &#123;  </div><div class="line">            read(fd[<span class="number">0</span>], &amp;receive, <span class="number">1</span>);  </div><div class="line">            write(p[<span class="number">1</span>], &amp;send, <span class="number">1</span>);  </div><div class="line">        &#125;  </div><div class="line">        <span class="built_in">exit</span>(<span class="number">0</span>);  </div><div class="line">    &#125;  </div><div class="line">    <span class="keyword">else</span> &#123;  </div><div class="line">        sched_setscheduler(getpid(), SCHED_FIFO, &amp;param);  </div><div class="line">        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">10000</span>; i++) &#123;  </div><div class="line">            write(fd[<span class="number">1</span>], &amp;send, <span class="number">1</span>);  </div><div class="line">            read(p[<span class="number">0</span>], &amp;receive, <span class="number">1</span>);  </div><div class="line">        &#125;  </div><div class="line">        gettimeofday(&amp;tv, <span class="literal">NULL</span>);  </div><div class="line">        <span class="built_in">printf</span>(<span class="string">"After Context SWitch Time%u s, %u us\n"</span>, tv.tv_sec, tv.tv_usec);  </div><div class="line">    &#125;  </div><div class="line">    <span class="keyword">return</span> <span class="number">0</span>;  </div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>平均每次上下文切换耗时3.5us左右</p>
+<h2 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a>软中断开销计算</h2><p>下面的计算方法比较糙，仅供参考。压力越大，一次软中断需要处理的网络包数量就越多，消耗的时间越长。如果包数量太少那么测试干扰就太严重了，数据也不准确。</p>
+<p>测试机将收发队列设置为1，让所有软中断交给一个core来处理。</p>
+<p>无压力时 interrupt大概4000，然后故意跑压力，CPU跑到80%，通过vmstat和top查看：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">$vmstat 1 </div><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line">19  0      0 174980 151840 3882800    0    0     0    11    1    1  1  0 99  0  0</div><div class="line">11  0      0 174820 151844 3883668    0    0     0     0 30640 113918 59 22 20  0  0</div><div class="line"> 9  0      0 175952 151852 3884576    0    0     0   224 29611 108549 57 22 21  0  0</div><div class="line">11  0      0 171752 151852 3885636    0    0     0  3452 30682 113874 57 22 21  0  0</div></pre></td></tr></table></figure>
+<p>top看到 si% 大概为20%，也就是一个核25000个interrupt需要消耗 20% 的CPU, 说明这些软中断消耗了200毫秒</p>
+<p>200*1000微秒/25000=200/25=8微秒，8000纳秒 – 偏高</p>
+<p>降低压力CPU 跑到55% si消耗12%</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 6  0      0 174180 152076 3884360    0    0     0     0 25314 119681 40 17 43  0  0</div><div class="line"> 1  0      0 172600 152080 3884308    0    0     0   252 24971 116407 40 17 43  0  0</div><div class="line"> 4  0      0 174664 152080 3884540    0    0     0  3536 25164 118175 39 18 42  0  0</div></pre></td></tr></table></figure>
+<p>120*1000微秒/(21000)=5.7微秒， 5700纳秒 – 偏高</p>
+<p>降低压力（4核CPU只压到15%）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 0  0      0 183228 151788 3876288    0    0     0     0 15603 42460  6  3 91  0  0</div><div class="line"> 0  0      0 181312 151788 3876032    0    0     0     0 15943 43129  7  2 91  0  0</div><div class="line"> 1  0      0 181728 151788 3876544    0    0     0  3232 15790 42409  7  3 90  0  0</div><div class="line"> 0  0      0 181584 151788 3875956    0    0     0     0 15728 42641  7  3 90  0  0</div><div class="line"> 1  0      0 179276 151792 3876848    0    0     0   192 15862 42875  6  3 91  0  0</div><div class="line"> 0  0      0 179508 151796 3876424    0    0     0     0 15404 41899  7  2 91  0  0</div></pre></td></tr></table></figure>
+<p>单核11000 interrupt，对应 si CPU 2.2%</p>
+<p>22*1000/11000= 2微秒 2000纳秒 略微靠谱</p>
+<h2 id="超线程切换开销"><a href="#超线程切换开销" class="headerlink" title="超线程切换开销"></a>超线程切换开销</h2><p>最小，基本可以忽略，1ns以内</p>
+<h2 id="测试工具"><a href="#测试工具" class="headerlink" title="测试工具"></a>测试工具</h2><p>lmbench的lat_ctx等，单位是微秒，压力小的时候一次进程的上下文是1540纳秒</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">[root@plantegg 13:19 /root/lmbench3]</div><div class="line"><span class="meta">#</span><span class="bash">taskset -c 4 ./bin/lat_ctx -P 2 -W warmup -s 64 2  //CPU 打满</span></div><div class="line">"size=64k ovr=3.47</div><div class="line">2 7.88</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4 ./bin/lat_ctx -P 1 -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.46</div><div class="line">2 1.54</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-5 ./bin/lat_ctx  -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.44</div><div class="line">2 3.11</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-7 ./bin/lat_ctx -P 2 -W warmup -s 64 2  //CPU 打到50%</span></div><div class="line">"size=64k ovr=3.48</div><div class="line">2 3.14</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-15 ./bin/lat_ctx -P 3 -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.46</div><div class="line">2 3.18</div></pre></td></tr></table></figure>
+<h2 id="协程对性能的影响"><a href="#协程对性能的影响" class="headerlink" title="协程对性能的影响"></a>协程对性能的影响</h2><p>将WEB服务改用协程调度后，TPS提升50%（30000提升到45000），而contextswitch数量从11万降低到8000（无压力的cs也有4500）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 5  0      0 3831480 153136 3819244    0    0     0     0 23599 6065 79 19  2  0  0</div><div class="line"> 4  0      0 3829208 153136 3818824    0    0     0   160 23324 7349 80 18  2  0  0</div><div class="line"> 4  0      0 3833320 153140 3818672    0    0     0     0 24567 8213 80 19  2  0  0</div><div class="line"> 4  0      0 3831880 153140 3818532    0    0     0     0 24339 8350 78 20  2  0  0</div><div class="line"> </div><div class="line">[  99s] threads: 60, tps: 0.00, reads/s: 44609.77, writes/s: 0.00, response time: 2.05ms (95%)</div><div class="line">[ 100s] threads: 60, tps: 0.00, reads/s: 46538.27, writes/s: 0.00, response time: 1.99ms (95%)</div><div class="line">[ 101s] threads: 60, tps: 0.00, reads/s: 46061.84, writes/s: 0.00, response time: 2.01ms (95%)</div><div class="line">[ 102s] threads: 60, tps: 0.00, reads/s: 46961.05, writes/s: 0.00, response time: 1.94ms (95%)</div><div class="line">[ 103s] threads: 60, tps: 0.00, reads/s: 46224.15, writes/s: 0.00, response time: 2.00ms (95%)</div><div class="line">[ 104s] threads: 60, tps: 0.00, reads/s: 46556.93, writes/s: 0.00, response time: 1.98ms (95%)</div><div class="line">[ 105s] threads: 60, tps: 0.00, reads/s: 45965.12, writes/s: 0.00, response time: 1.97ms (95%)</div><div class="line">[ 106s] threads: 60, tps: 0.00, reads/s: 46369.96, writes/s: 0.00, response time: 2.01ms (95%)</div><div class="line"></div><div class="line">//4core 机器下</div><div class="line"> PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</div><div class="line"> 11588 admin     20   0   12.9g   6.9g  22976 R 95.7 45.6   0:33.07 Root-Worke //四个协程把CPU基本跑满</div><div class="line"> 11586 admin     20   0   12.9g   6.9g  22976 R 93.7 45.6   0:34.29 Root-Worke</div><div class="line"> 11587 admin     20   0   12.9g   6.9g  22976 R 93.7 45.6   0:32.58 Root-Worke</div><div class="line"> 11585 admin     20   0   12.9g   6.9g  22976 R 92.0 45.6   0:33.25 Root-Worke</div></pre></td></tr></table></figure>
+<p>没开协程CPU有20%闲置打不上去，开了协程后CPU 跑到95%</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
+<li>进程上下文切换需要几千纳秒（不同CPU型号会有差异）</li>
+<li>如果做taskset 那么上下文切换会减少50%的时间（避免了L1、L2 Miss等）</li>
+<li>线程比进程上下文切换略快10%左右</li>
+<li>测试数据和实际运行场景相关很大，比较难以把控，CPU竞争太激烈容易把等待调度时间计入；如果CPU比较闲体现不出cache miss等导致的时延加剧</li>
+<li>系统调用相对进程上下文切换就很轻了，大概100ns以内</li>
+<li>函数调用更轻，大概几个ns，压栈跳转</li>
+<li>CPU的超线程调度和函数调用差不多，都是几个ns可以搞定</li>
+</ul>
+<p>看完这些数据再想想协程是在做什么、为什么效率高就很自然的了</p>
+]]></content>
+    
+    <summary type="html">
+    
+      &lt;h1 id=&quot;上下文切换的代价&quot;&gt;&lt;a href=&quot;#上下文切换的代价&quot; class=&quot;headerlink&quot; title=&quot;上下文切换的代价&quot;&gt;&lt;/a&gt;上下文切换的代价&lt;/h1&gt;&lt;h2 id=&quot;概念&quot;&gt;&lt;a href=&quot;#概念&quot; class=&quot;headerlink&quot; titl
+    
+    </summary>
+    
+      <category term="performance" scheme="https://plantegg.github.io/categories/performance/"/>
+    
+    
+      <category term="performance" scheme="https://plantegg.github.io/tags/performance/"/>
+    
+      <category term="Linux" scheme="https://plantegg.github.io/tags/Linux/"/>
+    
+      <category term="contextswitch" scheme="https://plantegg.github.io/tags/contextswitch/"/>
     
   </entry>
   
@@ -1748,6 +1844,85 @@
   </entry>
   
   <entry>
+    <title>三个故事</title>
+    <link href="https://plantegg.github.io/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B/"/>
+    <id>https://plantegg.github.io/2022/01/01/三个故事/</id>
+    <published>2022-01-01T04:30:03.000Z</published>
+    <updated>2022-06-20T09:09:38.928Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="三个故事"><a href="#三个故事" class="headerlink" title="三个故事"></a>三个故事</h1><h2 id="故事一-无招胜有招"><a href="#故事一-无招胜有招" class="headerlink" title="故事一 无招胜有招"></a>故事一 无招胜有招</h2><p>有一个前是5Q过来的，叫Z神，负责技术（所有解决不了的问题都找他），Z神从chinaren出道，跟着王兴一块创业5Q，5Q在学校靠鸡腿打下大片市场，最后被陈一舟的校内收购（据说被收购后5Q的好多技术都走了，最后王兴硬是呆在校内网把合约上的所有钱都拿到了）。</p>
+<p>Z神让我最佩服的解决问题的能力，好多问题其实他也不一定就擅长，但是他就是有本事通过Help、Google不停地验证尝试就把一个不熟悉的问题给解决了，这是我最羡慕的能力，在后面的职业生涯中一直不停地往这个方面尝试。</p>
+<h3 id="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"><a href="#应用刚启动连接到数据库的时候比较慢，但又不是慢查询" class="headerlink" title="应用刚启动连接到数据库的时候比较慢，但又不是慢查询"></a>应用刚启动连接到数据库的时候比较慢，但又不是慢查询</h3><ol>
+<li><p>Z神的解决办法是通过tcpdump来分析网络包，看网络包的时间戳和网络包的内容，然后找到了具体卡在了哪里。</p>
+</li>
+<li><p>如果是专业的DBA可能会通过show processlist 看具体连接在做什么，比如看到这些连接状态是 <strong>authentication</strong> 状态，然后再通过Google或者对这个状态的理解知道创建连接的时候MySQL需要反查IP、域名这里比较耗时，通过配置参数 <strong>skip-name-resolve</strong> 跳过去就好了。</p>
+</li>
+<li><p>如果是MySQL的老司机，一上来就知道连接慢的话跟 <strong>skip-name-resolve</strong> 关系最大。</p>
+<p>在我眼里这三种方式都解决了问题，最后一种最快但是纯靠积累和经验，换个问题也许就不灵了；第一种方式是最牛逼和通用的，只需要最少的知识就把问题解决了。</p>
+</li>
+</ol>
+<p>我当时跟着Z神从sudo、ls等linux命令开始学起。当然我不会轻易去打搅他问他，每次碰到问题我尽量让他在我的电脑上来操作，解决后我再自己复盘，通过history调出他的所有操作记录，看他在我的电脑上用Google搜啥了，然后一个个去学习分析他每个动作，去想他为什么搜这个关键字，复盘完还有不懂的再到他面前跟他面对面的讨论他为什么要这么做，指导他这么做的知识和逻辑又是什么。</p>
+<p><strong>如果你学不会无招胜有招，那么history你总能学会吧！</strong></p>
+<p>这是当时的Z神用我的工作台（方方正正的显示器可见年代很久远了）</p>
+<p><img src="/images/951413iMgBlog/63683421ly1h249wsg025j218g0xcnpd-20220610210134388.jpg" alt="img"></p>
+<h2 id="故事二-网络专家的机会"><a href="#故事二-网络专家的机会" class="headerlink" title="故事二 网络专家的机会"></a>故事二 网络专家的机会</h2><p>N年前我刚加入一家公司几个月，有一个客户购买了我们的产品上线后金额对不上（1类生产事故），于是经理带着我们几个技术去现场看看是什么原因，路上经理说你们不要有什么心理压力，我不懂技术但是我过去就是帮助你们挨骂的，我好好跪在客户那你们好好安心解决问题。</p>
+<p>问题大概就是客户代码在一段事务中，但是提交到后端我们的服务上后前对不上了，客户认为我们产品事务有问题。</p>
+<p>到了现场客户不让下载他们代码，只能人肉趴在他们指定的机器上用眼睛看问题在哪里，看了三天大家非常沮丧地回来了，自然产品被下线，客户直接用MySQL了，但是三天后一个振奋人心的消息传过来了：金额还是对不上 ……</p>
+<p>于是我们再度派出技术人员帮他们看为什么（这次客户配合度高了很多），最后有个同事提了一嘴tcpdump抓个包看看，到底应用代码有没有set autocommit=0, 半个小时后传来喜讯用户代码发出的就是autocommit=1,说明用户代码的事务配置没生效。</p>
+<p>最后查出来配置文件中有中文注释，而生产环境机器不支持中文出现了乱码，导致事务没有生效！</p>
+<p>事情还没完，当我听到这个结果后恨不得实际抽自己，tcpdump咱也会用，怎么当时就没想到呢！于是后来我天天看tcpdump、分析网络包，有段时间最开心的是在酒店看书了。一个月后写了几篇文章放在公司内网，再然后公司内部各个团队开始拿着各种问题找过来，我的case也越来越多。</p>
+<p>有一次产品调用是这样的 1-&gt;2-&gt;3-&gt;4-&gt;5-&gt;6  产品5是我们的，1说性能上不去，rt太大，扯了两天皮，然后说5有问题，于是我到5上抓了个包，明确告诉他们5的rt是多少，压力还没有到5这里来，另外按照我抓包结果的rt分析，5的能力是20万，现在还不到1万，瓶颈在1-5之间，后来我上1/2/3/4用 netstat 分别看下网络状态发现1-2之间网络到了瓶颈（2回包给1的时候大量的包no ack）,不要怀疑netstat真有这么强大，只是你不会看而已。如下图 2上的9108服务端口给1发回结果的时候1那边迟迟不给ack。其实这个case用好工具只是很小的一点，关键的是我能抓包分析出rt，然后从rt推断出系统的能力（别说全链路监控之类的，有时候还得拼刺刀），进而快速定位到瓶颈</p>
+<p><img src="/images/951413iMgBlog/image-20220611101850071.png" alt="image-20220611101850071"></p>
+<p>现在我们的产品文档必备一份tcpdump、tshark（wireshark命令行版本）救急命令箱，有时候让客户复制粘贴执行后给我们某个结果，好多问题不再是问题了</p>
+<p>这个故事的结果是我成了公司的网络“专家”</p>
+<h2 id="故事三-Die是什么"><a href="#故事三-Die是什么" class="headerlink" title="故事三 Die是什么"></a>故事三 Die是什么</h2><p>2021年4月的时候，我们有个项目要在不同的硬件平台验收，那天傍晚7点正要回家的我被项目经理拽到了现场</p>
+<blockquote>
+<p>系统性能不达标，现场都不知道为啥</p>
+</blockquote>
+<p>我到现场看了下perf </p>
+<p><img src="/images/951413iMgBlog/16b271c8-5132-4273-a26a-4b35e8f92882.png" alt="img"></p>
+<p>然后处理了下，IPC从0.08提升到了0.22，再细调下最终能到0.27，对应的业务测试QPS也是原来的4倍。 </p>
+<p><img src="/images/951413iMgBlog/4d4fdebb-6146-407e-881d-19170fbfd82b.png" alt="img"></p>
+<p>到这里谈不上任何故事性，我也很好奇为什么有这么好的效果，看过我的博客的应该都知道是为啥了。</p>
+<p>那个项目经理特批我拿他们的环境随便测试，于是我回来接下来几天在这个环境做了很多验证和学习，并请教了公司CPU方面特别厉害的大佬，如下图（2021年我的水平就是这样，和所有程序员对CPU的了解一样，知道主频、核数，会看top）</p>
+<p><img src="/images/951413iMgBlog/63683421gy1h30yi296dij207e038t9b.jpg" alt="img"></p>
+<p>大佬跟我说：两个Die的L3不互通。我就问了一句Die是啥意思，他回答一个晶圆。其实这时我还没有听懂，但是不好意思再问了– 这感觉你们平时都有吧，就是不在一个段位，差太远了，不好意思再问，到了该自己先去弄脏双手后再请教的时候了！</p>
+<p>于是就Google各种概念、并收集各种资料和图，最后整理了一下（所以文章的连贯性其实不好），以个人笔记的形式存档下来了。</p>
+<p>最后把这些笔记从多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）总结成了一系列文章。</p>
+<p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="https://plantegg.github.io/2021/07/19/CPU性能和CACHE/">CPU性能和CACHE</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="/2021/08/13/AMD_Zen_CPU架构/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><img src="/images/951413iMgBlog/image-20210802161410524-1011377.png" alt="image-20210802161410524"></p>
+<p>这个故事你觉得我想说啥，辛苦帮我在评论里总结下</p>
+<h2 id="其他想说的"><a href="#其他想说的" class="headerlink" title="其他想说的"></a>其他想说的</h2>]]></content>
+    
+    <summary type="html">
+    
+      &lt;h1 id=&quot;三个故事&quot;&gt;&lt;a href=&quot;#三个故事&quot; class=&quot;headerlink&quot; title=&quot;三个故事&quot;&gt;&lt;/a&gt;三个故事&lt;/h1&gt;&lt;h2 id=&quot;故事一-无招胜有招&quot;&gt;&lt;a href=&quot;#故事一-无招胜有招&quot; class=&quot;headerlink&quot; title=
+    
+    </summary>
+    
+      <category term="技巧" scheme="https://plantegg.github.io/categories/%E6%8A%80%E5%B7%A7/"/>
+    
+    
+      <category term="实践" scheme="https://plantegg.github.io/tags/%E5%AE%9E%E8%B7%B5/"/>
+    
+      <category term="复盘" scheme="https://plantegg.github.io/tags/%E5%A4%8D%E7%9B%98/"/>
+    
+      <category term="逻辑" scheme="https://plantegg.github.io/tags/%E9%80%BB%E8%BE%91/"/>
+    
+      <category term="知识积累" scheme="https://plantegg.github.io/tags/%E7%9F%A5%E8%AF%86%E7%A7%AF%E7%B4%AF/"/>
+    
+  </entry>
+  
+  <entry>
     <title>数据库计算向量化</title>
     <link href="https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/"/>
     <id>https://plantegg.github.io/2021/11/26/数据库计算向量化/</id>
@@ -2301,7 +2476,7 @@
     <link href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/"/>
     <id>https://plantegg.github.io/2021/07/19/CPU性能和CACHE/</id>
     <published>2021-07-19T04:30:03.000Z</published>
-    <updated>2022-04-26T12:57:13.079Z</updated>
+    <updated>2022-06-20T09:09:32.580Z</updated>
     
     <content type="html"><![CDATA[<h1 id="CPU性能和CACHE"><a href="#CPU性能和CACHE" class="headerlink" title="CPU性能和CACHE"></a>CPU性能和CACHE</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
 <p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
@@ -2529,6 +2704,8 @@
 <p><img src="/images/951413iMgBlog/image-20210603114550646.png" alt="What is the difference between SRAM and DRAM"></p>
 <p>详细比较：</p>
 <p><img src="/images/951413iMgBlog/maxresdefault.jpg" alt="Difference Between SRAM and DRAM - YouTube"></p>
+<h2 id="Persistence-memory"><a href="#Persistence-memory" class="headerlink" title="Persistence memory"></a>Persistence memory</h2><p>左边是在32G物理内存的基础上挂了128G pmem, 然后系统通过free能看到 154G内存，用 <code>lat_mem_rd</code> 实际测试速度可以看到左边的机器抖动比较大</p>
+<p><img src="/images/951413iMgBlog/image-20220607154156826.png" alt="image-20220607154156826"></p>
 <h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
 <p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
 <p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
@@ -2543,6 +2720,7 @@
 <p><a href="https://arxiv.org/ftp/arxiv/papers/1803/1803.00254.pdf" target="_blank" rel="external">45-year CPU evolution: one law and two equations</a></p>
 <p><a href="https://mp.weixin.qq.com/s/QNgMS0gOXhZml8l_towAbw" target="_blank" rel="external">揭秘 cache 访问延迟背后的计算机原理</a></p>
 <p><a href="https://mp.weixin.qq.com/s/FC-bPwHUT7EpTydxDk5btQ" target="_blank" rel="external">业务与芯片垂直整合的一点思考</a></p>
+<p> <a href="http://www.akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">What Every Programmer Should Know About Main Memory</a> by Ulrich Drepper </p>
 ]]></content>
     
     <summary type="html">
@@ -3539,7 +3717,7 @@
     <link href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/"/>
     <id>https://plantegg.github.io/2021/05/16/CPU_Cache_Line和性能/</id>
     <published>2021-05-16T04:30:03.000Z</published>
-    <updated>2022-05-22T10:36:19.343Z</updated>
+    <updated>2022-06-20T09:09:39.576Z</updated>
     
     <content type="html"><![CDATA[<h1 id="CPU-性能和Cache-Line"><a href="#CPU-性能和Cache-Line" class="headerlink" title="CPU 性能和Cache Line"></a>CPU 性能和Cache Line</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
 <p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
@@ -3559,7 +3737,8 @@
 <p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
 <p><a href="/2021/05/15/飞腾ARM芯片-FT2500的性能测试/">飞腾ARM芯片(FT2500)的性能测试</a></p>
 <p>CPU为什么要CACHE，请看这篇</p>
-<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）</p>
+<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte（64Bytes也就是16个32位的整型）这就是CPU从内存中捞数据上来的最小数据单位，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）。</p>
+<p>比如L1 Cache 有32KB，那么它可以分成32KB / 64 = 512 条 Cache Line。</p>
 <p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
 <p>处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了<a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="external"> MESI 协议</a>，以及 MESIF 协议。</p>
 <h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
@@ -3585,6 +3764,8 @@
 <p><img src="/images/951413iMgBlog/image6.png" alt="running times of this loop for different step values (K)"></p>
 <p>更典型的案例是对一个二维数组逐行遍历和逐列遍历的时间差异，变量次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">const int row = 1024;</div><div class="line">const int col = 512</div><div class="line">int matrix[row][col];</div><div class="line">//逐行遍历  0.081ms</div><div class="line">int sum_row=0;</div><div class="line">for(int _r=0; _r&lt;row; _r++) &#123;</div><div class="line">    for(int _c=0; _c&lt;col; _c++)&#123;</div><div class="line">        sum_row += matrix[_r][_c];</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line">//逐列遍历 1.069ms</div><div class="line">int sum_col=0;</div><div class="line">for(int _c=0; _c&lt;col; _c++) &#123;</div><div class="line">    for(int _r=0; _r&lt;row; _r++)&#123;</div><div class="line">        sum_col += matrix[_r][_c];</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h2 id="四线程竞争下的cache-line影响"><a href="#四线程竞争下的cache-line影响" class="headerlink" title="四线程竞争下的cache_line影响"></a>四线程竞争下的cache_line影响</h2><p><img src="/images/951413iMgBlog/image-20220613103011120.png" alt="image-20220613103011120"></p>
+<p>上图是每个线程对内存中自己的int进行++ (每个线程绑定在自己的core上，机器有4个P4 core)， 蓝色部分是每个线程的变量分配在线程内部，也就是每个变量有独立的cache_line，红色部分(含蓝色)是将变量放在一个cache_line（必然会出现伪共享）</p>
 <h2 id="Disruptor"><a href="#Disruptor" class="headerlink" title="Disruptor"></a><a href="https://lmax-exchange.github.io/disruptor/disruptor.html" target="_blank" rel="external">Disruptor</a></h2><p>Disruptor论文中讲述了我们所做的一个实验。这个测试程序调用了一个函数，该函数会对一个64位的计数器循环自增5亿次。当单线程无锁时，程序耗时300ms。如果增加一个锁（仍是单线程、没有竞争、仅仅增加锁），程序需要耗时10000ms，慢了两个数量级。更令人吃惊的是，如果增加一个线程（简单从逻辑上想，应该比单线程加锁快一倍），耗时224000ms。使用两个线程对计数器自增5亿次比使用无锁单线程慢1000倍。<strong>并发很难而锁的性能糟糕。</strong>单线程使用CAS耗时5700ms。所以它比使用锁耗时少，但比不需要考虑竞争的单线程耗时多。</p>
 <p>We will illustrate the cost of locks with a simple demonstration. The focus of this experiment is to call a function which increments a 64-bit counter in a loop 500 million times. This can be executed by a single thread on a 2.4Ghz Intel Westmere EP in just 300ms if written in Java. The language is unimportant to this experiment and results will be similar across all languages with the same basic primitives.</p>
 <p>Once a lock is introduced to provide mutual exclusion, even when the lock is as yet un-contended, the cost goes up significantly. The cost increases again, by orders of magnitude, when two or more threads begin to contend. The results of this simple experiment are shown in the table below:</p>
@@ -3725,7 +3906,7 @@
     <link href="https://plantegg.github.io/2021/05/16/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/"/>
     <id>https://plantegg.github.io/2021/05/16/Perf_IPC以及CPU利用率/</id>
     <published>2021-05-16T04:30:03.000Z</published>
-    <updated>2022-04-26T12:57:14.511Z</updated>
+    <updated>2022-06-20T09:09:39.484Z</updated>
     
     <content type="html"><![CDATA[<h1 id="Perf-IPC以及CPU性能"><a href="#Perf-IPC以及CPU性能" class="headerlink" title="Perf IPC以及CPU性能"></a>Perf IPC以及CPU性能</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
 <p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
@@ -3805,7 +3986,7 @@
 <li><strong>builtin_expect(!!(x),1) x 为真的可能性更大  //0两次取反还是0，非0两次取反都是1，这样可以适配</strong>builtin_expect(EXP, N)的N，要不N的参数没法传</li>
 <li>__builtin_expect(!!(x),0) x 为假的可能性更大</li>
 </ul>
-<p>当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。</p>
+<p>当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。让L1i中加载的代码尽量有效紧凑</p>
 <p>这样可以让 CPU流水线分支预测的时候默认走可能性更大的分支。如果分支预测错误所有流水线都要取消重新计算。</p>
 <h3 id="流水线的实际效果"><a href="#流水线的实际效果" class="headerlink" title="流水线的实际效果"></a>流水线的实际效果</h3><p>假如一个15级的流水线，如果处理器要将做无用功的时间限制在 10%，那么它必须在正确预测每个分支的准确率达到 99.3%（因为错误一次，15级流水线都要重置，所以错误会放大15倍，0.7*15=10） 。很少有通用程序能够如此准确地预测分支。</p>
 <p>下图是不同场景在英特尔酷睿 i7 基准测试，可以看到有19% 的指令都被浪费了，但能耗的浪费情况更加严重，因为处理器必须利用额外的能量才能在推测失误时恢复原来的状态。这样的度量导致许多人得出结论，架构师需要一种不同的方法来实现性能改进。于是多级流水线不能疯狂增加，这样只能往多核发展。</p>
@@ -3894,7 +4075,10 @@ Performance counter stats for &apos;system wide&apos;:
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">#perf stat -- ./nop.out</div><div class="line"></div><div class="line"> Performance counter stats for &apos;./nop.out&apos;:</div><div class="line"></div><div class="line">      65061.160345      task-clock (msec)         #    1.001 CPUs utilized</div><div class="line">                46      context-switches          #    0.001 K/sec</div><div class="line">                92      cpu-migrations            #    0.001 K/sec</div><div class="line">               108      page-faults               #    0.002 K/sec</div><div class="line">   155,659,827,263      cycles                    #    2.393 GHz</div><div class="line">   &lt;not supported&gt;      stalled-cycles-frontend</div><div class="line">   &lt;not supported&gt;      stalled-cycles-backend</div><div class="line">   603,247,401,995      instructions              #    3.88  insns per cycle</div><div class="line">     4,742,051,659      branches                  #   72.886 M/sec</div><div class="line">         1,799,428      branch-misses             #    0.04% of all branches</div><div class="line"></div><div class="line">      65.012821629 seconds time elapsed</div></pre></td></tr></table></figure>
 <p>这两块CPU理论IPC最大值都是4，实际x86离理论值更远一些. 增加while循环中的nop数量（从132增加到432个）IPC能提升到3.92</p>
 <h2 id="IPC和超线程"><a href="#IPC和超线程" class="headerlink" title="IPC和超线程"></a>IPC和超线程</h2><p>ipc是指每个core的IPC</p>
-<h3 id="超线程-Hyper-Threading-原理"><a href="#超线程-Hyper-Threading-原理" class="headerlink" title="超线程(Hyper-Threading)原理"></a>超线程(Hyper-Threading)原理</h3><p><strong>概念</strong>：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，有时叫做 simultaneous multi-threading（SMT）。</p>
+<h3 id="超线程-Hyper-Threading-原理"><a href="#超线程-Hyper-Threading-原理" class="headerlink" title="超线程(Hyper-Threading)原理"></a><a href="https://www.intel.com/content/www/us/en/gaming/resources/hyper-threading.html" target="_blank" rel="external">超线程(Hyper-Threading)原理</a></h3><p><strong>概念</strong>：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，intel体系下也叫做 simultaneous multi-threading（<a href="https://en.wikipedia.org/wiki/Simultaneous_multithreading" target="_blank" rel="external">SMT–wiki用的是simultaneous</a>，<a href="https://akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">也有人用 symmetric</a>（29页），我觉得symmetric也比较能表达超线程的意思）。</p>
+<blockquote>
+<p>Two logical cores can work through tasks more efficiently than a traditional single-threaded core. By taking advantage of idle time when the core would formerly be waiting for other tasks to complete, Intel® Hyper-Threading Technology improves CPU throughput (by up to 30% in server applications).</p>
+</blockquote>
 <p>超线程技术主要的出发点是，当处理器在运行一个线程，执行指令代码时，很多时候处理器并不会使用到全部的计算能力，部分计算能力就会处于空闲状态。而超线程技术就是通过多线程来进一步“压榨”处理器。<strong>pipeline进入stalled状态就可以切到其它超线程上</strong></p>
 <p>举个例子，如果一个线程运行过程中，必须要等到一些数据加载到缓存中以后才能继续执行，此时 CPU 就可以切换到另一个线程，去执行其他指令，而不用去处于空闲状态，等待当前线程的数据加载完毕。<strong>通常，一个传统的处理器在线程之间切换，可能需要几万个时钟周期。而一个具有 HT 超线程技术的处理器只需要 1 个时钟周期。因此就大大减小了线程之间切换的成本，从而最大限度地让处理器满负荷运转。</strong></p>
 <blockquote>
@@ -3996,6 +4180,8 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p><a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="external">CPU Utilization is Wrong</a></p>
 <p><a href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd" target="_blank" rel="external">https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd</a> </p>
 <p><a href="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/" target="_blank" rel="external">https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/</a></p>
+<p> <a href="http://www.akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">What Every Programmer Should Know About Main Memory</a> by Ulrich Drepper </p>
+<p><a href="https://mazzo.li/posts/fast-pipes.html" target="_blank" rel="external">How fast are Linux pipes anyway?</a> 优化 pipes 的读写带宽，perf、hugepage、splice使用</p>
 ]]></content>
     
     <summary type="html">
@@ -4014,487 +4200,6 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
       <category term="IPC" scheme="https://plantegg.github.io/tags/IPC/"/>
     
       <category term="pipeline" scheme="https://plantegg.github.io/tags/pipeline/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>飞腾ARM芯片-FT2500的性能测试</title>
-    <link href="https://plantegg.github.io/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/"/>
-    <id>https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/</id>
-    <published>2021-05-15T09:30:03.000Z</published>
-    <updated>2022-04-26T12:57:13.950Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="飞腾ARM芯片-FT2500的性能测试"><a href="#飞腾ARM芯片-FT2500的性能测试" class="headerlink" title="飞腾ARM芯片-FT2500的性能测试"></a>飞腾ARM芯片-FT2500的性能测试</h1><h2 id="ARM"><a href="#ARM" class="headerlink" title="ARM"></a>ARM</h2><p> ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）</p>
-<p><img src="/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png" alt="img"></p>
-<h3 id="ARM-芯片厂家"><a href="#ARM-芯片厂家" class="headerlink" title="ARM 芯片厂家"></a>ARM 芯片厂家</h3><p>查看厂家</p>
-<blockquote>
-<p>#cat /proc/cpuinfo |grep implementer</p>
-<p>CPU implementer    : 0x70</p>
-<p>#cat /sys/devices/system/cpu/cpu0/regs/identification/midr_el1<br>0x00000000701f6633  // 70 表示厂家</p>
-</blockquote>
-<p>vendor id对应厂家</p>
-<table>
-<thead>
-<tr>
-<th style="text-align:left">Vendor Name</th>
-<th style="text-align:left">Vendor ID</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left">ARM</td>
-<td style="text-align:left">0x41</td>
-</tr>
-<tr>
-<td style="text-align:left">Broadcom</td>
-<td style="text-align:left">0x42</td>
-</tr>
-<tr>
-<td style="text-align:left">Cavium</td>
-<td style="text-align:left">0x43</td>
-</tr>
-<tr>
-<td style="text-align:left">DigitalEquipment</td>
-<td style="text-align:left">0x44</td>
-</tr>
-<tr>
-<td style="text-align:left">HiSilicon</td>
-<td style="text-align:left">0x48</td>
-</tr>
-<tr>
-<td style="text-align:left">Infineon</td>
-<td style="text-align:left">0x49</td>
-</tr>
-<tr>
-<td style="text-align:left">Freescale</td>
-<td style="text-align:left">0x4D</td>
-</tr>
-<tr>
-<td style="text-align:left">NVIDIA</td>
-<td style="text-align:left">0x4E</td>
-</tr>
-<tr>
-<td style="text-align:left">APM</td>
-<td style="text-align:left">0x50</td>
-</tr>
-<tr>
-<td style="text-align:left">Qualcomm</td>
-<td style="text-align:left">0x51</td>
-</tr>
-<tr>
-<td style="text-align:left">Marvell</td>
-<td style="text-align:left">0x56</td>
-</tr>
-<tr>
-<td style="text-align:left">Intel</td>
-<td style="text-align:left">0x69</td>
-</tr>
-<tr>
-<td style="text-align:left">飞腾</td>
-<td style="text-align:left">0x70</td>
-</tr>
-</tbody>
-</table>
-<h2 id="飞腾ARM芯片介绍"><a href="#飞腾ARM芯片介绍" class="headerlink" title="飞腾ARM芯片介绍"></a>飞腾ARM芯片介绍</h2><p><strong>飞腾处理器</strong>，又称<strong>银河飞腾处理器</strong>，是由<a href="https://zh.wikipedia.org/wiki/中國人民解放軍國防科學技術大學" target="_blank" rel="external">中国人民解放军国防科学技术大学</a>研制的一系列嵌入式<a href="https://zh.wikipedia.org/wiki/数字信号处理器" target="_blank" rel="external">数字信号处理器</a>（DSP）和<a href="https://zh.wikipedia.org/wiki/中央处理器" target="_blank" rel="external">中央处理器</a>（CPU）芯片。<a href="https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-cw-1" target="_blank" rel="external">[1]</a>这个处理器系列的研发，是由国防科技大的<a href="https://zh.wikipedia.org/w/index.php?title=邢座程&amp;action=edit&amp;redlink=1" target="_blank" rel="external">邢座程</a>教授<a href="https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-2" target="_blank" rel="external">[2]</a>带领的团队负责研发。<a href="https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-Xing_671-3" target="_blank" rel="external">[3]</a>其<a href="https://zh.wikipedia.org/w/index.php?title=商業化&amp;action=edit&amp;redlink=1" target="_blank" rel="external">商业化</a><a href="https://zh.wikipedia.org/wiki/推廣" target="_blank" rel="external">推广</a>则是由<a href="https://zh.wikipedia.org/wiki/中国电子信息产业集团有限公司" target="_blank" rel="external">中国电子信息产业集团有限公司</a>旗下的天津飞腾信息技术有限公司负责。</p>
-<p>飞腾公司在早期，考察了SPARC、MIPS、ALPHA架构，这三种指令集架构都可以以极其低廉的价格（据说SPARC的授权价只有99美元，ALPHA不要钱）获得授权，飞腾选择了SPARC架构进行了CPU的研发。</p>
-<p>2012年ARM正式推出了自己的第一个64位指令集处理器架构ARMv8，进入服务器等新的领域。此后飞腾放弃了SPARC，拿了ARMv8指令集架构的授权，全面转向了ARM阵营，芯片roadmap如下：</p>
-<p><img src="/images/951413iMgBlog/3407604faa7ca9a87fa26610606081ab.png" alt="img"></p>
-<h3 id="测试芯片详细信息"><a href="#测试芯片详细信息" class="headerlink" title="测试芯片详细信息"></a><a href="https://pdf.dfcfw.com/pdf/H3_AP202010201422468889_1.pdf?1603181661000.pdf" target="_blank" rel="external">测试芯片详细信息</a></h3><p>2020 年 7 月 23 日，飞腾发布新一代高可扩展多路服务器芯片腾云 S2500，采用 16nm 工艺， 主频 2.0~2.2Ghz，拥有 64 个 FTC663 内核，片内集成 64MB 三级 Cache，支持 8 个 DDR4-3200 存 储通道，功耗 150W。 </p>
-<p>基于 ARM 架构，兼具高可拓展性和低功耗，扩展支持 2 路到 8 路直连。与主流架构 X86 相比， ARM 架构具备低功耗、低发热和低成本的优势，ARM 单核的面积仅为 X86 核的 1/7，同样芯片尺寸下可以继承更多核心数，可以通过增加核心数提高性能，在性能快速提升下，也能保持较低的功耗，符合云计算场景下并行计算上高并发和高效率的要求，也能有效控制服务器的能耗和成本支出。腾云 S2500 增加了 4 个直连接口，总带宽 800Gbps，支持 2 路、4 路和 8 路直连，具备高可 拓展性，可以形成 128 核到 512 核的计算机系统，带动算力提升。</p>
-<p>飞腾(FT2500), ARMv8架构，主频2.1G，服务器两路，每路64个物理core，没有超线程，总共16个numa，每个numa 8个core</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div></pre></td><td class="code"><pre><div class="line">#dmidecode -t processor</div><div class="line"># dmidecode 3.0</div><div class="line">Getting SMBIOS data from sysfs.</div><div class="line">SMBIOS 3.2.0 present.</div><div class="line"># SMBIOS implementations newer than version 3.0 are not</div><div class="line"># fully supported by this version of dmidecode.</div><div class="line"></div><div class="line">Handle 0x0004, DMI type 4, 48 bytes</div><div class="line">Processor Information</div><div class="line">    Socket Designation: BGA3576</div><div class="line">    Type: Central Processor</div><div class="line">    Family: &lt;OUT OF SPEC&gt;</div><div class="line">    Manufacturer: PHYTIUM</div><div class="line">    ID: 00 00 00 00 70 1F 66 22</div><div class="line">    Version: FT2500</div><div class="line">    Voltage: 0.8 V</div><div class="line">    External Clock: 50 MHz</div><div class="line">    Max Speed: 2100 MHz</div><div class="line">    Current Speed: 2100 MHz</div><div class="line">    Status: Populated, Enabled</div><div class="line">    Upgrade: Other</div><div class="line">    L1 Cache Handle: 0x0005</div><div class="line">    L2 Cache Handle: 0x0007</div><div class="line">    L3 Cache Handle: 0x0008</div><div class="line">    Serial Number: 1234567</div><div class="line">    Asset Tag: No Asset Tag</div><div class="line">    Part Number: NULL</div><div class="line">    Core Count: 64</div><div class="line">    Core Enabled: 64</div><div class="line">    Thread Count: 64</div><div class="line">    Characteristics:</div><div class="line">        64-bit capable</div><div class="line">        Multi-Core</div><div class="line">        Hardware Thread</div><div class="line">        Execute Protection</div><div class="line">        Enhanced Virtualization</div><div class="line">        Power/Performance Control</div><div class="line"></div><div class="line">#lscpu</div><div class="line">Architecture:          aarch64</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                128</div><div class="line">On-line CPU(s) list:   0-127</div><div class="line">Thread(s) per core:    1</div><div class="line">Core(s) per socket:    64</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          16</div><div class="line">Model:                 3</div><div class="line">BogoMIPS:              100.00</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              2048K</div><div class="line">L3 cache:              65536K</div><div class="line">NUMA node0 CPU(s):     0-7</div><div class="line">NUMA node1 CPU(s):     8-15</div><div class="line">NUMA node2 CPU(s):     16-23</div><div class="line">NUMA node3 CPU(s):     24-31</div><div class="line">NUMA node4 CPU(s):     32-39</div><div class="line">NUMA node5 CPU(s):     40-47</div><div class="line">NUMA node6 CPU(s):     48-55</div><div class="line">NUMA node7 CPU(s):     56-63</div><div class="line">NUMA node8 CPU(s):     64-71</div><div class="line">NUMA node9 CPU(s):     72-79</div><div class="line">NUMA node10 CPU(s):    80-87</div><div class="line">NUMA node11 CPU(s):    88-95</div><div class="line">NUMA node12 CPU(s):    96-103</div><div class="line">NUMA node13 CPU(s):    104-111</div><div class="line">NUMA node14 CPU(s):    112-119</div><div class="line">NUMA node15 CPU(s):    120-127</div><div class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</div><div class="line"></div><div class="line">node distances:</div><div class="line">node   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15</div><div class="line">  0:  10  20  40  30  20  30  50  40  100  100  100  100  100  100  100  100</div><div class="line">  1:  20  10  30  40  50  20  40  50  100  100  100  100  100  100  100  100</div><div class="line">  2:  40  30  10  20  40  50  20  30  100  100  100  100  100  100  100  100</div><div class="line">  3:  30  40  20  10  30  20  40  50  100  100  100  100  100  100  100  100</div><div class="line">  4:  20  50  40  30  10  50  30  20  100  100  100  100  100  100  100  100</div><div class="line">  5:  30  20  50  20  50  10  50  40  100  100  100  100  100  100  100  100</div><div class="line">  6:  50  40  20  40  30  50  10  30  100  100  100  100  100  100  100  100</div><div class="line">  7:  40  50  30  50  20  40  30  10  100  100  100  100  100  100  100  100</div><div class="line">  8:  100  100  100  100  100  100  100  100  10  20  40  30  20  30  50  40</div><div class="line">  9:  100  100  100  100  100  100  100  100  20  10  30  40  50  20  40  50</div><div class="line"> 10:  100  100  100  100  100  100  100  100  40  30  10  20  40  50  20  30</div><div class="line"> 11:  100  100  100  100  100  100  100  100  30  40  20  10  30  20  40  50</div><div class="line"> 12:  100  100  100  100  100  100  100  100  20  50  40  30  10  50  30  20</div><div class="line"> 13:  100  100  100  100  100  100  100  100  30  20  50  20  50  10  50  40</div><div class="line"> 14:  100  100  100  100  100  100  100  100  50  40  20  40  30  50  10  30</div><div class="line"> 15:  100  100  100  100  100  100  100  100  40  50  30  50  20  40  30  10</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/image-20210422121346490.png" alt="image-20210422121346490"></p>
-<p>cpu详细信息：</p>
-<p><img src="/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png" alt="img"></p>
-<p>飞腾芯片，按如下distance绑核基本没区别！展示出来的distance是假的一样</p>
-<p><img src="/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png" alt="img"></p>
-<p>FT2500芯片集成的 64 个处理器核心，划分为 8 个 Panel，每个 Panel 中有两个 Cluster (每个 Cluster 包含 4 个处理器核心及共享的 2M 二级 cache)、两个本地目录控 制部件(DCU)、一个片上网络路由器节点(Cell)和一个紧密耦合的访存控制 器(MCU)。Panel 之间通过片上网络接口连接，一致性维护报文、数据报文、 调测试报文、中断报文等统一从同一套网络接口进行路由和通信</p>
-<p>一个Panel的实现是FTC663版本，采用四发射乱序超标量流水线结构，兼容 ARMv8 指令集，支持 EL0~EL3 多个特权级。流水线分为取指、译码、分派、执 行和写回五个阶段，采用顺序取指、乱序执行、顺序提交的多发射执行机制，取 值宽度、译码宽度、分派宽度均是 4 条指令，共有 9 个执行部件(或者称为 9 条功能流水线)，分别是 4 个整数部件、2 个浮点部件、1 个 load 部件、1 个 load/store 部件和 1 个系统管理指令执行部件。浮点流水线能够合并执行双路浮点 SIMD 指 令，实现每拍可以执行 4 条双精度浮点操作的峰值性能。</p>
-<p><img src="/images/951413iMgBlog/image-20210910120438276.png" alt="image-20210910120438276"></p>
-<p>猜测FT2500 64core用的是一个Die, 但是core之间的连接是Ring Bus，而Ring Bus下core太多后延迟会快速增加，所以一个Die 内部做了8个小的Ring Bus，每个Ring Bus下8个core。</p>
-<h3 id="飞腾官方提供的测试结果"><a href="#飞腾官方提供的测试结果" class="headerlink" title="飞腾官方提供的测试结果"></a>飞腾官方提供的测试结果</h3><p><img src="/images/951413iMgBlog/image-20210909175954574.png" alt="image-20210909175954574"></p>
-<h3 id="飞腾2500-和-鲲鹏9200-参数对比"><a href="#飞腾2500-和-鲲鹏9200-参数对比" class="headerlink" title="飞腾2500 和 鲲鹏9200 参数对比"></a>飞腾2500 和 鲲鹏9200 参数对比</h3><p><img src="/images/951413iMgBlog/image-20210422095217195.png" alt="image-20210422095217195"></p>
-<h3 id="FT2000与FT2500差异"><a href="#FT2000与FT2500差异" class="headerlink" title="FT2000与FT2500差异"></a>FT2000与FT2500差异</h3><p>下表是FT2000和FT2500产品规格对比表，和芯片的单核内部结构变化较少，多了L3，主频提高了，其他基本没有变化。</p>
-<table>
-<thead>
-<tr>
-<th><strong>特征</strong></th>
-<th><strong>FT-2000+/64</strong></th>
-<th><strong>FT-2500</strong></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>指令</td>
-<td>兼容 ARM V8 指令集 FTC662 内核</td>
-<td>兼容 ARM V8 指令集FTC663 内核</td>
-</tr>
-<tr>
-<td>Core数</td>
-<td>64个</td>
-<td>64个</td>
-</tr>
-<tr>
-<td>频率</td>
-<td>2.2GHZ/2.0GHZ/1.8GHZ</td>
-<td><strong>2.0~2.3GHz</strong></td>
-</tr>
-<tr>
-<td>体系架构</td>
-<td>NUMA</td>
-<td>NUMA</td>
-</tr>
-<tr>
-<td>RAS</td>
-<td>无</td>
-<td>支持</td>
-</tr>
-<tr>
-<td>加解密</td>
-<td>无</td>
-<td><strong>ASE128、SHA1、SHA2-256、PMULL</strong></td>
-</tr>
-<tr>
-<td>L1 Cache</td>
-<td>每个核独占32KB指令Cache与32KB数据Cache</td>
-<td>每个核独占32K指令Cache与32K数据Cache</td>
-</tr>
-<tr>
-<td>L2 Cache</td>
-<td>共32MB，每4个核共享2MB</td>
-<td>共32MB，每4个核共享2MB</td>
-</tr>
-<tr>
-<td>L3 Cache</td>
-<td>无</td>
-<td><strong>64MB</strong></td>
-</tr>
-<tr>
-<td>LMU数量</td>
-<td>8个</td>
-<td>8个</td>
-</tr>
-<tr>
-<td>支持最大容量</td>
-<td>1TB</td>
-<td>1TB*socket数量</td>
-</tr>
-<tr>
-<td>支持最大频率</td>
-<td>3200MHZ</td>
-<td>支持3200MHZ</td>
-</tr>
-<tr>
-<td>外接设备</td>
-<td>支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、 LR-DIMM，电压 1.2V</td>
-<td>支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、LR-DIMM，电压 1.2V</td>
-</tr>
-<tr>
-<td>镜像存储</td>
-<td>无</td>
-<td>每两个MCU互为备份</td>
-</tr>
-<tr>
-<td>PCIe</td>
-<td>PCIE3.02 个 x16 和 1 个 x1每个 x16 可拆分成 2 个 x8，支持翻转</td>
-<td>PCIE3.01 个 x16 和 1 个 x1x16 可拆分成 2 个 x8，支持翻转</td>
-</tr>
-<tr>
-<td>SPI</td>
-<td>支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V</td>
-<td>支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V</td>
-</tr>
-<tr>
-<td>UART</td>
-<td>4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口</td>
-<td>4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口</td>
-</tr>
-<tr>
-<td>GPIO</td>
-<td>4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7]</td>
-<td>4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7]</td>
-</tr>
-<tr>
-<td>LPC</td>
-<td>1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V</td>
-<td>1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V</td>
-</tr>
-<tr>
-<td>I2C</td>
-<td>2 个 I2C master 控制器</td>
-<td>2 个 I2C master /Slave控制器,2个slave控制器</td>
-</tr>
-<tr>
-<td>直连</td>
-<td>无</td>
-<td>四个直连通路，每路X4个lane，每条lane速率为25Gbps，支持2路、4路、8路</td>
-</tr>
-</tbody>
-</table>
-<h2 id="飞腾ARM芯片性能测试数据"><a href="#飞腾ARM芯片性能测试数据" class="headerlink" title="飞腾ARM芯片性能测试数据"></a>飞腾ARM芯片性能测试数据</h2><p>以下测试场景基本都是运行CPU和网络瓶颈的业务逻辑，绑核前IPC只有0.08</p>
-<p><img src="/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png" alt="img"></p>
-<p>绑核后对性能提升非常明显：</p>
-<p><img src="/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png" alt="img"></p>
-<p>点查场景：</p>
-<p><img src="/images/951413iMgBlog/image-20210425092158127.png" alt="image-20210425092158127"></p>
-<p>如上是绑48-63号核</p>
-<p><img src="/images/951413iMgBlog/image-20210425091727122.png" alt="image-20210425091727122"></p>
-<p><img src="/images/951413iMgBlog/image-20210425091557750.png" alt="image-20210425091557750"></p>
-<p><img src="/images/951413iMgBlog/image-20210425093630438.png" alt="image-20210425093630438"></p>
-<p>绑不同的核性能差异比较大，比如同样绑第一个socket最后16core和绑第二个socket最后16core，第二个socket的最后16core性能要好25-30%—<strong>这是因为网卡软中断，如果将软中断绑定到0-4号cpu后差异基本消失</strong>,因为网卡队列设置的是60，基本跑在前60core上，也就是第一个socket上。</p>
-<p>点查场景绑核和不绑核性能能差1倍, 将table分表后，物理rt稳定了(<strong>截图中物理rt下降是因为压力小了</strong>–待证)</p>
-<h3 id="点查场景压测16个core的节点"><a href="#点查场景压测16个core的节点" class="headerlink" title="点查场景压测16个core的节点"></a>点查场景压测16个core的节点</h3><p>一个节点16core，16个core绑定到14、15号NUMA上，然后压测</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div></pre></td><td class="code"><pre><div class="line">#perl numa-maps-summary.pl &lt;/proc/79694/numa_maps //16core</div><div class="line">N0        :         1103 (  0.00 GB)</div><div class="line">N1        :       107368 (  0.41 GB)</div><div class="line">N10       :       144736 (  0.55 GB)</div><div class="line">N11       :        16919 (  0.06 GB)</div><div class="line">N12       :       551987 (  2.11 GB)</div><div class="line">N13       :        59499 (  0.23 GB)</div><div class="line">N14       :      5621573 ( 21.44 GB)  //内存就近分配</div><div class="line">N15       :      6200398 ( 23.65 GB)</div><div class="line">N2        :          700 (  0.00 GB)</div><div class="line">N3        :           89 (  0.00 GB)</div><div class="line">N4        :         5784 (  0.02 GB)</div><div class="line">N5        :           77 (  0.00 GB)</div><div class="line">N6        :          426 (  0.00 GB)</div><div class="line">N7        :          472 (  0.00 GB)</div><div class="line">N8        :          107 (  0.00 GB)</div><div class="line">N9        :         6137 (  0.02 GB)</div><div class="line">active    :           85 (  0.00 GB)</div><div class="line">anon      :     12712675 ( 48.50 GB)</div><div class="line">dirty     :     12712679 ( 48.50 GB)</div><div class="line">kernelpagesize_kB:        17444 (  0.07 GB)</div><div class="line">mapmax    :         1598 (  0.01 GB)</div><div class="line">mapped    :         4742 (  0.02 GB)</div><div class="line"></div><div class="line">#perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses -a -p 79694</div><div class="line">^C</div><div class="line"> Performance counter stats for process id &apos;79694&apos;:</div><div class="line"></div><div class="line">        1719788217      branch-misses                                                 (39.70%)</div><div class="line">      311069393237      bus-cycles                                                    (38.07%)</div><div class="line">        2021349865      cache-misses              #    6.669 % of all cache refs      (38.32%)</div><div class="line">       30308501243      cache-references                                              (39.67%)</div><div class="line">      310980728138      cpu-cycles                                                    (46.46%)</div><div class="line">       67298903097      instructions              #    0.22  insns per cycle          (47.63%)</div><div class="line">        1983728595      L1-dcache-load-misses     #    6.62% of all L1-dcache hits    (48.76%)</div><div class="line">       29943167305      L1-dcache-loads                                               (47.89%)</div><div class="line">        1957152091      L1-dcache-store-misses                                        (46.14%)</div><div class="line">       29572767575      L1-dcache-stores                                              (44.91%)</div><div class="line">        4223808613      L1-icache-load-misses                                         (43.08%)</div><div class="line">       49122358099      L1-icache-loads                                               (38.15%)</div><div class="line">        1724605628      branch-load-misses                                            (37.63%)</div><div class="line">       15225535577      branch-loads                                                  (36.61%)</div><div class="line">         997458038      dTLB-load-misses                                              (35.81%)</div><div class="line">         542426693      iTLB-load-misses                                              (34.98%)</div><div class="line"></div><div class="line">      10.489297296 seconds time elapsed</div><div class="line"></div><div class="line">[  29s] threads: 160, tps: 0.00, reads/s: 15292.01, writes/s: 0.00, response time: 25.82ms (95%)</div><div class="line">[  30s] threads: 160, tps: 0.00, reads/s: 16399.99, writes/s: 0.00, response time: 23.58ms (95%)</div><div class="line">[  31s] threads: 160, tps: 0.00, reads/s: 17025.00, writes/s: 0.00, response time: 20.73ms (95%)</div><div class="line">[  32s] threads: 160, tps: 0.00, reads/s: 16991.01, writes/s: 0.00, response time: 22.83ms (95%)</div><div class="line">[  33s] threads: 160, tps: 0.00, reads/s: 18400.94, writes/s: 0.00, response time: 21.29ms (95%)</div><div class="line">[  34s] threads: 160, tps: 0.00, reads/s: 17760.05, writes/s: 0.00, response time: 20.69ms (95%)</div><div class="line">[  35s] threads: 160, tps: 0.00, reads/s: 17935.00, writes/s: 0.00, response time: 20.23ms (95%)</div><div class="line">[  36s] threads: 160, tps: 0.00, reads/s: 18296.98, writes/s: 0.00, response time: 20.10ms (95%)</div><div class="line">[  37s] threads: 160, tps: 0.00, reads/s: 18111.02, writes/s: 0.00, response time: 20.56ms (95%)</div><div class="line">[  38s] threads: 160, tps: 0.00, reads/s: 17782.99, writes/s: 0.00, response time: 20.54ms (95%)</div><div class="line">[  38s] threads: 160, tps: 0.00, reads/s: 21412.13, writes/s: 0.00, response time: 11.96ms (95%)</div><div class="line">[  40s] threads: 160, tps: 0.00, reads/s: 18027.85, writes/s: 0.00, response time: 20.18ms (95%)</div><div class="line">[  41s] threads: 160, tps: 0.00, reads/s: 17907.04, writes/s: 0.00, response time: 20.02ms (95%)</div><div class="line">[  42s] threads: 160, tps: 0.00, reads/s: 13860.96, writes/s: 0.00, response time: 23.58ms (95%)</div><div class="line">[  43s] threads: 160, tps: 0.00, reads/s: 18491.02, writes/s: 0.00, response time: 20.18ms (95%)</div><div class="line">[  44s] threads: 160, tps: 0.00, reads/s: 17673.02, writes/s: 0.00, response time: 20.85ms (95%)</div><div class="line">[  45s] threads: 160, tps: 0.00, reads/s: 18048.96, writes/s: 0.00, response time: 21.47ms (95%)</div><div class="line">[  46s] threads: 160, tps: 0.00, reads/s: 18130.03, writes/s: 0.00, response time: 22.13ms (95%)</div></pre></td></tr></table></figure>
-<h3 id="点查场景压测8个core的节点"><a href="#点查场景压测8个core的节点" class="headerlink" title="点查场景压测8个core的节点"></a>点查场景压测8个core的节点</h3><p>因为每个NUMA才8个core，所以测试一下8core的节点绑核前后性能对比。实际结果看起来和16core节点绑核性能提升差不多。</p>
-<p>绑核前后对比：绑核后QPS翻倍，绑核后的服务rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。<strong>实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了</strong>。</p>
-<p><img src="/images/951413iMgBlog/image-20210427093424116.png" alt="image-20210427093424116"></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">perl numa-maps-summary.pl &lt;/proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了</span></div><div class="line">N0        :          551 (  0.00 GB)</div><div class="line">N1        :      1023418 (  3.90 GB)</div><div class="line">N10       :        52065 (  0.20 GB)</div><div class="line">N11       :       190737 (  0.73 GB)</div><div class="line">N12       :       516115 (  1.97 GB)</div><div class="line">N13       :       186556 (  0.71 GB)</div><div class="line">N14       :      1677489 (  6.40 GB)</div><div class="line">N15       :       324531 (  1.24 GB)</div><div class="line">N2        :          397 (  0.00 GB)</div><div class="line">N3        :            8 (  0.00 GB)</div><div class="line">N4        :          398 (  0.00 GB)</div><div class="line">N6        :          349 (  0.00 GB)</div><div class="line">N7        :          437 (  0.00 GB)</div><div class="line">N8        :       108508 (  0.41 GB)</div><div class="line">N9        :        69162 (  0.26 GB)</div><div class="line">active    :         2296 (  0.01 GB)</div><div class="line">anon      :      4144997 ( 15.81 GB)</div><div class="line">dirty     :      4145002 ( 15.81 GB)</div><div class="line">kernelpagesize_kB:         7508 (  0.03 GB)</div><div class="line">mapmax    :         1548 (  0.01 GB)</div><div class="line">mapped    :         5724 (  0.02 GB)</div><div class="line"></div><div class="line">[ 349s] threads: 100, tps: 0.00, reads/s: 11088.99, writes/s: 0.00, response time: 20.18ms (95%)</div><div class="line">[ 350s] threads: 100, tps: 0.00, reads/s: 8778.98, writes/s: 0.00, response time: 26.20ms (95%)</div><div class="line">[ 351s] threads: 100, tps: 0.00, reads/s: 7995.01, writes/s: 0.00, response time: 31.79ms (95%)</div><div class="line">[ 352s] threads: 100, tps: 0.00, reads/s: 9549.01, writes/s: 0.00, response time: 23.90ms (95%)</div><div class="line">[ 353s] threads: 100, tps: 0.00, reads/s: 8757.99, writes/s: 0.00, response time: 24.60ms (95%)</div><div class="line">[ 354s] threads: 100, tps: 0.00, reads/s: 10288.02, writes/s: 0.00, response time: 21.85ms (95%)</div><div class="line">[ 355s] threads: 100, tps: 0.00, reads/s: 11003.97, writes/s: 0.00, response time: 18.90ms (95%)</div><div class="line">[ 356s] threads: 100, tps: 0.00, reads/s: 11111.01, writes/s: 0.00, response time: 20.51ms (95%)</div><div class="line">[ 357s] threads: 100, tps: 0.00, reads/s: 11426.00, writes/s: 0.00, response time: 17.98ms (95%)</div><div class="line">[ 358s] threads: 100, tps: 0.00, reads/s: 11007.01, writes/s: 0.00, response time: 19.35ms (95%)</div><div class="line">[ 359s] threads: 100, tps: 0.00, reads/s: 10425.00, writes/s: 0.00, response time: 20.92ms (95%)</div><div class="line">[ 360s] threads: 100, tps: 0.00, reads/s: 10024.00, writes/s: 0.00, response time: 23.17ms (95%)</div><div class="line">[ 361s] threads: 100, tps: 0.00, reads/s: 10100.98, writes/s: 0.00, response time: 22.94ms (95%)</div><div class="line">[ 362s] threads: 100, tps: 0.00, reads/s: 8164.01, writes/s: 0.00, response time: 27.48ms (95%)</div><div class="line">[ 363s] threads: 100, tps: 0.00, reads/s: 6593.00, writes/s: 0.00, response time: 37.10ms (95%)</div><div class="line">[ 364s] threads: 100, tps: 0.00, reads/s: 7008.00, writes/s: 0.00, response time: 32.32ms (95%)</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">调整这个实例到内存充足的NUMA7上 QPS峰值能到14000，稳定在11000-13000之间，RT明显更稳定了</span></div><div class="line"><span class="meta">#</span><span class="bash">perl numa-maps-summary.pl &lt;/proc/78245/numa_maps</span></div><div class="line">N0        :          551 (  0.00 GB)</div><div class="line">N1        :          115 (  0.00 GB)</div><div class="line">N11       :          695 (  0.00 GB)</div><div class="line">N12       :          878 (  0.00 GB)</div><div class="line">N13       :         2019 (  0.01 GB)</div><div class="line">N14       :           25 (  0.00 GB)</div><div class="line">N15       :           60 (  0.00 GB)</div><div class="line">N2        :          394 (  0.00 GB)</div><div class="line">N3        :            8 (  0.00 GB)</div><div class="line">N4        :       197713 (  0.75 GB)</div><div class="line">N6        :          349 (  0.00 GB)</div><div class="line">N7        :      3957844 ( 15.10 GB)</div><div class="line">N8        :            1 (  0.00 GB)</div><div class="line">active    :           10 (  0.00 GB)</div><div class="line">anon      :      4154693 ( 15.85 GB)</div><div class="line">dirty     :      4154698 ( 15.85 GB)</div><div class="line">kernelpagesize_kB:         7452 (  0.03 GB)</div><div class="line">mapmax    :         1567 (  0.01 GB)</div><div class="line">mapped    :         5959 (  0.02 GB)</div><div class="line"></div><div class="line">[ 278s] threads: 100, tps: 0.00, reads/s: 13410.99, writes/s: 0.00, response time: 15.36ms (95%)</div><div class="line">[ 279s] threads: 100, tps: 0.00, reads/s: 14049.99, writes/s: 0.00, response time: 15.54ms (95%)</div><div class="line">[ 280s] threads: 100, tps: 0.00, reads/s: 13107.02, writes/s: 0.00, response time: 16.72ms (95%)</div><div class="line">[ 281s] threads: 100, tps: 0.00, reads/s: 12431.99, writes/s: 0.00, response time: 17.79ms (95%)</div><div class="line">[ 282s] threads: 100, tps: 0.00, reads/s: 13164.01, writes/s: 0.00, response time: 16.33ms (95%)</div><div class="line">[ 283s] threads: 100, tps: 0.00, reads/s: 13455.01, writes/s: 0.00, response time: 16.19ms (95%)</div><div class="line">[ 284s] threads: 100, tps: 0.00, reads/s: 12932.01, writes/s: 0.00, response time: 16.22ms (95%)</div><div class="line">[ 285s] threads: 100, tps: 0.00, reads/s: 12790.99, writes/s: 0.00, response time: 17.00ms (95%)</div><div class="line">[ 286s] threads: 100, tps: 0.00, reads/s: 12706.00, writes/s: 0.00, response time: 17.88ms (95%)</div><div class="line">[ 287s] threads: 100, tps: 0.00, reads/s: 11886.00, writes/s: 0.00, response time: 19.43ms (95%)</div><div class="line">[ 288s] threads: 100, tps: 0.00, reads/s: 12700.00, writes/s: 0.00, response time: 16.97ms (95%)</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">perl numa-maps-summary.pl &lt;/proc/54723/numa_maps  //54723绑定在NUMA6上</span></div><div class="line">N0        :          551 (  0.00 GB)</div><div class="line">N1        :          115 (  0.00 GB)</div><div class="line">N11       :          682 (  0.00 GB)</div><div class="line">N12       :          856 (  0.00 GB)</div><div class="line">N13       :         2018 (  0.01 GB)</div><div class="line">N14       :           25 (  0.00 GB)</div><div class="line">N15       :           60 (  0.00 GB)</div><div class="line">N2        :      1270166 (  4.85 GB) //不应该分配这里的内存，实际是因为N6内存被PageCache使用掉了</div><div class="line"></div><div class="line">N3        :            8 (  0.00 GB)</div><div class="line">N4        :          398 (  0.00 GB)</div><div class="line">N6        :      3662400 ( 13.97 GB)</div><div class="line">N7        :          460 (  0.00 GB)</div><div class="line">N8        :            1 (  0.00 GB)</div><div class="line">active    :            9 (  0.00 GB)</div><div class="line">anon      :      4931796 ( 18.81 GB)</div><div class="line">dirty     :      4931801 ( 18.81 GB)</div><div class="line">kernelpagesize_kB:         7920 (  0.03 GB)</div><div class="line">mapmax    :         1580 (  0.01 GB)</div><div class="line">mapped    :         5944 (  0.02 GB)</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /proc/meminfo | grep -i active</span></div><div class="line">Active:         22352360 kB</div><div class="line">Inactive:       275173756 kB</div><div class="line">Active(anon):      16984 kB</div><div class="line">Inactive(anon): 240344208 kB</div><div class="line">Active(file):   22335376 kB</div><div class="line">Inactive(file): 34829548 kB</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /proc/meminfo | grep -i active</span></div><div class="line">Active:          1865724 kB</div><div class="line">Inactive:       242335632 kB</div><div class="line">Active(anon):       7108 kB</div><div class="line">Inactive(anon): 240199020 kB</div><div class="line">Active(file):    1858616 kB  //回收了大量PageCache内存</div><div class="line">Inactive(file):  2136612 kB</div><div class="line"><span class="meta">#</span><span class="bash">perl numa-maps-summary.pl &lt;/proc/54723/numa_maps</span></div><div class="line">N0        :          552 (  0.00 GB)</div><div class="line">N1        :          115 (  0.00 GB)</div><div class="line">N11       :          682 (  0.00 GB)</div><div class="line">N12       :          856 (  0.00 GB)</div><div class="line">N13       :         2018 (  0.01 GB)</div><div class="line">N14       :           25 (  0.00 GB)</div><div class="line">N15       :           60 (  0.00 GB)</div><div class="line">N2        :         1740 (  0.01 GB)</div><div class="line">N3        :            8 (  0.00 GB)</div><div class="line">N4        :          398 (  0.00 GB)</div><div class="line">N6        :      4972492 ( 18.97 GB)</div><div class="line">N7        :          459 (  0.00 GB)</div><div class="line">N8        :            1 (  0.00 GB)</div><div class="line">active    :           16 (  0.00 GB)</div><div class="line">anon      :      4973486 ( 18.97 GB)</div><div class="line">dirty     :      4973491 ( 18.97 GB)</div><div class="line">kernelpagesize_kB:         8456 (  0.03 GB)</div><div class="line">mapmax    :         1564 (  0.01 GB)</div><div class="line">mapped    :         5920 (  0.02 GB)</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/image-20210427164953340.png" alt="image-20210427164953340"></p>
-<p>绑核前的IPC：</p>
-<p><img src="/images/951413iMgBlog/image-20210427093625575.png" alt="image-20210427093625575"></p>
-<p>绑核后的IPC：</p>
-<p><img src="/images/951413iMgBlog/image-20210427095130343.png" alt="image-20210427095130343"></p>
-<p><strong>如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小</strong>，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到<strong>绑核后性能可以随着加节点线性增加</strong></p>
-<p><img src="/images/951413iMgBlog/image-20210427172612685.png" alt="image-20210427172612685"></p>
-<p><img src="/images/951413iMgBlog/image-20210427173047815.png" alt="image-20210427173047815"></p>
-<p><img src="/images/951413iMgBlog/image-20210427173417673.png" alt="image-20210427173417673"></p>
-<p>结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)</p>
-<h3 id="MySQL-数据库场景绑核"><a href="#MySQL-数据库场景绑核" class="headerlink" title="MySQL 数据库场景绑核"></a>MySQL 数据库场景绑核</h3><p>通过同一台物理上6个Tomcat节点，总共96个core，压6台MySQL，MySQL基本快打挂了。sysbench 点查，32个分表，增加Tomcat节点进来物理rt就增加，从最初的的1.2ms加到6个Tomcat节点后变成8ms。</p>
-<p><img src="/images/951413iMgBlog/image-20210425180535225.png" alt="image-20210425180535225"></p>
-<p>MySQL没绑好核，BIOS默认关闭了NUMA，外加12个MySQL分布在物理机上不均匀，3个节点3个MySQL，剩下的物理机上只有一个MySQL实例。</p>
-<p>MySQL每个实例32core，管控默认已经做了绑核，但是如果两个MySQL绑在了一个socket上竞争会很激烈，ipc比单独的降一半。</p>
-<p>比如这三个MySQL，qps基本均匀，上面两个cpu高，但是没效率，每个MySQL绑了32core，上面两个绑在一个socket上，下面的MySQL绑在另一个socket上，第一个socket还有网络软中断在争抢cpu，飞腾环境下性能真要冲高还有很大空间。</p>
-<p><img src="/images/951413iMgBlog/image-20210425180518926.png" alt="image-20210425180518926"></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">第二个MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多</span></div><div class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 61238</div><div class="line">^C</div><div class="line"> Performance counter stats for process id '61238':</div><div class="line"></div><div class="line">        86,491,052      branch-misses                                                 (58.55%)</div><div class="line">    98,481,418,793      bus-cycles                                                    (55.64%)</div><div class="line">       113,095,618      cache-misses              #    6.169 % of all cache refs      (53.20%)</div><div class="line">     1,833,344,484      cache-references                                              (52.00%)</div><div class="line">   101,516,165,898      cpu-cycles                                                    (57.09%)</div><div class="line">     4,229,190,014      instructions              #    0.04  insns per cycle          (55.91%)</div><div class="line">       111,780,025      L1-dcache-load-misses     #    6.34% of all L1-dcache hits    (55.40%)</div><div class="line">     1,764,421,570      L1-dcache-loads                                               (52.62%)</div><div class="line">       112,261,128      L1-dcache-store-misses                                        (49.34%)</div><div class="line">     1,814,998,338      L1-dcache-stores                                              (48.51%)</div><div class="line">       219,372,119      L1-icache-load-misses                                         (49.56%)</div><div class="line">     2,816,279,627      L1-icache-loads                                               (49.15%)</div><div class="line">        85,321,093      branch-load-misses                                            (50.38%)</div><div class="line">     1,038,572,653      branch-loads                                                  (50.65%)</div><div class="line">        45,166,831      dTLB-load-misses                                              (51.98%)</div><div class="line">        29,892,473      iTLB-load-misses                                              (52.56%)</div><div class="line"></div><div class="line">       1.163750756 seconds time elapsed</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">第三个MySQL</span></div><div class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 53400</div><div class="line">^C</div><div class="line"> Performance counter stats for process id '53400':</div><div class="line"></div><div class="line">       295,575,513      branch-misses                                                 (40.51%)</div><div class="line">   110,934,600,206      bus-cycles                                                    (39.30%)</div><div class="line">       537,938,496      cache-misses              #    8.310 % of all cache refs      (38.99%)</div><div class="line">     6,473,688,885      cache-references                                              (39.80%)</div><div class="line">   110,540,950,757      cpu-cycles                                                    (46.10%)</div><div class="line">    14,766,013,708      instructions              #    0.14  insns per cycle          (46.85%)</div><div class="line">       538,521,226      L1-dcache-load-misses     #    8.36% of all L1-dcache hits    (48.00%)</div><div class="line">     6,440,728,959      L1-dcache-loads                                               (46.69%)</div><div class="line">       533,693,357      L1-dcache-store-misses                                        (45.91%)</div><div class="line">     6,413,111,024      L1-dcache-stores                                              (44.92%)</div><div class="line">       673,725,952      L1-icache-load-misses                                         (42.76%)</div><div class="line">     9,216,663,639      L1-icache-loads                                               (38.27%)</div><div class="line">       299,202,001      branch-load-misses                                            (37.62%)</div><div class="line">     3,285,957,082      branch-loads                                                  (36.10%)</div><div class="line">       149,348,740      dTLB-load-misses                                              (35.20%)</div><div class="line">       102,444,469      iTLB-load-misses                                              (34.78%)</div><div class="line"></div><div class="line">       8.080841166 seconds time elapsed</div></pre></td></tr></table></figure>
-<p>12个MySQL流量基本均匀：</p>
-<p><img src="/images/951413iMgBlog/image-20210426083033989.png" alt="image-20210426083033989"></p>
-<h3 id="numa太多，每个numa下core比较少"><a href="#numa太多，每个numa下core比较少" class="headerlink" title="numa太多，每个numa下core比较少"></a>numa太多，每个numa下core比较少</h3><p>导致跨numa高概率发生，如下是在正常部署下的测试perf 数据，可以看到IPC极低，才0.08，同样的场景在其他家芯片都能打到0.6</p>
-<p><img src="/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png" alt="img"></p>
-<p>执行绑核，将一个进程限制在2个numa内，因为进程需要16core，理论上用8core的进程性能会更好</p>
-<p><img src="/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png" alt="img"></p>
-<p>可以看到IPC从0.08提升到了0.22，实际能到0.27，对应的业务测试QPS也是原来的4倍。 </p>
-<p>用numactl 在启动的时候绑定cpu在 node0、1上，优先使用node0、1的内存，不够再用其它node的内存</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --defaults-file=/polarx/xcluster3308/my.cnf  --basedir=/u01/xcluster80_current  --datadir=/polarx/xcluster3308/data  --plugin-dir=/u01/xcluster80/lib/plugin  --user=mysql  --log-error=/polarx/xcluster3308/log/alert.log  --open-files-limit=615350  --pid-file=/polarx/xcluster3308/run/mysql.pid  --socket=/polarx/xcluster3308/run/mysql.sock  --cluster-info=11.158.239.200:11308@1  --mysqlx-port=13308  --port=3308</div></pre></td></tr></table></figure>
-<h3 id="网卡队列调整"><a href="#网卡队列调整" class="headerlink" title="网卡队列调整"></a>网卡队列调整</h3><p>这批机器默认都是双网卡做bond，但是两块网卡是HA，默认网卡队列是60，基本都跑在前面60个core上</p>
-<p>将MySQL网卡队列从60个改成6个后MySQL性能提升大概10%</p>
-<p><img src="/images/951413iMgBlog/image-20210426085534983.png" alt="image-20210426085534983"></p>
-<p>默认第一个MySQL都绑在0-31号核上,其实改少队列加大了0-5号core的压力，但是实际数据表现要好。</p>
-<h2 id="比较其它"><a href="#比较其它" class="headerlink" title="比较其它"></a>比较其它</h2><p>绑核的时候还要考虑磁盘、网卡在哪个socket上，相对来说node和磁盘、网卡在同一个socket下性能要好一些。</p>
-<p>左边的mysqld绑定在socket1的64core上，磁盘、网卡都在socket1上；右边的mysqld绑定在0-31core上，网卡在socket0上，但是磁盘在socket1上</p>
-<p>右边这个刚好是跨socket访问磁盘，不知道是不是巧合log_flush排位比较高</p>
-<p><img src="/images/951413iMgBlog/image-20210910180305752.png" alt="image-20210910180305752"></p>
-<p>此时对应的IPC：</p>
-<p><img src="/images/951413iMgBlog/image-20210910181820803.png" alt="image-20210910181820803"></p>
-<p>如果上面两个进程在没有刷日志的场景下时候对应的IPC两者基本一样：</p>
-<p><img src="/images/951413iMgBlog/image-20210910181909962.png" alt="image-20210910181909962"></p>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT2500上的业务按node绑核后性能提升了几倍，但是离Intel x86还有很大的距离</p>
-<p>用循环跑多个nop指令在飞腾2500下IPC只能跑到1，据说这是因为nop指令被扔掉了，所以一直在跑跳转循环判断；</p>
-<p>对寄存器变量进行++运算，IPC是0.5； </p>
-<p>用如下代码能将IPC跑到2.49，也是我能跑出来的最高IPC了，去掉nop那行，IPC是1.99</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">        register unsigned i=0;</div><div class="line">for (i=0;i&lt;(1u&lt;&lt;31);i++) &#123;</div><div class="line">        __asm__ (&quot;nop&quot;); </div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
-<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
-<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
-<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
-<p><a href="/2021/05/15/飞腾ARM芯片(FT2500">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
-<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
-<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
-<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="external">CPU Utilization is Wrong</a></p>
-]]></content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;飞腾ARM芯片-FT2500的性能测试&quot;&gt;&lt;a href=&quot;#飞腾ARM芯片-FT2500的性能测试&quot; class=&quot;headerlink&quot; title=&quot;飞腾ARM芯片-FT2500的性能测试&quot;&gt;&lt;/a&gt;飞腾ARM芯片-FT2500的性能测试&lt;/h1&gt;&lt;h2 i
-    
-    </summary>
-    
-      <category term="CPU" scheme="https://plantegg.github.io/categories/CPU/"/>
-    
-    
-      <category term="performance" scheme="https://plantegg.github.io/tags/performance/"/>
-    
-      <category term="Linux" scheme="https://plantegg.github.io/tags/Linux/"/>
-    
-      <category term="CPU" scheme="https://plantegg.github.io/tags/CPU/"/>
-    
-      <category term="perf" scheme="https://plantegg.github.io/tags/perf/"/>
-    
-      <category term="arm" scheme="https://plantegg.github.io/tags/arm/"/>
-    
-      <category term="x86" scheme="https://plantegg.github.io/tags/x86/"/>
-    
-      <category term="FT2500" scheme="https://plantegg.github.io/tags/FT2500/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>十年后数据库还是不敢拥抱NUMA？</title>
-    <link href="https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/"/>
-    <id>https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/</id>
-    <published>2021-05-14T09:30:03.000Z</published>
-    <updated>2022-05-04T06:46:17.410Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="十年后数据库还是不敢拥抱NUMA？"><a href="#十年后数据库还是不敢拥抱NUMA？" class="headerlink" title="十年后数据库还是不敢拥抱NUMA？"></a>十年后数据库还是不敢拥抱NUMA？</h1><p>在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  <a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="external">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a> 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在<a href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82" target="_blank" rel="external">2014年修复了</a>，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。</p>
-<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图</p>
-<p><img src="/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png" alt="undefined"> </p>
-<p>从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，执行的SQL也是一样</p>
-<p><img src="/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png" alt="undefined"><br>所有MySQL实例流量一样</p>
-<p>那么问题来了为什么在同样的机器上、同样的流量下CPU使用率差了这么多？ 换句话来问就是CPU使用率高就有效率吗？</p>
-<p>这台物理机CPU 信息<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:          aarch64</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                128</div><div class="line">On-line CPU(s) list:   0-127</div><div class="line">Thread(s) per core:    1</div><div class="line">Core(s) per socket:    64</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          1</div><div class="line">Model:                 3</div><div class="line">BogoMIPS:              100.00</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              2048K</div><div class="line">L3 cache:              65536K</div><div class="line">NUMA node0 CPU(s):     0-127</div><div class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</div></pre></td></tr></table></figure></p>
-<h2 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h2><p>先来看这两个MySQL 进程的Perf数据</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div></pre></td><td class="code"><pre><div class="line">#第二个 MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多</div><div class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 61238</div><div class="line">^C</div><div class="line"> Performance counter stats for process id &apos;61238&apos;:</div><div class="line"></div><div class="line">        86,491,052      branch-misses                                                 (58.55%)</div><div class="line">    98,481,418,793      bus-cycles                                                    (55.64%)</div><div class="line">       113,095,618      cache-misses              #    6.169 % of all cache refs      (53.20%)</div><div class="line">     1,833,344,484      cache-references                                              (52.00%)</div><div class="line">   101,516,165,898      cpu-cycles                                                    (57.09%)</div><div class="line">     4,229,190,014      instructions              #    0.04  insns per cycle          (55.91%)</div><div class="line">       111,780,025      L1-dcache-load-misses     #    6.34% of all L1-dcache hits    (55.40%)</div><div class="line">     1,764,421,570      L1-dcache-loads                                               (52.62%)</div><div class="line">       112,261,128      L1-dcache-store-misses                                        (49.34%)</div><div class="line">     1,814,998,338      L1-dcache-stores                                              (48.51%)</div><div class="line">       219,372,119      L1-icache-load-misses                                         (49.56%)</div><div class="line">     2,816,279,627      L1-icache-loads                                               (49.15%)</div><div class="line">        85,321,093      branch-load-misses                                            (50.38%)</div><div class="line">     1,038,572,653      branch-loads                                                  (50.65%)</div><div class="line">        45,166,831      dTLB-load-misses                                              (51.98%)</div><div class="line">        29,892,473      iTLB-load-misses                                              (52.56%)</div><div class="line"></div><div class="line">       1.163750756 seconds time elapsed</div><div class="line"></div><div class="line">#第三个 MySQL</div><div class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 53400</div><div class="line">^C</div><div class="line"> Performance counter stats for process id &apos;53400&apos;:</div><div class="line"></div><div class="line">       295,575,513      branch-misses                                                 (40.51%)</div><div class="line">   110,934,600,206      bus-cycles                                                    (39.30%)</div><div class="line">       537,938,496      cache-misses              #    8.310 % of all cache refs      (38.99%)</div><div class="line">     6,473,688,885      cache-references                                              (39.80%)</div><div class="line">   110,540,950,757      cpu-cycles                                                    (46.10%)</div><div class="line">    14,766,013,708      instructions              #    0.14  insns per cycle          (46.85%)</div><div class="line">       538,521,226      L1-dcache-load-misses     #    8.36% of all L1-dcache hits    (48.00%)</div><div class="line">     6,440,728,959      L1-dcache-loads                                               (46.69%)</div><div class="line">       533,693,357      L1-dcache-store-misses                                        (45.91%)</div><div class="line">     6,413,111,024      L1-dcache-stores                                              (44.92%)</div><div class="line">       673,725,952      L1-icache-load-misses                                         (42.76%)</div><div class="line">     9,216,663,639      L1-icache-loads                                               (38.27%)</div><div class="line">       299,202,001      branch-load-misses                                            (37.62%)</div><div class="line">     3,285,957,082      branch-loads                                                  (36.10%)</div><div class="line">       149,348,740      dTLB-load-misses                                              (35.20%)</div><div class="line">       102,444,469      iTLB-load-misses                                              (34.78%)</div><div class="line"></div><div class="line">       8.080841166 seconds time elapsed</div></pre></td></tr></table></figure>
-<p>从上面可以看到 IPC 差异巨大0.04 VS 0.14 ，也就是第一个MySQL的CPU效率很低，我们看到的CPU running实际是CPU在等待(stall)。</p>
-<h3 id="CPU的实际信息"><a href="#CPU的实际信息" class="headerlink" title="CPU的实际信息"></a>CPU的实际信息</h3><p>找到同一个机型，但是NUMA开着的查了一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:          aarch64</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                128</div><div class="line">On-line CPU(s) list:   0-127</div><div class="line">Thread(s) per core:    1</div><div class="line">Core(s) per socket:    64</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          16</div><div class="line">Model:                 3</div><div class="line">BogoMIPS:              100.00</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              2048K</div><div class="line">L3 cache:              65536K</div><div class="line">NUMA node0 CPU(s):     0-7</div><div class="line">NUMA node1 CPU(s):     8-15</div><div class="line">NUMA node2 CPU(s):     16-23</div><div class="line">NUMA node3 CPU(s):     24-31</div><div class="line">NUMA node4 CPU(s):     32-39</div><div class="line">NUMA node5 CPU(s):     40-47</div><div class="line">NUMA node6 CPU(s):     48-55</div><div class="line">NUMA node7 CPU(s):     56-63</div><div class="line">NUMA node8 CPU(s):     64-71</div><div class="line">NUMA node9 CPU(s):     72-79</div><div class="line">NUMA node10 CPU(s):    80-87</div><div class="line">NUMA node11 CPU(s):    88-95</div><div class="line">NUMA node12 CPU(s):    96-103</div><div class="line">NUMA node13 CPU(s):    104-111</div><div class="line">NUMA node14 CPU(s):    112-119</div><div class="line">NUMA node15 CPU(s):    120-127</div><div class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</div></pre></td></tr></table></figure>
-<p>这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。</p>
-<h2 id="关于NUMA"><a href="#关于NUMA" class="headerlink" title="关于NUMA"></a>关于NUMA</h2><p>如下图，是一个Intel Xeon E5 CPU的架构信息，左右两边的大红框分别是两个NUMA，每个NUMA的core访问直接插在自己红环上的内存必然很快，如果访问插在其它NUMA上的内存还要走两个红环之间上下的黑色箭头线路，所以要慢很多。</p>
-<p><img src="/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png" alt="img"></p>
-<p>实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket（这两块CPU内部不再是上图的红环Bus,而是改用了Mesh Bus一个Die就是一个NUMA，服务器有两路，也就是一个Socket就是一个NUMA），也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。<a href="https://software.intel.com/content/www/us/en/develop/articles/intelr-memory-latency-checker.html" target="_blank" rel="external">测试工具从这里下载</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">//E5-2682</div><div class="line">Intel(R) Memory Latency Checker - v3.9</div><div class="line">Measuring idle latencies (in ns)...</div><div class="line">		Numa node</div><div class="line">Numa node	     0	     1</div><div class="line">       0	  85.0	 136.3</div><div class="line">       1	 137.2	  84.2</div><div class="line"></div><div class="line">//8269</div><div class="line">Intel(R) Memory Latency Checker - v3.9  </div><div class="line">Measuring idle latencies (in ns)...</div><div class="line">    Numa node</div><div class="line">Numa node      0       1</div><div class="line">       0    78.6   144.1</div><div class="line">       1   144.7    78.5</div></pre></td></tr></table></figure>
-<p>开启NUMA会优先就近使用内存，在本NUMA上的内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是可以通过Linux参数 zone_reclaim_mode 来配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。</p>
-<p><strong>这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃。</strong></p>
-<p>以上理论告诉我们：<strong>也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。</strong></p>
-<h4 id="UMA和NUMA对比"><a href="#UMA和NUMA对比" class="headerlink" title="UMA和NUMA对比"></a>UMA和NUMA对比</h4><p>The SMP/UMA architecture</p>
-<p><img src="/images/951413iMgBlog/uma-architecture.png" alt="img"></p>
-<p>The NUMA architecture</p>
-<p><img src="/images/951413iMgBlog/numa-architecture.png" alt="img"></p>
-<p>Modern multiprocessor systems mix these basic architectures as seen in the following diagram:</p>
-<p><img src="/images/951413iMgBlog/39354-figure-3-184398.jpg" alt="img"></p>
-<p>In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.</p>
-<p><img src="/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg" alt="03-05-Broadwell_HCC_Architecture"></p>
-<h2 id="对比测试Intel-NUMA-性能"><a href="#对比测试Intel-NUMA-性能" class="headerlink" title="对比测试Intel NUMA 性能"></a>对比测试Intel NUMA 性能</h2><p>对如下Intel CPU进行一些测试，在开启NUMA的情况下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                64</div><div class="line">On-line CPU(s) list:   0-63</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    16</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          2</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 79</div><div class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</div><div class="line">Stepping:              1</div><div class="line">CPU MHz:               2500.000</div><div class="line">CPU max MHz:           3000.0000</div><div class="line">CPU min MHz:           1200.0000</div><div class="line">BogoMIPS:              5000.06</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              256K</div><div class="line">L3 cache:              40960K</div><div class="line">NUMA node0 CPU(s):     0-15,32-47</div><div class="line">NUMA node1 CPU(s):     16-31,48-63</div><div class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3</div><div class="line"></div><div class="line">#numastat</div><div class="line">                           node0           node1</div><div class="line">numa_hit               129600200        60501102</div><div class="line">numa_miss                      0               0</div><div class="line">numa_foreign                   0               0</div><div class="line">interleave_hit            108648          108429</div><div class="line">local_node             129576548        60395061</div><div class="line">other_node                 23652          106041</div></pre></td></tr></table></figure>
-<p>我在这个64core的物理机上运行一个MySQL 实例，先将MySQL进程绑定在0-63core，0-31core，以及0-15,32-47上</p>
-<p>用sysbench对一亿条记录跑点查，数据都加载到内存中了：</p>
-<ul>
-<li>绑0-63core qps 不到8万，总cpu跑到5000%，降低并发的话qps能到11万；</li>
-<li>如果绑0-31core qps 12万，总cpu跑到3200%，IPC 0.29；</li>
-<li>如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%  IPC: 0.42；</li>
-<li>绑0-15个物理core，qps能到17万，绑32-47也是一样的效果；</li>
-</ul>
-<p><img src="/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png" alt="undefined"> </p>
-<p>从这个数据看起来<strong>即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下</strong>， NUMA更多性能差异应该会更大。</p>
-<p>说明前面的理论是正确的。</p>
-<p>来看看不通绑核情况下node之间的带宽利用情况：</p>
-<p><img src="/images/951413iMgBlog/image-20210525151537507.png" alt="image-20210525151537507"></p>
-<p><img src="/images/951413iMgBlog/image-20210525151622425.png" alt="image-20210525151622425"></p>
-<p>实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。</p>
-<p>如果比较读写混合场景的话肯定会因为写锁导致CPU跑起来，最终的性能差异也不会这么大，但是绑在同一个NUMA下的性能肯定要好，IPC也会高一些。具体好多少取决于锁的竞争程度。</p>
-<h2 id="为什么集团内外所有物理机都把NUMA关掉了呢？"><a href="#为什么集团内外所有物理机都把NUMA关掉了呢？" class="headerlink" title="为什么集团内外所有物理机都把NUMA关掉了呢？"></a>为什么集团内外所有物理机都把NUMA关掉了呢？</h2><p>10年前几乎所有的运维都会多多少少被NUMA坑害过，让我们看看究竟有多少种在NUMA上栽的方式：</p>
-<ul>
-<li><a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="external">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></li>
-<li><a href="http://frosty-postgres.blogspot.com/2012/08/postgresql-numa-and-zone-reclaim-mode.html" target="_blank" rel="external">PostgreSQL – PostgreSQL, NUMA and zone reclaim mode on linux</a></li>
-<li><a href="http://blog.yannickjaquier.com/hpux/non-uniform-memory-access-numa-architecture-with-oracle-database-by-examples.html" target="_blank" rel="external">Oracle – Non-Uniform Memory Access (NUMA) architecture with Oracle database by examples</a></li>
-<li><a href="http://engineering.linkedin.com/performance/optimizing-linux-memory-management-low-latency-high-throughput-databases" target="_blank" rel="external">Java – Optimizing Linux Memory Management for Low-latency / High-throughput Databases</a></li>
-</ul>
-<p>最有名的是这篇  <a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="external">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></p>
-<p>我总结下这篇2010年的文章说的是啥：</p>
-<ul>
-<li>如果本NUMA内存不够的时候，Linux会优先回收PageCache内存，即使其它NUMA还有内存</li>
-<li>回收PageCache经常会造成系统卡顿，这个卡顿不能接受</li>
-</ul>
-<p>所以文章给出的解决方案就是（三选一）：</p>
-<ul>
-<li>关掉NUMA</li>
-<li>或者启动MySQL的时候指定不分NUMA,比如：/usr/bin/numactl –interleave all $cmd</li>
-<li>或者启动MySQL的时候先回收所有PageCache</li>
-</ul>
-<p>我想这就是这么多人在上面栽了跟头，所以干脆一不做二不休干脆关了NUMA 一了百了。</p>
-<p>但真的NUMA有这么糟糕？或者说Linux Kernel有这么笨，默认优先去回收PageCache吗？</p>
-<h2 id="Linux-Kernel对NUMA内存的使用"><a href="#Linux-Kernel对NUMA内存的使用" class="headerlink" title="Linux Kernel对NUMA内存的使用"></a>Linux Kernel对NUMA内存的使用</h2><p>实际我们使用NUMA的时候期望是：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。</p>
-<h3 id="zone-reclaim-mode"><a href="#zone-reclaim-mode" class="headerlink" title="zone_reclaim_mode"></a>zone_reclaim_mode</h3><p>事实上Linux识别到NUMA架构后，默认的内存分配方案就是：优先尝试在请求线程当前所处的CPU的Local内存上分配空间。<strong>如果local内存不足，优先淘汰local内存中无用的Page（Inactive，Unmapped）</strong>。然后才到其它NUMA上分配内存。</p>
-<p>intel 芯片跨node延迟远低于其他家，所以跨node性能损耗不大</p>
-<p>zone_reclaim_mode，它用来管理当一个内存区域(zone)内部的内存耗尽时，是从其内部进行内存回收还是可以从其他zone进行回收的选项：</p>
-<p>zone_reclaim_mode:</p>
-<blockquote>
-<p>Zone_reclaim_mode allows someone to set more or less aggressive approaches to<br>reclaim memory when a zone runs out of memory. If it is set to zero then no<br>zone reclaim occurs. Allocations will be satisfied from other zones / nodes<br>in the system.</p>
-</blockquote>
-<p>zone_reclaim_mode的四个参数值的意义分别是：</p>
-<p>0   = Allocate from all nodes before reclaiming memory<br>1   = Reclaim memory from local node vs allocating from next node<br>2   = Zone reclaim writes dirty pages out<br>4   = Zone reclaim swaps pages</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /proc/sys/vm/zone_reclaim_mode</div><div class="line">0</div></pre></td></tr></table></figure>
-<p>我查了2.6.32以及4.19.91内核的机器 zone_reclaim_mode 都是默认0 ，也就是kernel会：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。这也是我们想要的</p>
-<p>Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收了PageCache呢？</p>
-<h3 id="查看kernel提交记录"><a href="#查看kernel提交记录" class="headerlink" title="查看kernel提交记录"></a>查看kernel提交记录</h3><p><a href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82" target="_blank" rel="external">github kernel commit</a></p>
-<p><img src="/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png" alt="undefined"> </p>
-<p><img src="/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png" alt="undefined"> </p>
-<p><img src="/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png" alt="undefined"> </p>
-<p>关键是上图红框中的代码，node distance比较大（也就是开启了NUMA的话），强制将 zone_reclaim_mode设为1，这是2014年提交的代码，将这个强制设为1的逻辑去掉了。</p>
-<p>这也就是为什么之前大佬们碰到NUMA问题后尝试修改 zone_reclaim_mode 没有效果，<strong>也就是2014年前只要开启了NUMA就强制线回收PageCache，即使设置zone_reclaim_mode也没有意义，真是个可怕的Bug。</strong></p>
-<h3 id="验证一下zone-reclaim-mode-0是生效的"><a href="#验证一下zone-reclaim-mode-0是生效的" class="headerlink" title="验证一下zone_reclaim_mode 0是生效的"></a>验证一下zone_reclaim_mode 0是生效的</h3><p>内核版本：3.10.0-327.ali2017.alios7.x86_64</p>
-<h4 id="测试方法"><a href="#测试方法" class="headerlink" title="测试方法"></a><a href="https://github.com/torvalds/linux/commit/e02dc017c3032dcdce1b993af0db135462e1b4b7" target="_blank" rel="external">测试方法</a></h4><p>先将一个160G的文件加载到内存里，然后再用代码分配64G的内存出来使用。<br>单个NUMA node的内存为256G，本身用掉了60G，加上这次的160G的PageCache，和之前的一些其他PageCache,总的 PageCache用了179G，那么这个node总内存还剩256G-60G-179G，</p>
-<p>如果这个时候再分配64G内存的话，本node肯定不够了，我们来看在 zone_reclaim_mode=0 的时候是优先回收PageCache还是分配了到另外一个NUMA node(这个NUMA node 有240G以上的内存空闲）</p>
-<h4 id="测试过程"><a href="#测试过程" class="headerlink" title="测试过程"></a>测试过程</h4><p>分配64G内存</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#taskset -c 0 ./alloc 64</div><div class="line">To allocate 64GB memory</div><div class="line">Used time: 39 seconds</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png" alt="undefined"> </p>
-<p>从如上截图来看，再分配64G内存的时候即使node0不够了也没有回收node0上的PageCache，而是将内存跨NUMA分配到了node1上，符合预期！</p>
-<p>释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：<br><img src="/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png" alt="undefined"> </p>
-<h3 id="将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><a href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试" class="headerlink" title="将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试"></a>将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</h3><p>可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿</p>
-<p><img src="/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png" alt="undefined"> </p>
-<p>测试结论：<strong>从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了</strong></p>
-<h3 id="innodb-numa-interleave"><a href="#innodb-numa-interleave" class="headerlink" title="innodb_numa_interleave"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的感知：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="external">innodb_numa_interleave</a></p>
-<p>当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 <a href="https://linux.die.net/man/2/set_mempolicy" target="_blank" rel="external">NUMA memory policy</a> 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。</p>
-<p>innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，<strong>修复后这个参数没有意义了</strong>。</p>
-<h3 id="AUTOMATIC-NUMA-BALANCING"><a href="#AUTOMATIC-NUMA-BALANCING" class="headerlink" title="AUTOMATIC NUMA BALANCING"></a><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing" target="_blank" rel="external">AUTOMATIC NUMA BALANCING</a></h3><p>RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离更近以达到最好的效果</p>
-<blockquote>
-<p>Automatic NUMA balancing improves the performance of applications running on NUMA hardware systems. It is enabled by default on Red Hat Enterprise Linux 7 systems.</p>
-<p>An application will generally perform best when the threads of its processes are accessing memory on the same NUMA node as the threads are scheduled. Automatic NUMA balancing moves tasks (which can be threads or processes) closer to the memory they are accessing. It also moves application data to memory closer to the tasks that reference it. This is all done automatically by the kernel when automatic NUMA balancing is active.</p>
-</blockquote>
-<p>对应参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/sys/kernel/numa_balancing shows 1</div></pre></td></tr></table></figure>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>放弃对NUMA的偏见吧，优先回收 PageCache 这个Bug早已修复了</li>
-<li>按NUMA绑定core收益巨大，即使只有两个NUMA的intel芯片，也有一倍以上的性能提升，在飞腾等其他芯片上收益更大</li>
-<li>没必要自欺欺人关掉NUMA了</li>
-<li>RDS这样独占物理机的服务可以做到按NUMA来绑定core，收益可观</li>
-<li>ECS售卖如果能够精确地按NUMA绑核的话性能，超卖比能高很多</li>
-<li>在刷tpcc数据的时候更应该开NUMA和正确绑核</li>
-</ul>
-<p>我个人一直对集团所有机器默认关闭NUMA耿耿于怀，因为定制的物理机（BIOS也是定制的）BIOS默认就是关闭NUMA的，装机还得一台台手工打开（跪了，几十万台啊），算是理清了来龙去脉。因为一个kernel的bug让大家对NUMA一直有偏见，即使14年已经修复了，大家还是以讹传讹，没必要。</p>
-<p>关于cpu为什么高但是没有产出的原因是因为CPU流水线长期stall，导致很低的IPC，所以性能自然上不去，可以看<a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="external">这篇文章</a> </p>
-<p>其他同学测试的结论：</p>
-<ul>
-<li>Hadoop离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%</li>
-</ul>
-<p>一些其它不好解释的现象：</p>
-<ol>
-<li>增加少量跨NUMA 的core进来时能增加QPS的，但是随着跨NUMA core越来越多（总core也越来越多）QPS反而会达到一个峰值后下降—效率低的core多了，抢走任务，执行得慢</li>
-<li>压12-19和8-15同样8core，不跨NUMA的8-15性能只好5%左右(87873 VS 92801) — 难以解释</li>
-<li>由1、2所知在测试少量core的时候跨NUMA性能下降体现不出来</li>
-<li>在压0-31core的时候，如果运行 perf这个时候QPS反而会增加（13万上升到15万）— 抢走了一些CPU资源，让某个地方竞争反而减小了</li>
-<li>综上在我个人理解是core越多的时候UPI压力到了瓶颈，才会出现加core性能反而下降</li>
-</ol>
-<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
-<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
-<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
-<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
-<p><a href="/2021/05/15/飞腾ARM芯片(FT2500">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
-<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
-<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
-<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf" target="_blank" rel="external">https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf</a></p>
-<p><a href="https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/" target="_blank" rel="external">https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/</a></p>
-<p><a href="https://queue.acm.org/detail.cfm?id=2513149" target="_blank" rel="external">https://queue.acm.org/detail.cfm?id=2513149</a></p>
-]]></content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;十年后数据库还是不敢拥抱NUMA？&quot;&gt;&lt;a href=&quot;#十年后数据库还是不敢拥抱NUMA？&quot; class=&quot;headerlink&quot; title=&quot;十年后数据库还是不敢拥抱NUMA？&quot;&gt;&lt;/a&gt;十年后数据库还是不敢拥抱NUMA？&lt;/h1&gt;&lt;p&gt;在2010年前后My
-    
-    </summary>
-    
-      <category term="CPU" scheme="https://plantegg.github.io/categories/CPU/"/>
-    
-    
-      <category term="performance" scheme="https://plantegg.github.io/tags/performance/"/>
-    
-      <category term="Linux" scheme="https://plantegg.github.io/tags/Linux/"/>
-    
-      <category term="CPU" scheme="https://plantegg.github.io/tags/CPU/"/>
-    
-      <category term="NUMA" scheme="https://plantegg.github.io/tags/NUMA/"/>
-    
-      <category term="zone_reclaim_mode" scheme="https://plantegg.github.io/tags/zone-reclaim-mode/"/>
     
   </entry>
   

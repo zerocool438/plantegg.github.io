@@ -105,7 +105,12 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/553e1c5fff2dd04a668434f0da4f9d90.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/b67715de1b8e143f6fc17ba574bcf0c4.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210831211315077.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:14.050Z">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220614171759153.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220614173416775.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613803162582-ce09e9cc-36e4-4805-b968-98d8dd601f52-5197629.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613982679299-d6832373-6a5f-4b54-9440-fd16606b8341.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613814089563-fb1de2e7-46d4-4bb7-9162-356e39c19a4c.png">
+<meta property="og:updated_time" content="2022-06-20T09:09:37.380Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="网络硬件相关知识">
 <meta name="twitter:description" content="网络硬件相关知识程序员很难有机会接触到底层的一些东西,尤其是偏硬件部分,所以记录下 光纤和普通网线的性能差异以下都是在4.19内核的UOS，光纤交换机为锐捷，服务器是华为鲲鹏920的环境测试所得数据：  光纤稳定性好很多，平均rt是网线的三分之一，最大值则是网线的十分之一. 上述场景下光纤的带宽大约是网线的1.5倍. 实际光纤理论带宽一般都是万M, 网线是千M. 光纤接口：  单模光纤和多模光纤下">
@@ -544,6 +549,18 @@
 <p>但是以上规则在麒麟下没有生效</p>
 <p>网卡重命名方式：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">/sbin/ip link set eth1 name eth123</div></pre></td></tr></table></figure>
+<h2 id="校验"><a href="#校验" class="headerlink" title="校验"></a><a href="https://www.kernel.org/doc/html/latest/networking/checksum-offloads.html" target="_blank" rel="external">校验</a></h2><p>比如如下结构下因为通过xdp redirect来联通veth0、veth1，两边能ping通，但是TCP、UDP 都不通</p>
+<p><img src="/images/951413iMgBlog/image-20220614171759153.png" alt="image-20220614171759153"></p>
+<p>正常走bridge ping/tcp/udp是不会有问题的, 这也是docker下常见用法</p>
+<p><img src="/images/951413iMgBlog/image-20220614173416775.png" alt="image-20220614173416775"></p>
+<p>当前主流的网卡（包括虚拟网卡，如veth/tap）都支持一个叫做RX/TX Checksum Offload（RX和TX对应接收和发送两个方向）的特性，用于将传输层协议的校验和计算卸载到网卡硬件中（IP头的检验和会被操作系统用软件方式正确计算）。对于经过启用该功能的网卡的报文，操作系统不会对该报文进行校验和的计算，从而减少对系统CPU资源的占用。</p>
+<p><img src="/images/951413iMgBlog/1613803162582-ce09e9cc-36e4-4805-b968-98d8dd601f52-5197629.png" alt="1613803162582-ce09e9cc-36e4-4805-b968-98d8dd601f52"></p>
+<p>对于没有挂载XDP程序的且开启Checksum Offload功能的Veth设备，在接收到数据包时，会将<code>ip_summed</code>置为<code>CHECKSUM_UNNECESSARY</code>，因此上层L4协议栈在收到该数据包的时候不会再检查校验和，即使是数据包的校验和不正确也会正常被处理。但是若我们在veth设备上挂载了XDP程序，XDP程序运行时将网卡接收队列中的数据转换为结构<code>struct xdp_buff</code>时会丢失掉<code>ip_summed</code>信息，这就导致数据包被L4协议栈接收后由于校验和错误而被丢弃。</p>
+<p>如上图因为veth挂载了XDP程序，导致包没有校验信息而丢掉，如果在同样环境下ping是可以通的，因为ping包提前计算好了正确的校验和</p>
+<p><img src="/images/951413iMgBlog/1613982679299-d6832373-6a5f-4b54-9440-fd16606b8341.png" alt="img"></p>
+<p>这种丢包可以通过 <code>/proc/net/snmp</code> 看到</p>
+<p><img src="/images/951413iMgBlog/1613814089563-fb1de2e7-46d4-4bb7-9162-356e39c19a4c.png" alt="img"></p>
+<p>通过命令<code>ethtool -K &lt;nic-name&gt; tx off</code>工具关闭Checksum Offload特性，强行让操作系统用软件方式计算校验和。</p>
 <h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p><a href="https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/" target="_blank" rel="external">网卡日志打开</a>：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">sysctl -w net.ipv4.conf.all.log_martians=1 //所有网卡</div><div class="line">sysctl -w net.ipv4.conf.p1p1.log_martians=1 //特定网卡</div><div class="line"></div><div class="line">/proc/sys/net/ipv4/conf/eth0.9/log_martians</div></pre></td></tr></table></figure>
 <p>/var/log/messages中：</p>
@@ -679,7 +696,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">137</span>
+                <span class="site-state-item-count">139</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -701,7 +718,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">233</span>
+                <span class="site-state-item-count">234</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -743,7 +760,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#网络硬件相关知识"><span class="nav-number">1.</span> <span class="nav-text">网络硬件相关知识</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#光纤和普通网线的性能差异"><span class="nav-number">1.1.</span> <span class="nav-text">光纤和普通网线的性能差异</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#单模光纤和多模光纤"><span class="nav-number">1.1.1.</span> <span class="nav-text">单模光纤和多模光纤</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#多网卡bonding"><span class="nav-number">1.2.</span> <span class="nav-text">多网卡bonding</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网络中断和绑核"><span class="nav-number">1.3.</span> <span class="nav-text">网络中断和绑核</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#ethtool"><span class="nav-number">1.3.1.</span> <span class="nav-text">ethtool</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#irqbalance"><span class="nav-number">1.3.2.</span> <span class="nav-text">irqbalance</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#irqbalance指定core"><span class="nav-number">1.3.2.1.</span> <span class="nav-text">irqbalance指定core</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#irqbalance的流程"><span class="nav-number">1.3.2.2.</span> <span class="nav-text">irqbalance的流程</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网卡软中断以及内存远近的测试结论"><span class="nav-number">1.3.3.</span> <span class="nav-text">网卡软中断以及内存远近的测试结论</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#阿里云绑核脚本"><span class="nav-number">1.3.4.</span> <span class="nav-text">阿里云绑核脚本</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#查看网卡和numa的关系"><span class="nav-number">1.4.</span> <span class="nav-text">查看网卡和numa的关系</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Default-路由持久化"><span class="nav-number">1.5.</span> <span class="nav-text">Default 路由持久化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内核态启动并加载网卡的逻辑"><span class="nav-number">1.6.</span> <span class="nav-text">内核态启动并加载网卡的逻辑</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#用户态命名网卡流程"><span class="nav-number">1.6.1.</span> <span class="nav-text">用户态命名网卡流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网卡命名"><span class="nav-number">1.6.2.</span> <span class="nav-text">网卡命名</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#日志"><span class="nav-number">1.7.</span> <span class="nav-text">日志</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#修改mac地址"><span class="nav-number">1.8.</span> <span class="nav-text">修改mac地址</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.9.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#网络硬件相关知识"><span class="nav-number">1.</span> <span class="nav-text">网络硬件相关知识</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#光纤和普通网线的性能差异"><span class="nav-number">1.1.</span> <span class="nav-text">光纤和普通网线的性能差异</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#单模光纤和多模光纤"><span class="nav-number">1.1.1.</span> <span class="nav-text">单模光纤和多模光纤</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#多网卡bonding"><span class="nav-number">1.2.</span> <span class="nav-text">多网卡bonding</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网络中断和绑核"><span class="nav-number">1.3.</span> <span class="nav-text">网络中断和绑核</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#ethtool"><span class="nav-number">1.3.1.</span> <span class="nav-text">ethtool</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#irqbalance"><span class="nav-number">1.3.2.</span> <span class="nav-text">irqbalance</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#irqbalance指定core"><span class="nav-number">1.3.2.1.</span> <span class="nav-text">irqbalance指定core</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#irqbalance的流程"><span class="nav-number">1.3.2.2.</span> <span class="nav-text">irqbalance的流程</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网卡软中断以及内存远近的测试结论"><span class="nav-number">1.3.3.</span> <span class="nav-text">网卡软中断以及内存远近的测试结论</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#阿里云绑核脚本"><span class="nav-number">1.3.4.</span> <span class="nav-text">阿里云绑核脚本</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#查看网卡和numa的关系"><span class="nav-number">1.4.</span> <span class="nav-text">查看网卡和numa的关系</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Default-路由持久化"><span class="nav-number">1.5.</span> <span class="nav-text">Default 路由持久化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内核态启动并加载网卡的逻辑"><span class="nav-number">1.6.</span> <span class="nav-text">内核态启动并加载网卡的逻辑</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#用户态命名网卡流程"><span class="nav-number">1.6.1.</span> <span class="nav-text">用户态命名网卡流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网卡命名"><span class="nav-number">1.6.2.</span> <span class="nav-text">网卡命名</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#校验"><span class="nav-number">1.7.</span> <span class="nav-text">校验</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#日志"><span class="nav-number">1.8.</span> <span class="nav-text">日志</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#修改mac地址"><span class="nav-number">1.9.</span> <span class="nav-text">修改mac地址</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.10.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

@@ -128,7 +128,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:14.511Z">
+<meta property="og:updated_time" content="2022-06-20T09:09:39.484Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
 <meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
@@ -487,7 +487,7 @@
 <li><strong>builtin_expect(!!(x),1) x 为真的可能性更大  //0两次取反还是0，非0两次取反都是1，这样可以适配</strong>builtin_expect(EXP, N)的N，要不N的参数没法传</li>
 <li>__builtin_expect(!!(x),0) x 为假的可能性更大</li>
 </ul>
-<p>当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。</p>
+<p>当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。让L1i中加载的代码尽量有效紧凑</p>
 <p>这样可以让 CPU流水线分支预测的时候默认走可能性更大的分支。如果分支预测错误所有流水线都要取消重新计算。</p>
 <h3 id="流水线的实际效果"><a href="#流水线的实际效果" class="headerlink" title="流水线的实际效果"></a>流水线的实际效果</h3><p>假如一个15级的流水线，如果处理器要将做无用功的时间限制在 10%，那么它必须在正确预测每个分支的准确率达到 99.3%（因为错误一次，15级流水线都要重置，所以错误会放大15倍，0.7*15=10） 。很少有通用程序能够如此准确地预测分支。</p>
 <p>下图是不同场景在英特尔酷睿 i7 基准测试，可以看到有19% 的指令都被浪费了，但能耗的浪费情况更加严重，因为处理器必须利用额外的能量才能在推测失误时恢复原来的状态。这样的度量导致许多人得出结论，架构师需要一种不同的方法来实现性能改进。于是多级流水线不能疯狂增加，这样只能往多核发展。</p>
@@ -576,7 +576,10 @@ Performance counter stats for &apos;system wide&apos;:
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">#perf stat -- ./nop.out</div><div class="line"></div><div class="line"> Performance counter stats for &apos;./nop.out&apos;:</div><div class="line"></div><div class="line">      65061.160345      task-clock (msec)         #    1.001 CPUs utilized</div><div class="line">                46      context-switches          #    0.001 K/sec</div><div class="line">                92      cpu-migrations            #    0.001 K/sec</div><div class="line">               108      page-faults               #    0.002 K/sec</div><div class="line">   155,659,827,263      cycles                    #    2.393 GHz</div><div class="line">   &lt;not supported&gt;      stalled-cycles-frontend</div><div class="line">   &lt;not supported&gt;      stalled-cycles-backend</div><div class="line">   603,247,401,995      instructions              #    3.88  insns per cycle</div><div class="line">     4,742,051,659      branches                  #   72.886 M/sec</div><div class="line">         1,799,428      branch-misses             #    0.04% of all branches</div><div class="line"></div><div class="line">      65.012821629 seconds time elapsed</div></pre></td></tr></table></figure>
 <p>这两块CPU理论IPC最大值都是4，实际x86离理论值更远一些. 增加while循环中的nop数量（从132增加到432个）IPC能提升到3.92</p>
 <h2 id="IPC和超线程"><a href="#IPC和超线程" class="headerlink" title="IPC和超线程"></a>IPC和超线程</h2><p>ipc是指每个core的IPC</p>
-<h3 id="超线程-Hyper-Threading-原理"><a href="#超线程-Hyper-Threading-原理" class="headerlink" title="超线程(Hyper-Threading)原理"></a>超线程(Hyper-Threading)原理</h3><p><strong>概念</strong>：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，有时叫做 simultaneous multi-threading（SMT）。</p>
+<h3 id="超线程-Hyper-Threading-原理"><a href="#超线程-Hyper-Threading-原理" class="headerlink" title="超线程(Hyper-Threading)原理"></a><a href="https://www.intel.com/content/www/us/en/gaming/resources/hyper-threading.html" target="_blank" rel="external">超线程(Hyper-Threading)原理</a></h3><p><strong>概念</strong>：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，intel体系下也叫做 simultaneous multi-threading（<a href="https://en.wikipedia.org/wiki/Simultaneous_multithreading" target="_blank" rel="external">SMT–wiki用的是simultaneous</a>，<a href="https://akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">也有人用 symmetric</a>（29页），我觉得symmetric也比较能表达超线程的意思）。</p>
+<blockquote>
+<p>Two logical cores can work through tasks more efficiently than a traditional single-threaded core. By taking advantage of idle time when the core would formerly be waiting for other tasks to complete, Intel® Hyper-Threading Technology improves CPU throughput (by up to 30% in server applications).</p>
+</blockquote>
 <p>超线程技术主要的出发点是，当处理器在运行一个线程，执行指令代码时，很多时候处理器并不会使用到全部的计算能力，部分计算能力就会处于空闲状态。而超线程技术就是通过多线程来进一步“压榨”处理器。<strong>pipeline进入stalled状态就可以切到其它超线程上</strong></p>
 <p>举个例子，如果一个线程运行过程中，必须要等到一些数据加载到缓存中以后才能继续执行，此时 CPU 就可以切换到另一个线程，去执行其他指令，而不用去处于空闲状态，等待当前线程的数据加载完毕。<strong>通常，一个传统的处理器在线程之间切换，可能需要几万个时钟周期。而一个具有 HT 超线程技术的处理器只需要 1 个时钟周期。因此就大大减小了线程之间切换的成本，从而最大限度地让处理器满负荷运转。</strong></p>
 <blockquote>
@@ -678,6 +681,8 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p><a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="external">CPU Utilization is Wrong</a></p>
 <p><a href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd" target="_blank" rel="external">https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd</a> </p>
 <p><a href="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/" target="_blank" rel="external">https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/</a></p>
+<p> <a href="http://www.akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">What Every Programmer Should Know About Main Memory</a> by Ulrich Drepper </p>
+<p><a href="https://mazzo.li/posts/fast-pipes.html" target="_blank" rel="external">How fast are Linux pipes anyway?</a> 优化 pipes 的读写带宽，perf、hugepage、splice使用</p>
 
       
     </div>
@@ -810,7 +815,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">137</span>
+                <span class="site-state-item-count">139</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -832,7 +837,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">233</span>
+                <span class="site-state-item-count">234</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
