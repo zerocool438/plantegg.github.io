@@ -104,7 +104,8 @@
 <meta property="og:description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 Perf IPC以及CPU性能 CPU性能和CACHE CPU 性能和Cache Line 十年后数据库还是不敢拥抱NUMA？ In">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/relation-algebra.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image6.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:13.149Z">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627165706516.png">
+<meta property="og:updated_time" content="2022-07-10T05:04:41.460Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="数据库计算向量化">
 <meta name="twitter:description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 Perf IPC以及CPU性能 CPU性能和CACHE CPU 性能和Cache Line 十年后数据库还是不敢拥抱NUMA？ In">
@@ -430,12 +431,37 @@
 <p>向量化–Vector、批量化（一次处理一批数据）。向量化核心是利用数据局部性原理，一次取一个和取一批的时延基本是同样的。volcanno模型每次都是取一个处理一个，跳转到别的算子；而向量化是取一批处理一批后再跳转。整个过程中最耗时是取数据（访问内存比CPU计算慢两个数量级）</p>
 <p><strong>如果把向量化计算改成批量化处理应该就好理解多了，但是low，向量化多玄乎啊</strong></p>
 <p>为了支持这种批量处理数据的需求，CPU设计厂家又搞出了SIMD这种大杀器</p>
-<h3 id="SIMD-Single-Instruction-Multiple-Data，单指令多数据"><a href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据" class="headerlink" title="SIMD (Single Instruction Multiple Data，单指令多数据)"></a><a href="https://www.atatech.org/articles/211563" target="_blank" rel="external">SIMD (Single Instruction Multiple Data，单指令多数据)</a></h3><p>简单理解SIMD就是相对于之前一个指令(一般是一个时钟周期)操作一个数据，但现在有了SIMD就可以在一个时钟周期操作一批数据，这个批如果是64，那么性能就提升了64倍。</p>
+<h3 id="SIMD-Single-Instruction-Multiple-Data，单指令多数据"><a href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据" class="headerlink" title="SIMD (Single Instruction Multiple Data，单指令多数据)"></a><a href="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">SIMD (Single Instruction Multiple Data，单指令多数据)</a></h3><p>SIMD指令的作用是向量化执行(Vectorized Execution)，中文通常翻译成向量化，但是这个词并不是很好，更好的翻译是数组化执行，表示一次指令操作数组中的多个数据，而不是一次处理一个数据；向量则代表有数值和方向，显然在这里的意义用数组更能准确的表达。</p>
+<p>在操作SIMD指令时，一次性把多条数据从内存加载到宽寄存器中，通过一条并行指令同时完成多条数据的计算。例如一个操作32字节(256位)的指令，可以同时操作8个int类型，获得8倍的加速。同时利用SIMD减少循环次数，大大减少了循环跳转指令，也能获得加速。SIMD指令可以有0个参数、1个数组参数、2个数组参数。如果有一个数组参数，指令计算完数组中的每个元素后，分别把结果写入对应位置；如果是有两个参数，则两个参数对应的位置分别完成指定操作，写入到对应位置。</p>
+<p><img src="/images/951413iMgBlog/image-20220627165706516.png" alt="image-20220627165706516"></p>
+<p>如上图所示：SIMD指令同时操作A和B中4对数字，产生4个结果存放到C中</p>
+<p>以如下代码为例，对4个float计算平方：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line"><span class="function"><span class="keyword">void</span> <span class="title">squre</span><span class="params">( <span class="keyword">float</span>* ptr )</span></span></div><div class="line">&#123;</div><div class="line">    <span class="keyword">for</span>( <span class="keyword">int</span> i = <span class="number">0</span>; i &lt; <span class="number">4</span>; i++ )</div><div class="line">    &#123;</div><div class="line">      <span class="keyword">const</span> <span class="keyword">float</span> f = ptr[ i ];</div><div class="line">      ptr[ i ] = f * f;</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>上述代码转写成SIMD指令，则可以删除循环，用三条指令即可完成计算，分别是加载到寄存器，计算平方，结果写回内存:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"><span class="function"><span class="keyword">void</span> <span class="title">squre</span><span class="params">(<span class="keyword">float</span> * ptr)</span></span></div><div class="line">&#123;</div><div class="line">    __m128 f = _mm_loadu_ps( ptr ); </div><div class="line">    f = _mm_mul_ps( f, f ); </div><div class="line">    _mm_storeu_ps( ptr, f );</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>简单理解SIMD就是相对于之前一个指令(一般是一个时钟周期)操作一个数据，但现在有了SIMD就可以在一个时钟周期操作一批数据，这个批如果是64，那么性能就提升了64倍。</p>
 <p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
 <p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
 <p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>
 <p>向量化当然也非常希望利用SIMD(跟GPU为什么挖矿比CPU快是一样的道理)</p>
 <p>这里可以参考为什么这20年CPU主频基本都在2G-3G附近不再提升但是性能仍然遵循摩尔定律在提升。</p>
+<h3 id="如何生成SIMD指令呢？"><a href="#如何生成SIMD指令呢？" class="headerlink" title="如何生成SIMD指令呢？"></a>如何生成SIMD指令呢？</h3><p>有几种方式：</p>
+<ol>
+<li>编译器自动向量化： <ul>
+<li>静态编译（代码满足一定的范；编译选项 -O3 or  -mavx2 -march=native -ftree-vectorize）</li>
+<li>即时编译（JIT）</li>
+</ul>
+</li>
+<li>可以手写SIMD指令</li>
+</ol>
+<h3 id="向量化的代码要求"><a href="#向量化的代码要求" class="headerlink" title="向量化的代码要求"></a>向量化的代码要求</h3><ul>
+<li>循环次数可计算</li>
+<li>简单计算，不包含函数调用、switch/if/return 等</li>
+<li>在循环在内层</li>
+<li>访问连续的内存空间（才可以通过simd指令从内存加载数据到寄存器）</li>
+<li>数据无依赖</li>
+<li>使用数组而不是指针</li>
+</ul>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
 <p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
 <p><a href="https://plantegg.github.io/2021/07/19/CPU性能和CACHE/">CPU性能和CACHE</a></p>
@@ -640,7 +666,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#数据库计算向量化"><span class="nav-number">1.</span> <span class="nav-text">数据库计算向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#volcano火山模型"><span class="nav-number">1.1.</span> <span class="nav-text">volcano火山模型</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#向量化加速的CPU原理"><span class="nav-number">1.2.</span> <span class="nav-text">向量化加速的CPU原理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#向量化"><span class="nav-number">1.3.</span> <span class="nav-text">向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据"><span class="nav-number">1.3.1.</span> <span class="nav-text">SIMD (Single Instruction Multiple Data，单指令多数据)</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.4.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#数据库计算向量化"><span class="nav-number">1.</span> <span class="nav-text">数据库计算向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#volcano火山模型"><span class="nav-number">1.1.</span> <span class="nav-text">volcano火山模型</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#向量化加速的CPU原理"><span class="nav-number">1.2.</span> <span class="nav-text">向量化加速的CPU原理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#向量化"><span class="nav-number">1.3.</span> <span class="nav-text">向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据"><span class="nav-number">1.3.1.</span> <span class="nav-text">SIMD (Single Instruction Multiple Data，单指令多数据)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#如何生成SIMD指令呢？"><span class="nav-number">1.3.2.</span> <span class="nav-text">如何生成SIMD指令呢？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#向量化的代码要求"><span class="nav-number">1.3.3.</span> <span class="nav-text">向量化的代码要求</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.4.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>
