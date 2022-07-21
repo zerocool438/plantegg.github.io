@@ -103,9 +103,13 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range中随机取一个可用的 12# cat /proc/sys/net/ipv4/ip_l">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20220224103024676.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721100246598.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721100421130.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721100446521.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721093116395.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png">
-<meta property="og:updated_time" content="2022-07-10T05:04:45.226Z">
+<meta property="og:updated_time" content="2022-07-21T10:04:43.424Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底一台服务器上最多能创建多少个TCP连接">
 <meta name="twitter:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range中随机取一个可用的 12# cat /proc/sys/net/ipv4/ip_l">
@@ -413,16 +417,16 @@
 <p><strong>是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？</strong></p>
 <h2 id="TCP-SO-REUSEADDR"><a href="#TCP-SO-REUSEADDR" class="headerlink" title="TCP SO_REUSEADDR"></a>TCP SO_REUSEADDR</h2><p>文档描述：</p>
 <blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">&gt; SO_REUSEADDR      Indicates that the rules used in validating addresses supplied      in a bind(2) call should allow reuse of local addresses.  For      AF_INET sockets this means that a socket may bind, except when      there is an active listening socket bound to the address.      When the listening socket is bound to INADDR_ANY with a spe‐      cific port then it is not possible to bind to this port for      any local address.  Argument is an integer boolean flag.</div><div class="line">&gt;</div></pre></td></tr></table></figure>
+<p>SO_REUSEADDR      Indicates that the rules used in validating addresses supplied in a bind(2) call should allow reuse of local addresses.  For AF_INET sockets this means that a socket may bind, except when there is an active listening socket bound to the address. When the listening socket is bound to INADDR_ANY with a specific port then it is not possible to bind to this port for any local address.  Argument is an integer boolean flag.</p>
 </blockquote>
 <p>从这段文档中我们可以知道三个事：</p>
 <ol>
-<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是说，两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
+<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
 <li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
 <li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
 </ol>
-<p>SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用</p>
-<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">SO_REUSEADDR 还可以重用TIME_WAIT状态的port</a>, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
+<p>==SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用==</p>
+<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">SO_REUSEADDR 还可以重用TIME_WAIT状态的port</a>, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出<u>Address Already in use</u>的错误导致启动失败。这时候可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
 <blockquote>
 <p>What exactly does SO_REUSEADDR do?</p>
 <p>This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.</p>
@@ -474,8 +478,38 @@
 <h2 id="tcp-max-tw-buckets"><a href="#tcp-max-tw-buckets" class="headerlink" title="tcp_max_tw_buckets"></a>tcp_max_tw_buckets</h2><p>tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的连接断开不再进入TIME_WAIT阶段，而是直接断开，并打印warnning.</p>
 <p>实际测试发现 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时 新的连接仍然可以不断地创建和断开，这个参数大小不会影响性能，只是影响TIME_WAIT 数量的展示（当然 TIME_WAIT 太多导致local port不够除外）, 这个值设置小一点会避免出现端口不够的情况</p>
 <blockquote>
-<p>tcp_max_tw_buckets - INTEGER<br>    Maximal number of timewait sockets held by system simultaneously.<br>    If this number is exceeded time-wait socket is immediately destroyed<br>    and warning is printed. This limit exists only to prevent<br>    simple DoS attacks, you <em>must</em> not lower the limit artificially,<br>    but rather increase it (probably, after increasing installed memory),<br>    if network conditions require more than default value.</p>
+<p>tcp_max_tw_buckets - INTEGER<br>    Maximal number of timewait sockets held by system simultaneously.If this number is exceeded time-wait socket is immediately destroyed and warning is printed. This limit exists only to prevent simple DoS attacks, you <em>must</em> not lower the limit artificially, but rather increase it (probably, after increasing installed memory), if network conditions require more than default value.</p>
 </blockquote>
+<h2 id="SO-LINGER"><a href="#SO-LINGER" class="headerlink" title="SO_LINGER"></a><a href="https://notes.shichao.io/unp/ch7/" target="_blank" rel="external">SO_LINGER</a></h2><p>SO_LINGER选项<strong>用来设置延迟关闭的时间，等待套接字发送缓冲区中的数据发送完成</strong>。 没有设置该选项时，在调用close() 后，在发送完FIN后会立即进行一些清理工作并返回。 如果设置了SO_LINGER选项，并且等待时间为正值，则在清理之前会等待一段时间。</p>
+<p>如果把延时设置为 0  时，Socket就丢弃数据，并向对方发送一个 <code>RST</code> 来终止连接，因为走的是 RST 包，所以就不会有 <code>TIME_WAIT</code> 了。</p>
+<blockquote>
+<p>This option specifies how the <code>close</code> function operates for a connection-oriented protocol (for TCP, but not for UDP). By default, <code>close</code> returns immediately, but ==if there is any data still remaining in the socket send buffer, the system will try to deliver the data to the peer==.</p>
+</blockquote>
+<p>SO_LINGER 有三种情况</p>
+<ol>
+<li>l_onoff 为false（0）， 那么 l_linger 的值没有意义，socket主动调用close时会立即返回，操作系统会将残留在缓冲区中的数据发送到对端，并按照正常流程关闭(交换FIN-ACK），最后连接进入<code>TIME_WAIT</code>状态。<strong>这是默认情况</strong></li>
+<li>l_onoff 为true（非0），  l_linger 为0，主动调用close的一方也是立刻返回，但是这时TCP会丢弃发送缓冲中的数据，而且不是按照正常流程关闭连接（不发送FIN包），直接发送<code>RST</code>，连接不会进入 time_wait 状态，对端会收到 <code>java.net.SocketException: Connection reset</code>异常</li>
+<li>l_onoff 为true（非0），  l_linger 也为非 0，这表示 <code>SO_LINGER</code>选项生效，并且超时时间大于零，这时调用close的线程被阻塞，TCP会发送缓冲区中的残留数据，这时有两种可能的情况：<ul>
+<li>数据发送完毕，收到对方的ACK，然后进行连接的正常关闭（交换FIN-ACK）</li>
+<li>超时，未发送完成的数据被丢弃，连接发送<code>RST</code>进行非正常关闭</li>
+</ul>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">struct linger &#123;</div><div class="line">  int   l_onoff;        /* 0=off, nonzero=on */</div><div class="line">  int   l_linger;       /* linger time, POSIX specifies units as seconds */</div><div class="line">&#125;;</div></pre></td></tr></table></figure>
+<h3 id="NIO下设置-SO-LINGER-的错误案例"><a href="#NIO下设置-SO-LINGER-的错误案例" class="headerlink" title="NIO下设置 SO_LINGER 的错误案例"></a>NIO下设置 SO_LINGER 的错误案例</h3><p>在使用NIO时，最好不设置<code>SO_LINGER</code>。比如Tomcat服务端接收到请求创建新连接时，做了这样的设置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">SocketChannel.setOption(SocketOption.SO_LINGER, 1000)</div></pre></td></tr></table></figure>
+<p><code>SO_LINGER</code>的单位为<code>秒</code>！在网络环境比较好的时候，例如客户端、服务器都部署在同一个机房，close虽然会被阻塞，但时间极短可以忽略。但当网络环境不那么好时，例如存在丢包、较长的网络延迟，buffer中的数据一直无法发送成功，那么问题就出现了：<code>close会被阻塞较长的时间，从而直接或间接引起NIO的IO线程被阻塞</code>，服务器会不响应，不能处理accept、read、write等任何IO事件。也就是应用频繁出现挂起现象。解决方法就是删掉这个设置，close时立即返回，由操作系统接手后面的工作。</p>
+<p>这时会看到如下连接状态</p>
+<p><img src="/images/951413iMgBlog/image-20220721100246598.png" alt="image-20220721100246598"></p>
+<p>以及对应的堆栈</p>
+<p><img src="/images/951413iMgBlog/image-20220721100421130.png" alt="image-20220721100421130"></p>
+<p>查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行<code>preClose0</code>，就是在这里等待连接的关闭<img src="/images/951413iMgBlog/image-20220721100446521.png" alt="image-20220721100446521"></p>
+<p>每次HTTP线程在关闭连接被阻塞时，同时持有了<code>SocketChannelImpl</code>的对象锁，而IO线程在把这个连接移除出它的selector管理队列时，也要获得同一个<code>SocketChannelImpl</code>的对象锁。IO线程就这么一次次的被阻塞，悲剧的无以复加。有些NIO框架会让IO线程去做close，这时候就更加悲剧了。</p>
+<p><strong>总之这里的错误原因有两点：1）网络状态不好；2）错误理解了l_linger 的单位，是秒，不是毫秒。 在这两个原因的共同作用下导致了数据迟迟不能发送完毕，l_linger 超时又需要很久，所以服务会出现一直阻塞的状态。</strong></p>
+<h2 id="为什么要有-time-wait-状态"><a href="#为什么要有-time-wait-状态" class="headerlink" title="为什么要有 time_wait 状态"></a>为什么要有 time_wait 状态</h2><blockquote>
+<p>TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20220721093116395.png" alt="alt text"></p>
 <h2 id="短连接的开销"><a href="#短连接的开销" class="headerlink" title="短连接的开销"></a>短连接的开销</h2><p>用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3/4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万</p>
 <p><img src="/images/951413iMgBlog/image-20220627154822263.png" alt="image-20220627154822263"></p>
 <p>再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万</p>
@@ -484,6 +518,7 @@
 <li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
 <li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
 <li>SO_REUSEPORT主要用来解决惊群、性能等问题</li>
+<li>全局范围可以用 net.ipv4.tcp_max_tw_buckets = 50000 来限制总 time_wait 数量，但是会掩盖问题</li>
 <li>local port的选择是递增搜索的，搜索起始port随时间增加也变大</li>
 </ul>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://segmentfault.com/a/1190000002396411" target="_blank" rel="external">https://segmentfault.com/a/1190000002396411</a></p>
@@ -689,7 +724,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.8.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.9.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.10.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SO-LINGER"><span class="nav-number">1.8.</span> <span class="nav-text">SO_LINGER</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NIO下设置-SO-LINGER-的错误案例"><span class="nav-number">1.8.1.</span> <span class="nav-text">NIO下设置 SO_LINGER 的错误案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么要有-time-wait-状态"><span class="nav-number">1.9.</span> <span class="nav-text">为什么要有 time_wait 状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.10.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.11.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.12.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

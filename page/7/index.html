@@ -1842,7 +1842,7 @@ btr_estimate_n_rows_in_range_on_level(
                                                 value is exact i.e. not an
                                                 estimation */
 </code></pre><p>JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得扫描行数数量，计算各访问路径的代价，确定哪个访问路径更好。在 MySQL 社区版，支持索引下探 (records_in_range) 和索引 key ndv (records_in_key) 来估计行数，但默认是索引下探（文中 perf 调用栈）。本文的查询是简单查询，而 force index 固定了访问路径，所以可以忽略行数估计，跳过下探逻辑。</p>
-<p>顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。</p>
+<p>顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。(by 开旺)</p>
 <p>看完前面的问题处理过程，到这里问题终于解决了，要找到了根本的原因，但是我觉得对这个原因背后的原理可以更深入地了解一下。</p>
 <h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁来用高CPU消耗避免ContextSwitch，这是自旋锁的正确使用方式，但是在多个核的情况下，多核一起自旋抢同一个锁，容易造成cache ping-pong，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong. </p>
 <p>cache ping-pong 主要由cache-line false share引起。</p>
