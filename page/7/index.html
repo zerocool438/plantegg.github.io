@@ -418,7 +418,7 @@
 <p>默认dashboard login很快expired，可以设置不过期：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">$ kubectl -n kubernetes-dashboard edit deployments kubernetes-dashboard</div><div class="line">...</div><div class="line">spec:</div><div class="line">      containers:</div><div class="line">      - args:</div><div class="line">        - --auto-generate-certificates</div><div class="line">        - --token-ttl=0                //增加这行表示不expire</div><div class="line">        </div><div class="line">        --enable-skip-login            //增加这行表示不需要token 就能login，不推荐</div></pre></td></tr></table></figure>
 <p>kubectl proxy –address 0.0.0.0 –accept-hosts ‘.*’</p>
-<h2 id="node管理"><a href="#node管理" class="headerlink" title="node管理"></a>node管理</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">kubectl cordon my-node       # 标记 my-node 节点为不可调度</div><div class="line">kubectl drain my-node        # 对 my-node 节点进行清空操作，为节点维护做准备</div><div class="line">kubectl uncordon my-node     # 标记 my-node 节点为可以调度</div><div class="line">kubectl top node my-node     # 显示给定节点的度量值</div><div class="line">kubectl cluster-info         # 显示主控节点和服务的地址</div><div class="line">kubectl cluster-info dump    # 将当前集群状态转储到标准输出</div><div class="line">kubectl cluster-info dump --output-directory=/path/to/cluster-state   # 将当前集群状态输出到 /path/to/cluster-state</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"> 如果已存在具有指定键和效果的污点，则替换其值为指定值</span></div><div class="line">kubectl taint nodes foo dedicated=special-user:NoSchedule</div><div class="line">kubectl taint nodes poc65 node-role.kubernetes.io/master:NoSchedule-</div></pre></td></tr></table></figure>
+<h2 id="node管理调度"><a href="#node管理调度" class="headerlink" title="node管理调度"></a>node管理调度</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">//如何优雅删除node</div><div class="line">kubectl drain my-node        # 对 my-node 节点进行清空操作，为节点维护做准备</div><div class="line">kubectl drain ky4 --ignore-daemonsets --delete-local-data # 驱逐pod</div><div class="line">kubectl delete node ky4			 # 删除node</div><div class="line"></div><div class="line">kubectl cordon my-node       # 标记 my-node 节点为不可调度</div><div class="line">kubectl uncordon my-node     # 标记 my-node 节点为可以调度</div><div class="line">kubectl top node my-node     # 显示给定节点的度量值</div><div class="line">kubectl cluster-info         # 显示主控节点和服务的地址</div><div class="line">kubectl cluster-info dump    # 将当前集群状态转储到标准输出</div><div class="line">kubectl cluster-info dump --output-directory=/path/to/cluster-state   # 将当前集群状态输出到 /path/to/cluster-state</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"> 如果已存在具有指定键和效果的污点，则替换其值为指定值</span></div><div class="line">kubectl taint nodes foo dedicated=special-user:NoSchedule</div><div class="line">kubectl taint nodes poc65 node-role.kubernetes.io/master:NoSchedule-</div></pre></td></tr></table></figure>
 <h3 id="地址"><a href="#地址" class="headerlink" title="地址 "></a>地址<a href="https://kubernetes.io/zh/docs/concepts/architecture/nodes/#addresses" target="_blank" rel="external"> </a></h3><p>这些字段的用法取决于你的云服务商或者物理机配置。</p>
 <ul>
 <li>HostName：由节点的内核设置。可以通过 kubelet 的 <code>--hostname-override</code> 参数覆盖。</li>
@@ -427,6 +427,12 @@
 </ul>
 <h3 id="状况"><a href="#状况" class="headerlink" title="状况"></a>状况</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line"># kubectl get node -o wide</div><div class="line">NAME             STATUS                     ROLES    AGE    VERSION   INTERNAL-IP      EXTERNAL-IP   OS-IMAGE                KERNEL-VERSION               CONTAINER-RUNTIME</div><div class="line">172.26.137.114   Ready                      master   6d1h   v1.19.0   172.26.137.114   &lt;none&gt;        CentOS Linux 7 (Core)   3.10.0-957.21.3.el7.x86_64   docker://19.3.8</div><div class="line">172.26.137.115   Ready                      node     6d1h   v1.19.0   172.26.137.115   &lt;none&gt;        CentOS Linux 7 (Core)   3.10.0-957.21.3.el7.x86_64   docker://19.3.8</div><div class="line">172.26.137.116   Ready,SchedulingDisabled   node     6d1h   v1.19.0   172.26.137.116   &lt;none&gt;        CentOS Linux 7 (Core)   3.10.0-957.21.3.el7.x86_64   docker://19.3.8</div></pre></td></tr></table></figure>
 <p>如果 Ready 条件处于 <code>Unknown</code> 或者 <code>False</code> 状态的时间超过了 <code>pod-eviction-timeout</code> 值， （一个传递给 <a href="https://kubernetes.io/docs/reference/generated/kube-controller-manager/" target="_blank" rel="external">kube-controller-manager</a> 的参数）， 节点上的所有 Pod 都会被节点控制器计划删除。默认的逐出超时时长为 <strong>5 分钟</strong>。 某些情况下，当节点不可达时，API 服务器不能和其上的 kubelet 通信。 删除 Pod 的决定不能传达给 kubelet，直到它重新建立和 API 服务器的连接为止。 与此同时，被计划删除的 Pod 可能会继续在游离的节点上运行。</p>
+<h2 id="node-cidr-缺失"><a href="#node-cidr-缺失" class="headerlink" title="node cidr 缺失"></a>node cidr 缺失</h2><p>flannel pod 运行正常，pod无法创建，检查flannel日志发现该node cidr缺失</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">I0818 08:06:38.951132       1 main.go:733] Defaulting external v6 address to interface address (&lt;nil&gt;)</div><div class="line">I0818 08:06:38.951231       1 vxlan.go:137] VXLAN config: VNI=1 Port=0 GBP=false Learning=false DirectRouting=false</div><div class="line">E0818 08:06:38.951550       1 main.go:325] Error registering network: failed to acquire lease: node &quot;ky3&quot; pod cidr not assigned</div><div class="line">I0818 08:06:38.951604       1 main.go:439] Stopping shutdownHandler...</div></pre></td></tr></table></figure>
+<p>正常来说describe node会看到如下的cidr信息</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"> Kube-Proxy Version:         v1.15.8-beta.0</div><div class="line">PodCIDR:                     172.19.1.0/24</div><div class="line">Non-terminated Pods:         (3 in total)</div></pre></td></tr></table></figure>
+<p>可以手工给node添加cidr</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">kubectl patch node ky3 -p &apos;&#123;&quot;spec&quot;:&#123;&quot;podCIDR&quot;:&quot;172.19.3.0/24&quot;&#125;&#125;&apos;</div></pre></td></tr></table></figure>
 <h2 id="prometheus"><a href="#prometheus" class="headerlink" title="prometheus"></a>prometheus</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">git clone https://github.com/coreos/kube-prometheus.git</div><div class="line">kubectl apply -f manifests/setup</div><div class="line">kubectl apply -f manifests/</div></pre></td></tr></table></figure>
 <p>暴露grafana端口：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">kubectl port-forward --address 0.0.0.0 svc/grafana -n monitoring 3000:3000</div></pre></td></tr></table></figure>
@@ -478,7 +484,7 @@
 <h3 id="模板片段"><a href="#模板片段" class="headerlink" title="模板片段"></a>模板片段</h3><p>之前我们看到有个文件叫做_helpers.tpl，我们介绍是说存储模板片段的地方。</p>
 <p>模板片段其实也可以在文件中定义，但是为了更好管理，可以在_helpers.tpl中定义，使用时直接调用即可。</p>
 <h2 id="自动补全"><a href="#自动补全" class="headerlink" title="自动补全"></a>自动补全</h2><p>kubernetes自动补全：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">source &lt;(kubectl completion bash)</div></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">source &lt;(kubectl completion bash) </div><div class="line"></div><div class="line">echo &quot;source &lt;(kubectl completion bash)&quot; &gt;&gt; ~/.bashrc</div></pre></td></tr></table></figure>
 <p>helm自动补全：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">cd ~</div><div class="line">helm completion bash &gt; .helmrc &amp;&amp; echo &quot;source .helmrc&quot; &gt;&gt; .bashrc &amp;&amp; source .bashrc</div></pre></td></tr></table></figure>
 <p>两者都需要依赖 auto-completion，所以得先：</p>
@@ -494,6 +500,11 @@
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">sudo kubeadm config view &gt; kubeadm-config.yaml</div><div class="line">edit kubeadm-config.yaml and replace k8s.gcr.io with your repo</div><div class="line">sudo kubeadm upgrade apply --config kubeadm-config.yaml</div><div class="line"></div><div class="line">kubeadm config images pull --config="/root/kubeadm-config.yaml"</div><div class="line"></div><div class="line">kubectl get cm -n kube-system kubeadm-config -o yaml</div></pre></td></tr></table></figure>
 <p>pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像（pod_infra_container_image）</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">cat /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf</span></div><div class="line">ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS --pod_infra_container_image=registry:5000/registry.aliyuncs.com/google_containers/pause:3.1</div></pre></td></tr></table></figure>
+<h3 id="构建离线镜像库"><a href="#构建离线镜像库" class="headerlink" title="构建离线镜像库"></a>构建离线镜像库</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">kubeadm config images list &gt;1.24.list</div><div class="line"></div><div class="line">cat 1.24.list | awk -F / &apos;&#123; print $0 &quot;    &quot; $3&#125;&apos; &gt; 1.24.aarch.list</div></pre></td></tr></table></figure>
+<h3 id="cni-报x509-certificate-signed-by-unknown-authority"><a href="#cni-报x509-certificate-signed-by-unknown-authority" class="headerlink" title="cni 报x509: certificate signed by unknown authority"></a><a href="https://www.cnblogs.com/huiyichanmian/p/15760579.html" target="_blank" rel="external">cni 报x509: certificate signed by unknown authority</a></h3><p>一个集群下反复部署calico/flannel插件后，在 /etc/cni/net.d/ 下会有cni 网络配置文件残留，导致 flannel 创建容器网络的时候报证书错误。其实这不只是证书错误，还可能报其它cni配置错误，总之这是因为 10-calico.conflist 不符合 flannel要求所导致的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line"># find /etc/cni/net.d/</div><div class="line">/etc/cni/net.d/</div><div class="line">/etc/cni/net.d/calico-kubeconfig</div><div class="line">/etc/cni/net.d/10-calico.conflist   //默认读取了这个配置文件，不符合flannel</div><div class="line">/etc/cni/net.d/10-flannel.conflist</div></pre></td></tr></table></figure>
+<p>因为calico 排在 flannel前面，所以即使用flannel配置文件也是用的 10-calico.conflist。每次 kubeadm reset 的时候是不会去做 cni 的reset 的：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">[reset] Deleting files: [/etc/kubernetes/admin.conf /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf /etc/kubernetes/controller-manager.conf /etc/kubernetes/scheduler.conf]</div><div class="line">[reset] Deleting contents of stateful directories: [/var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni]</div><div class="line"></div><div class="line">The reset process does not clean CNI configuration. To do so, you must remove /etc/cni/net.d</div></pre></td></tr></table></figure>
 <h2 id="kubernetes-API-案例"><a href="#kubernetes-API-案例" class="headerlink" title="kubernetes API 案例"></a><a href="https://mp.weixin.qq.com/s/1ouLZbw-Z7G-fKz53uJZag" target="_blank" rel="external">kubernetes API 案例</a></h2><p>用kubeadm部署kubernetes集群，会生成如下证书：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#ls /etc/kubernetes/pki/</div><div class="line">apiserver-etcd-client.crt  apiserver-kubelet-client.crt  apiserver.crt  ca.crt  etcd  front-proxy-ca.key      front-proxy-client.key  sa.pub</div><div class="line">apiserver-etcd-client.key  apiserver-kubelet-client.key  apiserver.key  ca.key  front-proxy-ca.crt  front-proxy-client.crt  sa.key</div></pre></td></tr></table></figure>
 <p>curl访问api必须提供证书</p>
@@ -511,7 +522,7 @@
 <p>curl <a href="http://localhost:8080/api/v1/namespaces" target="_blank" rel="external">http://localhost:8080/api/v1/namespaces</a></p>
 </blockquote>
 <p><img src="/images/951413iMgBlog/640-5609622.png" alt="Image"></p>
-<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>用curl调用kubernetes api-server来调试，需要抓包，现在执行curl的服务器上配置环境变量</p>
+<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>用curl调用kubernetes api-server来调试，需要抓包，先在执行curl的服务器上配置环境变量</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">export SSLKEYLOGFILE=/root/ssllog/apiserver-ssl.log</div></pre></td></tr></table></figure>
 <p>然后执行tcpdump对api-server的6443端口抓包，然后将/root/ssllog/apiserver-ssl.log和抓包文件下载到本地，wireshark打开抓包文件，同时配置tls。</p>
 <p>以下是个完整case（技巧指定curl的本地端口为12345，然后tcpdump只抓12345，所得的请求、response结果都会解密–如果抓api-server的6443则只能看到请求被解密）</p>
@@ -653,7 +664,7 @@
           
             <h1 id="获取一直FullGC下的java进程HeapDump的小技巧"><a href="#获取一直FullGC下的java进程HeapDump的小技巧" class="headerlink" title="获取一直FullGC下的java进程HeapDump的小技巧"></a>获取一直FullGC下的java进程HeapDump的小技巧</h1><p>就是小技巧，操作步骤需要查询，随手记录</p>
 <ul>
-<li>找到java进程，gdb attach上去， 例如 <code>gdb -p 22443</code></li>
+<li>找到java进程，gdb attach上去， 例如 <code>gdb -p 12345</code></li>
 <li>找到这个<code>HeapDumpBeforeFullGC</code>的地址（这个flag如果为true，会在FullGC之前做HeapDump，默认是false）</li>
 </ul>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) p &amp;HeapDumpBeforeFullGC</div><div class="line">$2 = (&lt;data variable, no debug info&gt; *) 0x7f7d50fc660f &lt;HeapDumpBeforeFullGC&gt;</div></pre></td></tr></table></figure>
@@ -812,21 +823,9 @@
 <p>手工随便修改一下该文件的内容就能触发自动执行了，或者重启crond, 或者 sudo service crond reload， 或者 /etc/cron.d/下有任何修改都会触发crond reload配置(包含 touch )。</p>
 <p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
 <p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
-<h2 id="xargs传参数例如"><a href="#xargs传参数例如" class="headerlink" title="xargs传参数例如"></a>xargs传参数例如</h2><blockquote>
-<p>ls /xx | xargs -t -I{}  cp {} /tmp/{}</p>
-</blockquote>
-<p>-t ： 打印内容，去掉\n之后的字符串</p>
-<p>-I :  后面定义占位符，上例子是{}  ，后面命令行中可以多次使用占位符</p>
-<p>挂载多台苹果的例子</p>
-<blockquote>
-<p> idevice_id -l|xargs -t -I{} mkdir {};idevice_id -l |xargs -t -I{} ifuse {} {}</p>
-</blockquote>
-<p>批量执行docker exec</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">ansible -i host.ini all -m shell -a &quot;docker ps -a | grep pxd-tpcc | grep dn | cut -d &apos; &apos; -f 1 | xargs  -I&#123;&#125; docker exec &#123;&#125; bash -c \&quot;myc -e &apos;shutdown&apos;\&quot;&quot;</div></pre></td></tr></table></figure>
-<p>批量推送镜像</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker images |grep &quot;registry:5000&quot; | awk &apos;&#123; print $1&quot;:&quot;$2 &#125;&apos; | xargs -I &#123;&#125; docker push &#123;&#125;</div></pre></td></tr></table></figure>
+<h2 id="cgroup目录报No-space-left-on-device"><a href="#cgroup目录报No-space-left-on-device" class="headerlink" title="cgroup目录报No space left on device"></a><a href="https://rotadev.com/cgroup-no-space-left-on-device-server-fault/" target="_blank" rel="external">cgroup目录报No space left on device</a></h2><p>可能是因为某个规则下的 cpuset.cpus 文件是空导致的</p>
 <h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="external">https://access.redhat.com/solutions/30316</a></p>
-<p><img src="/Users/ren/case/ossimg/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
+<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
 <p>如上图去掉 admin nproc限制就可以了</p>
 <p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">[root@i22h08323 /home/admin]</div><div class="line">#ulimit -u</div><div class="line">unlimited</div></pre></td></tr></table></figure>
@@ -855,7 +854,7 @@
 <li>当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了</li>
 </ol>
 <p>判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数<br>结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。<br>结论2：fs.file-max: 整个系统上可打开的最大文件数，但不限制 root 用户</p>
-<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/Users/ren/case/ossimg/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
+<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
 <p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/crond </div><div class="line">#</div><div class="line"># The PAM configuration file for the cron daemon</div><div class="line">#</div><div class="line">#</div><div class="line"># No PAM authentication called, auth modules not needed</div><div class="line">account    required   pam_access.so</div><div class="line">account    include    system-auth</div><div class="line">session    required   pam_loginuid.so //required 改成 sufficient</div><div class="line">session    include    system-auth</div><div class="line">auth       include    system-auth</div></pre></td></tr></table></figure>
 <p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
@@ -965,15 +964,15 @@
 <h2 id="No-route-to-host"><a href="#No-route-to-host" class="headerlink" title="No route to host"></a>No route to host</h2><p>如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题</p>
 <p>可以停掉防火墙验证,或者添加端口到防火墙:</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#firewall-cmd --permanent --add-port=8090/tcp</div><div class="line">success</div><div class="line">#firewall-cmd --reload</div></pre></td></tr></table></figure>
-<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/Users/ren/case/ossimg/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
+<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
 <h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
 <p>getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这个ip，否则就需要通过getHostByName获取所有网卡选择一个</p>
-<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/Users/ren/case/ossimg/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
+<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
 <p>因为 /etc/localtime 是deleted状态</p>
-<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="external">sparse file</a></h2><p><img src="/Users/ren/case/ossimg/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
+<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="external">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
 <p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
 <p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="external">而 ls -s 中的 -s就是只看实际大小</a></p>
-<p><img src="/Users/ren/case/ossimg/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
+<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
 <p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="external">图片来源</a></p>
 <p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="external">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
 <p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>
@@ -1005,6 +1004,8 @@
 <p>内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。</p>
 <p>如果配置了 <code>hung_task_panic</code> ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。</p>
 <p>其基本原理也很简单，系统启动时会创建一个内核线程 <code>khungtaskd</code>，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。</p>
+<p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">       Here are the different values that the s, stat and state output specifiers</div><div class="line">       (header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
 <h2 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h2><p>kill -CONT pid 来恢复</p>
 <p>jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能<strong>导致detach的动作不会被执行</strong>，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。</p>
 <h2 id="linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”"><a href="#linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”" class="headerlink" title="linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”"></a>linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”</h2><p>在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。</p>
@@ -1017,11 +1018,11 @@
 <p>/dev/pty（Pseudo Terminal） 伪终端</p>
 <p>/dev/tty 控制终端</p>
 <p>远古时代tty是物理形态的存在</p>
-<p><img src="/Users/ren/src/blog/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
+<p><img src="/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
 <p>PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义</p>
-<p><img src="/Users/ren/src/blog/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
+<p><img src="/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
 <p>实际像如下图的工作协作:</p>
-<p><img src="/Users/ren/src/blog/951413iMgBlog/case3.png" alt="Diagram"></p>
+<p><img src="/images/951413iMgBlog/case3.png" alt="Diagram"></p>
 <h2 id="rsync"><a href="#rsync" class="headerlink" title="rsync"></a><a href="https://wangdoc.com/ssh/rsync.html" target="_blank" rel="external">rsync</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">将本地yum备份到150上的/data/yum/ 下</div><div class="line">rsync -arv ./yum/ root@11.167.60.150:/data/yum/</div><div class="line"></div><div class="line">走ssh的8022端口把目录备份到本地</div><div class="line">rsync -e &apos;ssh -p 8022&apos; -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./</div></pre></td></tr></table></figure>
 <p><code>-a</code>、<code>--archive</code>参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。</p>
 <p><code>--delete</code>参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。</p>
@@ -1060,9 +1061,9 @@
 <h3 id="I-O-调度器"><a href="#I-O-调度器" class="headerlink" title="I/O 调度器"></a>I/O 调度器</h3><p>I/O 调度程序确定 I/O 操作何时在存储设备上运行以及持续多长时间。也称为 I/O 升降机。对于 SSD 设备，宜设置为 noop。</p>
 <figure class="highlight sh"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="built_in">echo</span> noop &gt; /sys/block/<span class="variable">$&#123;SSD_DEV_NAME&#125;</span>/queue/scheduler</div></pre></td></tr></table></figure>
 <h3 id="磁盘挂载参数"><a href="#磁盘挂载参数" class="headerlink" title="磁盘挂载参数"></a>磁盘挂载参数</h3><p><code>noatime</code> 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新。</p>
-<h2 id="Unix-Linux关系"><a href="#Unix-Linux关系" class="headerlink" title="Unix Linux关系"></a>Unix Linux关系</h2><p><img src="/Users/ren/src/blog/951413iMgBlog/image-20211210085124387.png" alt="image-20211210085124387"></p>
-<p><img src="/Users/ren/src/blog/951413iMgBlog/G2Xri.png" alt="img"></p>
-<h3 id="linux-发行版关系"><a href="#linux-发行版关系" class="headerlink" title="linux 发行版关系"></a><a href="https://blog.51cto.com/wangyafei/1881605" target="_blank" rel="external">linux 发行版关系</a></h3><p><img src="/Users/ren/src/blog/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg" alt="细数各家linux之间的区别_软件应用_什么值得买"></p>
+<h2 id="Unix-Linux关系"><a href="#Unix-Linux关系" class="headerlink" title="Unix Linux关系"></a>Unix Linux关系</h2><p><img src="/images/951413iMgBlog/image-20211210085124387.png" alt="image-20211210085124387"></p>
+<p><img src="/images/951413iMgBlog/G2Xri.png" alt="img"></p>
+<h3 id="linux-发行版关系"><a href="#linux-发行版关系" class="headerlink" title="linux 发行版关系"></a><a href="https://blog.51cto.com/wangyafei/1881605" target="_blank" rel="external">linux 发行版关系</a></h3><p><img src="/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg" alt="细数各家linux之间的区别_软件应用_什么值得买"></p>
 <p>Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。</p>
 <p>不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)</p>
 <p>69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网</p>
@@ -1396,14 +1397,14 @@
       
         
           
-            <h1 id="Linux内核版本升级，性能到底提升多少？拿数据说话"><a href="#Linux内核版本升级，性能到底提升多少？拿数据说话" class="headerlink" title="Linux内核版本升级，性能到底提升多少？拿数据说话"></a>Linux内核版本升级，性能到底提升多少？拿数据说话</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差</p>
+            <h1 id="Linux内核版本升级，性能到底提升多少？"><a href="#Linux内核版本升级，性能到底提升多少？" class="headerlink" title="Linux内核版本升级，性能到底提升多少？"></a>Linux内核版本升级，性能到底提升多少？</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>X 产品在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差</p>
 <p>以下不作特殊说明的话都是在相同核数的Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz下得到的数据，最后还会比较相同内核下不同机型/CPU型号的性能差异。</p>
 <p>场景都是用sysbench 100个并发跑点查。</p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p><strong>先说大家关心的数据，最终4.19内核性能比2.6.32好将近30%，建议大家升级新内核，不需要做任何改动，尤其是Java应用（不同场景会有差异）</strong></p>
 <p>本次比较的场景是Java应用的Proxy类服务，主要瓶颈是网络消耗，类似于MaxScale。后面有一个简单的MySQL Server场景下2.6.32和4.19的比较，性能也有33%的提升。</p>
 <h2 id="2-6-32性能数据"><a href="#2-6-32性能数据" class="headerlink" title="2.6.32性能数据"></a>2.6.32性能数据</h2><p>升级前先看看目前的性能数据好对比（以下各个场景都是CPU基本跑到85%）</p>
 <p><img src="/images/oss/b57c5ee5fe50ceb81cbad158f7b7aeeb.png" alt="image.png"></p>
-<h2 id="一波N折的4-19"><a href="#一波N折的4-19" class="headerlink" title="一波N折的4.19"></a>一波N折的4.19</h2><p>阿里云上默认买到的ALinux2 OS（4.19），同样配置跑起来后，tps只有16000，比2.6.32的22000差了不少，心里只能暗暗骂几句坑爹的货，看了下各项指标，看不出来什么问题，就像是CPU能力不行一样。如果这个时候直接找内核同学，估计他们心里会说 DRDS 是个什么东西？是不是你们测试有问题，是不是你们配置的问题，不要来坑我，内核性能我们每次发布都在实验室里跑过了，肯定是你们的应用问题。</p>
+<h2 id="一波N折的4-19"><a href="#一波N折的4-19" class="headerlink" title="一波N折的4.19"></a>一波N折的4.19</h2><p>阿里云上默认买到的ALinux2 OS（4.19），同样配置跑起来后，tps只有16000，比2.6.32的22000差了不少，心里只能暗暗骂几句坑爹的货，看了下各项指标，看不出来什么问题，就像是CPU能力不行一样。如果这个时候直接找内核同学，估计他们心里会说 X 是个什么东西？是不是你们测试有问题，是不是你们配置的问题，不要来坑我，内核性能我们每次发布都在实验室里跑过了，肯定是你们的应用问题。</p>
 <p>所以要找到一个公认的场景下的性能差异。幸好通过qperf发现了一些性能差异。</p>
 <h3 id="通过qperf来比较差异"><a href="#通过qperf来比较差异" class="headerlink" title="通过qperf来比较差异"></a>通过qperf来比较差异</h3><p>大包的情况下性能基本差不多，小包上差别还是很明显</p>
 <pre><code>qperf -t 40 -oo msg_size:1  4.19 tcp_bw tcp_lat
@@ -1426,7 +1427,7 @@ tcp_bw:
 tcp_lat:
     latency  =  229 us
 </code></pre><p>这下不用担心内核同学怼回来了，拿着这个数据直接找他们，可以稳定重现。</p>
-<p>经过内核同学排查后，发现默认镜像做了一些安全加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为DRDS的OS只给我们自己用，上面部署的代码都是DRDS自己的代码，没有客户代码，客户也不能够ssh连上DRDS节点）</p>
+<p>经过内核同学排查后，发现默认镜像做了一些安全加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为 X 的OS只给我们自己用，上面部署的代码都是X 产品自己的代码，没有客户代码，客户也不能够ssh连上X 产品节点）</p>
 <pre><code>去掉 melt、spec 能到20000， 去掉sonypatch能到21000 
 </code></pre><p>关闭的办法在grub配置中增加这些参数：</p>
 <pre><code>nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off
@@ -1471,11 +1472,11 @@ c5/g5/sn1ne/sn2ne:      Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
 <p><img src="/images/oss/7c8b107fb12e285c8eab2c2d136bbd4e.png" alt="image.png"></p>
 <p>官方给出的CPU数据：</p>
 <p><img src="/images/oss/5f57f4228621378d14ffdd124fe54626.png" alt="image.png"></p>
-<h2 id="4-19内核在MySQL-Server场景下的性能比较"><a href="#4-19内核在MySQL-Server场景下的性能比较" class="headerlink" title="4.19内核在MySQL Server场景下的性能比较"></a>4.19内核在MySQL Server场景下的性能比较</h2><p>这只是sysbench点查场景粗略比较，因为本次的目标是对DRDS性能的改进</p>
+<h2 id="4-19内核在MySQL-Server场景下的性能比较"><a href="#4-19内核在MySQL-Server场景下的性能比较" class="headerlink" title="4.19内核在MySQL Server场景下的性能比较"></a>4.19内核在MySQL Server场景下的性能比较</h2><p>这只是sysbench点查场景粗略比较，因为本次的目标是对X 产品性能的改进</p>
 <p><img src="/images/oss/4f276e93cb914b3cdd312423be63c376.png" alt="image.png"></p>
-<p>（以上表格数据主要由 @夷则 团队和我一起测试得到）</p>
+<p>（以上表格数据主要由 内核团队和我一起测试得到）</p>
 <p><strong>重点注意2.6.32不但tps差30%，并发能力也差的比较多，如果同样用100个并发压2.6.32上的MySQL，TPS在30000左右。只有在减少并发到20个的时候压测才能达到图中最好的tps峰值：45000. </strong></p>
-<h2 id="新内核除了性能提升外带来的便利性"><a href="#新内核除了性能提升外带来的便利性" class="headerlink" title="新内核除了性能提升外带来的便利性"></a>新内核除了性能提升外带来的便利性</h2><p>升级内核带来的性能提升只是在极端场景下才会需要，大部分时候我们希望节省开发人员的时间，提升工作效率。于是DRDS在新内核的基础上定制如下一些便利的工具。</p>
+<h2 id="新内核除了性能提升外带来的便利性"><a href="#新内核除了性能提升外带来的便利性" class="headerlink" title="新内核除了性能提升外带来的便利性"></a>新内核除了性能提升外带来的便利性</h2><p>升级内核带来的性能提升只是在极端场景下才会需要，大部分时候我们希望节省开发人员的时间，提升工作效率。于是X 产品在新内核的基础上定制如下一些便利的工具。</p>
 <h3 id="麻烦的网络重传率"><a href="#麻烦的网络重传率" class="headerlink" title="麻烦的网络重传率"></a>麻烦的网络重传率</h3><p>通过tsar或者其它方式发现网络重传率有点高，有可能是别的管理端口重传率高，有可能是往外连其它服务端口重传率高等，尤其是在整体流量小的情况下一点点管理端口的重传包拉升了整个机器的重传率，严重干扰了问题排查，所以需要进一步确认重传发生在哪个进程的哪个端口上，是否真正影响了我们的业务。</p>
 <p>在2.6.32内核下的排查过程是：抓包，然后写脚本分析（或者下载到本地通过wireshark分析），整个过程比较麻烦，需要的时间也比较长。那么在新镜像中我们可以利用内核自带的bcc来快速得到这些信息</p>
 <pre><code>sudo /usr/share/bcc/tools/tcpretrans -l
@@ -1555,7 +1556,7 @@ sudo perf top
   - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)
 </code></pre><p>当然还有很多其他爽得要死的命令，比如一键生成火焰图等，不再一一列举，可以从业务层面的需要从这次镜像升级的便利中将他们固化到镜像中，以后排查问题不再需要繁琐的安装、配置、调试过程了。</p>
 <h2 id="跟内核无关的应用层的优化"><a href="#跟内核无关的应用层的优化" class="headerlink" title="跟内核无关的应用层的优化"></a>跟内核无关的应用层的优化</h2><p>到此我们基本不用任何改动得到了30%的性能提升，但是对整个应用来说，通过以上工具让我们看到了一些明显的问题，还可以从应用层面继续提升性能。</p>
-<p>如上描述通过锁排序定位到logback确实会出现锁瓶颈，同时在一些客户场景中，因为网盘的抖动也带来了灾难性的影响，所以日志需要异步处理，经过异步化后tps 达到了32000，关键的是rt 95线下降明显，这个rt下降对DRDS这种Proxy类型的应用是非常重要的（经常被客户指责多了一层转发，rt增加了）。</p>
+<p>如上描述通过锁排序定位到logback确实会出现锁瓶颈，同时在一些客户场景中，因为网盘的抖动也带来了灾难性的影响，所以日志需要异步处理，经过异步化后tps 达到了32000，关键的是rt 95线下降明显，这个rt下降对X 产品这种Proxy类型的应用是非常重要的（经常被客户指责多了一层转发，rt增加了）。</p>
 <p>日志异步化和使用协程后的性能数据：</p>
 <p><img src="/images/oss/bec4e8105091bc4b8a263aef245c0ce9.png" alt="image.png"></p>
 <h3 id="Wisp2-协程带来的红利"><a href="#Wisp2-协程带来的红利" class="headerlink" title="Wisp2 协程带来的红利"></a>Wisp2 协程带来的红利</h3><p>参考 <a href="https://www.atatech.org/articles/147345" target="_blank" rel="external">@梁希 的 Wisp2: 开箱即用的Java协程</a>：</p>
@@ -1567,7 +1568,7 @@ sudo perf top
 <p>最终在 @梁希 同学的攻关下发布了新的jdk版本，问题基本都解决了。不但tps提升明显，rt也有很大的下降。</p>
 <h2 id="致谢"><a href="#致谢" class="headerlink" title="致谢"></a>致谢</h2><p>感谢 @夷则 团队对这次内核版本升级的支持，感谢 @雏雁 @飞绪 @李靖轩(无牙) @齐江(窅默) @梁希 等大佬的支持。</p>
 <p>最终应用不需要任何改动可以得到 30%的性能提升，经过开启协程等优化后应用有将近80%的性能提升，同时平均rt下降了到原来的60%，rt 95线下降到原来的40%。</p>
-<p>快点升级你们的内核，用上协程吧。同时考虑下在你们的应用中用上DRDS。</p>
+<p>快点升级你们的内核，用上协程吧。同时考虑下在你们的应用中用上X 产品。</p>
 <h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/104696" target="_blank" rel="external">记一次不同OS间的网络性能差异的排查经历</a></p>
 <p><a href="https://www.atatech.org/articles/147345" target="_blank" rel="external">@梁希 的 Wisp2: 开箱即用的Java协程</a></p>
 <p><a href="https://help.aliyun.com/document_detail/25378.html" target="_blank" rel="external">https://help.aliyun.com/document_detail/25378.html</a></p>
@@ -1844,8 +1845,10 @@ btr_estimate_n_rows_in_range_on_level(
 </code></pre><p>JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得扫描行数数量，计算各访问路径的代价，确定哪个访问路径更好。在 MySQL 社区版，支持索引下探 (records_in_range) 和索引 key ndv (records_in_key) 来估计行数，但默认是索引下探（文中 perf 调用栈）。本文的查询是简单查询，而 force index 固定了访问路径，所以可以忽略行数估计，跳过下探逻辑。</p>
 <p>顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。(by 开旺)</p>
 <p>看完前面的问题处理过程，到这里问题终于解决了，要找到了根本的原因，但是我觉得对这个原因背后的原理可以更深入地了解一下。</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁来用高CPU消耗避免ContextSwitch，这是自旋锁的正确使用方式，但是在多个核的情况下，多核一起自旋抢同一个锁，容易造成cache ping-pong，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong. </p>
-<p>cache ping-pong 主要由cache-line false share引起。</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免ContextSwitch，这是自旋锁的正确使用方式，在核的情况下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong。</p>
+<blockquote>
+<p><em>False sharing</em> and <em>cache-line ping-ponging</em> are related but not the same thing. False sharing can cause cache-line ping-ponging, but it is not the only possible cause since cache-line ping-ponging can also be caused by true sharing.</p>
+</blockquote>
 <p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，生产级的自旋锁在“忙等待”时，会与 CPU 紧密配合 ，它通过 CPU 提供的 PAUSE 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
 <blockquote>
 <p>比如：Java中的Random.getInt() 随机数生成的时候如果多线程共用一个Random，会造成CAS总是失败，导致CPU很高，效率很低</p>
@@ -1895,29 +1898,31 @@ while (true) {
 </code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
 <h3 id="为什么要有Pause"><a href="#为什么要有Pause" class="headerlink" title="为什么要有Pause"></a>为什么要有Pause</h3><p>提高超线程的利用率,在类似自旋锁等一些场景下CPU希望等会重试，但是又不希望进行上下文切换（代价太大），所以X86芯片增加了Pause指令</p>
 <ul>
-<li>避免上下文切换</li>
-<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源）</li>
-<li>节能（CPU可以休息、但是不让出来）</li>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），你从top能看到 cpu 100%，但是不耗能。</li>
 </ul>
 <blockquote>
 <p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
 <p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
 </blockquote>
-<h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="external">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出cpu。</p>
+<h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="external">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出CPU。</p>
+<p>CAS 下层的实现就用用的spinlock。spinlock的时候申请同一个锁的Core都在同一个变量上自旋等待，缓存同步的开销大，因为每一次锁的释放都需要通知其它N-1个Core invalid cache。锁竞争严重的情况下，这个cacheline会在自旋的Core之间不断的弹跳，导致性能严重下降。</p>
+<p>解决Spinlock的这个问题要靠MCS， MCS自旋锁的策略是为每个处理器创建一个变量副本，每个处理器在自己的本地变量上自旋等待，解决了性能问题。</p>
 <p><img src="/images/951413iMgBlog/image-20210804164219568.png" alt="image-20210804164219568"></p>
 <h3 id="pause-和-cpu-relax"><a href="#pause-和-cpu-relax" class="headerlink" title="pause 和 cpu_relax"></a>pause 和 cpu_relax</h3><p>cpu_relax/UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，<strong>在pause期间，同一个core上的HT可以执行其他指令</strong>。</p>
-<p>内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：</p>
+<p>内核频繁使用 cpu_relax 函数，比如顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 有两个作用：</p>
 <ul>
-<li>主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；</li>
-<li>释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；</li>
+<li>主动让出cpu，避免恶性竞争，导致其它core的cache失效；</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个pause，同时再跑 nop 指令，这是nop指令的 IPC基本不受pause的影响</li>
 </ul>
-<p>对于顺序锁而言，cpu_relax 尤为关键：</p>
+<p>对于顺序锁、自旋锁而言，cpu_relax 尤为关键：</p>
 <ul>
 <li>锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。</li>
 <li>cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。</li>
 </ul>
 <p>由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。</p>
-<p><strong>从intel sdm手册上看，pause 指令在执行过程中，基本不占用流水线执行资源，也不会访问cache_line，所以也不会造成cache_line的失效。</strong></p>
+<p><strong>从intel sdm手册上看，pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
 <h3 id="Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：<br>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
 <blockquote>
 <p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
@@ -2195,6 +2200,7 @@ while (true) {
 </li>
 </ul>
 <p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
+<p>举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。</p>
 <h3 id="条件触发的问题：不必要的唤醒"><a href="#条件触发的问题：不必要的唤醒" class="headerlink" title="条件触发的问题：不必要的唤醒"></a>条件触发的问题：不必要的唤醒</h3><ol>
 <li>内核：收到一个新建连接的请求</li>
 <li>内核：由于 “惊群效应” ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
@@ -2244,6 +2250,7 @@ while (true) {
 <p>这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/157349" target="_blank" rel="external">Epoll is fundamentally broken</a> </p>
 <p><a href="https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12" target="_blank" rel="external">Epoll is fundamentally broken 1/2</a> </p>
+<p><a href="https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/" target="_blank" rel="external">https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/</a></p>
 
           
         
@@ -2679,6 +2686,8 @@ while (true) {
 </blockquote>
 <h3 id="扩展一下"><a href="#扩展一下" class="headerlink" title="扩展一下"></a>扩展一下</h3><p>假如这里不是下一跳，而是隔了几跳发过来的reset，那么这个src mac地址就不是发reset设备的mac了，那该怎么办呢？</p>
 <p>可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip</p>
+<h2 id="SLB-reset"><a href="#SLB-reset" class="headerlink" title="SLB reset"></a>SLB reset</h2><p>如果连接闲置15分钟(900秒)后，SLB会给两端发送reset，设置的ttl为102（102年，下图经过3跳后到达RS 节点所以看到的是99），identification 为31415（π）</p>
+<p><img src="/images/951413iMgBlog/image-20220722161729776.png" alt="image-20220722161729776"></p>
 <h2 id="被忽略的reset"><a href="#被忽略的reset" class="headerlink" title="被忽略的reset"></a><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">被忽略的reset</a></h2><p>不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。</p>
 <p><img src="/images/951413iMgBlog/640-20220224102640374.png" alt="Image"></p>
 <p>但是对于SLB来说，收到reset就会clean 连接的session（SLB没做合法性验证），一般等session失效后（10秒）</p>

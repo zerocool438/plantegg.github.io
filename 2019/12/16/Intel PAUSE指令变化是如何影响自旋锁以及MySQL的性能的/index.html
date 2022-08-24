@@ -129,7 +129,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/c47d2bd0e4d9d0f005d0e1132b385eab.png">
-<meta property="og:updated_time" content="2022-07-21T10:04:38.104Z">
+<meta property="og:updated_time" content="2022-08-24T02:32:45.672Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">
 <meta name="twitter:description" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的本文记录专有云场景下Tomcat+MySQL集群的一次全表扫描性能优化过程 经验总结，长链路下性能瓶颈发现规则（最容易互相扯皮、协调难度大）：  从一个压测线程开始压，记录tps、rt；然后增加线程数量，到tps明显不再增加，分析此时各个环节的rt，看哪个环节rt增加最明显，瓶颈就在哪个环节 如果监控没法得到各个环节的rt数据(太">
@@ -548,8 +548,10 @@ btr_estimate_n_rows_in_range_on_level(
 </code></pre><p>JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得扫描行数数量，计算各访问路径的代价，确定哪个访问路径更好。在 MySQL 社区版，支持索引下探 (records_in_range) 和索引 key ndv (records_in_key) 来估计行数，但默认是索引下探（文中 perf 调用栈）。本文的查询是简单查询，而 force index 固定了访问路径，所以可以忽略行数估计，跳过下探逻辑。</p>
 <p>顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。(by 开旺)</p>
 <p>看完前面的问题处理过程，到这里问题终于解决了，要找到了根本的原因，但是我觉得对这个原因背后的原理可以更深入地了解一下。</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁来用高CPU消耗避免ContextSwitch，这是自旋锁的正确使用方式，但是在多个核的情况下，多核一起自旋抢同一个锁，容易造成cache ping-pong，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong. </p>
-<p>cache ping-pong 主要由cache-line false share引起。</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免ContextSwitch，这是自旋锁的正确使用方式，在核的情况下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加innodb_spin_wait_delay和pause配合来缓解cache ping-pong</a>，也就是本来要高速通过CPU自旋抢锁的，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的delay是个随机数–机关枪换成左轮手枪，避免卡壳），这样不但避免了CS也大大减少了cache ping-pong。</p>
+<blockquote>
+<p><em>False sharing</em> and <em>cache-line ping-ponging</em> are related but not the same thing. False sharing can cause cache-line ping-ponging, but it is not the only possible cause since cache-line ping-ponging can also be caused by true sharing.</p>
+</blockquote>
 <p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，生产级的自旋锁在“忙等待”时，会与 CPU 紧密配合 ，它通过 CPU 提供的 PAUSE 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
 <blockquote>
 <p>比如：Java中的Random.getInt() 随机数生成的时候如果多线程共用一个Random，会造成CAS总是失败，导致CPU很高，效率很低</p>
@@ -599,29 +601,31 @@ while (true) {
 </code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
 <h3 id="为什么要有Pause"><a href="#为什么要有Pause" class="headerlink" title="为什么要有Pause"></a>为什么要有Pause</h3><p>提高超线程的利用率,在类似自旋锁等一些场景下CPU希望等会重试，但是又不希望进行上下文切换（代价太大），所以X86芯片增加了Pause指令</p>
 <ul>
-<li>避免上下文切换</li>
-<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源）</li>
-<li>节能（CPU可以休息、但是不让出来）</li>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），你从top能看到 cpu 100%，但是不耗能。</li>
 </ul>
 <blockquote>
 <p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
 <p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
 </blockquote>
-<h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="external">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出cpu。</p>
+<h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="external">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出CPU。</p>
+<p>CAS 下层的实现就用用的spinlock。spinlock的时候申请同一个锁的Core都在同一个变量上自旋等待，缓存同步的开销大，因为每一次锁的释放都需要通知其它N-1个Core invalid cache。锁竞争严重的情况下，这个cacheline会在自旋的Core之间不断的弹跳，导致性能严重下降。</p>
+<p>解决Spinlock的这个问题要靠MCS， MCS自旋锁的策略是为每个处理器创建一个变量副本，每个处理器在自己的本地变量上自旋等待，解决了性能问题。</p>
 <p><img src="/images/951413iMgBlog/image-20210804164219568.png" alt="image-20210804164219568"></p>
 <h3 id="pause-和-cpu-relax"><a href="#pause-和-cpu-relax" class="headerlink" title="pause 和 cpu_relax"></a>pause 和 cpu_relax</h3><p>cpu_relax/UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，<strong>在pause期间，同一个core上的HT可以执行其他指令</strong>。</p>
-<p>内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：</p>
+<p>内核频繁使用 cpu_relax 函数，比如顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 有两个作用：</p>
 <ul>
-<li>主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；</li>
-<li>释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；</li>
+<li>主动让出cpu，避免恶性竞争，导致其它core的cache失效；</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个pause，同时再跑 nop 指令，这是nop指令的 IPC基本不受pause的影响</li>
 </ul>
-<p>对于顺序锁而言，cpu_relax 尤为关键：</p>
+<p>对于顺序锁、自旋锁而言，cpu_relax 尤为关键：</p>
 <ul>
 <li>锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。</li>
 <li>cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。</li>
 </ul>
 <p>由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。</p>
-<p><strong>从intel sdm手册上看，pause 指令在执行过程中，基本不占用流水线执行资源，也不会访问cache_line，所以也不会造成cache_line的失效。</strong></p>
+<p><strong>从intel sdm手册上看，pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
 <h3 id="Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：<br>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
 <blockquote>
 <p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>

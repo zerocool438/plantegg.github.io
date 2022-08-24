@@ -105,6 +105,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645142.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645236.">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png">
@@ -112,7 +113,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/sharedqueue.png">
-<meta property="og:updated_time" content="2022-07-10T05:04:46.778Z">
+<meta property="og:updated_time" content="2022-08-24T02:32:52.220Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="epoll和惊群">
 <meta name="twitter:description" content="epoll和惊群本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。 什么是惊群惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“">
@@ -472,6 +473,8 @@ __wake_up_common
 <p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
 <p><img src="/images/951413iMgBlog/640-9645236." alt=""></p>
 <p>因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。</p>
+<p><img src="/images/951413iMgBlog/2021-12-31-12-44-05.png" alt="img"></p>
+<p>图片来自：<a href="https://wenfh2020.com/2021/11/22/question-thundering-herd/" target="_blank" rel="external">https://wenfh2020.com/2021/11/22/question-thundering-herd/</a></p>
 <h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept</p>
 <p><img src="/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
 <p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>

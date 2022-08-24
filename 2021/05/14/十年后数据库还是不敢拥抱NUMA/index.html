@@ -118,7 +118,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png">
-<meta property="og:updated_time" content="2022-07-10T05:04:44.019Z">
+<meta property="og:updated_time" content="2022-08-24T02:32:49.470Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="十年后数据库还是不敢拥抱NUMA？">
 <meta name="twitter:description" content="十年后数据库还是不敢拥抱NUMA？在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kern">
@@ -496,7 +496,10 @@
 <h3 id="将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><a href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试" class="headerlink" title="将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试"></a>将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</h3><p>可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿</p>
 <p><img src="/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png" alt="undefined"> </p>
 <p>测试结论：<strong>从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了</strong></p>
-<h3 id="innodb-numa-interleave"><a href="#innodb-numa-interleave" class="headerlink" title="innodb_numa_interleave"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的感知：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="external">innodb_numa_interleave</a></p>
+<h3 id="innodb-numa-interleave"><a href="#innodb-numa-interleave" class="headerlink" title="innodb_numa_interleave"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的无感知：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="external">innodb_numa_interleave</a>，也就是在开了NUMA的机器上，使用内错交错来分配内存，相当于使用上关掉 NUMA</p>
+<blockquote>
+<p>For the <a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="external"><code>innodb_numa_interleave</code></a> option to be available, MySQL must be compiled on a NUMA-enabled Linux system.</p>
+</blockquote>
 <p>当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 <a href="https://linux.die.net/man/2/set_mempolicy" target="_blank" rel="external">NUMA memory policy</a> 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。</p>
 <p>innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，<strong>修复后这个参数没有意义了</strong>。</p>
 <h3 id="AUTOMATIC-NUMA-BALANCING"><a href="#AUTOMATIC-NUMA-BALANCING" class="headerlink" title="AUTOMATIC NUMA BALANCING"></a><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing" target="_blank" rel="external">AUTOMATIC NUMA BALANCING</a></h3><p>RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离更近以达到最好的效果</p>
@@ -542,6 +545,7 @@
 <p><a href="https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/" target="_blank" rel="external">https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/</a></p>
 <p><a href="https://queue.acm.org/detail.cfm?id=2513149" target="_blank" rel="external">https://queue.acm.org/detail.cfm?id=2513149</a></p>
 <p><a href="https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/" target="_blank" rel="external">NUMA DEEP DIVE PART 1: FROM UMA TO NUMA</a> 这是一个系列，都很干货，值得推荐</p>
+<p><a href="https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf" target="_blank" rel="external">https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf</a> Morsel-Driven Parallelism: A NUMA-Aware Query Evaluation Framework for the Many-Core Age 论文给出了很多numa-aware下的bandwidth、latency数据，以及对THC-H的影响</p>
 
       
     </div>

@@ -102,6 +102,7 @@
 <meta property="og:url" content="https://plantegg.github.io/2019/05/24/网络包的流转/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="Linux Network Stack文章目标  从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，以及怎么调整他们。  接收流程接收流程大纲在开始收包之前，也就是OS启动的时候，Linux要做许多的准备工作：  创建ksoftirqd线程，为它设置好它自己的线程函数，用来处理软中断 协议栈注册，linux要实现许多协议，比如ar">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220725164331535.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20211027133622981">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20211027133758754">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f2d5399f-4fba-4159-9ce4-aefa78132a43.png">
@@ -139,11 +140,11 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211116101345648.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/d42ccdb0b8f6270d8b559145c0b89c86.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a067b484c593aa3a4b6a525d1f93506e.png">
-<meta property="og:updated_time" content="2022-07-10T05:04:43.277Z">
+<meta property="og:updated_time" content="2022-08-24T02:32:48.572Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux Network Stack">
 <meta name="twitter:description" content="Linux Network Stack文章目标  从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，以及怎么调整他们。  接收流程接收流程大纲在开始收包之前，也就是OS启动的时候，Linux要做许多的准备工作：  创建ksoftirqd线程，为它设置好它自己的线程函数，用来处理软中断 协议栈注册，linux要实现许多协议，比如ar">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20211027133622981">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220725164331535.png">
 
 
 
@@ -465,6 +466,10 @@
 <li>根据 tcp_rmem 进入接收缓冲队列</li>
 <li>内核将数据送给接收的应用</li>
 </ol>
+<p><a href="http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh：" target="_blank" rel="external">http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh：</a></p>
+<p><img src="/images/951413iMgBlog/image-20220725164331535.png" alt="image-20220725164331535"></p>
+<p>TAP 处理点就是 <strong>tcpdump 抓包</strong>、流量过滤。</p>
+<p><a href="http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh" target="_blank" rel="external">注意：<strong>netfilter 或 iptables 规则都是在软中断上下文中执行的</strong>， 数量很多或规则很复杂时会导致<strong>网络延迟</strong>。</a></p>
 <blockquote>
 <p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
 <p> 硬中断发生在哪一个核上，它发出的软中断就由哪个核来处理。可以通过加大网卡队列数，这样硬中断工作、软中断工作都会有更多的核心参与进来。</p>
@@ -647,7 +652,7 @@ tx-frame-high: 0
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -u eth0</div><div class="line">40 RX rings available</div><div class="line">Total 0 rules</div></pre></td></tr></table></figure>
 <p>可以看到当前没有 rules。</p>
 <p><a href="https://colobu.com/2019/12/09/monitoring-tuning-linux-networking-stack-receiving-data/#%E8%B0%83%E6%95%B4_RX_queue_%E7%9A%84%E6%9D%83%E9%87%8D%EF%BC%88weight%EF%BC%89" target="_blank" rel="external">我们来加一条：目的端口是 80 的放到 RX queue 2</a>：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -U eth0 flow-type tcp4 dst-port 80 action 2</div></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -U eth0 flow-type tcp4 dst-port 80 action 2</div><div class="line"></div><div class="line">删除</div><div class="line">ethtool -U eth0 delete 1023</div></pre></td></tr></table></figure>
 <p>你也可以用 ntuple filtering 在硬件层面直接 drop 某些 flow 的包。当特定 IP 过来的流量太大时，这种功能可能会派上用场。更多关于 ntuple 的信息，参 考 ethtool man page。</p>
 <h3 id="软中断合并-GRO"><a href="#软中断合并-GRO" class="headerlink" title="软中断合并 GRO"></a>软中断合并 GRO</h3><p>GRO和硬中断合并的思想很类似，不过阶段不同。硬中断合并是在中断发起之前，而GRO已经到了软中断上下文中了。</p>
 <p>如果应用中是大文件的传输，大部分包都是一段数据，不用GRO的话，会每次都将一个小包传送到协议栈（IP接收函数、TCP接收）函数中进行处理。开启GRO的话，Linux就会智能进行包的合并，之后将一个大包传给协议处理函数。这样CPU的效率也是就提高了。</p>
@@ -661,7 +666,21 @@ tx-frame-high: 0
 <li>RX errors：表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
 </ul>
 <h4 id="overruns"><a href="#overruns" class="headerlink" title="overruns"></a>overruns</h4><p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
-<h3 id="监控指标-proc-net-softnet-stat"><a href="#监控指标-proc-net-softnet-stat" class="headerlink" title="监控指标 /proc/net/softnet_stat"></a>监控指标 /proc/net/softnet_stat</h3><h4 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h4><p>一次软中断(ksoftirqd进程)能处理包的上限，有就多处理，处理到300个了一定要停下来让CPU能继续其它工作。单次poll 收包是所有注册到这个 CPU 的 NAPI 变量收包数量之和不能大于这个阈值。</p>
+<h3 id="监控指标-proc-net-softnet-stat"><a href="#监控指标-proc-net-softnet-stat" class="headerlink" title="监控指标 /proc/net/softnet_stat"></a>监控指标 /proc/net/softnet_stat</h3><p>Important details about <code>/proc/net/softnet_stat</code>:</p>
+<ul>
+<li>Each line of <code>/proc/net/softnet_stat</code> corresponds to a <code>struct softnet_data</code> structure, of which there is 1 per CPU.</li>
+<li>The values are separated by a single space and are displayed in hexadecimal</li>
+<li>The first value, <code>sd-&gt;processed</code>, is the number of network frames processed. This can be more than the total number of network frames received if you are using ethernet bonding. There are cases where the ethernet bonding driver will trigger network data to be re-processed, which would increment the <code>sd-&gt;processed</code> count more than once for the same packet.</li>
+<li>The second value, <code>sd-&gt;dropped</code>, is the number of network frames dropped because there was no room on the processing queue. More on this later.</li>
+<li>The third value, <code>sd-&gt;time_squeeze</code>, is (as we saw) the number of times the <code>net_rx_action</code> loop terminated because the budget was consumed or the time limit was reached, but more work could have been. Increasing the <code>budget</code> as explained earlier can help reduce this. <strong>time_squeeze 计数在内核中只有一个地方会更新</strong>（比如内核 5.10），如果看到监控中有 time_squeeze 升高， 那一定就是执行到了以上 budget 用完的逻辑</li>
+<li>The next 5 values are always 0.</li>
+<li>The ninth value, <code>sd-&gt;cpu_collision</code>, is a count of the number of times a collision occurred when trying to obtain a device lock when transmitting packets. This article is about receive, so this statistic will not be seen below.</li>
+<li>The tenth value, <code>sd-&gt;received_rps</code>, is a count of the number of times this CPU has been woken up to process packets via an <a href="https://en.wikipedia.org/wiki/Inter-processor_interrupt" target="_blank" rel="external">Inter-processor Interrupt</a></li>
+<li>The last value, <code>flow_limit_count</code>, is a count of the number of times the flow limit has been reached. Flow limiting is an optional <a href="https://lwn.net/Articles/362339" target="_blank" rel="external">Receive Packet Steering</a> feature that will be examined shortly.</li>
+</ul>
+<p>对应的代码实现：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">// https://github.com/torvalds/linux/blob/v5.10/net/core/net-procfs.c#L172</div><div class="line">static int softnet_seq_show(struct seq_file *seq, void *v) &#123;</div><div class="line">    struct softnet_data *sd = v;</div><div class="line"></div><div class="line">    seq_printf(seq,</div><div class="line">           &quot;%08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n&quot;,</div><div class="line">           sd-&gt;processed, sd-&gt;dropped, sd-&gt;time_squeeze, 0,</div><div class="line">           0, 0, 0, 0, /* was fastroute */</div><div class="line">           0,    /* was cpu_collision */</div><div class="line">           sd-&gt;received_rps, flow_limit_count,</div><div class="line">           softnet_backlog_len(sd), (int)seq-&gt;index);</div><div class="line">    return 0;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h4 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h4><p>一次软中断(ksoftirqd进程)能处理包的上限，有就多处理，处理到300个了一定要停下来让CPU能继续其它工作。单次poll 收包是所有注册到这个 CPU 的 NAPI 变量收包数量之和不能大于这个阈值。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sysctl net.core.netdev_budget //3.10 kernel默认300， The default value of the budget is 300. This will cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU</div></pre></td></tr></table></figure>
 <p>如果 /proc/net/softnet_stat <strong>第三列</strong>一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值，<strong>当这个值太大的话有可能导致包到了内核但是应用（userspace）抢不到时间片来读取这些packet。</strong></p>
 <p>增大和查看 net.core.netdev_budget    </p>

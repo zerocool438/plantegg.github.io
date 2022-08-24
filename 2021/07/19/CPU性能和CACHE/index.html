@@ -133,9 +133,10 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f5728a2afb29c653a3e1bf21f4d56056.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210603114550646.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220730161825538.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/maxresdefault.jpg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220607154156826.png">
-<meta property="og:updated_time" content="2022-07-10T05:04:41.079Z">
+<meta property="og:updated_time" content="2022-08-24T02:32:46.324Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU性能和CACHE">
 <meta name="twitter:description" content="CPU性能和CACHE为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回答各种疑">
@@ -642,8 +643,24 @@
 <p>SRAM是比<strong>DRAM</strong>更为昂贵，但更为快速、非常低功耗（特别是在空闲状态）。 因此<strong>SRAM</strong>首选用于带宽要求高，或者功耗要求低，或者二者兼而有之。 <strong>SRAM</strong>比起<strong>DRAM</strong>更为容易控制，也更是随机访问。 由于复杂的内部结构，<strong>SRAM</strong>比<strong>DRAM</strong>的占用面积更大，因而不适合用于更高储存密度低成本的应用，如PC内存。</p>
 <h3 id="SRAM和DRAM原理比较"><a href="#SRAM和DRAM原理比较" class="headerlink" title="SRAM和DRAM原理比较"></a>SRAM和DRAM原理比较</h3><p><a href="https://mp.weixin.qq.com/s?__biz=MzI2NDYwMDAxOQ==&amp;mid=2247483772&amp;idx=1&amp;sn=d7c188247b9851f7985676e2f9dd9a0e&amp;chksm=eaab61c0dddce8d62bdb521de1ada13142264882feae1ff06d6dcd81430a0063377e4b34cedb&amp;scene=178&amp;cur_album_id=1368835510680272898#rd" target="_blank" rel="external">简单说DRAM只有一个晶体管和一个电容，SRAM就复杂多了，需要6个晶体管</a></p>
 <p><img src="/images/951413iMgBlog/image-20210603114550646.png" alt="What is the difference between SRAM and DRAM"></p>
+<p>图左边的 DRAM 的状态是保持在电容器C中。晶体管M用来控制访问。如果要读取状态，拉升访问线AL，这时，可能会有电流流到数据线DL上，也可能没有，取决于电容器是否有电。如果要写入状态，先设置DL，然后升起AL一段时间，直到电容器充电或放电完毕。</p>
+<p>由于读取状态时需要对电容器放电，所以这一过程不能无限重复，不得不在某个点上对它重新充电。更糟糕的是，为了容纳大量单元(现在一般在单个芯片上容纳109以上的RAM单元)，电容器的容量必须很小(0.000000000000001法拉以下)。这样，完整充电后大约持有几万个电子。即使电容器的电阻很大(若干兆欧姆)，仍然只需很短的时间就会耗光电荷，称为「泄漏」。</p>
+<p>这种泄露就是现在的大部分DRAM芯片每隔64ms就必须进行一次刷新的原因。在刷新期间，对于该芯片的访问是不可能的，这甚至会造成半数任务的延宕。（相关内容请察看【highperfdram】一章）</p>
+<p>这个问题的另一个后果就是无法直接读取芯片单元中的信息，而必须通过信号放大器将0和1两种信号间的电势差增大，才能分辨出来。</p>
+<p>DRAM 主要靠电容充放电来识别0和1，<strong>但是充放电是一个持续过程，需要耗时，这也是导致内存延时大的主要原因</strong></p>
+<p><img src="/images/951413iMgBlog/image-20220730161825538.png" alt="image-20220730161825538"></p>
+<p>不像SRAM可以即刻读取数据，当要读取DRAM的时候，必须花一点时间来等待电容的冲放电完全。这一点点的时间最终限制了DRAM的速度。</p>
+<p>SRAM 需要注意以下问题:</p>
+<ul>
+<li>一个单元需要6个晶体管。也有采用4个晶体管的SRAM，体积大、贵、结构复杂。</li>
+<li>维持状态需要恒定的电源。</li>
+<li>升起WL后<strong>立即可以读取状态</strong>。信号与其它晶体管控制的信号一样，是直角的(快速在两个状态间变化)。</li>
+<li>状态稳定，不需要刷新循环。</li>
+</ul>
+<p>SRAM也有其它形式，不那么费电，但比较慢。由于我们需要的是快速RAM，因此不在关注范围内。这些较慢的SRAM的主要优点在于接口简单，比动态RAM更容易使用。</p>
 <p>详细比较：</p>
 <p><img src="/images/951413iMgBlog/maxresdefault.jpg" alt="Difference Between SRAM and DRAM - YouTube"></p>
+<p>SRAM 也有其它形式，不那么费电，但比较慢。由于我们需要的是快速RAM，因此其它形式的 SRAM 不在关注范围内。这些较慢的SRAM的主要优点在于接口简单，比动态RAM更容易使用。CPU cache用的是快速 SRAM，本文提到的 SRAM 都是指快速 SRAM</p>
 <h2 id="Persistence-memory"><a href="#Persistence-memory" class="headerlink" title="Persistence memory"></a>Persistence memory</h2><p>左边是在32G物理内存的基础上挂了128G pmem, 然后系统通过free能看到 154G内存，用 <code>lat_mem_rd</code> 实际测试速度可以看到左边的机器抖动比较大</p>
 <p><img src="/images/951413iMgBlog/image-20220607154156826.png" alt="image-20220607154156826"></p>
 <h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
