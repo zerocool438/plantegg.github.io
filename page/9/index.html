@@ -291,6 +291,285 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/21/就是要你懂TCP--性能优化大全/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
+<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，把这个图形放大看看</p>
+<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p>换个角度，看看窗口尺寸图形：</p>
+<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
+<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
+<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
+</code></pre><p>来看一下tcp包发送流程：</p>
+<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="external">https://www.atatech.org/articles/9032）</a></p>
+<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code>#!/usr/bin/stap
+# Simple probe to detect when a process is waiting for more socket send
+# buffer memory. Usually means the process is doing writes larger than the
+# socket send buffer size or there is a slow receiver at the other side.
+# Increasing the socket&apos;s send buffer size might help decrease application
+# latencies, but it might also make it worse, so buyer beware.
+#
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">这篇文章</a></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
+<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
+<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
+net.core.wmem_max = 1048576
+net.core.wmem_default = 124928
+net.ipv4.tcp_wmem = 4096        16384   4194304
+net.ipv4.udp_wmem_min = 4096
+</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<pre><code>net.ipv4.tcp_moderate_rcvbuf
+</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
+<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
+<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">问题 Case</a></strong></p>
+<p>发送和接收Buffer对性能的完整影响参考<a href="/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">这篇</a></p>
+<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
+<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
+<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
+<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
+<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
+<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
+</ul>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
+<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
+<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
+<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
+</ul>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<ul>
+<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
+<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
+<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
+<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
+<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
+<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
+</ul>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
+<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
+<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
+<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
+</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
+
+ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
+ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
+ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
+</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
+<pre><code>清除 tcp_metrics 
+sudo ip tcp_metrics flush all 
+
+关闭 tcp_metrics 功能
+net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><blockquote>
+<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
+</blockquote>
+<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
+<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
+<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
+<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
+<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
+<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
+<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
+<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
+<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
+<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
+<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">tcp metrics 在长肥网络下引发性能问题</a></p>
+<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
+<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
+<hr>
+<p>就是要你懂TCP相关文章：</p>
+<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
+<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">MSS和MTU导致的悲剧</a> </p>
+<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">双11通过网络优化提升10倍性能</a></p>
+<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">就是要你懂TCP的握手和挥手</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="external">https://access.redhat.com/solutions/407743</a></p>
+<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="external">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
+<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="external">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
+<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="external">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
+<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="external">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
+<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">https://www.atatech.org/articles/109721</a></p>
+<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">https://www.atatech.org/articles/27189</a> </p>
+<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="external">https://www.atatech.org/articles/45084</a></p>
+<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">https://www.atatech.org/articles/9032</a></p>
+<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">tcp_rmem case</a></p>
+<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1056,7 +1335,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <hr>
 <p><strong>这里只是帮大家入门了解ssh，掌握好这些配置文件和-vvv后有好多好玩的可以去挖掘，同时也请在留言中说出你的黑技能</strong></p>
 <h2 id="ssh-config-参考配置"><a href="#ssh-config-参考配置" class="headerlink" title="~/.ssh/config 参考配置"></a>~/.ssh/config 参考配置</h2><p>下面是我个人常用的ssh config配置</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">#GSSAPIAuthentication=no</div><div class="line">StrictHostKeyChecking=no</div><div class="line">#TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"># &quot;ServerAliveInterval [seconds]&quot; configuration in the SSH configuration so that your ssh client sends a &quot;dummy packet&quot; on a regular interval so that the router thinks that the connection is active even if it&apos;s particularly quiet</div><div class="line">ServerAliveInterval=15</div><div class="line">#ServerAliveCountMax=6</div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"></div><div class="line">#reuse the same connection</div><div class="line">ControlMaster auto</div><div class="line">ControlPath ~/tmp/ssh_mux_%h_%p_%r</div><div class="line"></div><div class="line">#keep one connection in 72hour</div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line"></div><div class="line">#Host 10.1?.*</div><div class="line">#ProxyCommand ssh -l bninet us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">#ProxyCommand /bin/nc -x localhost:12346 %h %p</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat ~/.ssh/config</span></div><div class="line"><span class="meta">#</span><span class="bash">GSSAPIAuthentication=no</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line"><span class="meta">#</span><span class="bash">TCPKeepAlive=yes</span></div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">reuse the same connection</span></span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath /tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">keep one connection in 72hour</span></span></div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line">Host 192.168.1.*</div><div class="line">ProxyCommand ssh plantegg@us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">Host 192.168.2.*</div><div class="line">ProxyCommand ssh plantegg@cn.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ProxyCommand /bin/nc -x localhost:12346 %h %p</span></span></div></pre></td></tr></table></figure>
 <h2 id="etc-ssh-ssh-config-参考配置"><a href="#etc-ssh-ssh-config-参考配置" class="headerlink" title="/etc/ssh/ssh_config 参考配置"></a>/etc/ssh/ssh_config 参考配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div></pre></td><td class="code"><pre><div class="line">Host *</div><div class="line">Protocol 2</div><div class="line">ServerAliveInterval 30</div><div class="line">User admin</div><div class="line"></div><div class="line">host 10.10.55.*</div><div class="line">ProxyCommand ssh -l admin admin.jump  exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"># uos is a hostname</div><div class="line">Host 10.10.1.13* 192.168.2.133 uos</div><div class="line">ProxyCommand ssh -l root -p 54900 1.1.1.1 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line">#debug for git proxy</div><div class="line">Host github.com</div><div class="line">#    LogLevel DEBUG3</div><div class="line">#    ProxyCommand ssh  -l root gfw.jump exec /usr/bin/nc %h %p</div><div class="line">#    ProxyCommand ssh -oProxyCommand=&apos;ssh -l admin gfw.jump:22&apos; -l root gfw.jump2 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"></div><div class="line">ForwardAgent yes</div><div class="line">ForwardX11 yes</div><div class="line">ForwardX11Trusted yes</div><div class="line"></div><div class="line">    SendEnv LANG LC_*</div><div class="line">    HashKnownHosts yes</div><div class="line">    GSSAPIAuthentication no</div><div class="line">    GSSAPIDelegateCredentials no</div><div class="line">    Compression yes</div></pre></td></tr></table></figure>
 <h2 id="其他知识点"><a href="#其他知识点" class="headerlink" title="其他知识点"></a>其他知识点</h2><p>参数的优先级是：命令行配置选项 &gt; ~/.ssh/config &gt; /etc/ssh/ssh_config</p>
 <p>在SSH的<strong>身份验证阶段，SSH只支持服务端保留公钥，客户端保留私钥的方式，</strong>所以方式只有两种：客户端生成密钥对，将公钥分发给服务端；服务端生成密钥对，将私钥分发给客户端。只不过出于安全性和便利性，一般都是客户端生成密钥对并分发公钥（阿里云服务器秘钥对–服务器将一对密钥中的公钥放在 authorized_keys, 私钥给client登陆用）</p>
@@ -1111,6 +1390,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>如果添加的不是默认私钥，<code>ssh-add</code>命令需要显式指定私钥文件。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ ssh-add my-other-key-file</div></pre></td></tr></table></figure>
 <p>上面的命令中，<code>my-other-key-file</code>就是用户指定的私钥文件。</p>
+<p>SSH agent 程序能够将您的已解密的私钥缓存起来，在需要的时候用它来解密key chanllge返回给 SSHD  <a href="https://webcache.googleusercontent.com/search?q=cache:7OfvSBFki10J:https://www.ibm.com/developerworks/cn/linux/security/openssh/part2/+&amp;cd=7&amp;hl=en&amp;ct=clnk&amp;gl=hk" target="_blank" rel="external">https://webcache.googleusercontent.com/search?q=cache:7OfvSBFki10J:https://www.ibm.com/developerworks/cn/linux/security/openssh/part2/+&amp;cd=7&amp;hl=en&amp;ct=clnk&amp;gl=hk</a> keychain介绍</p>
 <h3 id="安装sshd和debug"><a href="#安装sshd和debug" class="headerlink" title="安装sshd和debug"></a>安装sshd和debug</h3><p>sshd 有自己的一对或多对密钥。它使用密钥向客户端证明自己的身份。所有密钥都是公钥和私钥成对出现，公钥的文件名一般是私钥文件名加上后缀<code>.pub</code>。</p>
 <p>DSA 格式的密钥文件默认为<code>/etc/ssh/ssh_host_dsa_key</code>（公钥为<code>ssh_host_dsa_key.pub</code>），RSA 格式的密钥为<code>/etc/ssh/ssh_host_rsa_key</code>（公钥为<code>ssh_host_rsa_key.pub</code>）。如果需要支持 SSH 1 协议，则必须有密钥<code>/etc/ssh/ssh_host_key</code>。</p>
 <p>如果密钥不是默认文件，那么可以通过配置文件<code>sshd_config</code>的<code>HostKey</code>配置项指定。默认密钥的<code>HostKey</code>设置如下。</p>
@@ -2921,9 +3201,14 @@ $ cat variable.log
 
     TCP_MAX_STATES  /* Leave at the end! */
 };
-</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a>kdump</h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
+</code></pre><h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a><a href="https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&amp;mid=2666565525&amp;idx=2&amp;sn=f5adc9ad8f192dac9d1d46f6c2140749" target="_blank" rel="external">kdump</a></h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
 <pre><code>sudo systemctl start kdump
 </code></pre><p>参考：<a href="https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/" target="_blank" rel="external">Linux 系统内核崩溃分析处理简介</a></p>
+<p>Kdump 的概念出现在 2005 左右，是迄今为止最可靠的内核转存机制，已经被主要的 linux™ 厂商选用。kdump是一种先进的基于 kexec 的内核崩溃转储机制。当系统崩溃时，kdump 使用 kexec 启动到第二个内核。第二个内核通常叫做捕获内核，以很小的内存启动以捕获转储镜像。</p>
+<p>第一个内核保留了内存的一部分给第二个内核启动用。由于 kdump 利用 kexec 启动捕获内核，绕过了 BIOS，所以第一个内核的内存得以保留。这是内核崩溃转储的本质。</p>
+<p>kdump 需要两个不同目的的内核，生产内核和捕获内核。生产内核是捕获内核服务的对象。捕获内核会在生产内核崩溃时启动起来，与相应的 ramdisk 一起组建一个微环境，用以对生产内核下的内存进行收集和转存。</p>
+<h3 id="什么是-kexec-？"><a href="#什么是-kexec-？" class="headerlink" title="什么是 kexec ？"></a>什么是 kexec ？</h3><p>Kexec 是实现 kdump 机制的关键，它包括 2 一是组成部分：一是内核空间的系统调用 kexec_load，负责在生产内核（production kernel 或 first kernel）启动时将捕获内核（capture kernel 或 sencond kernel）加载到指定地址。二是用户空间的工具 kexec-tools，他将捕获内核的地址传递给生产内核，从而在系统崩溃的时候能够找到捕获内核的地址并运行。</p>
+<p>没有 kexec 就没有 kdump。先有 kexec 实现了在一个内核中可以启动另一个内核，才让 kdump 有了用武之地。kexec 原来的目的是为了节省时间 kernel 开发人员重启系统的时间，谁能想到这个“偷懒”的技术却孕育了最成功的内存转存机制呢？</p>
 <h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
 //手动触发crash
 #echo 1 &gt; /proc/sys/kernel/sysrq
@@ -3030,180 +3315,6 @@ void test_stub1(void)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/定制Linux_Kernel/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/24/定制Linux_Kernel/" itemprop="url">定制Linux Kernel</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
-                2019-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat change_kernel_parameter.sh </span></div><div class="line"><span class="meta">#</span><span class="bash">cat /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">grep <span class="string">''</span> /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /sys/kernel/mm/transparent_hugepage/enabled</span></div><div class="line"><span class="meta">#</span><span class="bash">transparent_hugepage=always</span></div><div class="line"><span class="meta">#</span><span class="bash">noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</span></div><div class="line"><span class="meta">#</span><span class="bash">追加nopti nospectre_v2到内核启动参数中</span></div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="built_in">limit</span> the journald <span class="built_in">log</span> to 500M</span></div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span><span class="bash">重启系统</span></div><div class="line"><span class="meta">#</span><span class="bash">sudo reboot</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 选择不同的kernel启动</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grep <span class="string">"menuentry "</span> /boot/grub2/grub.cfg | grep -n menu</span></div><div class="line"><span class="meta">#</span><span class="bash"><span class="comment">#grub认的index从0开始数的</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grub2-reboot 0; sudo reboot</span></div><div class="line">or</div><div class="line"><span class="meta">#</span><span class="bash">grub2-set-default <span class="string">"CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)"</span> ; sudo reboot</span></div></pre></td></tr></table></figure>
-<p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-working_with_the_grub_2_boot_loader" target="_blank" rel="external">GRUB 2 reads its configuration</a> from the <code>/boot/grub2/grub.cfg</code> file on traditional BIOS-based machines and from the <code>/boot/efi/EFI/redhat/grub.cfg</code> file on UEFI machines. This file contains menu information.</p>
-<p>The GRUB 2 configuration file, <code>grub.cfg</code>, is generated during installation, or by invoking the <strong>/usr/sbin/grub2-mkconfig</strong> utility, and is automatically updated by <code>grubby</code> each time a new kernel is installed. When regenerated manually using <strong>grub2-mkconfig</strong>, the file is generated according to the template files located in <code>/etc/grub.d/</code>, and custom settings in the <code>/etc/default/grub</code> file. Edits of <code>grub.cfg</code> will be lost any time <strong>grub2-mkconfig</strong> is used to regenerate the file, so care must be taken to reflect any manual changes in <code>/etc/default/grub</code> as well.</p>
-<h2 id="修改是否启用透明大页"><a href="#修改是否启用透明大页" class="headerlink" title="修改是否启用透明大页"></a>修改是否启用透明大页</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
-<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO、rufus 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
-<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">umount /dev/sdn1</div><div class="line">sudo mkfs.vfat /dev/sdn1</div><div class="line">dd if=/data/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</div></pre></td></tr></table></figure>
-<h2 id="iommu-passthrough"><a href="#iommu-passthrough" class="headerlink" title="iommu passthrough"></a><a href="https://bbs.huaweicloud.com/blogs/291576" target="_blank" rel="external">iommu passthrough</a></h2><h3 id="IOMMU-硬件单元"><a href="#IOMMU-硬件单元" class="headerlink" title="IOMMU 硬件单元"></a>IOMMU 硬件单元</h3><p>DMA Remapping Feature 的工作是通过 CPU 硬件平台的 IOMMU（I/O MMU，Input/Output Memory Management Unit，I/O 内存管理硬件单元）来完成的。IOMMU 的出现，实现了地址空间上的隔离，使设备只能访问规定的内存区域。</p>
-<p><img src="/images/951413iMgBlog/image-20220718111233654.png" alt="image-20220718111233654"></p>
-<p>参考资料：<a href="https://lenovopress.lenovo.com/lp1467.pdf" target="_blank" rel="external">https://lenovopress.lenovo.com/lp1467.pdf</a></p>
-<p><img src="/images/951413iMgBlog/image-20220729162624318.png" alt="image-20220729162624318"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">/*</div><div class="line"> * This variable becomes 1 if iommu=pt is passed on the kernel command line.</div><div class="line"> * If this variable is 1, IOMMU implementations do no DMA translation for</div><div class="line"> * devices and allow every device to access to whole physical memory. This is</div><div class="line"> * useful if a user wants to use an IOMMU only for KVM device assignment to</div><div class="line"> * guests and not for driver dma translation.</div><div class="line"> */</div></pre></td></tr></table></figure>
-<p>说明配置了iommu=pt 的话函数iommu_no_mapping返回1，那么驱动就直接return paddr，并不会真正调用到domain_pfn_mapping，直接用了物理地址少了一次映射性能当然会高一些。如果是跑KVM建议 passthrough=0，物理机场景 passthrough=1</p>
-<p>iommu=pt并不会影响kvm/dpdk/spdk的性能，这三者本质上都是用户态驱动，iommu=pt只会影响内核驱动，能让内核驱动设备性能更高。</p>
-<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">24条32G的内存条，总内存768G</div><div class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</div><div class="line">  Size: 32 GB</div><div class="line">…………</div><div class="line">  Size: 32 GB</div><div class="line">  Size: 32 GB</div><div class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</div><div class="line">24</div><div class="line"></div><div class="line"># cat /boot/grub/grub.cfg  |grep 512</div><div class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</div><div class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</div></pre></td></tr></table></figure>
-<h3 id="高级版-按numa限制内存"><a href="#高级版-按numa限制内存" class="headerlink" title="高级版 按numa限制内存"></a>高级版 <a href="https://www.kernel.org/doc/html/v4.14/admin-guide/kernel-parameters.html" target="_blank" rel="external">按numa限制内存</a></h3><p>每个numa 128G内存，总共1024G（32条*32G），8个numa node，需要将每个numa node内存限制在64G</p>
-<p>在grub中cmdline中加入如下配置，每个node只用64G内存：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">memmap=64G\$64G memmap=64G\$192G memmap=64G\$320G memmap=64G\$448G memmap=64G\$576G memmap=64G\$704G memmap=64G\$832G memmap=64G\$960G</div></pre></td></tr></table></figure>
-<p>或者：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">#cat /etc/default/grub</div><div class="line">GRUB_TIMEOUT=5</div><div class="line">GRUB_DISTRIBUTOR=&quot;$(sed &apos;s, release .*$,,g&apos; /etc/system-release)&quot;</div><div class="line">GRUB_DEFAULT=saved</div><div class="line">GRUB_DISABLE_SUBMENU=true</div><div class="line">GRUB_TERMINAL_OUTPUT=&quot;console&quot;</div><div class="line">GRUB_CMDLINE_LINUX=&quot;crashkernel=1024M,high resume=/dev/mapper/klas-swap rd.lvm.lv=klas/root rd.lvm.lv=klas/swap video=efifb:on rhgb quiet quiet noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off tsx=on tsx_async_abort=off mitigations=off iommu.passthrough=1 memmap=64G\\\$64G memmap=64G\\\$192G memmap=64G\\\$320G memmap=64G\\\$448G memmap=64G\\\$576G memmap=64G\\\$704G memmap=64G\\\$832G memmap=64G\\\$960G&quot;</div><div class="line">GRUB_DISABLE_RECOVERY=&quot;true&quot;</div><div class="line"></div><div class="line">然后执行生成最终grub启动参数</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div></pre></td></tr></table></figure>
-<p>比如在一个4node的机器上，总共768G内存（32G*24），每个node使用64G内存</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">linux16 /vmlinuz-0-rescue-e91413f0be2c4c239b4aa0451489ae01 root=/dev/mapper/centos-root ro crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet memmap=128G\$64G memmap=128G\$256G memmap=128G\$448G memmap=128G\$640G</div></pre></td></tr></table></figure>
-<p>128G表示相对地址，$64G是绝对地址，128G\$64G 的意思是屏蔽64G到（64+128）G的地址对应的内存</p>
-<h2 id="检查"><a href="#检查" class="headerlink" title="检查"></a>检查</h2><p>检查正在运行的系统使用的grub参数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/cmdline</div></pre></td></tr></table></figure>
-<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div></pre></td><td class="code"><pre><div class="line">#dmidecode -t memory</div><div class="line"># dmidecode 3.2</div><div class="line">Getting SMBIOS data from sysfs.</div><div class="line">SMBIOS 3.2.1 present.</div><div class="line"># SMBIOS implementations newer than version 3.2.0 are not</div><div class="line"># fully supported by this version of dmidecode.</div><div class="line"></div><div class="line">Handle 0x0033, DMI type 16, 23 bytes </div><div class="line">Physical Memory Array</div><div class="line">	Location: System Board Or Motherboard</div><div class="line">	Use: System Memory</div><div class="line">	Error Correction Type: Multi-bit ECC</div><div class="line">	Maximum Capacity: 2 TB  //最大支持2T</div><div class="line">	Error Information Handle: 0x0032</div><div class="line">	Number Of Devices: 32   //32个插槽</div><div class="line">	</div><div class="line">	Handle 0x0041, DMI type 17, 84 bytes</div><div class="line">Memory Device</div><div class="line">	Array Handle: 0x0033</div><div class="line">	Error Information Handle: 0x0040</div><div class="line">	Total Width: 72 bits</div><div class="line">	Data Width: 64 bits</div><div class="line">	Size: 32 GB</div><div class="line">	Form Factor: DIMM</div><div class="line">	Set: None</div><div class="line">	Locator: CPU0_DIMMA0</div><div class="line">	Bank Locator: P0 CHANNEL A</div><div class="line">	Type: DDR4</div><div class="line">	Type Detail: Synchronous Registered (Buffered)</div><div class="line">	Speed: 2933 MT/s                    //内存最大频率</div><div class="line">	Manufacturer: SK Hynix</div><div class="line">	Serial Number: 220F9EC0</div><div class="line">	Asset Tag: Not Specified</div><div class="line">	Part Number: HMAA4GR7AJR8N-WM</div><div class="line">	Rank: 2</div><div class="line">	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如海光CPU内存太多会给内存降频</div><div class="line">	Minimum Voltage: 1.2 V</div><div class="line">	Maximum Voltage: 1.2 V</div><div class="line">	Configured Voltage: 1.2 V</div><div class="line">	Memory Technology: DRAM</div><div class="line">	Memory Operating Mode Capability: Volatile memory</div><div class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</div><div class="line">	Non-Volatile Size: None</div><div class="line">	Volatile Size: 32 GB</div><div class="line">	</div><div class="line">	#lshw</div><div class="line">	*-bank:19  </div><div class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) //内存最大频率</div><div class="line">             product: HMAA4GR7AJR8N-WM</div><div class="line">             vendor: SK Hynix</div><div class="line">             physical id: 13</div><div class="line">             serial: 220F9F63</div><div class="line">             slot: CPU1_DIMMB0</div><div class="line">             size: 32GiB  //实际所插内存大小</div><div class="line">             width: 64 bits</div><div class="line">             clock: 2933MHz (0.3ns)</div></pre></td></tr></table></figure>
-<h3 id="内存速度对延迟的影响"><a href="#内存速度对延迟的影响" class="headerlink" title="内存速度对延迟的影响"></a>内存速度对延迟的影响</h3><p>左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大</p>
-<p><img src="/images/951413iMgBlog/image-20220123094155595.png" alt="image-20220123094155595"></p>
-<p><img src="/images/951413iMgBlog/image-20220123094928794.png" alt="image-20220123094928794"></p>
-<p><img src="/images/951413iMgBlog/image-20220123100052242.png" alt="image-20220123100052242"></p>
-<p>对比一下V62，intel8269 机型</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div></pre></td><td class="code"><pre><div class="line">./Linux/mlc</div><div class="line">Intel(R) Memory Latency Checker - v3.9</div><div class="line">Measuring idle latencies (in ns)...</div><div class="line">    Numa node</div><div class="line">Numa node      0       1</div><div class="line">       0    77.9   143.2</div><div class="line">       1   144.4    78.4</div><div class="line"></div><div class="line">Measuring Peak Injection Memory Bandwidths for the system</div><div class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using traffic with the following read-write ratios</div><div class="line">ALL Reads        :  225097.1</div><div class="line">3:1 Reads-Writes :  212457.8</div><div class="line">2:1 Reads-Writes :  210628.1</div><div class="line">1:1 Reads-Writes :  199315.4</div><div class="line">Stream-triad like:  190341.4</div><div class="line"></div><div class="line">Measuring Memory Bandwidths between nodes within system</div><div class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using Read-only traffic type</div><div class="line">    Numa node</div><div class="line">Numa node      0       1</div><div class="line">       0  113139.4  50923.4</div><div class="line">       1  50916.6 113249.2</div><div class="line"></div><div class="line">Measuring Loaded Latencies for the system</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using Read-only traffic type</div><div class="line">Inject  Latency Bandwidth</div><div class="line">Delay (ns)  MB/sec</div><div class="line">==========================</div><div class="line"> 00000  261.50   225452.5</div><div class="line"> 00002  263.79   225291.6</div><div class="line"> 00008  269.02   225184.1</div><div class="line"> 00015  261.96   225757.6</div><div class="line"> 00050  260.56   226013.2</div><div class="line"> 00100  264.27   225660.1</div><div class="line"> 00200  130.61   195882.4</div><div class="line"> 00300  102.65   133820.1</div><div class="line"> 00400   95.04   101353.2</div><div class="line"> 00500   91.56    81585.9</div><div class="line"> 00700   87.94    58819.1</div><div class="line"> 01000   85.54    41551.3</div><div class="line"> 01300   84.70    32213.6</div><div class="line"> 01700   83.14    24872.5</div><div class="line"> 02500   81.74    17194.3</div><div class="line"> 03500   81.14    12524.2</div><div class="line"> 05000   80.74     9013.2</div><div class="line"> 09000   80.09     5370.0</div><div class="line"> 20000   78.92     2867.2</div><div class="line"></div><div class="line">Measuring cache-to-cache transfer latency (in ns)...</div><div class="line">Local Socket L2-&gt;L2 HIT  latency  51.6</div><div class="line">Local Socket L2-&gt;L2 HITM latency  51.7</div><div class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in writer socket)</div><div class="line">      Reader Numa Node</div><div class="line">Writer Numa Node     0       1</div><div class="line">            0      -   111.3</div><div class="line">            1  111.1       -</div><div class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in reader socket)</div><div class="line">      Reader Numa Node</div><div class="line">Writer Numa Node     0       1</div><div class="line">            0      -   175.8</div><div class="line">            1  176.7       -</div><div class="line"></div><div class="line">[root@numaopen.cloud.et93 /home/xijun.rxj]</div><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                104</div><div class="line">On-line CPU(s) list:   0-103</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    26</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          2</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 85</div><div class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">Stepping:              7</div><div class="line">CPU MHz:               3199.902</div><div class="line">CPU max MHz:           3800.0000</div><div class="line">CPU min MHz:           1200.0000</div><div class="line">BogoMIPS:              4998.89</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              1024K</div><div class="line">L3 cache:              36608K</div><div class="line">NUMA node0 CPU(s):     0-25,52-77</div><div class="line">NUMA node1 CPU(s):     26-51,78-103</div><div class="line"></div><div class="line">#dmidecode -t memory</div><div class="line">Handle 0x003C, DMI type 17, 40 bytes</div><div class="line">Memory Device</div><div class="line">  Array Handle: 0x0026</div><div class="line">  Error Information Handle: Not Provided</div><div class="line">  Total Width: 72 bits</div><div class="line">  Data Width: 64 bits</div><div class="line">  Size: 32 GB</div><div class="line">  Form Factor: DIMM</div><div class="line">  Set: None</div><div class="line">  Locator: CPU1_DIMM_E1</div><div class="line">  Bank Locator: NODE 2</div><div class="line">  Type: DDR4</div><div class="line">  Type Detail: Synchronous</div><div class="line">  Speed: 2666 MHz</div><div class="line">  Manufacturer: Samsung</div><div class="line">  Serial Number: 14998029</div><div class="line">  Asset Tag: CPU1_DIMM_E1_AssetTag</div><div class="line">  Part Number: M393A4K40BB2-CTD</div><div class="line">  Rank: 2</div><div class="line">  Configured Clock Speed: 2666 MHz</div><div class="line">  Minimum Voltage:  1.2 V</div><div class="line">  Maximum Voltage:  1.2 V</div><div class="line">  Configured Voltage:  1.2 V</div></pre></td></tr></table></figure>
-<h2 id="BIOS定制"><a href="#BIOS定制" class="headerlink" title="BIOS定制"></a>BIOS定制</h2><h3 id="ipmitool"><a href="#ipmitool" class="headerlink" title="ipmitool"></a>ipmitool</h3><p>直接在linux内设置主板bios，然后重启就可以生效：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">//Hygon C86 7260 24-core Processor 设置numa node（hygon 7280 就不行了）</div><div class="line">ipmitool raw 0x3e 0x5c 0x00 0x01 0x81 </div><div class="line">ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</div><div class="line"></div><div class="line">//查询是否生效, 注意是 0x5d</div><div class="line">#ipmitool raw 0x3e 0x5d 0x00 0x01</div><div class="line"> 01 81</div></pre></td></tr></table></figure>
-<p><a href="https://blog.csdn.net/zygblock/article/details/53367664" target="_blank" rel="external">ipmitool使用</a></p>
-<p>基本语法：ipmitool raw 0x3e 0x5c index 0x01 value</p>
-<p>raw 0x3e 0x5c 固定不需要改， </p>
-<p>Index表示需要修改的配置项， 接下来的 0x01 固定不需要改</p>
-<p>value 表示值，0x81表示enable; 0x80表示disable</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -3253,7 +3364,7 @@ void test_stub1(void)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">139</span>
+                <span class="site-state-item-count">140</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3275,7 +3386,7 @@ void test_stub1(void)
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">234</span>
+                <span class="site-state-item-count">235</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

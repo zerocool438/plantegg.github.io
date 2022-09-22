@@ -111,7 +111,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613803162582-ce09e9cc-36e4-4805-b968-98d8dd601f52-5197629.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613982679299-d6832373-6a5f-4b54-9440-fd16606b8341.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1613814089563-fb1de2e7-46d4-4bb7-9162-356e39c19a4c.png">
-<meta property="og:updated_time" content="2022-08-24T02:32:50.621Z">
+<meta property="og:updated_time" content="2022-09-22T01:07:00.724Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="网络硬件相关知识">
 <meta name="twitter:description" content="网络硬件相关知识程序员很难有机会接触到底层的一些东西,尤其是偏硬件部分,所以记录下 光纤和普通网线的性能差异以下都是在4.19内核的UOS，光纤交换机为锐捷，服务器是华为鲲鹏920的环境测试所得数据：  光纤稳定性好很多，平均rt是网线的三分之一，最大值则是网线的十分之一. 上述场景下光纤的带宽大约是网线的1.5倍. 实际光纤理论带宽一般都是万M, 网线是千M. 光纤接口：  单模光纤和多模光纤下">
@@ -458,6 +458,7 @@
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">//默认irqbalance绑定一个numa, -1指定多个numa</div><div class="line">echo -1 &gt;/sys/bus/pci/devices/`ethtool -i p1p1 |grep bus-info | awk  '&#123; print $2 &#125;'`/numa_node ; </div><div class="line">// 目录 /sys/class/net/p1p1/ link到了 /sys/bus/pci/devices/`ethtool -i p1p1 |grep bus-info | awk  '&#123; print $2 &#125;'` </div><div class="line"></div><div class="line">执行 irqbalance --debug 进行调试</div></pre></td></tr></table></figure>
 <h4 id="irqbalance指定core"><a href="#irqbalance指定core" class="headerlink" title="irqbalance指定core"></a><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_for_real_time/7/html/tuning_guide/interrupt_and_process_binding" target="_blank" rel="external">irqbalance指定core</a></h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">cat /etc/sysconfig/irqbalance</div><div class="line"># IRQBALANCE_BANNED_CPUS</div><div class="line"># 64 bit bitmask which allows you to indicate which cpu&apos;s should</div><div class="line"># be skipped when reblancing irqs. Cpu numbers which have their</div><div class="line"># corresponding bits set to one in this mask will not have any</div><div class="line"># irq&apos;s assigned to them on rebalance</div><div class="line">#绑定软中断到8-15core, 每位表示4core</div><div class="line">#IRQBALANCE_BANNED_CPUS=ffffffff,ffff00ff</div><div class="line">#绑定软中断到8-15core和第65core</div><div class="line">IRQBALANCE_BANNED_CPUS=ffffffff,fffffdff,ffffffff,ffff00ff</div><div class="line"></div><div class="line">#96core 鲲鹏920下绑前16core</div><div class="line">IRQBALANCE_BANNED_CPUS=ffffffff,ffffffff,ffff0000</div></pre></td></tr></table></figure>
 <h4 id="irqbalance的流程"><a href="#irqbalance的流程" class="headerlink" title="irqbalance的流程"></a><a href="https://blog.csdn.net/whrszzc/article/details/50533866" target="_blank" rel="external">irqbalance的流程</a></h4><p>初始化的过程只是建立链表的过程，暂不描述，只考虑正常运行状态时的流程<br>-处理间隔是10s<br>-清除所有中断的负载值<br>-/proc/interrupts读取中断，并记录中断数<br>-/proc/stat读取每个cpu的负载，并依次计算每个层次每个节点的负载以及每个中断的负载<br>-通过平衡算法找出需要重新分配的中断<br>-把需要重新分配的中断加入到新的节点中<br>-配置smp_affinity使处理生效</p>
+<p><strong>irqbalance服务不会将中断进行跨node迁移，只会在同一numa node中进行优化。</strong></p>
 <h3 id="网卡软中断以及内存远近的测试结论"><a href="#网卡软中断以及内存远近的测试结论" class="headerlink" title="网卡软中断以及内存远近的测试结论"></a>网卡软中断以及内存远近的测试结论</h3><p>一般网卡中断会占用一些CPU，如果把网卡中断挪到其它node的core上，在鲲鹏920上测试（网卡插在node0上），业务跑在node3，网卡中断分别在node0和node3，QPS分别是：179000 VS 175000</p>
 <p>如果将业务跑在node0上，网卡中断分别在node0和node1上得到的QPS分别是：204000 VS 212000 </p>
 <p>以上测试的时候业务进程分配的内存全限制在node0上</p>
@@ -717,7 +718,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">139</span>
+                <span class="site-state-item-count">140</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -739,7 +740,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">234</span>
+                <span class="site-state-item-count">235</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

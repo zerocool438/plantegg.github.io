@@ -102,16 +102,17 @@
 <meta property="og:url" content="https://plantegg.github.io/2020/11/15/Linux内存--HugePage/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="Linux内存–HugePage本系列有如下几篇 Linux 内存问题汇总 Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 /proc/buddyinfo/proc/buddyinfo记录了内存的详细碎片情况。 1234#cat /proc/buddyinfo Node 0, zone      DMA      1">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/false_sharing.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210628144121108.png">
-<meta property="og:updated_time" content="2022-04-26T12:57:13.030Z">
+<meta property="og:updated_time" content="2022-09-22T01:06:56.219Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux内存--HugePage">
 <meta name="twitter:description" content="Linux内存–HugePage本系列有如下几篇 Linux 内存问题汇总 Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 /proc/buddyinfo/proc/buddyinfo记录了内存的详细碎片情况。 1234#cat /proc/buddyinfo Node 0, zone      DMA      1">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/false_sharing.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png">
 
 
 
@@ -434,6 +435,14 @@
 <p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
 </li>
 </ul>
+<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/" target="_blank" rel="external">工具</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">yum install libhugetlbfs-utils -y</div><div class="line"></div><div class="line">//列出</div><div class="line">hugeadm --pool-list</div><div class="line">      Size  Minimum  Current  Maximum  Default</div><div class="line">   2097152    12850    12850    12850        *</div><div class="line">1073741824        0        0        0</div><div class="line"></div><div class="line">hugeadm --list-all-mounts</div><div class="line">Mount Point          Options</div><div class="line">/dev/hugepages       rw,relatime,pagesize=2M</div></pre></td></tr></table></figure>
+<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
+<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
+<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
+<p>8.0中总算优化了这个场景，测试细节可以参考<a href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html" target="_blank" rel="external">这篇</a></p>
+<p>16K VS 4K 性能对比（4K接近翻倍）</p>
+<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
+<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
 <h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a href="http://cenalulu.github.io/linux/huge-page-on-numa/" target="_blank" rel="external">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
 <ul>
 <li>通过CPU间的总线进行通讯，造成总线繁忙</li>
@@ -648,7 +657,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">139</span>
+                <span class="site-state-item-count">140</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -670,7 +679,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">234</span>
+                <span class="site-state-item-count">235</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -712,7 +721,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux内存–HugePage"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#proc-buddyinfo"><span class="nav-number">1.1.</span> <span class="nav-text">/proc/buddyinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#slabtop和-proc-slabinfo"><span class="nav-number">1.2.</span> <span class="nav-text">slabtop和/proc/slabinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#关于hugetlb"><span class="nav-number">1.3.</span> <span class="nav-text">关于hugetlb</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#HugePage"><span class="nav-number">1.4.</span> <span class="nav-text">HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#HugePage-带来的问题"><span class="nav-number">1.4.1.</span> <span class="nav-text">HugePage 带来的问题</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#CPU对同一个Page抢占增多"><span class="nav-number">1.4.1.1.</span> <span class="nav-text">CPU对同一个Page抢占增多</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#连续数据需要跨CPU读取"><span class="nav-number">1.4.1.2.</span> <span class="nav-text">连续数据需要跨CPU读取</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Java进程开启HugePage"><span class="nav-number">1.4.2.</span> <span class="nav-text">Java进程开启HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#修改JVM启动参数"><span class="nav-number">1.4.2.1.</span> <span class="nav-text">修改JVM启动参数</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#修改机器系统配置"><span class="nav-number">1.4.2.2.</span> <span class="nav-text">修改机器系统配置</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#THP"><span class="nav-number">1.5.</span> <span class="nav-text">THP</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#MySQL-场景下代码大页对性能的影响"><span class="nav-number">1.6.</span> <span class="nav-text">MySQL 场景下代码大页对性能的影响</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TLAB-miss高的案例"><span class="nav-number">1.7.</span> <span class="nav-text">TLAB miss高的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#碎片化"><span class="nav-number">1.8.</span> <span class="nav-text">碎片化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#查看pagetypeinfo"><span class="nav-number">1.8.1.</span> <span class="nav-text">查看pagetypeinfo</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存碎片化导致rt升高的诊断"><span class="nav-number">1.9.</span> <span class="nav-text">内存碎片化导致rt升高的诊断</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.10.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux内存–HugePage"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#proc-buddyinfo"><span class="nav-number">1.1.</span> <span class="nav-text">/proc/buddyinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#slabtop和-proc-slabinfo"><span class="nav-number">1.2.</span> <span class="nav-text">slabtop和/proc/slabinfo</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#关于hugetlb"><span class="nav-number">1.3.</span> <span class="nav-text">关于hugetlb</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#HugePage"><span class="nav-number">1.4.</span> <span class="nav-text">HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#工具"><span class="nav-number">1.4.1.</span> <span class="nav-text">工具</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#大页和-MySQL-性能-case"><span class="nav-number">1.4.2.</span> <span class="nav-text">大页和 MySQL 性能 case</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#HugePage-带来的问题"><span class="nav-number">1.4.3.</span> <span class="nav-text">HugePage 带来的问题</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#CPU对同一个Page抢占增多"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">CPU对同一个Page抢占增多</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#连续数据需要跨CPU读取"><span class="nav-number">1.4.3.2.</span> <span class="nav-text">连续数据需要跨CPU读取</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Java进程开启HugePage"><span class="nav-number">1.4.4.</span> <span class="nav-text">Java进程开启HugePage</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#修改JVM启动参数"><span class="nav-number">1.4.4.1.</span> <span class="nav-text">修改JVM启动参数</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#修改机器系统配置"><span class="nav-number">1.4.4.2.</span> <span class="nav-text">修改机器系统配置</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#THP"><span class="nav-number">1.5.</span> <span class="nav-text">THP</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#MySQL-场景下代码大页对性能的影响"><span class="nav-number">1.6.</span> <span class="nav-text">MySQL 场景下代码大页对性能的影响</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TLAB-miss高的案例"><span class="nav-number">1.7.</span> <span class="nav-text">TLAB miss高的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#碎片化"><span class="nav-number">1.8.</span> <span class="nav-text">碎片化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#查看pagetypeinfo"><span class="nav-number">1.8.1.</span> <span class="nav-text">查看pagetypeinfo</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#内存碎片化导致rt升高的诊断"><span class="nav-number">1.9.</span> <span class="nav-text">内存碎片化导致rt升高的诊断</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.10.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

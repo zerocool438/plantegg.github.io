@@ -291,6 +291,183 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/13/kubernetes 卷和volume/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/13/kubernetes 卷和volume/" itemprop="url">kubernetes volume and storage</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-13T17:30:03+08:00">
+                2020-01-13
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="kubernetes-volume-and-storage"><a href="#kubernetes-volume-and-storage" class="headerlink" title="kubernetes volume and storage"></a>kubernetes volume and storage</h1><p>通常部署应用需要一些永久存储，kubernetes提供了PersistentVolume （PV，实际存储）、PersistentVolumeClaim （PVC，Pod访问PV的接口）、StorageClass来支持。</p>
+<p>它为 PersistentVolume 定义了 <a href="https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class" target="_blank" rel="external">StorageClass 名称</a> 为 <code>manual</code>，StorageClass 名称用来将 PersistentVolumeClaim 请求绑定到该 PersistentVolume。</p>
+<p>PVC是用来描述希望使用什么样的或者说是满足什么条件的存储，它的全称是Persistent Volume Claim，也就是持久化存储声明。开发人员使用这个来描述该容器需要一个什么存储。</p>
+<p>PVC就相当于是容器和PV之间的一个接口，使用人员只需要和PVC打交道即可。另外你可能也会想到如果当前环境中没有合适的PV和我的PVC绑定，那么我创建的POD不就失败了么？的确是这样的，不过如果发现这个问题，那么就赶快创建一个合适的PV，那么这时候持久化存储循环控制器会不断的检查PVC和PV，当发现有合适的可以绑定之后它会自动给你绑定上然后被挂起的POD就会自动启动，而不需要你重建POD。</p>
+<p>创建 PersistentVolumeClaim 之后，Kubernetes 控制平面将查找满足申领要求的 PersistentVolume。 如果控制平面找到具有相同 StorageClass 的适当的 PersistentVolume，则将 PersistentVolumeClaim 绑定到该 PersistentVolume 上。<strong>PVC的大小可以小于PV的大小</strong>。</p>
+<p>一旦 PV 和 PVC 绑定后，<code>PersistentVolumeClaim</code> 绑定是排他性的，不管它们是如何绑定的。 PVC 跟 PV 绑定是一对一的映射。</p>
+<p><strong>注意</strong>：PV必须先于POD创建，而且只能是网络存储不能属于任何Node，虽然它支持HostPath类型但由于你不知道POD会被调度到哪个Node上，所以你要定义HostPath类型的PV就要保证所有节点都要有HostPath中指定的路径。</p>
+<h2 id="PV-和PVC的关系"><a href="#PV-和PVC的关系" class="headerlink" title="PV 和PVC的关系"></a>PV 和PVC的关系</h2><p>PVC就会和PV进行绑定，绑定的一些原则：</p>
+<ol>
+<li>PV和PVC中的spec关键字段要匹配，比如存储（storage）大小。</li>
+<li>PV和PVC中的storageClassName字段必须一致，这个后面再说。</li>
+<li>上面的labels中的标签只是增加一些描述，对于PVC和PV的绑定没有关系</li>
+</ol>
+<p>PV的accessModes：支持三种类型</p>
+<ul>
+<li>ReadWriteMany 多路读写，卷能被集群多个节点挂载并读写</li>
+<li>ReadWriteOnce 单路读写，卷只能被单一集群节点挂载读写</li>
+<li>ReadOnlyMany 多路只读，卷能被多个集群节点挂载且只能读</li>
+</ul>
+<p>PV状态：</p>
+<ul>
+<li>Available – 资源尚未被claim使用</li>
+<li>Bound – 卷已经被绑定到claim了</li>
+<li>Released – claim被删除，卷处于释放状态，但未被集群回收。</li>
+<li><p>Failed – 卷自动回收失败</p>
+<p>PV<strong>回收Recycling</strong>—pv可以设置三种回收策略：保留（Retain），回收（Recycle）和删除（Delete）。</p>
+</li>
+<li><p>保留（Retain）： 当删除与之绑定的PVC时候，这个PV被标记为released（PVC与PV解绑但还没有执行回收策略）且之前的数据依然保存在该PV上，但是该PV不可用，需要手动来处理这些数据并删除该PV。</p>
+</li>
+<li>删除（Delete）：当删除与之绑定的PVC时候</li>
+<li>回收（Recycle）：这个在1.14版本中以及被废弃，取而代之的是推荐使用动态存储供给策略，它的功能是当删除与该PV关联的PVC时，自动删除该PV中的所有数据</li>
+</ul>
+<h3 id="更改-PersistentVolume-的回收策略"><a href="#更改-PersistentVolume-的回收策略" class="headerlink" title="更改 PersistentVolume 的回收策略"></a>更改 PersistentVolume 的回收策略</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">#kubectl patch pv wordpress-data -p &apos;&#123;&quot;spec&quot;:&#123;&quot;persistentVolumeReclaimPolicy&quot;:&quot;Delete&quot;&#125;&#125;&apos;</div><div class="line">persistentvolume/wordpress-data patched</div></pre></td></tr></table></figure>
+<p>本地卷（hostPath）也就是LPV不支持动态供给的方式，延迟绑定，就是为了综合考虑所有因素再进行POD调度。其根本原因是动态供给是先调度POD到节点，然后动态创建PV以及绑定PVC最后运行POD；而LPV是先创建与某一节点关联的PV，然后在调度的时候综合考虑各种因素而且要包括PV在哪个节点，然后再进行调度，到达该节点后在进行PVC的绑定。也就说动态供给不考虑节点，LPV必须考虑节点。所以这两种机制有冲突导致无法在动态供给策略下使用LPV。换句话说动态供给是PV跟着POD走，而LPV是POD跟着PV走。</p>
+<h2 id="PV-和-PVC"><a href="#PV-和-PVC" class="headerlink" title="PV 和 PVC"></a>PV 和 PVC</h2><p>创建 pv controller 和pvc</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div></pre></td><td class="code"><pre><div class="line">#cat mysql-pv.yaml </div><div class="line">apiVersion: v1</div><div class="line">kind: PersistentVolume</div><div class="line">metadata:</div><div class="line">  name: simple-pv-volume</div><div class="line">  labels:</div><div class="line">    type: local</div><div class="line">spec:</div><div class="line">  storageClassName: manual</div><div class="line">  capacity:</div><div class="line">    storage: 20Gi</div><div class="line">  accessModes:</div><div class="line">    - ReadWriteOnce</div><div class="line">  hostPath:</div><div class="line">    path: &quot;/mnt/simple&quot;</div><div class="line">---</div><div class="line">apiVersion: v1</div><div class="line">kind: PersistentVolumeClaim</div><div class="line">metadata:</div><div class="line">  name: pv-claim</div><div class="line">spec:</div><div class="line">  storageClassName: manual</div><div class="line">  accessModes:</div><div class="line">    - ReadWriteOnce</div><div class="line">  resources:</div><div class="line">    requests:</div><div class="line">      storage: 20Gi</div></pre></td></tr></table></figure>
+<h3 id="StorageClass"><a href="#StorageClass" class="headerlink" title="StorageClass"></a>StorageClass</h3><p>PV是运维人员来创建的，开发操作PVC，可是大规模集群中可能会有很多PV，如果这些PV都需要运维手动来处理这也是一件很繁琐的事情，所以就有了动态供给概念，也就是Dynamic Provisioning。而我们上面的创建的PV都是静态供给方式，也就是Static Provisioning。而动态供给的关键就是StorageClass，它的作用就是创建PV模板。</p>
+<p>创建StorageClass里面需要定义PV属性比如存储类型、大小等；另外创建这种PV需要用到存储插件。最终效果是，用户提交PVC，里面指定存储类型，如果符合我们定义的StorageClass，则会为其自动创建PV并进行绑定。</p>
+<p><strong>简单可以把storageClass理解为名字，只是这个名字可以重复，然后pvc和pv之间通过storageClass来绑定。</strong></p>
+<p>如下case中两个pv和两个pvc的绑定就是通过storageClass(一致)来实现的（当然pvc要求的大小也必须和pv一致）：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div></pre></td><td class="code"><pre><div class="line">#kubectl get pv</div><div class="line">NAME             CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                              STORAGECLASS   REASON   AGE</div><div class="line">mariadb-pv       8Gi        RWO            Retain           Bound    default/data-wordpress-mariadb-0   db                      3m54s</div><div class="line">wordpress-data   10Gi       RWO            Retain           Bound    default/wordpress                  wordpress               3m54s</div><div class="line"></div><div class="line">[root@az3-k8s-11 15:35 /root/charts/bitnami/wordpress]</div><div class="line">#kubectl get pvc</div><div class="line">NAME                       STATUS   VOLUME           CAPACITY   ACCESS MODES   STORAGECLASS   AGE</div><div class="line">data-wordpress-mariadb-0   Bound    mariadb-pv       8Gi        RWO            db             4m21s</div><div class="line">wordpress                  Bound    wordpress-data   10Gi       RWO            wordpress      4m21s</div><div class="line"></div><div class="line">#cat create-pv.yaml </div><div class="line">apiVersion: v1</div><div class="line">kind: PersistentVolume</div><div class="line">metadata:</div><div class="line">  name: mariadb-pv</div><div class="line">spec:</div><div class="line">  capacity:</div><div class="line">    storage: 8Gi</div><div class="line">  accessModes:</div><div class="line">    - ReadWriteOnce</div><div class="line">  persistentVolumeReclaimPolicy: Retain</div><div class="line">  storageClassName: db</div><div class="line">  hostPath:</div><div class="line">    path: /mnt/mariadb-pv</div><div class="line"></div><div class="line">---</div><div class="line"></div><div class="line">apiVersion: v1</div><div class="line">kind: PersistentVolume</div><div class="line">metadata:</div><div class="line">  name: wordpress-data</div><div class="line">spec:</div><div class="line">  capacity:</div><div class="line">    storage: 10Gi</div><div class="line">  accessModes:</div><div class="line">    - ReadWriteOnce</div><div class="line">  persistentVolumeReclaimPolicy: Retain</div><div class="line">  storageClassName: wordpress</div><div class="line">  hostPath:</div><div class="line">    path: /mnt/wordpress-pv</div><div class="line"></div><div class="line">----对应 pvc的定义参数：</div><div class="line">persistence:</div><div class="line">  enabled: true</div><div class="line">  storageClass: &quot;wordpress&quot;</div><div class="line">  accessMode: ReadWriteOnce</div><div class="line">  size: 10Gi</div><div class="line">  </div><div class="line">  persistence:</div><div class="line">    enabled: true</div><div class="line">    mountPath: /bitnami/mariadb</div><div class="line">    storageClass: &quot;db&quot;</div><div class="line">    annotations: &#123;&#125;</div><div class="line">    accessModes:</div><div class="line">      - ReadWriteOnce</div><div class="line">    size: 8Gi</div></pre></td></tr></table></figure>
+<h4 id="定义StorageClass"><a href="#定义StorageClass" class="headerlink" title="定义StorageClass"></a>定义StorageClass</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">kind: StorageClass</div><div class="line">apiVersion: storage.k8s.io/v1</div><div class="line">metadata:</div><div class="line">  name: local-storage</div><div class="line">provisioner: kubernetes.io/no-provisioner</div><div class="line">volumeBindingMode: WaitForFirstConsumer</div></pre></td></tr></table></figure>
+<h4 id="定义PVC"><a href="#定义PVC" class="headerlink" title="定义PVC"></a>定义PVC</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">kind: PersistentVolumeClaim</div><div class="line">apiVersion: v1</div><div class="line">metadata:</div><div class="line">  name: local-claim</div><div class="line">spec:</div><div class="line">  accessModes:</div><div class="line">  - ReadWriteOnce</div><div class="line">  resources:</div><div class="line">    requests:</div><div class="line">      storage: 5Gi</div><div class="line">  storageClassName: local-storage</div></pre></td></tr></table></figure>
+<h2 id="delete-pv-卡住"><a href="#delete-pv-卡住" class="headerlink" title="delete pv 卡住"></a>delete pv 卡住</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">#kubectl describe pv wordpress-pv</div><div class="line">Name:            wordpress-pv</div><div class="line">Labels:          &lt;none&gt;</div><div class="line">Annotations:     pv.kubernetes.io/bound-by-controller: yes</div><div class="line">Finalizers:      [kubernetes.io/pv-protection]  --- 问题在finalizers</div><div class="line">StorageClass:    </div><div class="line">Status:          Terminating (lasts 18h)</div><div class="line">Claim:           default/wordpress</div><div class="line">Reclaim Policy:  Retain</div><div class="line">Access Modes:    RWO</div><div class="line">VolumeMode:      Filesystem</div><div class="line">Capacity:        10Gi</div><div class="line">Node Affinity:   &lt;none&gt;</div><div class="line">Message:         </div><div class="line">Source:</div><div class="line">    Type:      NFS (an NFS mount that lasts the lifetime of a pod)</div><div class="line">    Server:    192.168.0.111</div><div class="line">    Path:      /mnt/wordpress-pv</div><div class="line">    ReadOnly:  false</div><div class="line">Events:        &lt;none&gt;</div><div class="line"></div><div class="line">先执行后就能自动删除了：</div><div class="line">kubectl patch pv wordpress-pv -p &apos;&#123;&quot;metadata&quot;:&#123;&quot;finalizers&quot;: []&#125;&#125;&apos; --type=merge</div></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/12/kubernetes/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -389,7 +566,7 @@
 <p>镜像源被墙，可以用阿里云镜像源</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line"># 配置源</div><div class="line">cat &lt;&lt;EOF &gt; /etc/yum.repos.d/kubernetes.repo</div><div class="line">[kubernetes]</div><div class="line">name=Kubernetes</div><div class="line">baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64</div><div class="line">enabled=1</div><div class="line">gpgcheck=1</div><div class="line">repo_gpgcheck=1</div><div class="line">gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg</div><div class="line">EOF</div><div class="line"></div><div class="line"># 安装</div><div class="line">yum install -y kubelet kubeadm kubectl ipvsadm</div></pre></td></tr></table></figure>
 <h2 id="初始化集群"><a href="#初始化集群" class="headerlink" title="初始化集群"></a>初始化集群</h2><p>多网卡情况下有必要指定网卡：–apiserver-advertise-address=192.168.0.80</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> 使用本地 image repository</span></div><div class="line">kubeadm init --kubernetes-version=1.18.0  --apiserver-advertise-address=192.168.0.110   --image-repository registry:5000/registry.aliyuncs.com/google_containers  --service-cidr=10.10.0.0/16 --pod-network-cidr=10.122.0.0/16 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"> node join <span class="built_in">command</span></span></div><div class="line"><span class="meta">#</span><span class="bash">kubeadm token create --<span class="built_in">print</span>-join-command</span></div><div class="line">kubeadm join 192.168.0.110:6443 --token 1042rl.b4qn9iuz6xv1ri7b     --discovery-token-ca-cert-hash sha256:341a4bcfde9668077ef29211c2a151fe6e9334eea8955f645698706b3bf47a49 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 查看集群配置</span></span></div><div class="line">kubectl get configmap -n kube-system kubeadm-config -o yaml</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> 使用本地 image repository</span></div><div class="line">kubeadm init --kubernetes-version=1.18.0  --apiserver-advertise-address=192.168.0.110   --image-repository registry:5000/registry.aliyuncs.com/google_containers  --service-cidr=10.10.0.0/16 --pod-network-cidr=10.122.0.0/16 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"> 给api-server 指定外网地址，在服务器有内网、外网多个ip的时候适用</span></div><div class="line">kubeadm init --control-plane-endpoint 外网-ip:6443 --image-repository=registry:5000/registry.aliyuncs.com/google_containers --kubernetes-version=v1.21.0  --pod-network-cidr=172.16.0.0/16</div><div class="line"><span class="meta">#</span><span class="bash">--apiserver-advertise-address=30.1.1.1，设置 apiserver 的 IP 地址，对于多网卡服务器来说很重要（比如 VirtualBox 虚拟机就用了两块网卡），可以指定 apiserver 在哪个网卡上对外提供服务。</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"> node join <span class="built_in">command</span></span></div><div class="line"><span class="meta">#</span><span class="bash">kubeadm token create --<span class="built_in">print</span>-join-command</span></div><div class="line">kubeadm join 192.168.0.110:6443 --token 1042rl.b4qn9iuz6xv1ri7b     --discovery-token-ca-cert-hash sha256:341a4bcfde9668077ef29211c2a151fe6e9334eea8955f645698706b3bf47a49 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 查看集群配置</span></span></div><div class="line">kubectl get configmap -n kube-system kubeadm-config -o yaml</div></pre></td></tr></table></figure>
 <p>将一个node设置为不可调度，隔离出来，比如master 默认是不可调度的</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">kubectl cordon &lt;node-name&gt;</div><div class="line">kubectl uncordon &lt;node-name&gt;</div></pre></td></tr></table></figure>
 <h2 id="kubectl-管理多集群"><a href="#kubectl-管理多集群" class="headerlink" title="kubectl 管理多集群"></a>kubectl 管理多集群</h2><p>一个kubectl可以管理多个集群，主要是 ~/.kube/config 里面的配置，比如：</p>
@@ -409,6 +586,7 @@
 <p>Service cluster IP尽可在集群内部访问，外部请求需要通过NodePort、LoadBalance或者Ingress来访问</p>
 <p>网络插件由 containernetworking-plugins rpm包来提供，一般里面会有flannel、vlan等，安装在 /usr/libexec/cni/ 下（老版本没有带calico）</p>
 <p>kubelet启动参数会配置 KUBELET_NETWORK_ARGS=–network-plugin=cni –cni-conf-dir=/etc/cni/net.d –cni-bin-dir=/usr/libexec/cni </p>
+<h2 id="kubectl-启动容器"><a href="#kubectl-启动容器" class="headerlink" title="kubectl 启动容器"></a>kubectl 启动容器</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">kubectl run -i --tty busybox --image=registry:5000/busybox -- sh</div><div class="line">kubectl attach busybox -c busybox -i -t</div></pre></td></tr></table></figure>
 <h2 id="dashboard"><a href="#dashboard" class="headerlink" title="dashboard"></a>dashboard</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">kubectl apply -f  https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc7/aio/deploy/recommented.yaml</div><div class="line"></div><div class="line">#暴露 dashboard 服务端口 (recommended中如果已经定义了 30000这个nodeport，所以这个命令不需要了)</div><div class="line">kubectl port-forward -n kubernetes-dashboard  svc/kubernetes-dashboard 30000:443 --address 0.0.0.0</div></pre></td></tr></table></figure>
 <p>dashboard login token：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">#kubectl describe secrets -n kubernetes-dashboard   | grep token | awk &apos;NR==3&#123;print $2&#125;&apos;</div><div class="line">eyJhbGciOiJSUzI1NiIsImtpZCI6IndRc0hiMkdpWHRwN1FObTcyeUdhOHI0eUxYLTlvODd2U0NBcU1GY0t1Sk0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJkZWZhdWx0LXRva2VuLXRia3o5Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6ImRlZmF1bHQiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC51aWQiOiIwYzM2MzBhOS0xMjBjLTRhNmYtYjM0ZS0zM2JhMTE1OWU1OWMiLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6a3ViZXJuZXRlcy1kYXNoYm9hcmQ6ZGVmYXVsdCJ9.SP4JEw0kGDmyxrtcUC3HALq99Xr99E-tie5fk4R8odLJBAYN6HxEx80RbTSnkeSMJNApbtwXBLrp4I_w48kTkr93HJFM-oxie3RVLK_mEpZBF2JcfMk6qhfz4RjPiqmG6mGyW47mmY4kQ4fgpYSmZYR4LPJmVMw5W2zo5CGhZT8rKtgmi5_ROmYpWcd2ZUORaexePgesjjKwY19bLEXFOwdsqekwEvj1_zaJhKAehF_dBdgW9foFXkbXOX0xAC0QNnKUwKPanuFOVZDg1fhyV-eyi6c9-KoTYqZMJTqZyIzscIwruIRw0oauJypcdgi7ykxAubMQ4sWEyyFafSEYWg</div></pre></td></tr></table></figure>
@@ -999,21 +1177,31 @@
 </ul>
 <h2 id="Linux-启动进入紧急模式"><a href="#Linux-启动进入紧急模式" class="headerlink" title="Linux 启动进入紧急模式"></a>Linux 启动进入紧急模式</h2><p>可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载，麒麟下容易出现弄丢磁盘的标签和uuid</p>
 <p>否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的</p>
-<h2 id="D状态的进程"><a href="#D状态的进程" class="headerlink" title="D状态的进程"></a><a href="https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html" target="_blank" rel="external">D状态的进程</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">echo 1 &gt;  /proc/sys/kernel/hung_task_panic  </div><div class="line"></div><div class="line">----- 处于D状态的超时时间，默认是120s</div><div class="line">$ cat /proc/sys/kernel/hung_task_timeout_secs</div><div class="line"></div><div class="line">----- 发现hung task之后是否触发panic操作</div><div class="line">$ cat /proc/sys/kernel/hung_task_panic</div><div class="line"></div><div class="line">----- 每次检查的进程数</div><div class="line">$ cat /proc/sys/kernel/hung_task_check_count</div><div class="line"></div><div class="line">----- 为了防止日志被刷爆，设置最多的打印次数</div><div class="line">$ cat /proc/sys/kernel/hung_task_warnings</div></pre></td></tr></table></figure>
+<h2 id="进程状态"><a href="#进程状态" class="headerlink" title="进程状态"></a>进程状态</h2><p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">  Here are the different values that the s, stat and state output specifiers(header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
+<h3 id="D状态的进程"><a href="#D状态的进程" class="headerlink" title="D状态的进程"></a><a href="https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html" target="_blank" rel="external">D状态的进程</a></h3><p>D： Disk sleep（task_uninterruptible)–比如，磁盘满，导致进程D，无法kill</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">echo 1 &gt;  /proc/sys/kernel/hung_task_panic  </div><div class="line"></div><div class="line">----- 处于D状态的超时时间，默认是120s</div><div class="line">$ cat /proc/sys/kernel/hung_task_timeout_secs</div><div class="line"></div><div class="line">----- 发现hung task之后是否触发panic操作</div><div class="line">$ cat /proc/sys/kernel/hung_task_panic</div><div class="line"></div><div class="line">----- 每次检查的进程数</div><div class="line">$ cat /proc/sys/kernel/hung_task_check_count</div><div class="line"></div><div class="line">----- 为了防止日志被刷爆，设置最多的打印次数</div><div class="line">$ cat /proc/sys/kernel/hung_task_warnings</div></pre></td></tr></table></figure>
 <p>这个参数可以用来处理 D 状态进程 </p>
 <p>内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。</p>
 <p>如果配置了 <code>hung_task_panic</code> ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。</p>
 <p>其基本原理也很简单，系统启动时会创建一个内核线程 <code>khungtaskd</code>，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。</p>
-<p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">       Here are the different values that the s, stat and state output specifiers</div><div class="line">       (header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
-<h2 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h2><p>kill -CONT pid 来恢复</p>
+<h3 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h3><p>kill -CONT pid 来恢复</p>
 <p>jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能<strong>导致detach的动作不会被执行</strong>，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。</p>
+<h2 id="路由"><a href="#路由" class="headerlink" title="路由"></a>路由</h2><p>『你所规划的路由必须要是你的网卡 (如 eth0) 或 IP 可以直接沟通 (broadcast) 的情况』才行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCDELRT: No such process // 从bond0没法广播到 11.164.191.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 100.81.183.247 netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable //从bond0.700 没法广播到 100.81.183.247，实际目前从bond0.700没法广播到任何地方</div><div class="line"></div><div class="line">$sudo route add** **11.164.191.247** **dev** **bond0.700</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 100.81.183.247** netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable  //从bond0.700 没法广播到 100.81.183.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCADDRT: Network is unreachable//从bond0没法广播到 11.164.191.247但是从bond0.700可以</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 11.164.191.247** netmask 255.255.255.0 bond0.700</div></pre></td></tr></table></figure>
+<p><a href="https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable" target="_blank" rel="external">https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable</a></p>
 <h2 id="linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”"><a href="#linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”" class="headerlink" title="linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”"></a>linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”</h2><p>在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/timer_list | grep .resolution</div></pre></td></tr></table></figure>
 <p>可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）</p>
+<h2 id="后台执行"><a href="#后台执行" class="headerlink" title="后台执行"></a>后台执行</h2><p>将任务放到后台，断开ssh后还能运行：</p>
+<ol>
+<li>“ctrl-Z”将当前任务挂起；</li>
+<li>“disown -h”让该任务忽略 SIGHUP 信号（不会因为掉线而终止执行）；</li>
+<li>“bg”让该任务在后台恢复运行。</li>
+</ol>
 <h2 id="Linux-进程调度"><a href="#Linux-进程调度" class="headerlink" title="Linux 进程调度"></a>Linux 进程调度</h2><p>Linux的进程调度有一个不太为人熟知的特性，叫做<strong>wakeup affinity</strong>，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。</p>
 <p>这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。<a href="https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA" target="_blank" rel="external">https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA</a></p>
-<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="external">tty</a></h2><p>tty（teletype–最早的一种终端设备） stty 设置tty的相关参数</p>
+<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="external">tty</a></h2><p>tty（teletype–最早的一种终端设备，远程打字机） stty 设置tty的相关参数</p>
 <p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
 <p>/dev/pty（Pseudo Terminal） 伪终端</p>
 <p>/dev/tty 控制终端</p>
@@ -1036,8 +1224,7 @@
 <h2 id="Shebang"><a href="#Shebang" class="headerlink" title="Shebang"></a>Shebang</h2><p>Shebang 的东西 <code>#!/bin/bash</code></p>
 <p>对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。</p>
 <h3 id="ELF（Executable-and-Linkable-Format）"><a href="#ELF（Executable-and-Linkable-Format）" class="headerlink" title="ELF（Executable and Linkable Format）"></a>ELF（Executable and Linkable Format）</h3><p>对应windows下的exe</p>
-<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">$cat change_kernel_parameter.sh </div><div class="line">#cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#grep &apos;&apos; /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">#transparent_hugepage=always</div><div class="line">#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line">#追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i &apos;s/\(GRUB_CMDLINE_LINUX=&quot;.*\)&quot;/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always&quot;/&apos; /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i &apos;s/^#SystemMaxUse=$/SystemMaxUse=500M/g&apos; /etc/systemd/journald.conf</div><div class="line">#重启系统</div><div class="line">#sudo reboot</div><div class="line"></div><div class="line">## 选择不同的kernel启动</div><div class="line">#sudo grep &quot;menuentry &quot; /boot/grub2/grub.cfg | grep -n menu</div><div class="line">##grub认的index从0开始数的</div><div class="line">#sudo grub2-reboot 0; sudo reboot</div></pre></td></tr></table></figure>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
+<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">$cat change_kernel_parameter.sh </div><div class="line">#cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#grep &apos;&apos; /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">#transparent_hugepage=always</div><div class="line">#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line">#追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i &apos;s/\(GRUB_CMDLINE_LINUX=&quot;.*\)&quot;/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always&quot;/&apos; /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i &apos;s/^#SystemMaxUse=$/SystemMaxUse=500M/g&apos; /etc/systemd/journald.conf</div><div class="line">#重启系统</div><div class="line">#sudo reboot</div><div class="line"></div><div class="line">## 选择不同的kernel启动</div><div class="line">#sudo grep &quot;menuentry &quot; /boot/grub2/grub.cfg | grep -n menu</div><div class="line">##grub认的index从0开始数的</div><div class="line">#sudo grub2-reboot 0; sudo reboot</div><div class="line"></div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
 <h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
 <p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
@@ -1068,9 +1255,12 @@
 <p>不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)</p>
 <p>69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网</p>
 <p>Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提供的WEB服务被大家大规模采用</p>
+<p>rpm:  centos/fedora/suse</p>
+<p>deb:  debian/ubuntu/uos(早期基于ubuntu定制，后来基于debian定制，再到最近开始直接基于kernel定制)</p>
 <p>ARPANET：<strong>高等研究計劃署網路</strong>（英語：Advanced Research Projects Agency Network），通称<strong>阿帕网</strong>（英語：ARPANET）是美國<a href="https://zh.m.wikipedia.org/wiki/國防高等研究計劃署" target="_blank" rel="external">國防高等研究計劃署</a>开发的世界上第一个运营的<a href="https://zh.m.wikipedia.org/wiki/封包交換" target="_blank" rel="external">封包交换</a>网络，是全球<a href="https://zh.m.wikipedia.org/wiki/互联网" target="_blank" rel="external">互联网</a>的鼻祖。</p>
 <p>TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。</p>
 <p>在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。</p>
+<h3 id="Deepin-UOS"><a href="#Deepin-UOS" class="headerlink" title="Deepin UOS"></a>Deepin UOS</h3><p><strong><em>\</em>Deepin 与统信 UOS 类似于红帽的 Fedora 与 RHEL 的上下游关系，Deepin 依然保持着原来的社区运营模式，而统信 UOS 则是基于社区版 Deepin 构建的商业发行版，为 Deepin 挖掘更多的商业机会和更大的商业价值，进而反哺社区，形成良性循环**</strong>。</p>
 <h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="external">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
 <p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="external">https://www.jianshu.com/p/ac3e7009a764</a></p>
 <p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
@@ -1907,7 +2097,7 @@ while (true) {
 <p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
 </blockquote>
 <h3 id="pause-和-spinlock"><a href="#pause-和-spinlock" class="headerlink" title="pause 和 spinlock"></a>pause 和 spinlock</h3><p><a href="http://linuxperf.com/?p=138" target="_blank" rel="external">spinlock(自旋锁)</a>是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，<strong>spinlock适合用来保护快进快出的临界区</strong>。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出CPU。</p>
-<p>CAS 下层的实现就用用的spinlock。spinlock的时候申请同一个锁的Core都在同一个变量上自旋等待，缓存同步的开销大，因为每一次锁的释放都需要通知其它N-1个Core invalid cache。锁竞争严重的情况下，这个cacheline会在自旋的Core之间不断的弹跳，导致性能严重下降。</p>
+<p>spinlock的时候申请同一个锁的Core都在同一个变量上自旋等待，缓存同步的开销大，因为每一次锁的释放都需要通知其它N-1个Core invalid cache。锁竞争严重的情况下，这个cacheline会在自旋的Core之间不断的弹跳，导致性能严重下降。</p>
 <p>解决Spinlock的这个问题要靠MCS， MCS自旋锁的策略是为每个处理器创建一个变量副本，每个处理器在自己的本地变量上自旋等待，解决了性能问题。</p>
 <p><img src="/images/951413iMgBlog/image-20210804164219568.png" alt="image-20210804164219568"></p>
 <h3 id="pause-和-cpu-relax"><a href="#pause-和-cpu-relax" class="headerlink" title="pause 和 cpu_relax"></a>pause 和 cpu_relax</h3><p>cpu_relax/UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，<strong>在pause期间，同一个core上的HT可以执行其他指令</strong>。</p>
@@ -1950,7 +2140,7 @@ while (true) {
 <h3 id="cache-一致性"><a href="#cache-一致性" class="headerlink" title="cache 一致性"></a>cache 一致性</h3><p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。<br>这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
 <p>处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了<a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="external"> MESI 协议</a>，以及 MESIF 协议。</p>
 <p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，<br>还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。<br>随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
-<p>cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。</p>
+<p>cache ping-pong(cache-line ping-ponging) 是指不同的CPU core共享位于同一个 cache-line 里边的变量，当不同的CPU频繁的对该变量进行读写时（加锁、释放锁），会导致其他CPU cache-line的失效。</p>
 <h4 id="查看cache-line"><a href="#查看cache-line" class="headerlink" title="查看cache line"></a>查看cache line</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div></pre></td><td class="code"><pre><div class="line">#飞腾(FT2500), ARMv8架构，主频2.1G，服务器两路，每路64个物理core，没有超线程，总共16个numa，每个numa 8个core</div><div class="line">#getconf -a | grep CACHE</div><div class="line">LEVEL1_ICACHE_SIZE                 0</div><div class="line">LEVEL1_ICACHE_ASSOC                0</div><div class="line">LEVEL1_ICACHE_LINESIZE             64  //64 字节</div><div class="line">LEVEL1_DCACHE_SIZE                 0</div><div class="line">LEVEL1_DCACHE_ASSOC                0</div><div class="line">LEVEL1_DCACHE_LINESIZE             64</div><div class="line">LEVEL2_CACHE_SIZE                  0</div><div class="line">LEVEL2_CACHE_ASSOC                 0</div><div class="line">LEVEL2_CACHE_LINESIZE              0</div><div class="line">LEVEL3_CACHE_SIZE                  0</div><div class="line">LEVEL3_CACHE_ASSOC                 0</div><div class="line">LEVEL3_CACHE_LINESIZE              0</div><div class="line">LEVEL4_CACHE_SIZE                  0</div><div class="line">LEVEL4_CACHE_ASSOC                 0</div><div class="line">LEVEL4_CACHE_LINESIZE              0</div><div class="line"></div><div class="line">#intel Xeon Platinum 8269</div><div class="line"># getconf -a | grep CACHE</div><div class="line">LEVEL1_ICACHE_SIZE                 32768</div><div class="line">LEVEL1_ICACHE_ASSOC                8</div><div class="line">LEVEL1_ICACHE_LINESIZE             64</div><div class="line">LEVEL1_DCACHE_SIZE                 32768</div><div class="line">LEVEL1_DCACHE_ASSOC                8</div><div class="line">LEVEL1_DCACHE_LINESIZE             64</div><div class="line">LEVEL2_CACHE_SIZE                  1048576</div><div class="line">LEVEL2_CACHE_ASSOC                 16</div><div class="line">LEVEL2_CACHE_LINESIZE              64</div><div class="line">LEVEL3_CACHE_SIZE                  37486592</div><div class="line">LEVEL3_CACHE_ASSOC                 11</div><div class="line">LEVEL3_CACHE_LINESIZE              64</div><div class="line">LEVEL4_CACHE_SIZE                  0</div><div class="line">LEVEL4_CACHE_ASSOC                 0</div><div class="line">LEVEL4_CACHE_LINESIZE              0</div></pre></td></tr></table></figure>
 <h4 id="Cache-Line-伪共享"><a href="#Cache-Line-伪共享" class="headerlink" title="Cache Line 伪共享"></a>Cache Line 伪共享</h4><p>Cache Line 伪共享问题，就是由多个 CPU 上的多个线程同时修改自己的变量引发的。这些变量表面上是不同的变量，但是实际上却存储在同一条 Cache Line 里（Cache Line 失效的最小单位是整个Line，而不是一个变量）。<br>在这种情况下，由于 Cache 一致性协议，两个处理器都存储有相同的 Cache Line 拷贝的前提下，本地 CPU 变量的修改会导致本地 Cache Line 变成 Modified 状态，然后在其它共享此 Cache Line 的 CPU 上，<br>引发 Cache Line 的 Invaidate 操作，导致 Cache Line 变为 Invalidate 状态，从而使 Cache Line 再次被访问时，发生本地 Cache Miss，从而伤害到应用的性能。<br>在此场景下，多个线程在不同的 CPU 上高频反复访问这种 Cache Line 伪共享的变量，则会因 Cache 颠簸引发严重的性能问题。</p>
 <h4 id="MESI-protocol"><a href="#MESI-protocol" class="headerlink" title="MESI protocol"></a><a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="external">MESI protocol</a></h4><p>MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这个读取应该不是一个 Shared读，猜测是一个Exclusive读（加锁成功肯定会Modified），意味着读取就会让其他 cache line失效。</p>
@@ -2731,345 +2921,6 @@ while (true) {
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/05/该死的virtualbox/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/11/05/该死的virtualbox/" itemprop="url">该死的错误</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-05T12:30:03+08:00">
-                2019-11-05
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="该死的错误"><a href="#该死的错误" class="headerlink" title="该死的错误"></a>该死的错误</h1><p>virtualbox+ubuntu用了快10年了，各种莫名其妙的问题，一直没有换掉，也怪自己 virtualbox+ubuntu组合也许确实奇葩吧，每次碰到问题都没法google到真正的答案了。</p>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>用的过程中突然发现挂载的数据盘找不到了（主要存放工作文件）， 看历史记录发现自己执行了：</p>
-<pre><code>sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512
-</code></pre><p>/dev/sdb1 对应的正是我的大磁盘，哭死去，怪自己不认识 /dev/sdb1！！ 从来不知道自己挂载的磁盘的真正名字，df -lh 也没仔细看过，导致了这次故障</p>
-<p>出问题的history:</p>
-<pre><code>29214  01/11/19 10:29:05 vi /tmp/tmp.txt
-29215  01/11/19 10:29:18 cat /tmp/tmp.txt |grep &quot;^172.16&quot;
-29216  01/11/19 10:29:27 cat /tmp/tmp.txt |grep &quot;^172.16&quot; &gt;cainiao.txt
-29217  01/11/19 10:29:31 wc -l cainiao.txt
-29218  01/11/19 10:33:13 cat cainiao.txt 
-29219  01/11/19 13:36:55 sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512 //故障发生
-29220  01/11/19 13:37:08 cd ..
-29221  01/11/19 13:37:46 cd / //尝试解决
-29222  01/11/19 19:13:45 ls -lh
-29223  01/11/19 19:13:49 cd ali 
-29224  03/11/19 10:24:56 dmesg
-29225  03/11/19 10:27:28 dmesg |grep -i sda
-29226  03/11/19 10:27:59 dmesg |grep -i sata
-29227  04/11/19 10:19:46 dmesg
-29228  04/11/19 10:20:20 dmesg |grep -i sda
-29229  04/11/19 10:25:21 dmesg 
-29230  04/11/19 10:25:25 dmesg 
-29231  04/11/19 10:25:34 dmesg |grep -i sda
-</code></pre><h2 id="尝试"><a href="#尝试" class="headerlink" title="尝试"></a>尝试</h2><p>各种重启还是无效，重新删掉数据盘再次挂载启动后依然看不见</p>
-<h2 id="mount"><a href="#mount" class="headerlink" title="mount"></a>mount</h2><p>virtualbox的启动参数里明确能看到这快盘，和挂载配置</p>
-<p>启动后通过fdisk可以看见这块大硬盘</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>尝试手工mount （这时看到的才是root cause）</p>
-<pre><code>write-protected, mounting read-only 和 bad superblock 错误
-</code></pre><p>尝试 fsck(危险动作）</p>
-<pre><code>sudo fsck -y /dev/sdb1
-</code></pre><p>然后再次mount成功了</p>
-<pre><code>sudo mount  /dev/sdb1 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-</code></pre><p>lsblk(修复后）</p>
-<pre><code>$sudo lsblk
-NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
-sda      8:0    0   20G  0 disk 
-├─sda1   8:1    0   16G  0 part /
-├─sda2   8:2    0    1K  0 part 
-└─sda5   8:5    0    4G  0 part [SWAP]
-sdb      8:16   0   50G  0 disk 
-├─sdb1   8:17   0   46G  0 part /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-├─sdb2   8:18   0    1K  0 part 
-└─sdb5   8:21   0    4G  0 part 
-sr0     11:0    1 73.6M  0 rom  /media/ren/VBox_GAs_6.0.10
-</code></pre><p>进到mount后的目录中，查看磁盘大小正常，但是文件看不见了</p>
-<pre><code>du 发现文件都在lost+found目录下，但是文件夹名字都改成了 inode名字
-</code></pre><p>根据文件夹大小找出之前的文件夹（比较大的），将其复制出来，一切正常了</p>
-<h2 id="修复记录"><a href="#修复记录" class="headerlink" title="修复记录"></a>修复记录</h2><p>其中sda是系统盘，sdb是修复后的大磁盘， sdc 是修复前的大磁盘（备份过的）</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>可以看到没有修复的磁盘 uuid不太正常，类型也识别为 dos(正常应该是ext4）</p>
-<pre><code>[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc
-/dev/sdc: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc1
-/dev/sdc1: PARTUUID=&quot;000e88f6-01&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb
-/dev/sdb: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb1
-/dev/sdb1: UUID=&quot;a64abcac-657d-42ee-8e7b-575eac99bce3&quot; TYPE=&quot;ext4&quot; PARTUUID=&quot;000e88f6-01&quot;
-</code></pre><p>尝试mount失败</p>
-<pre><code>[ren@vb 18:14 /home/ren]
-$sudo mkdir /media/ren/hd
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sd
-sda   sda1  sda2  sda5  sdb   sdb1  sdb2  sdb5  sdc   sdc1  sdc2  sdc5  
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sdc1 /media/ren/hd
-mount: /dev/sdc1 is write-protected, mounting read-only
-mount: wrong fs type, bad option, bad superblock on /dev/sdc1,
-       missing codepage or helper program, or other error
-
-       In some cases useful info is found in syslog - try
-       dmesg | tail or so.
-</code></pre><p>dmesg中比较正常和不正常的磁盘日志，是看不出来差别的（还没有触发mount动作）</p>
-<pre><code>[ren@vb 18:16 /home/ren]
-$dmesg |grep sdc
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Attached SCSI disk
-
-[ren@vb 18:17 /home/ren]
-$dmesg |grep sdb
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdb: sdb1 sdb2 &lt; sdb5 &gt;
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Attached SCSI disk
-[一 11月  4 18:07:02 2019] EXT4-fs (sdb1): mounted filesystem without journal. Opts: (null)
-</code></pre><p>复盘捞到的 syslog 日志</p>
-<pre><code>Nov  4 18:06:57 vb systemd[1]: Device dev-disk-by\x2duuid-5241a10b\x2d5dde\x2d4051\x2d8d8b\x2d05718dd56445.device appeared twice with different sysfs paths /sys/devices/pci0000:00/0000:00:0d.0/ata4/host3/target3:0:0/3:0:0:0/block/sdb/sdb5 and /sys/devices/pci0000:00/0000:00:0d.0/ata5/host4/target4:0:0/4:0:0:0/block/sdc/sdc5
-Nov  4 18:06:57 vb kernel: [    6.754716] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-Nov  4 18:06:57 vb kernel: [    6.754744] sd 4:0:0:0: [sdc] Write Protect is off
-Nov  4 18:06:57 vb kernel: [    6.754747] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-Nov  4 18:06:57 vb kernel: [    6.754757] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-Nov  4 18:06:57 vb kernel: [    6.767797]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
-</code></pre><h2 id="磁盘自检失败，进入emergency-mode"><a href="#磁盘自检失败，进入emergency-mode" class="headerlink" title="磁盘自检失败，进入emergency mode"></a>磁盘自检失败，进入emergency mode</h2><p>修复参考方案：<a href="https://www.jianshu.com/p/7433e0bb38e9" target="_blank" rel="external">https://www.jianshu.com/p/7433e0bb38e9</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">welcome to emergency mode. ......  journalctl -xb...</div><div class="line">Press enter for maintenance</div><div class="line">(or type Control-D to continue):</div></pre></td></tr></table></figure>
-<p>解决方法有两个：</p>
-<p><strong>第一种：跳过检测受损分区</strong></p>
-<p>１、按照提示　执行　journalctl -xb</p>
-<p>　　在日志记录中向下翻页找到损坏的分区是哪个，一般是红色的字体，也可以输入/ fsck fail，按N/n来快速查找（我的是/dev/sda11，这个分区我挂载的是/home）</p>
-<p>２、vi /etc/fstab </p>
-<p>编辑fstab这个文件，注释掉对应的mount行。或将损坏的分区后面的数字从２改为０（０代表启动时不检查该分区）</p>
-<p>３、执行reboot 　重启</p>
-<p><strong>第二种方法：修复受损的分区</strong></p>
-<p>１、执行命令 umount /dev/sdb1 （对应自己出错的设备）卸载设备;</p>
-<p>２、执行命令 fsck -y /dev/sdb1 执行fsck校验并修复文件;</p>
-<p>3、重新mount就可以使用了</p>
-<p>两种方法我都解决了我的问题，不过我还是使用了第二种，第一种总感觉治标不治本！</p>
-<h2 id="奇葩问题"><a href="#奇葩问题" class="headerlink" title="奇葩问题"></a>奇葩问题</h2><p>virtualbox 太多命名其妙的问题了，争取早日换掉</p>
-<h3 id="磁盘uuid重复后，生成新的uuid"><a href="#磁盘uuid重复后，生成新的uuid" class="headerlink" title="磁盘uuid重复后，生成新的uuid"></a>磁盘uuid重复后，生成新的uuid</h3><p>[/drives/c/Program Files/Oracle/VirtualBox]<br>$./VBoxManage.exe internalcommands sethduuid “D:\vb\ubuntu-disk.vmdk”</p>
-<h3 id="Windows系统突然dns不工作了"><a href="#Windows系统突然dns不工作了" class="headerlink" title="Windows系统突然dns不工作了"></a>Windows系统突然dns不工作了</h3><p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
-<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
-</code></pre><h3 id="ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings"><a href="#ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings" class="headerlink" title="ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings"></a>ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings</h3><p><a href="http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button" target="_blank" rel="external">http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button</a></p>
-<h3 id="ubuntu无法关闭锁屏，无法修改配置："><a href="#ubuntu无法关闭锁屏，无法修改配置：" class="headerlink" title="ubuntu无法关闭锁屏，无法修改配置："></a>ubuntu无法关闭锁屏，无法修改配置：</h3><p>sudo mv ~/.config/dconf ~/.config/dconf.bak //删掉dconf就好了<br><a href="https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings" target="_blank" rel="external">https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings</a></p>
-<h2 id="感受"><a href="#感受" class="headerlink" title="感受"></a>感受</h2><p>自己不懂 /dev/sdb 导致了这次问题</p>
-<p>这种错误居然从virtualbox或者ubuntu的系统日志中找不到相关信息，这个应该是没有触发挂载。自己对mount、fsck不够熟悉也是主要原因，运气好在fsck 居然没丢任何数据</p>
-<h2 id="历史老问题"><a href="#历史老问题" class="headerlink" title="历史老问题"></a>历史老问题</h2><p>这种额外挂载的磁盘在ubuntu下启动后不会出现，需要在ubuntu文件系统中人肉访问一次，就触发了挂载动作，然后在bash中才可以正常使用，这个问题我折腾了N年都没解决，实际这次发现是自己对挂载、fstab不够了解。</p>
-<p>在 /etc/fstab 中增加boot时挂载这个问题终于解决掉了</p>
-<pre><code>UUID=a64abcac-657d-42ee-8e7b-575eac99bce3 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3  ext4 defaults 1 1
-</code></pre>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -3119,7 +2970,7 @@ Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">139</span>
+                <span class="site-state-item-count">140</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3141,7 +2992,7 @@ Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">234</span>
+                <span class="site-state-item-count">235</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

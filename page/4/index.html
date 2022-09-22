@@ -447,6 +447,7 @@
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">//默认irqbalance绑定一个numa, -1指定多个numa</div><div class="line">echo -1 &gt;/sys/bus/pci/devices/`ethtool -i p1p1 |grep bus-info | awk  '&#123; print $2 &#125;'`/numa_node ; </div><div class="line">// 目录 /sys/class/net/p1p1/ link到了 /sys/bus/pci/devices/`ethtool -i p1p1 |grep bus-info | awk  '&#123; print $2 &#125;'` </div><div class="line"></div><div class="line">执行 irqbalance --debug 进行调试</div></pre></td></tr></table></figure>
 <h4 id="irqbalance指定core"><a href="#irqbalance指定core" class="headerlink" title="irqbalance指定core"></a><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_for_real_time/7/html/tuning_guide/interrupt_and_process_binding" target="_blank" rel="external">irqbalance指定core</a></h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">cat /etc/sysconfig/irqbalance</div><div class="line"># IRQBALANCE_BANNED_CPUS</div><div class="line"># 64 bit bitmask which allows you to indicate which cpu&apos;s should</div><div class="line"># be skipped when reblancing irqs. Cpu numbers which have their</div><div class="line"># corresponding bits set to one in this mask will not have any</div><div class="line"># irq&apos;s assigned to them on rebalance</div><div class="line">#绑定软中断到8-15core, 每位表示4core</div><div class="line">#IRQBALANCE_BANNED_CPUS=ffffffff,ffff00ff</div><div class="line">#绑定软中断到8-15core和第65core</div><div class="line">IRQBALANCE_BANNED_CPUS=ffffffff,fffffdff,ffffffff,ffff00ff</div><div class="line"></div><div class="line">#96core 鲲鹏920下绑前16core</div><div class="line">IRQBALANCE_BANNED_CPUS=ffffffff,ffffffff,ffff0000</div></pre></td></tr></table></figure>
 <h4 id="irqbalance的流程"><a href="#irqbalance的流程" class="headerlink" title="irqbalance的流程"></a><a href="https://blog.csdn.net/whrszzc/article/details/50533866" target="_blank" rel="external">irqbalance的流程</a></h4><p>初始化的过程只是建立链表的过程，暂不描述，只考虑正常运行状态时的流程<br>-处理间隔是10s<br>-清除所有中断的负载值<br>-/proc/interrupts读取中断，并记录中断数<br>-/proc/stat读取每个cpu的负载，并依次计算每个层次每个节点的负载以及每个中断的负载<br>-通过平衡算法找出需要重新分配的中断<br>-把需要重新分配的中断加入到新的节点中<br>-配置smp_affinity使处理生效</p>
+<p><strong>irqbalance服务不会将中断进行跨node迁移，只会在同一numa node中进行优化。</strong></p>
 <h3 id="网卡软中断以及内存远近的测试结论"><a href="#网卡软中断以及内存远近的测试结论" class="headerlink" title="网卡软中断以及内存远近的测试结论"></a>网卡软中断以及内存远近的测试结论</h3><p>一般网卡中断会占用一些CPU，如果把网卡中断挪到其它node的core上，在鲲鹏920上测试（网卡插在node0上），业务跑在node3，网卡中断分别在node0和node3，QPS分别是：179000 VS 175000</p>
 <p>如果将业务跑在node0上，网卡中断分别在node0和node1上得到的QPS分别是：204000 VS 212000 </p>
 <p>以上测试的时候业务进程分配的内存全限制在node0上</p>
@@ -2379,6 +2380,14 @@
 <p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
 </li>
 </ul>
+<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/" target="_blank" rel="external">工具</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">yum install libhugetlbfs-utils -y</div><div class="line"></div><div class="line">//列出</div><div class="line">hugeadm --pool-list</div><div class="line">      Size  Minimum  Current  Maximum  Default</div><div class="line">   2097152    12850    12850    12850        *</div><div class="line">1073741824        0        0        0</div><div class="line"></div><div class="line">hugeadm --list-all-mounts</div><div class="line">Mount Point          Options</div><div class="line">/dev/hugepages       rw,relatime,pagesize=2M</div></pre></td></tr></table></figure>
+<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
+<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
+<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
+<p>8.0中总算优化了这个场景，测试细节可以参考<a href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html" target="_blank" rel="external">这篇</a></p>
+<p>16K VS 4K 性能对比（4K接近翻倍）</p>
+<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
+<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
 <h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a href="http://cenalulu.github.io/linux/huge-page-on-numa/" target="_blank" rel="external">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
 <ul>
 <li>通过CPU间的总线进行通讯，造成总线繁忙</li>
@@ -2544,7 +2553,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">139</span>
+                <span class="site-state-item-count">140</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -2566,7 +2575,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">234</span>
+                <span class="site-state-item-count">235</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
