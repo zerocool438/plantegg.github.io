@@ -110,6 +110,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/58c7dc9084fa648f204a6468209ca788.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/e6d5e70e0cbdc4ba662d79f2306758b6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210511155708234.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/zh-cn_image_0000001237942853.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f4.jpg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png">
@@ -128,7 +129,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2022-06-20T09:09:39.484Z">
+<meta property="og:updated_time" content="2022-10-11T08:17:59.901Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
 <meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
@@ -450,7 +451,7 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$sudo perf stat -a -- sleep 10</div><div class="line"></div><div class="line">Performance counter stats for &apos;system wide&apos;:</div><div class="line"></div><div class="line"> 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)</div><div class="line">        45,709      context-switches          #    0.191 K/sec                    (100.00%)</div><div class="line">         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)</div><div class="line">        79,586      page-faults               #    0.332 K/sec</div><div class="line"> 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)</div><div class="line"> 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)</div><div class="line"> 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)</div><div class="line"> 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles</div><div class="line">                                              #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)</div><div class="line">   447,584,805      branches                  #    1.866 M/sec                    (83.33%)</div><div class="line">     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)</div></pre></td></tr></table></figure>
 <p>stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发生停滞的时钟周期。stalled-cycles-frontend指指令读取或解码的指令步骤，而stalled-cycles-backend则是指令执行步骤。第二列中的cycles idle其实意思跟stalled是一样的，由于指令执行停滞了，所以指令管道也就空闲了，千万不要误解为CPU的空闲率。这个数值是由stalled-cycles-frontend或stalled-cycles-backend除以上面的cycles得出的。</p>
 <p>另外cpu可以同时有多条pipeline，这就是理论上最大的IPC.</p>
-<h3 id="pipeline效率和IPC"><a href="#pipeline效率和IPC" class="headerlink" title="pipeline效率和IPC"></a>pipeline效率和IPC</h3><p>虽然一个指令需要5个步骤，也就是完全执行完需要5个cycles，这样一个时钟周期最多能执行0.2条指令，IPC就是0.2，显然太低了。</p>
+<h3 id="pipeline效率和IPC"><a href="#pipeline效率和IPC" class="headerlink" title="pipeline效率和IPC"></a><a href="https://www.hikunpeng.com/document/detail/zh/kunpenggrf/progtuneg/kunpengprogramming_05_0009.html" target="_blank" rel="external">pipeline效率和IPC</a></h3><p>虽然一个指令需要5个步骤，也就是完全执行完需要5个cycles，这样一个时钟周期最多能执行0.2条指令，IPC就是0.2，显然太低了。</p>
 <ul>
 <li>非流水线：</li>
 </ul>
@@ -473,6 +474,9 @@
 <p>一般而言流水线的超标量不能超过单条流水线的深度</p>
 <p>每个功能单元都有独立的管道，甚至可以具有不同的长度。 这使更简单的指令可以更快地完成，从而减少了等待时间。 在各个管道内部之间也有许多旁路，但是为简单起见，这些旁路已被省略。</p>
 <p>下图中，处理器可能每个周期执行3条不同的指令，例如，一个整数，一个浮点和一个存储器操作。 甚至可以添加更多的功能单元，以便处理器能够在每个周期执行两个整数指令，或两个浮点指令，或使用任何其他方式。</p>
+<p>鲲鹏的流水线结构：</p>
+<p><img src="/images/951413iMgBlog/zh-cn_image_0000001237942853.png" alt="zh-cn_image_0000001237942853.png"></p>
+<p>三级流水线的执行容易被打断，导致指令执行效率低，后面发展起来的五级指令流水线技术被认为是经典的处理器设置方式，已经在多种RISC处理器中广泛使用，它在三级流水线（取指、译码、执行）的基础上，增加了两级处理，将“执行”动作进一步分解为执行、访存、回写，解决了三级流水线中存储器访问指令在指令执行阶段的延迟问题，但是容易出现寄存器互锁等问题导致流水线中断。鲲鹏920处理器采用八级流水线结构，首先是提取指令，然后通过解码、寄存器重命名和调度阶段。一旦完成调度，指令将无序发射到八个执行管道中的一个，每个执行管道每个周期都可以接受并完成一条指令，最后就是访存和回写操作。</p>
 <p><img src="/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png" alt="img"></p>
 <p>流水线的设计可以实现不间断取指、解码、执行、写回，也可以同时做几条流水线一起取指、解码、执行、写回，也就引出了超标量设计。</p>
 <p> 超标量处理器可以在一个时钟周期内执行多个指令。需要注意的是，每个执行单元不是单独的处理器，而是单个CPU内(也可以理解成单core)的执行资源，在上面图中也由体现。</p>
@@ -498,7 +502,45 @@
 <p>​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。。</p>
 <p>​    如今，现代处理器努力将每个流水线阶段的门延迟数量降低到很少（大约12-25个）。</p>
 <p>​    在PowerPC G4e中为7-12，在ARM11和Cortex-A9中为8+，在Athlon中为10-15，在Pentium-Pro/II/III/M中为12+，在Athlon64/Phenom/Fusion-A中为12-17，在Cortex-A8中为13+，在UltraSPARC-III/IV中为14，在Core 2中为14+，在Core i*2中为14-18+，在Core i中为16+，在PowerPC G5中为16-25，在Pentium-4中为20+， 在奔腾4E中为31+。 与RISC相比，x86处理器通常具有更深的流水线，因为它们需要做更多的工作来解码复杂的x86指令。UltraSPARC-T1/T2/T3是深度流水线趋势的例外（UltraSPARC-T1仅6个，T2/T3是8-12，因为其倾向让单核简化的方式来堆叠核数量）。</p>
-<p>​    例如 Cortex-A15、Sandy Bridge 都分别具备 15 级、14 级流水线，而 Intel NetBurst（Pentium 4）、AMD Bulldozer 都是 20 级流水线，它们的工位数都远超出基本的四（或者五）工位流水线设计。更长的流水线虽然能提高频率，但是代价是耗电更高而且可能会有各种性能惩罚。</p>
+<p>​    不同架构的CPU流水线的级数（长度）存在很大差异，从几级到几十级不等，流水线级数越多，CPU结构就越复杂，功能也就越强大，同时功耗也会越大。相反地，流水线级数少，CPU结构简单，功耗就会降低很多。下表是一些典型的ARM流水线级别。</p>
+<p>例如 Cortex-A15、Sandy Bridge 都分别具备 15 级、14 级流水线，而 Intel NetBurst（Pentium 4）、AMD Bulldozer 都是 20 级流水线，它们的工位数都远超出基本的四（或者五）工位流水线设计。更长的流水线虽然能提高频率，但是代价是耗电更高而且可能会有各种性能惩罚。</p>
+<p>ARM指令集以及对应的流水线</p>
+<table>
+<thead>
+<tr>
+<th>型号</th>
+<th>指令集</th>
+<th>流水线</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ARM7</td>
+<td>ARMv4</td>
+<td>3级</td>
+</tr>
+<tr>
+<td>ARM9</td>
+<td>ARMv5</td>
+<td>5级</td>
+</tr>
+<tr>
+<td>ARM11</td>
+<td>ARMv6</td>
+<td>8级</td>
+</tr>
+<tr>
+<td>Cortex-A8</td>
+<td>ARMv7-A</td>
+<td>13级</td>
+</tr>
+<tr>
+<td>鲲鹏920/Cortex-A55</td>
+<td>ARMv8</td>
+<td>8级</td>
+</tr>
+</tbody>
+</table>
 <h3 id="指令延时"><a href="#指令延时" class="headerlink" title="指令延时"></a>指令延时</h3><p>​    考虑一个非流水线机器，具有6个执行阶段，长度分别为50 ns，50 ns，60 ns，60 ns，50 ns和50 ns。</p>
 <p>​    -这台机器上的指令等待时间是多少？</p>
 <p>​    -执行100条指令需要多少时间？</p>
@@ -548,7 +590,7 @@
 <p>stat 命令运行一个程序并收集性能计数器统计信息;</p>
 <p>timechart 命令为可视化某个负载在某时 间段的系统总体性能的工具;</p>
 <p>top 命令为系统剖析工具。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div></pre></td><td class="code"><pre><div class="line">sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）</div><div class="line">perf record -e &apos;skb:consume_skb&apos; -ag  //记录网络消耗</div><div class="line">perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1</div><div class="line">sudo perf sched record -- sleep 1 //记录cpu调度的延时</div><div class="line">sudo perf sched latency //查看</div><div class="line"></div><div class="line">perf record --call-graph dwarf</div><div class="line">perf report </div><div class="line">perf report --call-graph -G //反转调用关系</div><div class="line"></div><div class="line"></div><div class="line">展开汇编结果</div><div class="line"></div><div class="line">  占比   行号  指令</div><div class="line">       │      mov    %r13,%rax</div><div class="line">       │      mov    %r8,%rbx</div><div class="line">  0.56 │      mov    %r9,%rcx</div><div class="line">  0.19 │      lock   cmpxchg16b 0x10(%rsi) //加锁占89.53，下一行</div><div class="line"> 89.53 │      sete   %al</div><div class="line">  1.50 │      mov    %al,%r13b</div><div class="line">  0.19 │      mov    $0x1,%al</div><div class="line">       │      test   %r13b,%r13b</div><div class="line">       │    ↓ je     eb</div><div class="line">       │    ↓ jmpq   ef</div><div class="line">       │47:   mov    %r9,(%rsp)</div><div class="line">       </div><div class="line"></div><div class="line">//如下代码的汇编</div><div class="line">void main() &#123;</div><div class="line"></div><div class="line">	while(1) &#123;</div><div class="line">		 __asm__ (&quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause&quot;);</div><div class="line">	&#125;</div><div class="line">&#125;       </div><div class="line"></div><div class="line">//每行pause占20%</div><div class="line">       │</div><div class="line">       │    Disassembly of section .text:</div><div class="line">       │</div><div class="line">       │    00000000004004ed &lt;main&gt;:</div><div class="line">       │    main():</div><div class="line">       │      push   %rbp</div><div class="line">       │      mov    %rsp,%rbp</div><div class="line">  0.71 │ 4:   pause</div><div class="line"> 19.35 │      pause</div><div class="line"> 20.20 │      pause</div><div class="line"> 19.81 │      pause</div><div class="line"> 19.88 │      pause</div><div class="line"> 20.04 │    ↑ jmp    4</div></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div></pre></td><td class="code"><pre><div class="line">sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）</div><div class="line">perf record -e &apos;skb:consume_skb&apos; -ag  //记录网络消耗</div><div class="line">perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1</div><div class="line">sudo perf sched record -- sleep 1 //记录cpu调度的延时</div><div class="line">sudo perf sched latency //查看</div><div class="line"></div><div class="line">perf sched latency --sort max //查看上一步记录的结果，以调度延迟排序。</div><div class="line"></div><div class="line">perf record --call-graph dwarf</div><div class="line">perf report </div><div class="line">perf report --call-graph -G //反转调用关系</div><div class="line"></div><div class="line"></div><div class="line">展开汇编结果</div><div class="line"></div><div class="line">  占比   行号  指令</div><div class="line">       │      mov    %r13,%rax</div><div class="line">       │      mov    %r8,%rbx</div><div class="line">  0.56 │      mov    %r9,%rcx</div><div class="line">  0.19 │      lock   cmpxchg16b 0x10(%rsi) //加锁占89.53，下一行</div><div class="line"> 89.53 │      sete   %al</div><div class="line">  1.50 │      mov    %al,%r13b</div><div class="line">  0.19 │      mov    $0x1,%al</div><div class="line">       │      test   %r13b,%r13b</div><div class="line">       │    ↓ je     eb</div><div class="line">       │    ↓ jmpq   ef</div><div class="line">       │47:   mov    %r9,(%rsp)</div><div class="line">       </div><div class="line"></div><div class="line">//如下代码的汇编</div><div class="line">void main() &#123;</div><div class="line"></div><div class="line">	while(1) &#123;</div><div class="line">		 __asm__ (&quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause\n\t&quot;</div><div class="line">				 &quot;pause&quot;);</div><div class="line">	&#125;</div><div class="line">&#125;       </div><div class="line"></div><div class="line">//每行pause占20%</div><div class="line">       │</div><div class="line">       │    Disassembly of section .text:</div><div class="line">       │</div><div class="line">       │    00000000004004ed &lt;main&gt;:</div><div class="line">       │    main():</div><div class="line">       │      push   %rbp</div><div class="line">       │      mov    %rsp,%rbp</div><div class="line">  0.71 │ 4:   pause</div><div class="line"> 19.35 │      pause</div><div class="line"> 20.20 │      pause</div><div class="line"> 19.81 │      pause</div><div class="line"> 19.88 │      pause</div><div class="line"> 20.04 │    ↑ jmp    4</div></pre></td></tr></table></figure>
 <p>网络收包软中断</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div></pre></td><td class="code"><pre><div class="line">_raw_spin_lock_irqsave  /proc/kcore</div><div class="line">       │    Disassembly of section load2:</div><div class="line">       │</div><div class="line">       │    ffffffff81662b00 &lt;load2+0x662b00&gt;:</div><div class="line">  0.30 │      nop</div><div class="line">       │      push   %rbp</div><div class="line">  0.21 │      mov    %rsp,%rbp</div><div class="line">  0.15 │      push   %rbx</div><div class="line">  0.12 │      pushfq</div><div class="line">  0.57 │      pop    %rax</div><div class="line">  0.45 │      nop</div><div class="line">  0.15 │      mov    %rax,%rbx</div><div class="line">  0.21 │      cli</div><div class="line">  1.20 │      nop</div><div class="line">       │      mov    $0x20000,%edx</div><div class="line">       │      lock   xadd   %edx,(%rdi) //加锁耗时83%</div><div class="line"> 83.42 │      mov    %edx,%ecx</div><div class="line">       │      shr    $0x10,%ecx</div><div class="line">  0.66 │      cmp    %dx,%cx</div><div class="line">       │    ↓ jne    34</div><div class="line">  0.06 │2e:   mov    %rbx,%rax</div><div class="line">       │      pop    %rbx</div><div class="line">       │      pop    %rbp</div><div class="line">  0.57 │    ← retq</div><div class="line">  0.12 │34:   mov    %ecx,%r8d</div><div class="line">  0.03 │      movzwl %cx,%esi</div><div class="line">       │3a:   mov    $0x8000,%eax</div><div class="line">       │    ↓ jmp    4f</div><div class="line">       │      nop</div><div class="line">  0.06 │48:   pause</div><div class="line">  4.67 │      sub    $0x1,%eax</div><div class="line">       │    ↓ je     69</div><div class="line">  0.12 │4f:   movzwl (%rdi),%edx  //慢操作</div><div class="line">  6.73 │      mov    %edx,%ecx</div><div class="line">       │      xor    %r8d,%ecx</div><div class="line">       │      and    $0xfffe,%ecx</div><div class="line">       │    ↑ jne    48</div><div class="line">  0.12 │      movzwl %dx,%esi</div><div class="line">  0.09 │      callq  0xffffffff8165501c</div><div class="line">       │    ↑ jmp    2e</div><div class="line">       │69:   nop</div><div class="line">       │    ↑ jmp    3a</div></pre></td></tr></table></figure>
 <p>可以通过perf看到cpu的使用情况：</p>
@@ -679,7 +721,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 <p><a href="https://www.atatech.org/articles/109158" target="_blank" rel="external">CPU体系结构</a></p>
 <p><a href="https://mp.weixin.qq.com/s/KaDJ1EF5Y-ndjRv2iUO3cA" target="_blank" rel="external">震惊，用了这么多年的 CPU 利用率，其实是错的</a>cpu占用不代表在做事情，可能是stalled，也就是流水线卡顿，但是cpu占用了，实际没事情做。</p>
 <p><a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="external">CPU Utilization is Wrong</a></p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd" target="_blank" rel="external">https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd</a> </p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&amp;mid=2247483755&amp;idx=1&amp;sn=5324f7e46c91739b566dfc1d0847fc4a&amp;chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&amp;mpshare=1&amp;scene=1&amp;srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd" target="_blank" rel="external">震惊，用了这么多年的 CPU 利用率，其实是错的</a></p>
 <p><a href="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/" target="_blank" rel="external">https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/</a></p>
 <p> <a href="http://www.akkadia.org/drepper/cpumemory.pdf" target="_blank" rel="external">What Every Programmer Should Know About Main Memory</a> by Ulrich Drepper </p>
 <p><a href="https://mazzo.li/posts/fast-pipes.html" target="_blank" rel="external">How fast are Linux pipes anyway?</a> 优化 pipes 的读写带宽，perf、hugepage、splice使用</p>
@@ -815,7 +857,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">140</span>
+                <span class="site-state-item-count">142</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

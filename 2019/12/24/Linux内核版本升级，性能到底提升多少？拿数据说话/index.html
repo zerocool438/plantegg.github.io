@@ -113,7 +113,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/bec4e8105091bc4b8a263aef245c0ce9.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1550cc74116a56220d25e1434a675d14.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/3f79909f89889459d1f0dfe4fa0a2f53.png">
-<meta property="og:updated_time" content="2022-08-24T02:32:51.267Z">
+<meta property="og:updated_time" content="2022-10-11T08:17:58.898Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Linux内核版本升级，性能到底提升多少？拿数据说话">
 <meta name="twitter:description" content="Linux内核版本升级，性能到底提升多少？背景X 产品在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差 以下不作特殊说明的话都是在相同核数的Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz下得到的数据，最后还会比较相同内核下不同机型/CPU型号的性能差异。 场景都是用sy">
@@ -426,7 +426,7 @@ tcp_lat:
 </code></pre><p>这下不用担心内核同学怼回来了，拿着这个数据直接找他们，可以稳定重现。</p>
 <p>经过内核同学排查后，发现默认镜像做了一些安全加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为 X 的OS只给我们自己用，上面部署的代码都是X 产品自己的代码，没有客户代码，客户也不能够ssh连上X 产品节点）</p>
 <pre><code>去掉 melt、spec 能到20000， 去掉sonypatch能到21000 
-</code></pre><p>关闭的办法在grub配置中增加这些参数：</p>
+</code></pre><p>关闭的办法在 /etc/default/grub 里 GRUB_CMDLINE_LINUX 配置中增加这些参数：</p>
 <pre><code>nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off
 </code></pre><p>关掉之后的状态看起来是这样的：</p>
 <pre><code>$sudo cat /sys/devices/system/cpu/vulnerabilities/*
@@ -437,6 +437,10 @@ Vulnerable
 Vulnerable: __user pointer sanitization and usercopy barriers only; no swapgs barriers
 Vulnerable, STIBP: disabled
 </code></pre><p>这块参考<a href="https://help.aliyun.com/knowledge_detail/154567.html?spm=a2c4g.11186623.2.12.887e38843VLHkv" target="_blank" rel="external">阿里云文档</a> 和<a href="https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC" target="_blank" rel="external">这个</a></p>
+<p>开启漏洞补丁（性能差）：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line"># uname -r</div><div class="line">4.19.91-24.8.an8.x86_64</div><div class="line"></div><div class="line"># cat /proc/cmdline</div><div class="line">BOOT_IMAGE=(hd0,gpt2)/vmlinuz-4.19.91-24.8.an8.x86_64 root=UUID=ac9faf02-89c6-44d8-80b2-0f8ea1084fc3 ro console=tty0 crashkernel=auto console=ttyS0,115200 crashkernel=0M-2G:0M,2G-8G:192M,8G-:256M</div><div class="line">[root@Anolis82 ~]# sudo cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">KVM: Mitigation: Split huge pages</div><div class="line">Mitigation: PTE Inversion; VMX: conditional cache flushes, SMT vulnerable</div><div class="line">Mitigation: Clear CPU buffers; SMT vulnerable</div><div class="line">Mitigation: PTI</div><div class="line">Mitigation: Speculative Store Bypass disabled via prctl and seccomp</div><div class="line">Mitigation: usercopy/swapgs barriers and __user pointer sanitization</div><div class="line">Mitigation: Full generic retpoline, IBPB: conditional, IBRS_FW, STIBP: conditional, RSB filling</div><div class="line">Not affected</div><div class="line">Mitigation: Clear CPU buffers; SMT vulnerable</div></pre></td></tr></table></figure>
+<p>关闭（性能好）：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">[root@Anolis82 ~]# sudo cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">KVM: Vulnerable</div><div class="line">Mitigation: PTE Inversion; VMX: vulnerable</div><div class="line">Vulnerable; SMT vulnerable</div><div class="line">Vulnerable</div><div class="line">Vulnerable</div><div class="line">Vulnerable: __user pointer sanitization and usercopy barriers only; no swapgs barriers</div><div class="line">Vulnerable, IBPB: disabled, STIBP: disabled</div><div class="line">Not affected</div><div class="line">Vulnerable</div><div class="line">[root@Anolis82 ~]# cat /proc/cmdline</div><div class="line">BOOT_IMAGE=(hd0,gpt2)/vmlinuz-4.19.91-24.8.an8.x86_64 root=UUID=ac9faf02-89c6-44d8-80b2-0f8ea1084fc3 ro console=tty0 crashkernel=auto console=ttyS0,115200 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off crashkernel=0M-2G:0M,2G-8G:192M,8G-:256M</div></pre></td></tr></table></figure>
 <h3 id="4-9版本的内核性能"><a href="#4-9版本的内核性能" class="headerlink" title="4.9版本的内核性能"></a>4.9版本的内核性能</h3><p>但是性能还是不符合预期，总是比2.6.32差点。在中间经过几个星期排查不能解决问题，陷入僵局的过程中，尝试了一下4.9内核，果然有惊喜。</p>
 <p>下图中对4.9的内核版本验证发现，tps能到24000，明显比2.6.32要好，所以传说中的新内核版本性能要好看来是真的，这下坚定了升级的念头，同时也看到了兜底的方案–最差就升级到4.9</p>
 <p><img src="/images/oss/2f035e145f1bc41eb4a8b8bda8ed4ea2.png" alt="image.png"></p>
@@ -701,7 +705,7 @@ sudo perf top
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">140</span>
+                <span class="site-state-item-count">142</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

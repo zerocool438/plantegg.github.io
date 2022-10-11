@@ -291,6 +291,520 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--pagecache/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/15/Linux内存--pagecache/" itemprop="url">Linux内存--PageCache</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
+                2020-11-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Memory/" itemprop="url" rel="index">
+                    <span itemprop="name">Memory</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux内存–PageCache"><a href="#Linux内存–PageCache" class="headerlink" title="Linux内存–PageCache"></a>Linux内存–PageCache</h1><p>本系列有如下几篇</p>
+<p><a href="/2020/01/15/Linux 内存问题汇总/">Linux 内存问题汇总</a></p>
+<p><a href="/2020/11/15/Linux内存--pagecache/">Linux内存–PageCache</a></p>
+<p><a href="/2020/11/15/Linux内存--管理和碎片/">Linux内存–管理和碎片</a></p>
+<p><a href="/2020/11/15/Linux内存--HugePage/">Linux内存–HugePage</a></p>
+<p><a href="/2020/11/15/Linux内存--零拷贝/">Linux内存–零拷贝</a></p>
+<h2 id="read-write"><a href="#read-write" class="headerlink" title="read/write"></a>read/write</h2><p><code>read(2)/write(2)</code> 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 <code>Kernel buffer cache</code> 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：<code>Page Cache</code> 和 <code>Buffer Cache</code>，这两个其实是一体两面，共同组成了 Linux 的内核缓冲区（Kernel Buffer Cache），Page Cache 是在应用程序读写文件的过程中产生的：</p>
+<ul>
+<li><strong>读磁盘</strong>：内核会先检查 <code>Page Cache</code> 里是不是已经缓存了这个数据，若是，直接从这个内存缓冲区里读取返回，若否，则穿透到磁盘去读取，然后再缓存在 <code>Page Cache</code> 里，以备下次缓存命中；</li>
+<li><strong>写磁盘</strong>：内核直接把数据写入 <code>Page Cache</code>，并把对应的页标记为 dirty，添加到 dirty list 里，然后就直接返回，内核会定期把 dirty list 的页缓存 flush 到磁盘，保证页缓存和磁盘的最终一致性。</li>
+</ul>
+<p>在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 <code>Buffer Cache</code> 是基于操作系统读写磁盘的最小单位 – 块（block）来进行的，所有的磁盘块操作都是通过 <code>Buffer Cache</code> 来加速，<strong>Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位</strong>，因此也引入了 <code>Page Cache</code> 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 <code>read()/write()</code> 操作，另外也包括了通过 <code>mmap()</code> 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 <code>Buffer Cache</code> 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。</p>
+<p>在 Linux 2.4 版本之后，kernel 就将两者进行了统一，<code>Buffer Cache</code> 不再以独立的形式存在，而是以融合的方式存在于 <code>Page Cache</code> 中</p>
+<p><img src="/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png" alt=""></p>
+<p>融合之后就可以统一操作 <code>Page Cache</code> 和 <code>Buffer Cache</code>：处理文件 I/O 缓存交给 <code>Page Cache</code>，而当底层 RAW device 刷新数据时以 <code>Buffer Cache</code> 的块单位来实际处理。</p>
+<h2 id="pagecache-的产生和释放"><a href="#pagecache-的产生和释放" class="headerlink" title="pagecache 的产生和释放"></a>pagecache 的产生和释放</h2><ul>
+<li>标准 I/O 是写的 (write(2)) 用户缓冲区 (Userpace Page 对应的内存)，<strong>然后再将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong>；如果是读的 (read(2)) 话则是先从内核缓冲区拷贝到用户缓冲区，再从用户缓冲区读数据，也就是 buffer 和文件内容不存在任何映射关系。</li>
+<li>对于存储映射 I/O（Memory-Mapped I/O） 而言，则是直接将 Pagecache Page 给映射到用户地址空间，用户直接读写 Pagecache Page 中内容，效率相对标准IO更高一些</li>
+</ul>
+<p><img src="/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png" alt="image.png" style="zoom: 20%;"></p>
+<p>当 <strong>将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong> 最容易发生缺页中断，OS需要先分配Page（应用感知到的就是卡顿了）</p>
+<p><img src="/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png" alt="img.png" style="zoom: 25%;">  </p>
+<ul>
+<li>Page Cache 是在应用程序读写文件的过程中产生的，所以在读写文件之前你需要留意是否还有足够的内存来分配 Page Cache；</li>
+<li>Page Cache 中的脏页很容易引起问题，你要重点注意这一块；</li>
+<li>在系统可用内存不足的时候就会回收 Page Cache 来释放出来内存，可以通过 sar 或者 /proc/vmstat 来观察这个行为从而更好的判断问题是否跟回收有关</li>
+</ul>
+<p>缺页后kswapd在短时间内回收不了足够多的 free 内存，或kswapd 还没有触发执行，操作系统就会进行内存页直接回收。这个过程中，应用会进行自旋等待直到回收的完成，从而产生巨大的延迟。</p>
+<p><img src="/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png" style="zoom:50%;"></p>
+<p>如果page被swapped，那么恢复进内存的过程也对延迟有影响，当匿名内存页被回收后，如果下次再访问就会产生IO的延迟。</p>
+<p><img src="/images/oss/740b95056dace8ae6fb3b8f58d91572e.png" style="zoom:50%;"></p>
+<h3 id="min-和-low的区别"><a href="#min-和-low的区别" class="headerlink" title="min 和 low的区别"></a>min 和 low的区别</h3><ol>
+<li>min下的内存是保留给内核使用的；当到达min，会触发内存的direct reclaim （vm.min_free_kbytes）</li>
+<li>low水位比min高一些，当内存可用量小于low的时候，会触发 kswapd回收内存，当kswapd慢慢的将内存 回收到high水位，就开始继续睡眠 </li>
+</ol>
+<h3 id="内存回收方式"><a href="#内存回收方式" class="headerlink" title="内存回收方式"></a>内存回收方式</h3><p>内存回收方式有两种，主要对应low ，min</p>
+<ol>
+<li>kswapd reclaim : 达到low水位线时执行 – 异步（实际还有，只是比较危险了，后台kswapd会回收，不会卡顿应用）</li>
+<li>direct reclaim : 达到min水位线时执行 – 同步</li>
+</ol>
+<p>为了减少缺页中断，首先就要保证我们有足够的内存可以使用。由于Linux会尽可能多的使用free的内存，运行很久的应用free的内存是很少的。下面的图中，紫色表示已经使用的内存，白色表示尚未分配的内存。当我们的内存使用达到水位的low值的时候，kswapd就会开始回收工作，而一旦内存分配超过了min，就会进行内存的直接回收。</p>
+<p><img src="/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png" style="zoom:50%;"></p>
+<p>针对这种情况，需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。<strong>需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。</strong></p>
+<p><img src="/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;"></p>
+<p>三个watermark的计算方法：</p>
+<p>watermark[min] = vm.min_free_kbytes换算为page单位即可，假设为vm.min_free_kbytes。</p>
+<p>watermark[low] = watermark[min] * 5 / 4</p>
+<p>watermark[high] = watermark[min] * 3 / 2</p>
+<p>比如默认 vm.min_free_kbytes = 65536是64K，很容易导致应用的毛刺，可以适当改大</p>
+<p>或者禁止： vm.swappiness  来避免swapped来减少延迟</p>
+<h3 id="direct-IO"><a href="#direct-IO" class="headerlink" title="direct IO"></a>direct IO</h3><p>绕过page cache，直接读写硬盘</p>
+<h2 id="cache回收"><a href="#cache回收" class="headerlink" title="cache回收"></a>cache回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
+<ul>
+<li>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</li>
+<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
+</li>
+<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;= n &lt;=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
+</li>
+</ul>
+<blockquote>
+<p>echo 1/2/3 &gt;/proc/sys/vm/drop_caches</p>
+</blockquote>
+<p>查看回收后：</p>
+<pre><code>cat /proc/meminfo
+</code></pre><p><img src="/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:20%;"></p>
+<p>当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉</p>
+<p>在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 &gt; /proc/sys/vm/drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。</p>
+<p>查看 drop_caches 是否执行过释放：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">$ grep drop /proc/vmstat</div><div class="line">drop_pagecache 1</div><div class="line">drop_slab 0</div><div class="line"></div><div class="line">$ grep inodesteal /proc/vmstat </div><div class="line">pginodesteal 114341</div><div class="line">kswapd_inodesteal 1291853</div></pre></td></tr></table></figure>
+<p>在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal /proc/vmstat 观察到</p>
+<blockquote>
+<p>kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；</p>
+<p>pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;</p>
+</blockquote>
+<h2 id="Page回收–缺页中断"><a href="#Page回收–缺页中断" class="headerlink" title="Page回收–缺页中断"></a>Page回收–缺页中断</h2><p><img src="/images/oss/3fdffacd66c0981956b15be348fff46a.png" alt="image.png" style="zoom:20%;"></p>
+<p>从图里你可以看到，在开始内存回收后，首先进行后台异步回收（上图中蓝色标记的地方），这不会引起进程的延迟；如果后台异步回收跟不上进程内存申请的速度，就会开始同步阻塞回收，导致延迟（上图中红色和粉色标记的地方，这就是引起 load 高的地址 – Sys CPU 使用率飙升/Sys load 飙升）。</p>
+<p>那么，针对直接内存回收引起 load 飙高或者业务 RT 抖动的问题，一个解决方案就是及早地触发后台回收来避免应用程序进行直接内存回收，那具体要怎么做呢？</p>
+<p><img src="/images/oss/4b341ba757d27e3a81145a55f54363e1.png" alt="image.png" style="zoom:25%;"></p>
+<p>它的意思是：当内存水位低于 watermark low 时，就会唤醒 kswapd 进行后台回收，然后 kswapd 会一直回收到 watermark high。</p>
+<p>那么，我们可以增大 min_free_kbytes 这个配置选项来及早地触发后台回收，该选项最终控制的是内存回收水位，不过，内存回收水位是内核里面非常细节性的知识点，我们可以先不去讨论。</p>
+<p>对于大于等于 128G 的系统而言，将 min_free_kbytes 设置为 4G 比较合理，这是我们在处理很多这种问题时总结出来的一个经验值，既不造成较多的内存浪费，又能避免掉绝大多数的直接内存回收。</p>
+<p>该值的设置和总的物理内存并没有一个严格对应的关系，我们在前面也说过，如果配置不当会引起一些副作用，所以在调整该值之前，我的建议是：你可以渐进式地增大该值，比如先调整为 1G，观察 sar -B 中 pgscand 是否还有不为 0 的情况；如果存在不为 0 的情况，继续增加到 2G，再次观察是否还有不为 0 的情况来决定是否增大，以此类推。</p>
+<blockquote>
+<p>sar -B :  Report paging statistics.</p>
+<p>pgscand/s  Number of pages scanned directly per second.</p>
+</blockquote>
+<h3 id="系统中脏页过多引起-load-飙高"><a href="#系统中脏页过多引起-load-飙高" class="headerlink" title="系统中脏页过多引起 load 飙高"></a>系统中脏页过多引起 load 飙高</h3><p>直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。</p>
+<p><img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 25%;"></p>
+<p>可以通过 sar -r 来观察系统中的脏页个数：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$ sar -r 1</div><div class="line">07:30:01 PM kbmemfree kbmemused  %memused kbbuffers  kbcached  kbcommit   %commit  kbactive   kbinact   kbdirty</div><div class="line">09:20:01 PM   5681588   2137312     27.34         0   1807432    193016      2.47    534416   1310876         4</div><div class="line">09:30:01 PM   5677564   2141336     27.39         0   1807500    204084      2.61    539192   1310884        20</div><div class="line">09:40:01 PM   5679516   2139384     27.36         0   1807508    196696      2.52    536528   1310888        20</div><div class="line">09:50:01 PM   5679548   2139352     27.36         0   1807516    196624      2.51    536152   1310892        24</div></pre></td></tr></table></figure>
+<p>kbdirty 就是系统中的脏页大小，它同样也是对 /proc/vmstat 中 nr_dirty 的解析。你可以通过调小如下设置来将系统脏页个数控制在一个合理范围:</p>
+<blockquote>
+<p>vm.dirty_background_bytes = 0</p>
+<p>vm.dirty_background_ratio = 10</p>
+<p>vm.dirty_bytes = 0</p>
+<p>vm.dirty_expire_centisecs = 3000</p>
+<p>vm.dirty_ratio = 20</p>
+</blockquote>
+<p>至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果可以通过 /proc/vmstat 来查看：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#grep &quot;nr_dirty_&quot; /proc/vmstat</div><div class="line">nr_dirty_threshold 3071708</div><div class="line">nr_dirty_background_threshold 1023902</div></pre></td></tr></table></figure>
+<p>在4.20的内核并且sar 的版本为12.3.3可以看到PSI（Pressure-Stall Information）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">some avg10=45.49 avg60=10.23 avg300=5.41 total=76464318</div><div class="line">full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082</div></pre></td></tr></table></figure>
+<p>重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。</p>
+<p><img src="/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png" alt="image.png" style="zoom: 25%;"></p>
+<h2 id="通过tracepoint分析内存卡顿问题"><a href="#通过tracepoint分析内存卡顿问题" class="headerlink" title="通过tracepoint分析内存卡顿问题"></a>通过tracepoint分析内存卡顿问题</h2><p><img src="/images/oss/d5446b656e8d91a9fb72200a7b97e723.png" alt="image.png" style="zoom:25%;"></p>
+<p>我们继续以内存规整 (memory compaction) 为例，来看下如何利用 tracepoint 来对它进行观察：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">#首先来使能compcation相关的一些tracepoing</div><div class="line">$ echo 1 &gt;</div><div class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_begin/enable</div><div class="line">$ echo 1 &gt;</div><div class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_end/enable </div><div class="line"></div><div class="line">#然后来读取信息，当compaction事件触发后就会有信息输出</div><div class="line">$ cat /sys/kernel/debug/tracing/trace_pipe</div><div class="line">           &lt;...&gt;-49355 [037] .... 1578020.975159: mm_compaction_begin: </div><div class="line">zone_start=0x2080000 migrate_pfn=0x2080000 free_pfn=0x3fe5800 </div><div class="line">zone_end=0x4080000, mode=async</div><div class="line">           &lt;...&gt;-49355 [037] .N.. 1578020.992136: mm_compaction_end: </div><div class="line">zone_start=0x2080000 migrate_pfn=0x208f420 free_pfn=0x3f4b720 </div><div class="line">zone_end=0x4080000, mode=async status=contended</div></pre></td></tr></table></figure>
+<p>从这个例子中的信息里，我们可以看到是 49355 这个进程触发了 compaction，begin 和 end 这两个 tracepoint 触发的时间戳相减，就可以得到 compaction 给业务带来的延迟，我们可以计算出这一次的延迟为 17ms。</p>
+<p>或者用 <a href="https://lore.kernel.org/linux-mm/20191001144524.GB3321@techsingularity.net/T/" target="_blank" rel="external">perf script</a> 脚本来分析, <a href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop.py" target="_blank" rel="external">基于 bcc(eBPF) 写的direct reclaim snoop</a>来观察进程因为 direct reclaim 而导致的延迟。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="external">https://www.atatech.org/articles/66885</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--HugePage/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/15/Linux内存--HugePage/" itemprop="url">Linux内存--HugePage</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
+                2020-11-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Memory/" itemprop="url" rel="index">
+                    <span itemprop="name">Memory</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux内存–HugePage"><a href="#Linux内存–HugePage" class="headerlink" title="Linux内存–HugePage"></a>Linux内存–HugePage</h1><p>本系列有如下几篇</p>
+<p><a href="/2020/01/15/Linux 内存问题汇总/">Linux 内存问题汇总</a></p>
+<p><a href="/2020/11/15/Linux内存--pagecache/">Linux内存–PageCache</a></p>
+<p><a href="/2020/11/15/Linux内存--管理和碎片/">Linux内存–管理和碎片</a></p>
+<p><a href="/2020/11/15/Linux内存--HugePage/">Linux内存–HugePage</a></p>
+<p><a href="/2020/11/15/Linux内存--零拷贝/">Linux内存–零拷贝</a></p>
+<h2 id="proc-buddyinfo"><a href="#proc-buddyinfo" class="headerlink" title="/proc/buddyinfo"></a>/proc/buddyinfo</h2><p>/proc/buddyinfo记录了内存的详细碎片情况。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#cat /proc/buddyinfo </div><div class="line">Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 </div><div class="line">Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 </div><div class="line">Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854</div></pre></td></tr></table></figure>
+<p>Normal行的第二列表示：  643847*2^1*Page_Size(4K) ;  第三列表示：  357451*2^2*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。</p>
+<p>应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上–2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。</p>
+<h2 id="slabtop和-proc-slabinfo"><a href="#slabtop和-proc-slabinfo" class="headerlink" title="slabtop和/proc/slabinfo"></a>slabtop和/proc/slabinfo</h2><p>slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes</p>
+<h2 id="关于hugetlb"><a href="#关于hugetlb" class="headerlink" title="关于hugetlb"></a>关于hugetlb</h2><p>This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a “hugetlb page entry”. The ‘hugetlb” term is also (and mostly) used synonymously with a HugePage.</p>
+<p> hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。</p>
+<p><strong>Linux下的大页分为两种类型：标准大页（Huge Pages）和透明大页（Transparent Huge Pages）</strong></p>
+<p>标准大页管理是预分配的方式，而透明大页管理则是动态分配的方式</p>
+<p>目前透明大页与传统HugePages联用会出现一些问题，导致性能问题和系统重启。Oracle 建议禁用透明大页（Transparent Huge Pages）</p>
+<p>hugetlbfs比THP要好，开thp的机器碎片化严重（不开THP会有更严重的碎片化问题），最后和没开THP一样 <a href="https://www.atatech.org/articles/152660" target="_blank" rel="external">https://www.atatech.org/articles/152660</a></p>
+<p>Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存不足时，它们也不会被 Swap 到磁盘上，这也就能从根源上杜绝了重要内存被频繁换入和换出的可能。</p>
+<blockquote>
+<p><strong>Transparent Hugepages</strong> are similar to standard <strong>HugePages</strong>. However, while standard <strong>HugePages</strong> allocate memory at startup, <strong>Transparent Hugepages</strong> memory uses the khugepaged thread in the kernel to allocate memory dynamically during runtime, using swappable <strong>HugePages</strong>.</p>
+</blockquote>
+<p>HugePage要求OS启动的时候提前分配出来，管理难度比较大，所以Enterprise Linux 6增加了一层抽象层来动态创建管理HugePage，这就是THP，而这个THP对应用透明，由khugepaged thread在后台动态将小页组成大页给应用使用，这里会遇上碎片问题导致需要compact才能得到大页，应用感知到的就是SYS CPU飙高，应用卡顿了。</p>
+<p>虽然 HugePages 的开启大都需要开发或者运维工程师的额外配置，但是在应用程序中启用 HugePages 却可以在以下几个方面降低内存页面的管理开销：</p>
+<ul>
+<li>更大的内存页能够减少内存中的页表层级，这不仅可以降低页表的内存占用，也能降低从虚拟内存到物理内存转换的性能损耗；</li>
+<li>更大的内存页意味着更高的缓存命中率，CPU 有更高的几率可以直接在 TLB（Translation lookaside buffer）中获取对应的物理地址；</li>
+<li>更大的内存页可以减少获取大内存的次数，使用 HugePages 每次可以获取 2MB 的内存，是 4KB 的默认页效率的 512 倍；</li>
+</ul>
+<h2 id="HugePage"><a href="#HugePage" class="headerlink" title="HugePage"></a>HugePage</h2><p><strong>为什么需要Huge Page</strong> 了解CPU Cache大致架构的话，一定听过TLB Cache。<code>Linux</code>系统中，对程序可见的，可使用的内存地址是<code>Virtual Address</code>。每个程序的内存地址都是从0开始的。而实际的数据访问是要通过<code>Physical Address</code>进行的。因此，每次内存操作，CPU都需要从<code>page table</code>中把<code>Virtual Address</code>翻译成对应的<code>Physical Address</code>，那么对于大量内存密集型程序来说<code>page table</code>的查找就会成为程序的瓶颈。</p>
+<p>所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
+<p>Huge pages require contiguous areas of memory, so allocating them at boot is the most reliable method since memory has not yet become fragmented. To do so, add the following parameters to the kernel boot command line:</p>
+<p><strong>Huge pages kernel options</strong></p>
+<ul>
+<li><p>hugepages</p>
+<p>Defines the number of persistent huge pages configured in the kernel at boot time. The default value is <code>0</code>. It is only possible to allocate (or deallocate) huge pages if there are sufficient physically contiguous free pages in the system. Pages reserved by this parameter cannot be used for other purposes.</p>
+<p>Default size huge pages can be dynamically allocated or deallocated by changing the value of the <code>/proc/sys/vm/nr_hugepages</code> file.</p>
+<p>In a NUMA system, huge pages assigned with this parameter are divided equally between nodes. You can assign huge pages to specific nodes at runtime by changing the value of the node’s <code>/sys/devices/system/node/node_id/hugepages/hugepages-1048576kB/nr_hugepages</code> file.</p>
+<p>For more information, read the relevant kernel documentation, which is installed in <code>/usr/share/doc/kernel-doc-kernel_version/Documentation/vm/hugetlbpage.txt</code> by default. This documentation is available only if the <em>kernel-doc</em> package is installed.</p>
+</li>
+<li><p>hugepagesz</p>
+<p>Defines the size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
+</li>
+<li><p>default_hugepagesz</p>
+<p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
+</li>
+</ul>
+<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/" target="_blank" rel="external">工具</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">yum install libhugetlbfs-utils -y</div><div class="line"></div><div class="line">//列出</div><div class="line">hugeadm --pool-list</div><div class="line">      Size  Minimum  Current  Maximum  Default</div><div class="line">   2097152    12850    12850    12850        *</div><div class="line">1073741824        0        0        0</div><div class="line"></div><div class="line">hugeadm --list-all-mounts</div><div class="line">Mount Point          Options</div><div class="line">/dev/hugepages       rw,relatime,pagesize=2M</div></pre></td></tr></table></figure>
+<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
+<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
+<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
+<p>8.0中总算优化了这个场景，测试细节可以参考<a href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html" target="_blank" rel="external">这篇</a></p>
+<p>16K VS 4K 性能对比（4K接近翻倍）</p>
+<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
+<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
+<h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a href="http://cenalulu.github.io/linux/huge-page-on-numa/" target="_blank" rel="external">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
+<ul>
+<li>通过CPU间的总线进行通讯，造成总线繁忙</li>
+<li>同时也降低了CPU执行效率。</li>
+<li>CPU本地Cache频繁失效</li>
+</ul>
+<p>类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。</p>
+<h4 id="连续数据需要跨CPU读取"><a href="#连续数据需要跨CPU读取" class="headerlink" title="连续数据需要跨CPU读取"></a>连续数据需要跨CPU读取</h4><p>Page太大，更容易造成Page跨Numa/CPU 分布。</p>
+<p>从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，<code>Array A</code>和<code>Array B</code>大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此<code>Array B</code>就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。</p>
+<p><img src="/images/951413iMgBlog/false_sharing.png" alt="img"></p>
+<h3 id="Java进程开启HugePage"><a href="#Java进程开启HugePage" class="headerlink" title="Java进程开启HugePage"></a>Java进程开启HugePage</h3><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
+<h4 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h4><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes=2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
+<blockquote>
+<p>-XX:+UseLargePages -XX:LargePageSizeInBytes=2m -XX:+UseHugeTLBFS</p>
+</blockquote>
+<h4 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h4><p>设置HugePage的大小</p>
+<blockquote>
+<p>cat /proc/sys/vm/nr_hugepages</p>
+</blockquote>
+<p>nr_hugepages设置多大参考如下计算方法：</p>
+<blockquote>
+<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB = 3 <em> 1024 MB = 3072 MB = 3072 </em> 1024 kB = 3145728 kB and 3145728 kB / 2048 kB = 1536):</p>
+<p>echo 1536 &gt; /proc/sys/vm/nr_hugepages </p>
+</blockquote>
+<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
+<p>对于c++来说，他malloc经常会散落得全地址都是，因为会触发各种mmap，冷热区域。所以THP和hugepage都可能导致大量内存被浪费了，进而导致内存紧张，性能下滑。jvm的连续内存布局，加上gc会使得内存密度很紧凑。THP的问题是，他是逻辑页，不是物理页，tlb依旧要N份，所以他的收益来自page fault减少，是一次性的收益。</p>
+<p>hugepage的在减少page_fault上和thp效果一样第二个作用是，他只需要一份TLB了，hugepage是真正的大页内存，thp是逻辑上的，物理上还是需要很多小的page。</p>
+<p><strong>如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。</strong></p>
+<h2 id="THP"><a href="#THP" class="headerlink" title="THP"></a>THP</h2><p>Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时<strong>每次写命令引起的复制内存页单位放大了512倍</strong>，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  </p>
+<p>THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。</p>
+<p>THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">[always] madvise never</div><div class="line"></div><div class="line">grep &quot;Huge&quot; /proc/meminfo</div><div class="line">AnonHugePages:   1286144 kB</div><div class="line">ShmemHugePages:        0 kB</div><div class="line">HugePages_Total:       0</div><div class="line">HugePages_Free:        0</div><div class="line">HugePages_Rsvd:        0</div><div class="line">HugePages_Surp:        0</div><div class="line">Hugepagesize:       2048 kB</div><div class="line">Hugetlb:               0 kB</div><div class="line"></div><div class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &apos;&#123; if($2&gt;4) print $0&#125; &apos; |  awk -F &quot;/&quot;  &apos;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &apos;</div><div class="line"></div><div class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &apos;&#123; if($2&gt;4) print $0&#125; &apos; |  awk -F &quot;/&quot;  &apos;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &apos;</div><div class="line"></div><div class="line">//查看pagesize（默认4K） </div><div class="line">$getconf PAGESIZE</div></pre></td></tr></table></figure>
+<p>在透明大页功能打开时，造成系统性能下降的主要原因可能是 <code>khugepaged</code> 守护进程。该进程会在（它认为）系统空闲时启动，扫描系统中剩余的空闲内存，并将普通 4k 页转换为大页。该操作会在内存路径中加锁，而该守护进程可能会在错误的时间启动扫描和转换大页的操作，从而影响应用性能。</p>
+<p>此外，当缺页异常(page faults)增多时，透明大页会和普通 4k 页一样，产生同步内存压缩(direct compaction)操作，以节省内存。该操作是一个同步的内存整理操作，如果应用程序会短时间分配大量内存，内存压缩操作很可能会被触发，从而会对系统性能造成风险。<a href="https://yq.aliyun.com/articles/712830" target="_blank" rel="external">https://yq.aliyun.com/articles/712830</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">#查看系统级别的 THP 使用情况，执行下列命令：</div><div class="line">cat /proc/meminfo  | grep AnonHugePages</div><div class="line">#类似地，查看进程级别的 THP 使用情况，执行下列命令：</div><div class="line">cat /proc/1730/smaps | grep AnonHugePages |grep -v &quot;0 kB&quot;</div><div class="line">#是否开启了hugepage</div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
+<p><code>/proc/sys/vm/nr_hugepages</code> 中存储的数据就是大页面的数量，虽然在默认情况下它的值都是 0，不过我们可以通过更改该文件的内容申请或者释放操作系统中的大页：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$ echo 1 &gt; /proc/sys/vm/nr_hugepages</div><div class="line">$ cat /proc/meminfo | grep HugePages_</div><div class="line">HugePages_Total:       1</div><div class="line">HugePages_Free:        1</div></pre></td></tr></table></figure>
+<h2 id="MySQL-场景下代码大页对性能的影响"><a href="#MySQL-场景下代码大页对性能的影响" class="headerlink" title="MySQL 场景下代码大页对性能的影响"></a><a href="https://ata.alibaba-inc.com/articles/217859" target="_blank" rel="external">MySQL 场景下代码大页对性能的影响</a></h2><p>不只是数据可以用HugePage，代码段也可以开启HugePage, 无论在x86还是arm（arm下提升更明显）下，都可以得到大页优于透明大页，透明大页优于正常的4K page</p>
+<blockquote>
+<p>收益：代码大页 &gt; anon THP &gt; 4k</p>
+</blockquote>
+<p>arm下，对32core机器用32并发的sysbench来对比，代码大页带来的性能提升大概有11%，iTLB miss下降了10倍左右。</p>
+<p>x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右。</p>
+<h2 id="TLAB-miss高的案例"><a href="#TLAB-miss高的案例" class="headerlink" title="TLAB miss高的案例"></a><a href="https://ata.alibaba-inc.com/articles/152660" target="_blank" rel="external">TLAB miss高的案例</a></h2><p>程序运行久了之后会变慢大概10%</p>
+<p>刚开始运行的时候perf各项数据:</p>
+<p><img src="/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png" alt="img"></p>
+<p>长时间运行后：</p>
+<p><img src="/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png" alt="img"></p>
+<p>内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。</p>
+<p>既然无法理解这个结果，那就只有按部就班的查看内核执行路径上各个函数的差别了，祭出ftrace:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">echo kerel_func_name1 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line"></div><div class="line">echo kerel_func_name2 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line"></div><div class="line">echo kerel_func_name3 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line">echo 1 &gt; /sys/kernel/debug/tracing/function_profile_enabled</div></pre></td></tr></table></figure>
+<p>在CPU#20上执行代码:</p>
+<p>taskset -c 20 ./b</p>
+<p>代码执行完后:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">echo 0 &gt; /sys/kernel/debug/tracing/function_profile_enabled</div><div class="line">cat /sys/kernel/debug/tracing/trace_stat/function20</div></pre></td></tr></table></figure>
+<p>这个时候就会打印出在各个函数上花费的时间，比如:</p>
+<p><img src="/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png" alt="img"></p>
+<p>经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).</p>
+<p>在阅读代码的过程中，注意到当前内核使能了CONFIG_SPARSEMEM_VMEMMAP=y</p>
+<p>原因就是机器运行久了之后内存碎片化严重，导致TLAB Miss严重。</p>
+<p>解决：开启THP后，性能稳定</p>
+<h2 id="碎片化"><a href="#碎片化" class="headerlink" title="碎片化"></a>碎片化</h2><p>内存碎片严重的话会导致系统hang很久(回收、压缩内存）</p>
+<p>尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G/8G), 线上机器直接修改vm.min_free_kbytes<strong>会触发回收，导致系统hang住</strong> <a href="https://www.atatech.org/articles/163233" target="_blank" rel="external">https://www.atatech.org/articles/163233</a> <a href="https://www.atatech.org/articles/97130" target="_blank" rel="external">https://www.atatech.org/articles/97130</a></p>
+<p>compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。</p>
+<p><img src="/images/951413iMgBlog/image-20210628144121108.png" alt="image-20210628144121108"></p>
+<p>一次THP compact堆栈：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div></pre></td><td class="code"><pre><div class="line">java          R  running task        0 144305 144271 0x00000080</div><div class="line"> ffff88096393d788 0000000000000086 ffff88096393d7b8 ffffffff81060b13</div><div class="line"> ffff88096393d738 ffffea003968ce50 000000000000000e ffff880caa713040</div><div class="line"> ffff8801688b0638 ffff88096393dfd8 000000000000fbc8 ffff8801688b0640</div><div class="line"></div><div class="line">Call Trace:</div><div class="line"> [&lt;ffffffff81060b13&gt;] ? perf_event_task_sched_out+0x33/0x70</div><div class="line"> [&lt;ffffffff8100bb8e&gt;] ? apic_timer_interrupt+0xe/0x20</div><div class="line"> [&lt;ffffffff810686da&gt;] __cond_resched+0x2a/0x40</div><div class="line"> [&lt;ffffffff81528300&gt;] _cond_resched+0x30/0x40</div><div class="line"> [&lt;ffffffff81169505&gt;] compact_checklock_irqsave+0x65/0xd0</div><div class="line"> [&lt;ffffffff81169862&gt;] compaction_alloc+0x202/0x460</div><div class="line"> [&lt;ffffffff811748d8&gt;] ? buffer_migrate_page+0xe8/0x130</div><div class="line"> [&lt;ffffffff81174b4a&gt;] migrate_pages+0xaa/0x480</div><div class="line"> [&lt;ffffffff81169660&gt;] ? compaction_alloc+0x0/0x460                 //compact and migrate</div><div class="line"> [&lt;ffffffff8116a1a1&gt;] compact_zone+0x581/0x950</div><div class="line"> [&lt;ffffffff8116a81c&gt;] compact_zone_order+0xac/0x100</div><div class="line"> [&lt;ffffffff8116a951&gt;] try_to_compact_pages+0xe1/0x120</div><div class="line"> [&lt;ffffffff8112f1ba&gt;] __alloc_pages_direct_compact+0xda/0x1b0</div><div class="line"> [&lt;ffffffff8112f80b&gt;] __alloc_pages_nodemask+0x57b/0x8d0</div><div class="line"> [&lt;ffffffff81167b9a&gt;] alloc_pages_vma+0x9a/0x150</div><div class="line"> [&lt;ffffffff8118337d&gt;] do_huge_pmd_anonymous_page+0x14d/0x3b0        //huge page</div><div class="line"> [&lt;ffffffff8152a116&gt;] ? rwsem_down_read_failed+0x26/0x30</div><div class="line"> [&lt;ffffffff8114b350&gt;] handle_mm_fault+0x2f0/0x300</div><div class="line"> [&lt;ffffffff810ae950&gt;] ? wake_futex+0x40/0x60</div><div class="line"> [&lt;ffffffff8104a8d8&gt;] __do_page_fault+0x138/0x480</div><div class="line"> [&lt;ffffffff810097cc&gt;] ? __switch_to+0x1ac/0x320</div><div class="line"> [&lt;ffffffff81527910&gt;] ? thread_return+0x4e/0x76e</div><div class="line"> [&lt;ffffffff8152d45e&gt;] do_page_fault+0x3e/0xa0                       //page fault</div><div class="line"> [&lt;ffffffff8152a815&gt;] page_fault+0x25/0x30</div></pre></td></tr></table></figure>
+<h3 id="查看pagetypeinfo"><a href="#查看pagetypeinfo" class="headerlink" title="查看pagetypeinfo"></a>查看pagetypeinfo</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line">#cat /proc/pagetypeinfo</div><div class="line">Page block order: 9</div><div class="line">Pages per block:  512</div><div class="line"></div><div class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</div><div class="line">Node    0, zone      DMA, type    Unmovable      1      1      1      0      2      1      1      0      1      0      0</div><div class="line">Node    0, zone      DMA, type  Reclaimable      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      1      3</div><div class="line">Node    0, zone      DMA, type      Reserve      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone    DMA32, type    Unmovable     89    144     98     42     21     14      5      2      1      0      1</div><div class="line">Node    0, zone    DMA32, type  Reclaimable     28     22      9      8      0      0      0      0      0      1      7</div><div class="line">Node    0, zone    DMA32, type      Movable    402     50     21      8    880    924    321     51      4      1    227</div><div class="line">Node    0, zone    DMA32, type      Reserve      0      0      0      0      0      0      0      0      0      0      1</div><div class="line">Node    0, zone    DMA32, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type    Unmovable  13709  15231   6637   2646    816    181     46      4      4      1      0</div><div class="line">Node    0, zone   Normal, type  Reclaimable      1      5      6   3293   1295    128     29      7      5      0      0</div><div class="line">Node    0, zone   Normal, type      Movable   6396 1383350 1301956 1007627 670102 366248 160232  54894  13126   1482     37</div><div class="line">Node    0, zone   Normal, type      Reserve      0      0      0      2      1      1      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line"></div><div class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</div><div class="line">Node 0, zone      DMA            1            0            7            0            0            0</div><div class="line">Node 0, zone    DMA32           24           38          889            1            0            0</div><div class="line">Node 0, zone   Normal         1568          795       127683            2            0            0</div><div class="line">Page block order: 9</div><div class="line">Pages per block:  512</div><div class="line"></div><div class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</div><div class="line">Node    1, zone   Normal, type    Unmovable   3938   8735   5469   3221   2097    989    202      6      0      0      0</div><div class="line">Node    1, zone   Normal, type  Reclaimable      1      7      7      8      7      2      2      2      1      0      0</div><div class="line">Node    1, zone   Normal, type      Movable  18623 1001037 2084894 1261484 631159 276096  87272  17169   1389    797      0</div><div class="line">Node    1, zone   Normal, type      Reserve      0      0      0      8      0      0      0      0      0      0      0</div><div class="line">Node    1, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line"></div><div class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</div><div class="line">Node 1, zone   Normal         1530          637       128903            2            0            0</div></pre></td></tr></table></figure>
+<p>每个zone都有自己的min low high,如下，但是单位是page, 计算案例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div></pre></td><td class="code"><pre><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#cat /proc/zoneinfo  |grep &quot;Node&quot;</div><div class="line">Node 0, zone      DMA</div><div class="line">Node 0, zone    DMA32</div><div class="line">Node 0, zone   Normal</div><div class="line">Node 1, zone   Normal</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#cat /proc/zoneinfo  |grep &quot;Node 0, zone&quot; -A10</div><div class="line">Node 0, zone      DMA</div><div class="line">  pages free     3975</div><div class="line">        min      20</div><div class="line">        low      25</div><div class="line">        high     30</div><div class="line">        scanned  0</div><div class="line">        spanned  4095</div><div class="line">        present  3996</div><div class="line">        managed  3975</div><div class="line">    nr_free_pages 3975</div><div class="line">    nr_alloc_batch 5</div><div class="line">--</div><div class="line">Node 0, zone    DMA32</div><div class="line">  pages free     382873</div><div class="line">        min      2335</div><div class="line">        low      2918</div><div class="line">        high     3502</div><div class="line">        scanned  0</div><div class="line">        spanned  1044480</div><div class="line">        present  513024</div><div class="line">        managed  450639</div><div class="line">    nr_free_pages 382873</div><div class="line">    nr_alloc_batch 584</div><div class="line">--</div><div class="line">Node 0, zone   Normal</div><div class="line">  pages free     11105097</div><div class="line">        min      61463</div><div class="line">        low      76828</div><div class="line">        high     92194</div><div class="line">        scanned  0</div><div class="line">        spanned  12058624</div><div class="line">        present  12058624</div><div class="line">        managed  11859912</div><div class="line">    nr_free_pages 11105097</div><div class="line">    nr_alloc_batch 12344</div><div class="line">    </div><div class="line">    low = 5/4 * min</div><div class="line">high = 3/2 * min</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=min;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=499 MB</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=low;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=624 MB</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=802 MB</div></pre></td></tr></table></figure>
+<h2 id="内存碎片化导致rt升高的诊断"><a href="#内存碎片化导致rt升高的诊断" class="headerlink" title="内存碎片化导致rt升高的诊断"></a>内存碎片化导致rt升高的诊断</h2><p>判定方法如下：</p>
+<ol>
+<li>运行 sar -B 观察 pgscand/s，其含义为每秒发生的直接内存回收次数，当在一段时间内持续大于 0 时，则应继续执行后续步骤进行排查；</li>
+<li>运行 <code>cat /sys/kernel/debug/extfrag/extfrag_index</code> 观察内存碎片指数，重点关注 order &gt;= 3 的碎片指数，当接近 1.000 时，表示碎片化严重，当接近 0 时表示内存不足；</li>
+<li>运行 <code>cat /proc/buddyinfo, cat /proc/pagetypeinfo</code> 查看内存碎片情况， 指标含义参考 （<a href="https://man7.org/linux/man-pages/man5/proc.5.html），同样关注" target="_blank" rel="external">https://man7.org/linux/man-pages/man5/proc.5.html），同样关注</a> order &gt;= 3 的剩余页面数量，pagetypeinfo 相比 buddyinfo 展示的信息更详细一些，根据迁移类型 （伙伴系统通过迁移类型实现反碎片化）进行分组，需要注意的是，当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重，我们需要结合其他工具来排查具体原因，在本文就不做过多介绍了；</li>
+<li>对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 <a href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt" target="_blank" rel="external">drsnoop</a>，<a href="https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt" target="_blank" rel="external">compactsnoop</a> 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；</li>
+<li>(Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。</li>
+</ol>
+<p>​    </p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="external">https://www.atatech.org/articles/66885</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -693,6 +1207,7 @@
 <p>8086最开始是按不同的作用将内存分为代码段、数据段等，386开始按页开始管理内存（混合有按段管理）。 现代的操作系统都是采用段式管理来做基本的权限管理，而对于内存的分配、回收、调度都是依赖页式管理。</p>
 <h3 id="tlab-miss"><a href="#tlab-miss" class="headerlink" title="tlab miss"></a><a href="https://lwn.net/Articles/379748" target="_blank" rel="external">tlab miss</a></h3><p>tlb：从各级cache里分配的一块专用空间，用来存放页表(虚拟地址和物理地址的对应关系)</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div></pre></td><td class="code"><pre><div class="line">#x86info -c</div><div class="line">Monitor/Mwait: min/max line size 64/64, ecx bit 0 support, enumeration extension</div><div class="line">SVM: revision 1, 32768 ASIDs</div><div class="line">Address Size: 48 bits virtual, 48 bits physical</div><div class="line">The physical package has 96 of 32768 possible cores implemented.</div><div class="line">L1 Data TLB (1G):           Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (1G):    Fully associative. 64 entries.</div><div class="line">L1 Data TLB (2M/4M):        Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (2M/4M): Fully associative. 64 entries.</div><div class="line">L1 Data TLB (4K):           Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (4K):    Fully associative. 64 entries.</div><div class="line">L1 Data cache:</div><div class="line">	Size: 32Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line">L1 Instruction cache:</div><div class="line">	Size: 32Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line">L2 Data TLB (1G):           Fully associative. 64 entries.</div><div class="line">L2 Instruction TLB (1G):    Disabled. 0 entries.</div><div class="line">L2 Data TLB (2M/4M):        4-way associative. 2048 entries.</div><div class="line">L2 Instruction TLB (2M/4M): 2-way associative. 512 entries.</div><div class="line">L2 Data TLB (4K):           8-way associative. 2048 entries.</div><div class="line">L2 Instruction TLB (4K):    4-way associative. 512 entries.</div><div class="line">L2 cache:</div><div class="line">	Size: 512Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line"></div><div class="line"> running at an estimated 2.55GHz</div></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20220928160318893.png" alt="image-20220928160318893"></p>
 <p>TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。TLB和L1一样每个core独享，由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
 <p><a href="https://en.wikipedia.org/wiki/Translation_lookaside_buffer" target="_blank" rel="external">These are typical performance levels of a TLB</a>:</p>
 <ul>
@@ -2466,384 +2981,11 @@
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/01/如何创建一个自己连自己的TCP连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/07/01/如何创建一个自己连自己的TCP连接/" itemprop="url">如何创建一个自己连自己的TCP连接</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-07-01T17:30:03+08:00">
-                2020-07-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何创建一个自己连自己的TCP连接"><a href="#如何创建一个自己连自己的TCP连接" class="headerlink" title="如何创建一个自己连自己的TCP连接"></a>如何创建一个自己连自己的TCP连接</h1><blockquote>
-<p>能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？</p>
-</blockquote>
-<p>执行</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"># nc 192.168.0.79 18082 -p 18082</div></pre></td></tr></table></figure>
-<p>然后就能看到</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 18082</div><div class="line">tcp        0      0 192.168.0.79:18082      192.168.0.79:18082      ESTABLISHED</div></pre></td></tr></table></figure>
-<p>比较神奇，这个连接的srcport等于destport，并且完全可以工作，也能收发数据。这有点颠覆大家的理解，端口能重复使用？</p>
-<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地端口范围由参数控制</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </div><div class="line">10000	65535</div></pre></td></tr></table></figure>
-<p>所以也经常看到一个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
-<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>在内存、文件句柄足够的话可以创建的连接是没有限制的，那么/proc/sys/net/ipv4/ip_local_port_range指定的端口范围到底是什么意思呢？</p>
-<p>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一，比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 18089</div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</div><div class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </div><div class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</div><div class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</div></pre></td></tr></table></figure>
-<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。</p>
-<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
-<p>但是如果程序调用的是bind函数(bind(ip,port=0))这个时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候4元组是唯一的。</p>
-<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
-<h2 id="自己连自己的连接"><a href="#自己连自己的连接" class="headerlink" title="自己连自己的连接"></a>自己连自己的连接</h2><p>我们来看自己连自己发生了什么</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="comment"># strace nc 192.168.0.79 18084 -p 18084</span></div><div class="line">execve(<span class="string">"/usr/bin/nc"</span>, [<span class="string">"nc"</span>, <span class="string">"192.168.0.79"</span>, <span class="string">"18084"</span>, <span class="string">"-p"</span>, <span class="string">"18084"</span>], [/* 31 vars */]) = 0</div><div class="line">brk(NULL)                               = 0x23d4000</div><div class="line">mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f213f394000</div><div class="line">access(<span class="string">"/etc/ld.so.preload"</span>, R_OK)      = -1 ENOENT (No such file or directory)</div><div class="line">open(<span class="string">"/etc/ld.so.cache"</span>, O_RDONLY|O_CLOEXEC) = 3</div><div class="line">fstat(3, &#123;st_mode=S_IFREG|0644, st_size=23295, ...&#125;) = 0</div><div class="line">mmap(NULL, 23295, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f213f38e000</div><div class="line">close(3)                                = 0</div><div class="line">open(<span class="string">"/lib64/libssl.so.10"</span>, O_RDONLY|O_CLOEXEC) = 3</div><div class="line">………………</div><div class="line">munmap(0x7f213f393000, 4096)            = 0</div><div class="line">open(<span class="string">"/usr/share/ncat/ca-bundle.crt"</span>, O_RDONLY) = -1 ENOENT (No such file or directory)</div><div class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</div><div class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</div><div class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</div><div class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</div><div class="line"><span class="built_in">bind</span>(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"0.0.0.0"</span>)&#125;, 16) = 0</div><div class="line">//注意这里<span class="built_in">bind</span>后直接就是connect，没有listen</div><div class="line">connect(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"192.168.0.79"</span>)&#125;, 16) = -1 EINPROGRESS (Operation now <span class="keyword">in</span> progress)</div><div class="line">select(4, [3], [3], [3], &#123;10, 0&#125;)       = 1 (out [3], left &#123;9, 999998&#125;)</div><div class="line">getsockopt(3, SOL_SOCKET, SO_ERROR, [0], [4]) = 0</div><div class="line">select(4, [0 3], [], [], NULL</div></pre></td></tr></table></figure>
-<p>抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的</p>
-<p><img src="/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png" alt="image.png"></p>
-<p>这个连接算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。</p>
-<p>正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。</p>
-<p>那么这种情况为什么没有当做bug被处理呢？</p>
-<h2 id="TCP-simultanous-open"><a href="#TCP-simultanous-open" class="headerlink" title="TCP simultanous open"></a>TCP simultanous open</h2><p>在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。</p>
-<p><img src="/images/oss/b9a0144a3835759c844f697bc45103fa.png" alt="image.png"></p>
-<p>​                                                                       摘自《tcp/ip卷1》</p>
-<p>可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下内核代码 net/ipv4/tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack(发出syn后), 结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line">	static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,</div><div class="line">                     const struct tcphdr *th)</div><div class="line">	&#123;</div><div class="line">5916         /* PAWS check. */</div><div class="line">5917         if (tp-&gt;rx_opt.ts_recent_stamp &amp;&amp; tp-&gt;rx_opt.saw_tstamp &amp;&amp;</div><div class="line">5918             tcp_paws_reject(&amp;tp-&gt;rx_opt, 0))</div><div class="line">5919                 goto discard_and_undo;</div><div class="line">5920         //在socket发送syn后收到了一个syn(正常应该收到syn+ack),这里是允许的。</div><div class="line">5921         if (th-&gt;syn) &#123;</div><div class="line">5922                 /* We see SYN without ACK. It is attempt of</div><div class="line">5923                  * simultaneous connect with crossed SYNs.</div><div class="line">5924                  * Particularly, it can be connect to self.  //自己连自己</div><div class="line">5925                  */</div><div class="line">5926                 tcp_set_state(sk, TCP_SYN_RECV);</div><div class="line">5927 </div><div class="line">5928                 if (tp-&gt;rx_opt.saw_tstamp) &#123;</div><div class="line">5929                         tp-&gt;rx_opt.tstamp_ok = 1;</div><div class="line">5930                         tcp_store_ts_recent(tp);</div><div class="line">5931                         tp-&gt;tcp_header_len =</div><div class="line">5932                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;</div><div class="line">5933                 &#125; else &#123;</div><div class="line">5934                         tp-&gt;tcp_header_len = sizeof(struct tcphdr);</div><div class="line">5935                 &#125;</div><div class="line">5936 </div><div class="line">5937                 tp-&gt;rcv_nxt = TCP_SKB_CB(skb)-&gt;seq + 1;</div><div class="line">5938                 tp-&gt;copied_seq = tp-&gt;rcv_nxt;</div><div class="line">5939                 tp-&gt;rcv_wup = TCP_SKB_CB(skb)-&gt;seq + 1;</div><div class="line">5940 </div><div class="line">5941                 /* RFC1323: The window in SYN &amp; SYN/ACK segments is</div><div class="line">5942                  * never scaled.</div><div class="line">5943                  */</div></pre></td></tr></table></figure>
-<p>也就是在发送syn进入SYN_SENT状态之后，收到对端发来的syn包后不会RST，而是处理流程如下，调用tcp_set_state(sk, TCP_SYN_RECV)进入SYN_RECV状态，以及调用tcp_send_synack(sk)向对端发送syn+ack。</p>
-<h2 id="自己连自己的原理解释"><a href="#自己连自己的原理解释" class="headerlink" title="自己连自己的原理解释"></a>自己连自己的原理解释</h2><p>第一我们要理解Kernel是支持simultaneous open（同时打开）的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。</p>
-<p>自己连自己又是simultaneous open的一个特例，特别在这个连接只有一个socket参与，发送、接收都是同一个socket，自然也会是发syn后收到了自己的syn（自己发给自己），然后依照simultaneous open连接也能创建成功。</p>
-<p>这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084 socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。</p>
-<p>可以用python来重现这个连接连自己的过程：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">import socket</div><div class="line">import time</div><div class="line"></div><div class="line">connected=False</div><div class="line">while (not connected):</div><div class="line">        try:</div><div class="line">                sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)</div><div class="line">                sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)</div><div class="line">				sock.bind((&apos;&apos;, 18084))               //sock 先bind到18084</div><div class="line">                sock.connect((&apos;127.0.0.1&apos;,18084))    //然后同一个socket连自己</div><div class="line">                connected=True</div><div class="line">        except socket.error,(value,message):</div><div class="line">                print message</div><div class="line"></div><div class="line">        if not connected:</div><div class="line">                print &quot;reconnect&quot;</div><div class="line">               </div><div class="line">print &quot;tcp self connection occurs!&quot;</div><div class="line">print &quot;netstat -an|grep 18084&quot;</div><div class="line">time.sleep(1800)</div></pre></td></tr></table></figure>
-<p>这里connect前如果没有bind那么系统就会从 local port range 分配一个可用port。</p>
-<p>bind成功后会将ip+port放入hash表来判重，这就是我们常看到的 Bind to <em>*</em> failed (IOD #1): Address already in use 异常。所以一台机器上，如果有多个ip，是可以将同一个port bind多次的，但是bind的时候如果不指定ip，也就是bind(‘0’, port) 还是会冲突。</p>
-<p>connect成功后会将四元组放入ehash来判定连接的重复性。如果connect四元组冲突了就会报如下错误</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># nc 192.168.0.82 8080 -p 29798 -s 192.168.0.79</div><div class="line">Ncat: Cannot assign requested address.</div></pre></td></tr></table></figure>
-<h2 id="bind-和-connect、listen"><a href="#bind-和-connect、listen" class="headerlink" title="bind 和 connect、listen"></a>bind 和 connect、listen</h2><p>当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。</p>
-<p>如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</div><div class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</div><div class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</div><div class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</div><div class="line">bind(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(&quot;0.0.0.0&quot;)&#125;, 16) = 0</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/5373ecfe0d4496d106c64d3f370c893c.png" alt="image.png"></p>
-<h3 id="listen"><a href="#listen" class="headerlink" title="listen"></a>listen</h3><p><img src="/images/oss/4d188cab03e919f055bb9dbe3da0188c.png" alt="image-20200702131215819"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://segmentfault.com/a/1190000002396411" target="_blank" rel="external">https://segmentfault.com/a/1190000002396411</a></p>
-<p><a href="https://blog.csdn.net/a364572/article/details/40628171" target="_blank" rel="external">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
-<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="external">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="external">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/05/24/程序员如何学习和构建网络知识体系/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/05/24/程序员如何学习和构建网络知识体系/" itemprop="url">程序员如何学习和构建网络知识体系</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-05-24T17:30:03+08:00">
-                2020-05-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="程序员如何学习和构建网络知识体系"><a href="#程序员如何学习和构建网络知识体系" class="headerlink" title="程序员如何学习和构建网络知识体系"></a>程序员如何学习和构建网络知识体系</h1><p>大家学习网络知识的过程中经常发现当时看懂了，很快又忘了，最典型的比如TCP三次握手、为什么要握手，大家基本都看过，但是种感觉还差那么一点点。都要看是因为面试官总要问，所以不能不知道啊。</p>
-<p>我们来看一个典型的面试问题：</p>
-<blockquote>
-<p>问：为什么TCP是可靠的？<br>答：因为TCP有连接（或者回答因为TCP有握手）</p>
-<p>追问：为什么有连接就可靠了？（面试的人估计心里在骂，你这不是傻逼么，有连接就可靠啊）</p>
-<p>追问：这个TCP连接的本质是什么？网络上给你保留了一个带宽所以能可靠？<br>答：……懵了（或者因为TCP有ack，所以可靠）</p>
-<p>追问：握手的本质是什么？为什么握手就可靠了<br>答：因为握手需要ack<br>追问：那这个ack也只是保证握手可靠，握手是怎么保证后面可靠的？握手本质做了什么事情？</p>
-<p>追问：有了ack可靠后还会带来什么问题（比如发一个包ack一下，肯定是可行的，但是效率不行，面试官想知道的是这里TCP怎么传输的，从而引出各个buffer、拥塞窗口的概念）</p>
-</blockquote>
-<p>基本上我发现99%的程序员会回答TCP相对UDP是可靠的，70%以上的程序员会告诉你可靠是因为有ack（其他的会告诉你可靠是因为握手或者有连接），再追问下次就开始王顾左右而言他、胡言乱语。</p>
-<p>我的理解：</p>
-<blockquote>
-<p>物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的握手是指tcp是协商和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。</p>
-</blockquote>
-<p>这说明大部分程序员对问题的本质的理解上出了问题，或者教科书描述的过于教条不够接地气所以看完书本质没get到。</p>
-<p>想想 <code>费曼学习方法</code> 中对<strong>事物本质</strong>的理解的重要性。</p>
-<h2 id="来看一个案例"><a href="#来看一个案例" class="headerlink" title="来看一个案例"></a>来看一个案例</h2><p>我第一次看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="external">RFC1180</a>的时候是震惊的，觉得讲述的太好了，2000字就把一本教科书的知识阐述的无比清晰、透彻。但是实际上我发现很快就忘了，而且大部分程序员基本都是这样</p>
-<blockquote>
-<p>RFC1180写的确实很好，清晰简洁，图文并茂，结构逻辑合理，但是对于95%的程序员没有什么用，当时看的时候很爽、也觉得自己理解了、学会了，实际上看完几周后就忘得差不多了。问题出在这种RFC偏理论多一点看起来完全没有体感无法感同身受，所以即使似乎当时看懂了，但是忘得也快，需要一篇结合实践的文章来帮助理解</p>
-</blockquote>
-<p>在这个问题上，让我深刻地理解到：</p>
-<blockquote>
-<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如<a href="https://book.douban.com/subject/26268767/" target="_blank" rel="external">《wireshark抓包艺术》</a>，人和人的学习能力有差别必须要承认。</p>
-</blockquote>
-<p>也就是我们要认识到每个个人的<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="external">学习能力的差异</a>，我超级认同这篇文章中的一个评论</p>
-<blockquote>
-<p>看完深有感触，尤其是后面的知识效率和工程效率型的区别。以前总是很中二的觉得自己看一遍就理解记住了，结果一次次失败又怀疑自己的智商是不是有问题，其实就是把自己当作知识效率型来用了。一个不太恰当的形容就是，有颗公主心却没公主命！</p>
-</blockquote>
-<p>嗯，大部分时候我们都觉得自己看一遍就理解了记住了能实用解决问题了，实际上了是马上忘了，停下来想想自己是不是这样的？在网络的相关知识上大部分看RFC、TCP卷1等东西是很难实际理解的，还是要靠实践来建立对知识的具体的理解，而网络相关的东西基本离大家有点远（大家不回去读tcp、ip源码，纯粹是靠对书本的理解），所以很难建立具体的概念，所以这里有个必杀技就是学会抓包和用wireshark看包，同时针对实际碰到的文题来抓包、看包分析。</p>
-<p>比如我的这篇《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="external">从计算机知识到落地能力，你欠缺了什么？</a>》就对上述问题最好的阐述，程序员最常碰到的网络问题就是网络为啥不通？</p>
-<p>这是最好建立对网络知识具体理解和实践的机会，你把《<a href="https://mp.weixin.qq.com/s/x-ScSwEm3uQ2SFv-nAzNaA" target="_blank" rel="external">从计算机知识到落地能力，你欠缺了什么？</a>》实践完再去看<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="external">RFC1180</a> 就明白了。通过案例把RFC1180抽象的描述给它具体化、场景化了，理解起来就很轻松不容易忘记了。</p>
-<blockquote>
-<p>经验一: 通过具体的东西(案例、抓包)来建立对网络基础的理解</p>
-</blockquote>
-<p><img src="/images/951413iMgBlog/image-20220221151815993.png" alt="image-20220221151815993"></p>
-<h2 id="不要追求知识的广度"><a href="#不要追求知识的广度" class="headerlink" title="不要追求知识的广度"></a>不要追求知识的广度</h2><p>学习网络知识过程中，不建议每个知识点都去看，因为很快会忘记，我的方法是只看经常碰到的问题点，碰到一个点把他学透理解明白。</p>
-<p>比如我曾经碰到过 <a href="/2019/01/09/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82ping--nslookup-OK-but-ping-fail/">nslookup OK but ping fail–看看老司机是如何解决问题的，解决问题的方法肯定比知识点重要多了，同时透过一个问题怎么样通篇来理解一大块知识，让这块原理真正在你的知识体系中扎根下来</a> , 这个问题Google上很多人在搜索，说明很普遍，但是没找到有资料能把这个问题说清楚，所以借着这个机会就把 Linux下的 NSS（name service switch）的原理搞懂了。要不然碰到问题老司机告诉你改下 /etc/hosts 或者  /etc/nsswitch 或者 /etc/resolv.conf 之类的问题就能解决，但是你一直不知道这三个文件怎么起作用的，也就是你碰到过这种问题也解决过但是下次碰到类似的问题你不一定能解决。</p>
-<p>当然对我来说为了解决这个问题最后写了4篇跟域名解析相关的文章，从windows到linux，涉及到vpn、glibc、docker等各种场景，我把他叫做场景驱动。后来换来工作环境从windows换到mac后又补了一篇mac下的路由、dns文章。</p>
-<p>关于<a href="https://mp.weixin.qq.com/s/JlXWLpQSyj3Z_KMyUmzBPA" target="_blank" rel="external">场景驱动学习的方法可以看这篇总结</a></p>
-<h2 id="TCP是最复杂的，要从实用出发"><a href="#TCP是最复杂的，要从实用出发" class="headerlink" title="TCP是最复杂的，要从实用出发"></a>TCP是最复杂的，要从实用出发</h2><p>比如拥塞算法基本大家不会用到，了解下就行，你想想你有碰到过因为拥塞算法导致的问题吗？极少是吧。还有拥塞窗口、慢启动，这个实际中碰到的概率不高，面试要问你基本上是属于炫技类型。</p>
-<p>实际碰到更多的是传输效率（<a href="https://mp.weixin.qq.com/s/fKWJrDNSAZjLsyobolIQKw" target="_blank" rel="external">对BDP、Buffer、各种窗口、rt的理解和运用</a>），还有为什么连不通、<a href="https://mp.weixin.qq.com/s/yH3PzGEFopbpA-jw4MythQ" target="_blank" rel="external">连接建立不起来</a>、为什么收到包不回复、为什么要reset、为什么丢包了之类的问题。</p>
-<p>关于为什么连不通，我碰到了<a href="/2019/05/16/%E7%BD%91%E7%BB%9C%E9%80%9A%E4%B8%8D%E9%80%9A%E6%98%AF%E4%B8%AA%E5%A4%A7%E9%97%AE%E9%A2%98--%E5%8D%8A%E5%A4%9C%E9%B8%A1%E5%8F%AB/">这个问题</a>，随后在这个问题的基础上进行了总结，得到客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</p>
-<ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。诊断: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN” </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full， 诊断: dmesg |grep conntrack</li>
-</ul>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>一定要会用tcpdump和wireshark（纯工具，没有任何门槛，用不好只有一个原因: 懒）</li>
-<li>多实践（因为网络知识离我们有点远、有点抽象）,用好各种工具，工具能帮我们看到、摸到</li>
-<li>不要追求知识面的广度，深抠几个具体的知识点然后让这些点建立体系</li>
-<li>不要为那些基本用不到的偏门知识花太多精力，天天用的都学不过来对吧。</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><span class="space">&hellip;</span><a class="page-number" href="/page/14/">14</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><span class="space">&hellip;</span><a class="page-number" href="/page/15/">15</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -2888,7 +3030,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">140</span>
+                <span class="site-state-item-count">142</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

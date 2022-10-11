@@ -102,6 +102,7 @@
 <meta property="og:url" content="https://plantegg.github.io/2021/05/16/CPU_Cache_Line和性能/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="CPU 性能和Cache Line为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220928160819468.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210914175307651.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220613103011120.png">
@@ -112,11 +113,11 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210517111244550.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210512133536939.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210512132121856.png">
-<meta property="og:updated_time" content="2022-07-21T10:04:45.269Z">
+<meta property="og:updated_time" content="2022-10-11T08:18:00.007Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="CPU 性能和Cache Line">
 <meta name="twitter:description" content="CPU 性能和Cache Line为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210914175307651.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220928160819468.png">
 
 
 
@@ -415,6 +416,20 @@
 <p>比如L1 Cache 有32KB，那么它可以分成32KB / 64 = 512 条 Cache Line。</p>
 <p>Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。</p>
 <p>处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了<a href="https://en.wikipedia.org/wiki/MESI_protocol" target="_blank" rel="external"> MESI 协议</a>，以及 MESIF 协议。</p>
+<p><img src="/images/951413iMgBlog/image-20220928160819468.png" alt="image-20220928160819468"></p>
+<p>先看下如上一张图，其中</p>
+<p>tag：一般虚拟地址高位多bit表示；</p>
+<p>index: 虚拟地址中间多bit表示；</p>
+<p>offset: 虚拟地址多bit表示；</p>
+<p>但是这三者的值是多少呢，只能说和cache缓存的的大小息息相关。</p>
+<p>举个例子，录入cache缓存大小为64K, 有4路， 服务器寻址为64bit。</p>
+<ul>
+<li>offset的值为 2^ = 64; offset = 6;</li>
+<li>index的值为 64k / (64 * 4) = 256 = 2 ^ 8; 所以index的值为8bit；</li>
+<li>tag的值为 64 - 8 - 6 = 50bit; </li>
+</ul>
+<p>注:此计算完全按照理论方式计算，实际情况需要考虑TLB别名以及其他情况影响。</p>
+<p>了解以上概念后，此处用一张图去介绍TLB转换获取数据的过程。</p>
 <h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
 <p>cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。</p>
 <p>显而易见的是一旦cache失效就需要访问内存重新从内存中读取数据到CPU cache中，这个过程会很慢。</p>
@@ -540,7 +555,7 @@
 <p><a href="https://coolshell.cn/articles/10249.html" target="_blank" rel="external">7个示例科普CPU CACHE</a></p>
 <p><a href="https://coolshell.cn/articles/20793.html" target="_blank" rel="external">与程序员相关的CPU缓存知识</a></p>
 <p><a href="http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj" target="_blank" rel="external">Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?</a> 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share</p>
-<p><a href="https://zhuanlan.zhihu.com/p/58881925" target="_blank" rel="external">CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/58881925" target="_blank" rel="external">CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈(SAP)</a></p>
 
       
     </div>
@@ -673,7 +688,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">140</span>
+                <span class="site-state-item-count">142</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

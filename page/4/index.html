@@ -291,6 +291,384 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP传输速度案例分析/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/15/TCP传输速度案例分析/" itemprop="url">TCP传输速度案例分析</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-15T17:30:03+08:00">
+                2021-01-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP传输速度案例分析"><a href="#TCP传输速度案例分析" class="headerlink" title="TCP传输速度案例分析"></a>TCP传输速度案例分析</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
+<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
+<p> <a href="/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。</p>
+<h2 id="前后端rtt差异大-vip下载慢的案例"><a href="#前后端rtt差异大-vip下载慢的案例" class="headerlink" title="前后端rtt差异大+vip下载慢的案例"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：<a href="https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng" target="_blank" rel="external">https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng</a> 文章中的trace-cmd工具也不错</p>
+<p>如下三个链路，有一个不正常了</p>
+<p><img src="/images/oss/2422ae219d3b27cfe8c799642662d5b2.png" alt="image.png"></p>
+<p>首先通过 ss -it dst “ip:port” 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
+<h3 id="原因TCPLossProbe："><a href="#原因TCPLossProbe：" class="headerlink" title="原因TCPLossProbe："></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
+<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO=max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
+<p>握手完毕后第七号包很快重传了</p>
+<p><img src="/images/oss/2867daa600363af61f8f971479246858.png" alt="image.png"></p>
+<h3 id="观察："><a href="#观察：" class="headerlink" title="观察："></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
+<h3 id="解决："><a href="#解决：" class="headerlink" title="解决："></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans=2 关掉TLP</p>
+<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
+<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
+<h2 id="长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例"><a href="#长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例" class="headerlink" title="长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
+<blockquote>
+<p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
+</blockquote>
+<p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
+<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save = 1 </p>
+<p>或者清除： sudo ip tcp_metrics flush all</p>
+<h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
+
+192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
+
+清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<h2 id="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"><a href="#长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响" class="headerlink" title="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
+<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
+<p>client ——150ms—–&gt;&gt;&gt;LVS—1ms–&gt;&gt;&gt;美国的统一接入server—–1ms—–&gt;&gt;&gt;nginx</p>
+<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
+<h3 id="Nginx上抓包"><a href="#Nginx上抓包" class="headerlink" title="Nginx上抓包"></a>Nginx上抓包</h3><p><img src="/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png" alt="image.png"></p>
+<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
+<h3 id="client上抓包"><a href="#client上抓包" class="headerlink" title="client上抓包"></a>client上抓包</h3><p><img src="/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png" alt="image.png"></p>
+<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
+<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
+<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
+<h3 id="将buffer改大"><a href="#将buffer改大" class="headerlink" title="将buffer改大"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
+<p><img src="/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png" alt="image.png"></p>
+<p><img src="/images/oss/0a8c68a58da6f169573b57cde0ffba93.png" alt="image.png"></p>
+<p>接着看一下client上的抓包</p>
+<p><img src="/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png" alt="image.png"></p>
+<p>可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
+<p>那么继续分析一下握手包，syn：</p>
+<p><img src="/images/oss/004886698ddbaa1cbc8342a9cd667c76.png" alt="image.png"></p>
+<p>说明client是支持的，再看 syn+ack：</p>
+<p><img src="/images/oss/70155e021390cb1ee07091c306c375f4.png" alt="image.png"></p>
+<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
+<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
+<p>比如这是这个应用的开发人员的反馈：</p>
+<p><img src="/images/oss/a08a204ec7ad4bba7867dacea1668322.png" alt="image.png"></p>
+<p><a href="https://datatracker.ietf.org/doc/html/rfc1072" target="_blank" rel="external">长肥网络</a>就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。<br>在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
+<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑程序员连自己的业务结构都描述不清）：</p>
+<p>client ——150ms—–&gt;&gt;&gt;nginx</p>
+<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
+<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
+<p>nginx buffer 分析参考案例：<a href="https://juejin.cn/post/6875223721615818765" target="_blank" rel="external">https://juejin.cn/post/6875223721615818765</a> nginx上下游收发包速率不一致导致nginx buffer打爆, 关闭nginx proxy_buffering 可解 （作者：挖坑的张师傅）</p>
+<p><img src="/images/951413iMgBlog/433762.png" alt="image.png"></p>
+<h2 id="应用层发包逻辑影响了BDP不能跑满"><a href="#应用层发包逻辑影响了BDP不能跑满" class="headerlink" title="应用层发包逻辑影响了BDP不能跑满"></a>应用层发包逻辑影响了BDP不能跑满</h2><p>来自 dog250: <a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="external">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a> </p>
+<blockquote>
+<p>用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
+<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
+<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
+</blockquote>
+<h2 id="delay-ack拉高实际rt的案例"><a href="#delay-ack拉高实际rt的案例" class="headerlink" title="delay ack拉高实际rt的案例"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
+<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
+<p><img src="/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
+<p>抓包来分析原因：</p>
+<p><img src="/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
+<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
+<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
+<p><img src="/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="external">SSH Performance</a></p>
+<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="external">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/03/mac路由和DSN相关知识/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/03/mac路由和DSN相关知识/" itemprop="url">mac 路由和DSN相关知识</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-03T17:30:03+08:00">
+                2021-01-03
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/其它/" itemprop="url" rel="index">
+                    <span itemprop="name">其它</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="mac-路由和DSN相关知识"><a href="#mac-路由和DSN相关知识" class="headerlink" title="mac 路由和DSN相关知识"></a>mac 路由和DSN相关知识</h1><p>Mac 下上网,尤其是在双网卡一起使用的时候, 一个网卡连内网，一个网卡连外网，经常会碰到ip不通(路由问题,比较好解决)或者dns解析不了问题. 或者是在通过VPN连公司网络会插入一些内网route,导致部分网络访问不了.</p>
+<p>即使对Linux下的DNS解析无比熟悉了，但是在Mac下还是花了一些时间来折腾，配置不好路由和DNS是不配使用Mac的，所以记录下。</p>
+<h2 id="route"><a href="#route" class="headerlink" title="route"></a>route</h2><p>如果ip不通就看路由表, 根据内外网IP增加/删除相应的路由信息,常用命令如下:</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">sudo route -n add 10.176/16 192.168.3.1</div><div class="line">sudo route -n add -net 10.176.0.0/16 192.168.3.1 //添加路由, 访问10.176.0.0/16 走192.168.3.1 </div><div class="line">sudo route -n delete -net 10.176.0.0/16 192.168.3.1</div><div class="line">sudo route -n delete 0.0.0.0 192.168.184.1</div><div class="line">sudo route -n add 0.0.0.0 192.168.184.1  //添加默认路由访问外网 </div><div class="line"></div><div class="line">sudo route -n delete 0.0.0.0 192.168.3.1</div><div class="line">sudo route -n add 10.176/16 192.168.3.1</div><div class="line">sudo route -n delete 0.0.0.0 192.168.184.1 -ifscope en0</div><div class="line">sudo route -n add 0.0.0.0 192.168.184.1 </div><div class="line">sudo networksetup -setdnsservers 'Apple USB Ethernet Adapter' 202.106.196.115 202.106.0.20 114.114.114.114</div><div class="line"></div><div class="line">sudo networksetup -setdnsservers 'USB 10/100/1000 LAN' 223.5.5.5 30.30.30.30 114.114.114.114</div><div class="line"></div><div class="line">ip route get 8.8.8.8 //linux</div><div class="line">route get 8.8.8.8    //macos</div><div class="line">netstat -rn          //查看路由  </div><div class="line">netstat -nr -f inet  //只看ipv4相关路由</div></pre></td></tr></table></figure>
+<p>如果本来IP能通,连上VPN后就通不了,那一定是VPN加入了一些更精细的路由导致原来的路由不通了,那么很简单停掉VPN就能恢复或者增加一条更精确的路有记录进去,或者删掉VPN增加的某条路由.</p>
+<h2 id="DNS-解析"><a href="#DNS-解析" class="headerlink" title="DNS 解析"></a>DNS 解析</h2><p>mac下DNS解析问题搞起来比较费劲,相应的资料也不多, 经过上面的操作后如果IP能通,域名解析有问题,一般都是DNS解析出了问题</p>
+<p><a href="https://shockerli.net/post/macos-hostname-scutil/" target="_blank" rel="external">mac下 /etc/resolv.conf 不再用来解析域名, 只有nslookup能用到resolv.conf</a></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">cat /etc/resolv.conf                                                </div><div class="line"><span class="meta">#</span><span class="bash"></span></div><div class="line"><span class="meta">#</span><span class="bash"> macOS Notice</span></div><div class="line"><span class="meta">#</span><span class="bash"></span></div><div class="line"><span class="meta">#</span><span class="bash"> This file is not consulted <span class="keyword">for</span> DNS hostname resolution, address</span></div><div class="line"><span class="meta">#</span><span class="bash"> resolution, or the DNS query routing mechanism used by most</span></div><div class="line"><span class="meta">#</span><span class="bash"> processes on this system.</span></div><div class="line"><span class="meta">#</span><span class="bash"></span></div><div class="line"><span class="meta">#</span><span class="bash"> To view the DNS configuration used by this system, use:</span></div><div class="line"><span class="meta">#</span><span class="bash">   scutil --dns</span></div><div class="line"></div><div class="line">scutil --dns //查看DNS 解析器</div><div class="line">scutil --nwi //查看网络</div></pre></td></tr></table></figure>
+<p>解析出了问题先检查nameserver</p>
+<p>scutil –dns 一般会展示一大堆的resolver, 每个resolver又可以有多个nameserver</p>
+<blockquote>
+<p>A scoped DNS query can use only specified network interfaces (e.g. Ethernet or WiFi), while non-scoped can use any available interface.</p>
+<p>More verbosely, an application that wants to resolve a name, sends a <em>request</em> (either scoped or non-scoped) to a resolver (usually a DNS client application), if the resolver does not have the answer cached, it sends a DNS <em>query</em> to a particular nameserver (and this goes through one interface, so it is always “scoped”).</p>
+<p>In your example resolver #1 “for scoped queries” can use only en0 interface (Ethernet).</p>
+</blockquote>
+<h3 id="修改-nameserver"><a href="#修改-nameserver" class="headerlink" title="修改 nameserver"></a>修改 nameserver</h3><p>默认用第一个resolver, 如果第一个resolver没有nameserver那么域名没法解析, 可以修改dns resolver的nameserver: </p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">networksetup -listallnetworkservices  //列出网卡service, 比如 wifi ,以下是我的 macos 输出</span></div><div class="line">An asterisk (*) denotes that a network service is disabled.</div><div class="line">USB 10/100/1000 LAN</div><div class="line">Apple USB Ethernet Adapter</div><div class="line">Wi-Fi</div><div class="line">Bluetooth PAN</div><div class="line">Thunderbolt Bridge</div><div class="line"><span class="meta">$</span><span class="bash">sudo networksetup -setdnsservers <span class="string">'Wi-Fi'</span> 202.106.196.115 202.106.0.20 114.114.114.114 //修改nameserver</span></div><div class="line"><span class="meta">$</span><span class="bash">networksetup -getdnsservers Wi-Fi //查看对应的nameserver, 跟 scutil --dns 类似</span></div></pre></td></tr></table></figure>
+<p>如上, 只要是你的nameserver工作正常那么DNS就肯定回复了</p>
+<p>删掉所有DNS nameserver:</p>
+<blockquote>
+<p>One note to anyone wanting to remove the DNS, just write “empty” (without the quotes) instead of the DNS: <code>sudo networksetup -setdnsservers &lt;networkservice&gt; empty</code></p>
+</blockquote>
+<h2 id="networksetup用法"><a href="#networksetup用法" class="headerlink" title="networksetup用法"></a><a href="https://www.jianshu.com/p/c84e0f972353" target="_blank" rel="external">networksetup用法</a></h2><h3 id="查看设备和配置"><a href="#查看设备和配置" class="headerlink" title="查看设备和配置"></a>查看设备和配置</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">networksetup -listallnetworkservices</span></div><div class="line">An asterisk (*) denotes that a network service is disabled.</div><div class="line">USB 10/100/1000 LAN</div><div class="line">Apple USB Ethernet Adapter</div><div class="line">Wi-Fi</div><div class="line">Bluetooth PAN</div><div class="line">Thunderbolt Bridge</div><div class="line">Thunderbolt Bridge 2</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">查看网卡配置</span></div><div class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"USB 10/100/1000 LAN"</span>                                   </span></div><div class="line">DHCP Configuration</div><div class="line">IP address: 30.25.25.195</div><div class="line">Subnet mask: 255.255.255.128</div><div class="line">Router: 30.25.25.254</div><div class="line">Client ID:</div><div class="line">IPv6 IP address: none</div><div class="line">IPv6 Router: none</div><div class="line">Ethernet Address: 44:67:52:02:16:d4</div><div class="line"><span class="meta"></span></div><div class="line">$<span class="bash">networksetup -listallhardwareports</span></div><div class="line">Hardware Port: USB 10/100/1000 LAN</div><div class="line">Device: en7</div><div class="line">Ethernet Address: 44:67:52:02:16:d4</div><div class="line"></div><div class="line">Hardware Port: Wi-Fi</div><div class="line">Device: en0</div><div class="line">Ethernet Address: 88:66:5a:10:e4:2b</div><div class="line"></div><div class="line">Hardware Port: Thunderbolt Bridge</div><div class="line">Device: bridge0</div><div class="line">Ethernet Address: 82:0a:d5:01:b4:00</div><div class="line"></div><div class="line">VLAN Configurations</div><div class="line">===================</div><div class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"Thunderbolt Bridge"</span></span></div><div class="line">DHCP Configuration</div><div class="line">Client ID:</div><div class="line">IPv6: Automatic</div><div class="line">IPv6 IP address: none</div><div class="line">IPv6 Router: none</div><div class="line"></div><div class="line">//查看wifi和热点</div><div class="line">networksetup -listpreferredwirelessnetworks en0 </div><div class="line">networksetup -getairportnetwork "en0"</div></pre></td></tr></table></figure>
+<h3 id="dhcp、route、domain配置"><a href="#dhcp、route、domain配置" class="headerlink" title="dhcp、route、domain配置"></a>dhcp、route、domain配置</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line">[-setmanual networkservice ip subnet router]</div><div class="line"></div><div class="line">[-setdhcp networkservice [clientid]]</div><div class="line"></div><div class="line">[-setbootp networkservice]</div><div class="line"></div><div class="line">[-setmanualwithdhcprouter networkservice ip]</div><div class="line"></div><div class="line">[-getadditionalroutes networkservice]</div><div class="line"></div><div class="line">[-setadditionalroutes networkservice [dest1 mask1 gate1] [dest2 mask2 gate2] ..</div><div class="line"></div><div class="line">. [destN maskN gateN]]</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">给网卡配置ip、网关</span></div><div class="line"><span class="meta">$</span><span class="bash"> networksetup -getinfo <span class="string">"Apple USB Ethernet Adapter"</span>                                DHCP Configuration</span></div><div class="line">Client ID:</div><div class="line">IPv6: Automatic</div><div class="line">IPv6 IP address: none</div><div class="line">IPv6 Router: none</div><div class="line">Ethernet Address: (null)</div><div class="line"><span class="meta">$</span><span class="bash">networksetup -setmanual <span class="string">"Apple USB Ethernet Adapter"</span> 192.168.100.100 255.255.255.0 192.168.100.1</span></div><div class="line"><span class="meta">$</span><span class="bash">networksetup -getinfo <span class="string">"Apple USB Ethernet Adapter"</span></span></div><div class="line">Manual Configuration</div><div class="line">IP address: 192.168.100.100</div><div class="line">Subnet mask: 255.255.255.0</div><div class="line">Router: 192.168.100.1</div><div class="line">IPv6: Automatic</div><div class="line">IPv6 IP address: none</div><div class="line">IPv6 Router: none</div><div class="line">Ethernet Address: (null)</div></pre></td></tr></table></figure>
+<h3 id="代理配置"><a href="#代理配置" class="headerlink" title="代理配置"></a>代理配置</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">//ftp</div><div class="line">[-getftpproxy networkservice]</div><div class="line"></div><div class="line">[-setftpproxy networkservice domain portnumber authenticated username password]</div><div class="line"></div><div class="line">[-setftpproxystate networkservice on | off]</div></pre></td></tr></table></figure>
+<p>网页</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">[-getwebproxy networkservice]</div><div class="line">[-setwebproxy networkservice domain portnumber authenticated username password]</div><div class="line">[-setwebproxystate networkservice on | off]</div><div class="line"></div><div class="line">$networksetup -setwebproxy &quot;Built-in Ethernet&quot; proxy.company.com 80</div><div class="line">$networksetup -setwebproxy &quot;Built-In Ethernet&quot; proxy.company.com 80 On authusername authpassword</div></pre></td></tr></table></figure>
+<p>Socks5 代理</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">networksetup -setsocksfirewallproxy <span class="string">"USB 10/100/1000 LAN"</span> 127.0.0.1 13659</span></div><div class="line"><span class="meta">$</span><span class="bash">networksetup -getsocksfirewallproxy <span class="string">"USB 10/100/1000 LAN"</span></span></div><div class="line">Enabled: Yes</div><div class="line">Server: 127.0.0.1</div><div class="line">Port: 13659</div><div class="line">Authenticated Proxy Enabled: 0</div></pre></td></tr></table></figure>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>mac同时连wifi(外网或者vpn)和有线(内网), 如果内网干扰了访问外部ip, 就检查路由表,调整顺序. 如果内网干扰了dns,可以通过scutil –dns查看dns顺序到系统配置里去掉不必要的resolver</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://gowa.club/macOS/macOS%E7%9A%84networksetup%E5%91%BD%E4%BB%A4%E6%9D%A5%E7%AE%A1%E7%90%86%E7%BD%91%E7%BB%9C.html" target="_blank" rel="external">macOS的networksetup命令来管理网络</a></p>
+<p><a href="https://www.diamondtin.com/2009/reloading-pac-script-in-mac/" target="_blank" rel="external">在Mac下使用脚本重载proxy自动配置脚本（pac）</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/01/网络相关知识/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -579,6 +957,7 @@
 <h2 id="修改mac地址"><a href="#修改mac地址" class="headerlink" title="修改mac地址"></a>修改mac地址</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">sudo ip link set dev eth1 down</div><div class="line">sudo ip link set dev eth1 address e8:61:1f:33:c5:fd</div><div class="line">sudo ip link set dev eth1 up</div></pre></td></tr></table></figure>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.modb.pro/db/29135" target="_blank" rel="external">高斯在鲲鹏下跑TPCC的优化</a></p>
 <p><a href="https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/" target="_blank" rel="external">https://www.cyberciti.biz/faq/linux-log-suspicious-martian-packets-un-routable-source-addresses/</a></p>
+<p><a href="https://www.hikunpeng.com/document/detail/zh/kunpenggrf/tuningtip/kunpengtuning_12_0025.html" target="_blank" rel="external">鲲鹏性能优化十板斧</a></p>
 
           
         
@@ -1990,525 +2369,11 @@
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--pagecache/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/11/15/Linux内存--pagecache/" itemprop="url">Linux内存--PageCache</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
-                2020-11-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Memory/" itemprop="url" rel="index">
-                    <span itemprop="name">Memory</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux内存–PageCache"><a href="#Linux内存–PageCache" class="headerlink" title="Linux内存–PageCache"></a>Linux内存–PageCache</h1><p>本系列有如下几篇</p>
-<p><a href="/2020/01/15/Linux 内存问题汇总/">Linux 内存问题汇总</a></p>
-<p><a href="/2020/11/15/Linux内存--pagecache/">Linux内存–PageCache</a></p>
-<p><a href="/2020/11/15/Linux内存--管理和碎片/">Linux内存–管理和碎片</a></p>
-<p><a href="/2020/11/15/Linux内存--HugePage/">Linux内存–HugePage</a></p>
-<p><a href="/2020/11/15/Linux内存--零拷贝/">Linux内存–零拷贝</a></p>
-<h2 id="read-write"><a href="#read-write" class="headerlink" title="read/write"></a>read/write</h2><p><code>read(2)/write(2)</code> 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 <code>Kernel buffer cache</code> 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：<code>Page Cache</code> 和 <code>Buffer Cache</code>，这两个其实是一体两面，共同组成了 Linux 的内核缓冲区（Kernel Buffer Cache），Page Cache 是在应用程序读写文件的过程中产生的：</p>
-<ul>
-<li><strong>读磁盘</strong>：内核会先检查 <code>Page Cache</code> 里是不是已经缓存了这个数据，若是，直接从这个内存缓冲区里读取返回，若否，则穿透到磁盘去读取，然后再缓存在 <code>Page Cache</code> 里，以备下次缓存命中；</li>
-<li><strong>写磁盘</strong>：内核直接把数据写入 <code>Page Cache</code>，并把对应的页标记为 dirty，添加到 dirty list 里，然后就直接返回，内核会定期把 dirty list 的页缓存 flush 到磁盘，保证页缓存和磁盘的最终一致性。</li>
-</ul>
-<p>在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 <code>Buffer Cache</code> 是基于操作系统读写磁盘的最小单位 – 块（block）来进行的，所有的磁盘块操作都是通过 <code>Buffer Cache</code> 来加速，<strong>Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位</strong>，因此也引入了 <code>Page Cache</code> 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 <code>read()/write()</code> 操作，另外也包括了通过 <code>mmap()</code> 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 <code>Buffer Cache</code> 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。</p>
-<p>在 Linux 2.4 版本之后，kernel 就将两者进行了统一，<code>Buffer Cache</code> 不再以独立的形式存在，而是以融合的方式存在于 <code>Page Cache</code> 中</p>
-<p><img src="/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png" alt=""></p>
-<p>融合之后就可以统一操作 <code>Page Cache</code> 和 <code>Buffer Cache</code>：处理文件 I/O 缓存交给 <code>Page Cache</code>，而当底层 RAW device 刷新数据时以 <code>Buffer Cache</code> 的块单位来实际处理。</p>
-<h2 id="pagecache-的产生和释放"><a href="#pagecache-的产生和释放" class="headerlink" title="pagecache 的产生和释放"></a>pagecache 的产生和释放</h2><ul>
-<li>标准 I/O 是写的 (write(2)) 用户缓冲区 (Userpace Page 对应的内存)，<strong>然后再将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong>；如果是读的 (read(2)) 话则是先从内核缓冲区拷贝到用户缓冲区，再从用户缓冲区读数据，也就是 buffer 和文件内容不存在任何映射关系。</li>
-<li>对于存储映射 I/O（Memory-Mapped I/O） 而言，则是直接将 Pagecache Page 给映射到用户地址空间，用户直接读写 Pagecache Page 中内容，效率相对标准IO更高一些</li>
-</ul>
-<p><img src="/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png" alt="image.png" style="zoom: 20%;"></p>
-<p>当 <strong>将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong> 最容易发生缺页中断，OS需要先分配Page（应用感知到的就是卡顿了）</p>
-<p><img src="/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png" alt="img.png" style="zoom: 25%;">  </p>
-<ul>
-<li>Page Cache 是在应用程序读写文件的过程中产生的，所以在读写文件之前你需要留意是否还有足够的内存来分配 Page Cache；</li>
-<li>Page Cache 中的脏页很容易引起问题，你要重点注意这一块；</li>
-<li>在系统可用内存不足的时候就会回收 Page Cache 来释放出来内存，可以通过 sar 或者 /proc/vmstat 来观察这个行为从而更好的判断问题是否跟回收有关</li>
-</ul>
-<p>缺页后kswapd在短时间内回收不了足够多的 free 内存，或kswapd 还没有触发执行，操作系统就会进行内存页直接回收。这个过程中，应用会进行自旋等待直到回收的完成，从而产生巨大的延迟。</p>
-<p><img src="/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png" style="zoom:50%;"></p>
-<p>如果page被swapped，那么恢复进内存的过程也对延迟有影响，当匿名内存页被回收后，如果下次再访问就会产生IO的延迟。</p>
-<p><img src="/images/oss/740b95056dace8ae6fb3b8f58d91572e.png" style="zoom:50%;"></p>
-<h3 id="min-和-low的区别"><a href="#min-和-low的区别" class="headerlink" title="min 和 low的区别"></a>min 和 low的区别</h3><ol>
-<li>min下的内存是保留给内核使用的；当到达min，会触发内存的direct reclaim （vm.min_free_kbytes）</li>
-<li>low水位比min高一些，当内存可用量小于low的时候，会触发 kswapd回收内存，当kswapd慢慢的将内存 回收到high水位，就开始继续睡眠 </li>
-</ol>
-<h3 id="内存回收方式"><a href="#内存回收方式" class="headerlink" title="内存回收方式"></a>内存回收方式</h3><p>内存回收方式有两种，主要对应low ，min</p>
-<ol>
-<li>kswapd reclaim : 达到low水位线时执行 – 异步（实际还有，只是比较危险了，后台kswapd会回收，不会卡顿应用）</li>
-<li>direct reclaim : 达到min水位线时执行 – 同步</li>
-</ol>
-<p>为了减少缺页中断，首先就要保证我们有足够的内存可以使用。由于Linux会尽可能多的使用free的内存，运行很久的应用free的内存是很少的。下面的图中，紫色表示已经使用的内存，白色表示尚未分配的内存。当我们的内存使用达到水位的low值的时候，kswapd就会开始回收工作，而一旦内存分配超过了min，就会进行内存的直接回收。</p>
-<p><img src="/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png" style="zoom:50%;"></p>
-<p>针对这种情况，需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。<strong>需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。</strong></p>
-<p><img src="/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;"></p>
-<p>三个watermark的计算方法：</p>
-<p>watermark[min] = vm.min_free_kbytes换算为page单位即可，假设为vm.min_free_kbytes。</p>
-<p>watermark[low] = watermark[min] * 5 / 4</p>
-<p>watermark[high] = watermark[min] * 3 / 2</p>
-<p>比如默认 vm.min_free_kbytes = 65536是64K，很容易导致应用的毛刺，可以适当改大</p>
-<p>或者禁止： vm.swappiness  来避免swapped来减少延迟</p>
-<h3 id="direct-IO"><a href="#direct-IO" class="headerlink" title="direct IO"></a>direct IO</h3><p>绕过page cache，直接读写硬盘</p>
-<h2 id="cache回收"><a href="#cache回收" class="headerlink" title="cache回收"></a>cache回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
-<ul>
-<li>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</li>
-<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
-</li>
-<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;= n &lt;=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
-</li>
-</ul>
-<blockquote>
-<p>echo 1/2/3 &gt;/proc/sys/vm/drop_caches</p>
-</blockquote>
-<p>查看回收后：</p>
-<pre><code>cat /proc/meminfo
-</code></pre><p><img src="/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:20%;"></p>
-<p>当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉</p>
-<p>在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 &gt; /proc/sys/vm/drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。</p>
-<p>查看 drop_caches 是否执行过释放：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">$ grep drop /proc/vmstat</div><div class="line">drop_pagecache 1</div><div class="line">drop_slab 0</div><div class="line"></div><div class="line">$ grep inodesteal /proc/vmstat </div><div class="line">pginodesteal 114341</div><div class="line">kswapd_inodesteal 1291853</div></pre></td></tr></table></figure>
-<p>在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal /proc/vmstat 观察到</p>
-<blockquote>
-<p>kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；</p>
-<p>pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;</p>
-</blockquote>
-<h2 id="Page回收–缺页中断"><a href="#Page回收–缺页中断" class="headerlink" title="Page回收–缺页中断"></a>Page回收–缺页中断</h2><p><img src="/images/oss/3fdffacd66c0981956b15be348fff46a.png" alt="image.png" style="zoom:20%;"></p>
-<p>从图里你可以看到，在开始内存回收后，首先进行后台异步回收（上图中蓝色标记的地方），这不会引起进程的延迟；如果后台异步回收跟不上进程内存申请的速度，就会开始同步阻塞回收，导致延迟（上图中红色和粉色标记的地方，这就是引起 load 高的地址 – Sys CPU 使用率飙升/Sys load 飙升）。</p>
-<p>那么，针对直接内存回收引起 load 飙高或者业务 RT 抖动的问题，一个解决方案就是及早地触发后台回收来避免应用程序进行直接内存回收，那具体要怎么做呢？</p>
-<p><img src="/images/oss/4b341ba757d27e3a81145a55f54363e1.png" alt="image.png" style="zoom:25%;"></p>
-<p>它的意思是：当内存水位低于 watermark low 时，就会唤醒 kswapd 进行后台回收，然后 kswapd 会一直回收到 watermark high。</p>
-<p>那么，我们可以增大 min_free_kbytes 这个配置选项来及早地触发后台回收，该选项最终控制的是内存回收水位，不过，内存回收水位是内核里面非常细节性的知识点，我们可以先不去讨论。</p>
-<p>对于大于等于 128G 的系统而言，将 min_free_kbytes 设置为 4G 比较合理，这是我们在处理很多这种问题时总结出来的一个经验值，既不造成较多的内存浪费，又能避免掉绝大多数的直接内存回收。</p>
-<p>该值的设置和总的物理内存并没有一个严格对应的关系，我们在前面也说过，如果配置不当会引起一些副作用，所以在调整该值之前，我的建议是：你可以渐进式地增大该值，比如先调整为 1G，观察 sar -B 中 pgscand 是否还有不为 0 的情况；如果存在不为 0 的情况，继续增加到 2G，再次观察是否还有不为 0 的情况来决定是否增大，以此类推。</p>
-<blockquote>
-<p>sar -B :  Report paging statistics.</p>
-<p>pgscand/s  Number of pages scanned directly per second.</p>
-</blockquote>
-<h3 id="系统中脏页过多引起-load-飙高"><a href="#系统中脏页过多引起-load-飙高" class="headerlink" title="系统中脏页过多引起 load 飙高"></a>系统中脏页过多引起 load 飙高</h3><p>直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。</p>
-<p><img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 25%;"></p>
-<p>可以通过 sar -r 来观察系统中的脏页个数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$ sar -r 1</div><div class="line">07:30:01 PM kbmemfree kbmemused  %memused kbbuffers  kbcached  kbcommit   %commit  kbactive   kbinact   kbdirty</div><div class="line">09:20:01 PM   5681588   2137312     27.34         0   1807432    193016      2.47    534416   1310876         4</div><div class="line">09:30:01 PM   5677564   2141336     27.39         0   1807500    204084      2.61    539192   1310884        20</div><div class="line">09:40:01 PM   5679516   2139384     27.36         0   1807508    196696      2.52    536528   1310888        20</div><div class="line">09:50:01 PM   5679548   2139352     27.36         0   1807516    196624      2.51    536152   1310892        24</div></pre></td></tr></table></figure>
-<p>kbdirty 就是系统中的脏页大小，它同样也是对 /proc/vmstat 中 nr_dirty 的解析。你可以通过调小如下设置来将系统脏页个数控制在一个合理范围:</p>
-<blockquote>
-<p>vm.dirty_background_bytes = 0</p>
-<p>vm.dirty_background_ratio = 10</p>
-<p>vm.dirty_bytes = 0</p>
-<p>vm.dirty_expire_centisecs = 3000</p>
-<p>vm.dirty_ratio = 20</p>
-</blockquote>
-<p>至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果可以通过 /proc/vmstat 来查看：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#grep &quot;nr_dirty_&quot; /proc/vmstat</div><div class="line">nr_dirty_threshold 3071708</div><div class="line">nr_dirty_background_threshold 1023902</div></pre></td></tr></table></figure>
-<p>在4.20的内核并且sar 的版本为12.3.3可以看到PSI（Pressure-Stall Information）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">some avg10=45.49 avg60=10.23 avg300=5.41 total=76464318</div><div class="line">full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082</div></pre></td></tr></table></figure>
-<p>重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。</p>
-<p><img src="/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png" alt="image.png" style="zoom: 25%;"></p>
-<h2 id="通过tracepoint分析内存卡顿问题"><a href="#通过tracepoint分析内存卡顿问题" class="headerlink" title="通过tracepoint分析内存卡顿问题"></a>通过tracepoint分析内存卡顿问题</h2><p><img src="/images/oss/d5446b656e8d91a9fb72200a7b97e723.png" alt="image.png" style="zoom:25%;"></p>
-<p>我们继续以内存规整 (memory compaction) 为例，来看下如何利用 tracepoint 来对它进行观察：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">#首先来使能compcation相关的一些tracepoing</div><div class="line">$ echo 1 &gt;</div><div class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_begin/enable</div><div class="line">$ echo 1 &gt;</div><div class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_end/enable </div><div class="line"></div><div class="line">#然后来读取信息，当compaction事件触发后就会有信息输出</div><div class="line">$ cat /sys/kernel/debug/tracing/trace_pipe</div><div class="line">           &lt;...&gt;-49355 [037] .... 1578020.975159: mm_compaction_begin: </div><div class="line">zone_start=0x2080000 migrate_pfn=0x2080000 free_pfn=0x3fe5800 </div><div class="line">zone_end=0x4080000, mode=async</div><div class="line">           &lt;...&gt;-49355 [037] .N.. 1578020.992136: mm_compaction_end: </div><div class="line">zone_start=0x2080000 migrate_pfn=0x208f420 free_pfn=0x3f4b720 </div><div class="line">zone_end=0x4080000, mode=async status=contended</div></pre></td></tr></table></figure>
-<p>从这个例子中的信息里，我们可以看到是 49355 这个进程触发了 compaction，begin 和 end 这两个 tracepoint 触发的时间戳相减，就可以得到 compaction 给业务带来的延迟，我们可以计算出这一次的延迟为 17ms。</p>
-<p>或者用 <a href="https://lore.kernel.org/linux-mm/20191001144524.GB3321@techsingularity.net/T/" target="_blank" rel="external">perf script</a> 脚本来分析, <a href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop.py" target="_blank" rel="external">基于 bcc(eBPF) 写的direct reclaim snoop</a>来观察进程因为 direct reclaim 而导致的延迟。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="external">https://www.atatech.org/articles/66885</a></p>
-<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1087455</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--HugePage/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/11/15/Linux内存--HugePage/" itemprop="url">Linux内存--HugePage</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">
-                2020-11-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Memory/" itemprop="url" rel="index">
-                    <span itemprop="name">Memory</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux内存–HugePage"><a href="#Linux内存–HugePage" class="headerlink" title="Linux内存–HugePage"></a>Linux内存–HugePage</h1><p>本系列有如下几篇</p>
-<p><a href="/2020/01/15/Linux 内存问题汇总/">Linux 内存问题汇总</a></p>
-<p><a href="/2020/11/15/Linux内存--pagecache/">Linux内存–PageCache</a></p>
-<p><a href="/2020/11/15/Linux内存--管理和碎片/">Linux内存–管理和碎片</a></p>
-<p><a href="/2020/11/15/Linux内存--HugePage/">Linux内存–HugePage</a></p>
-<p><a href="/2020/11/15/Linux内存--零拷贝/">Linux内存–零拷贝</a></p>
-<h2 id="proc-buddyinfo"><a href="#proc-buddyinfo" class="headerlink" title="/proc/buddyinfo"></a>/proc/buddyinfo</h2><p>/proc/buddyinfo记录了内存的详细碎片情况。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#cat /proc/buddyinfo </div><div class="line">Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 </div><div class="line">Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 </div><div class="line">Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854</div></pre></td></tr></table></figure>
-<p>Normal行的第二列表示：  643847*2^1*Page_Size(4K) ;  第三列表示：  357451*2^2*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。</p>
-<p>应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上–2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。</p>
-<h2 id="slabtop和-proc-slabinfo"><a href="#slabtop和-proc-slabinfo" class="headerlink" title="slabtop和/proc/slabinfo"></a>slabtop和/proc/slabinfo</h2><p>slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes</p>
-<h2 id="关于hugetlb"><a href="#关于hugetlb" class="headerlink" title="关于hugetlb"></a>关于hugetlb</h2><p>This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a “hugetlb page entry”. The ‘hugetlb” term is also (and mostly) used synonymously with a HugePage.</p>
-<p> hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。</p>
-<p><strong>Linux下的大页分为两种类型：标准大页（Huge Pages）和透明大页（Transparent Huge Pages）</strong></p>
-<p>标准大页管理是预分配的方式，而透明大页管理则是动态分配的方式</p>
-<p>目前透明大页与传统HugePages联用会出现一些问题，导致性能问题和系统重启。Oracle 建议禁用透明大页（Transparent Huge Pages）</p>
-<p>hugetlbfs比THP要好，开thp的机器碎片化严重（不开THP会有更严重的碎片化问题），最后和没开THP一样 <a href="https://www.atatech.org/articles/152660" target="_blank" rel="external">https://www.atatech.org/articles/152660</a></p>
-<p>Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存不足时，它们也不会被 Swap 到磁盘上，这也就能从根源上杜绝了重要内存被频繁换入和换出的可能。</p>
-<blockquote>
-<p><strong>Transparent Hugepages</strong> are similar to standard <strong>HugePages</strong>. However, while standard <strong>HugePages</strong> allocate memory at startup, <strong>Transparent Hugepages</strong> memory uses the khugepaged thread in the kernel to allocate memory dynamically during runtime, using swappable <strong>HugePages</strong>.</p>
-</blockquote>
-<p>HugePage要求OS启动的时候提前分配出来，管理难度比较大，所以Enterprise Linux 6增加了一层抽象层来动态创建管理HugePage，这就是THP，而这个THP对应用透明，由khugepaged thread在后台动态将小页组成大页给应用使用，这里会遇上碎片问题导致需要compact才能得到大页，应用感知到的就是SYS CPU飙高，应用卡顿了。</p>
-<p>虽然 HugePages 的开启大都需要开发或者运维工程师的额外配置，但是在应用程序中启用 HugePages 却可以在以下几个方面降低内存页面的管理开销：</p>
-<ul>
-<li>更大的内存页能够减少内存中的页表层级，这不仅可以降低页表的内存占用，也能降低从虚拟内存到物理内存转换的性能损耗；</li>
-<li>更大的内存页意味着更高的缓存命中率，CPU 有更高的几率可以直接在 TLB（Translation lookaside buffer）中获取对应的物理地址；</li>
-<li>更大的内存页可以减少获取大内存的次数，使用 HugePages 每次可以获取 2MB 的内存，是 4KB 的默认页效率的 512 倍；</li>
-</ul>
-<h2 id="HugePage"><a href="#HugePage" class="headerlink" title="HugePage"></a>HugePage</h2><p><strong>为什么需要Huge Page</strong> 了解CPU Cache大致架构的话，一定听过TLB Cache。<code>Linux</code>系统中，对程序可见的，可使用的内存地址是<code>Virtual Address</code>。每个程序的内存地址都是从0开始的。而实际的数据访问是要通过<code>Physical Address</code>进行的。因此，每次内存操作，CPU都需要从<code>page table</code>中把<code>Virtual Address</code>翻译成对应的<code>Physical Address</code>，那么对于大量内存密集型程序来说<code>page table</code>的查找就会成为程序的瓶颈。</p>
-<p>所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
-<p>Huge pages require contiguous areas of memory, so allocating them at boot is the most reliable method since memory has not yet become fragmented. To do so, add the following parameters to the kernel boot command line:</p>
-<p><strong>Huge pages kernel options</strong></p>
-<ul>
-<li><p>hugepages</p>
-<p>Defines the number of persistent huge pages configured in the kernel at boot time. The default value is <code>0</code>. It is only possible to allocate (or deallocate) huge pages if there are sufficient physically contiguous free pages in the system. Pages reserved by this parameter cannot be used for other purposes.</p>
-<p>Default size huge pages can be dynamically allocated or deallocated by changing the value of the <code>/proc/sys/vm/nr_hugepages</code> file.</p>
-<p>In a NUMA system, huge pages assigned with this parameter are divided equally between nodes. You can assign huge pages to specific nodes at runtime by changing the value of the node’s <code>/sys/devices/system/node/node_id/hugepages/hugepages-1048576kB/nr_hugepages</code> file.</p>
-<p>For more information, read the relevant kernel documentation, which is installed in <code>/usr/share/doc/kernel-doc-kernel_version/Documentation/vm/hugetlbpage.txt</code> by default. This documentation is available only if the <em>kernel-doc</em> package is installed.</p>
-</li>
-<li><p>hugepagesz</p>
-<p>Defines the size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
-</li>
-<li><p>default_hugepagesz</p>
-<p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
-</li>
-</ul>
-<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/" target="_blank" rel="external">工具</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">yum install libhugetlbfs-utils -y</div><div class="line"></div><div class="line">//列出</div><div class="line">hugeadm --pool-list</div><div class="line">      Size  Minimum  Current  Maximum  Default</div><div class="line">   2097152    12850    12850    12850        *</div><div class="line">1073741824        0        0        0</div><div class="line"></div><div class="line">hugeadm --list-all-mounts</div><div class="line">Mount Point          Options</div><div class="line">/dev/hugepages       rw,relatime,pagesize=2M</div></pre></td></tr></table></figure>
-<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
-<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
-<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
-<p>8.0中总算优化了这个场景，测试细节可以参考<a href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html" target="_blank" rel="external">这篇</a></p>
-<p>16K VS 4K 性能对比（4K接近翻倍）</p>
-<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
-<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
-<h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a href="http://cenalulu.github.io/linux/huge-page-on-numa/" target="_blank" rel="external">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
-<ul>
-<li>通过CPU间的总线进行通讯，造成总线繁忙</li>
-<li>同时也降低了CPU执行效率。</li>
-<li>CPU本地Cache频繁失效</li>
-</ul>
-<p>类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。</p>
-<h4 id="连续数据需要跨CPU读取"><a href="#连续数据需要跨CPU读取" class="headerlink" title="连续数据需要跨CPU读取"></a>连续数据需要跨CPU读取</h4><p>Page太大，更容易造成Page跨Numa/CPU 分布。</p>
-<p>从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，<code>Array A</code>和<code>Array B</code>大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此<code>Array B</code>就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。</p>
-<p><img src="/images/951413iMgBlog/false_sharing.png" alt="img"></p>
-<h3 id="Java进程开启HugePage"><a href="#Java进程开启HugePage" class="headerlink" title="Java进程开启HugePage"></a>Java进程开启HugePage</h3><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
-<h4 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h4><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes=2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
-<blockquote>
-<p>-XX:+UseLargePages -XX:LargePageSizeInBytes=2m -XX:+UseHugeTLBFS</p>
-</blockquote>
-<h4 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h4><p>设置HugePage的大小</p>
-<blockquote>
-<p>cat /proc/sys/vm/nr_hugepages</p>
-</blockquote>
-<p>nr_hugepages设置多大参考如下计算方法：</p>
-<blockquote>
-<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB = 3 <em> 1024 MB = 3072 MB = 3072 </em> 1024 kB = 3145728 kB and 3145728 kB / 2048 kB = 1536):</p>
-<p>echo 1536 &gt; /proc/sys/vm/nr_hugepages </p>
-</blockquote>
-<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
-<p>对于c++来说，他malloc经常会散落得全地址都是，因为会触发各种mmap，冷热区域。所以THP和hugepage都可能导致大量内存被浪费了，进而导致内存紧张，性能下滑。jvm的连续内存布局，加上gc会使得内存密度很紧凑。THP的问题是，他是逻辑页，不是物理页，tlb依旧要N份，所以他的收益来自page fault减少，是一次性的收益。</p>
-<p>hugepage的在减少page_fault上和thp效果一样第二个作用是，他只需要一份TLB了，hugepage是真正的大页内存，thp是逻辑上的，物理上还是需要很多小的page。</p>
-<p><strong>如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。</strong></p>
-<h2 id="THP"><a href="#THP" class="headerlink" title="THP"></a>THP</h2><p>Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时<strong>每次写命令引起的复制内存页单位放大了512倍</strong>，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  </p>
-<p>THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。</p>
-<p>THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">[always] madvise never</div><div class="line"></div><div class="line">grep &quot;Huge&quot; /proc/meminfo</div><div class="line">AnonHugePages:   1286144 kB</div><div class="line">ShmemHugePages:        0 kB</div><div class="line">HugePages_Total:       0</div><div class="line">HugePages_Free:        0</div><div class="line">HugePages_Rsvd:        0</div><div class="line">HugePages_Surp:        0</div><div class="line">Hugepagesize:       2048 kB</div><div class="line">Hugetlb:               0 kB</div><div class="line"></div><div class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &apos;&#123; if($2&gt;4) print $0&#125; &apos; |  awk -F &quot;/&quot;  &apos;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &apos;</div><div class="line"></div><div class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &apos;&#123; if($2&gt;4) print $0&#125; &apos; |  awk -F &quot;/&quot;  &apos;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &apos;</div><div class="line"></div><div class="line">//查看pagesize（默认4K） </div><div class="line">$getconf PAGESIZE</div></pre></td></tr></table></figure>
-<p>在透明大页功能打开时，造成系统性能下降的主要原因可能是 <code>khugepaged</code> 守护进程。该进程会在（它认为）系统空闲时启动，扫描系统中剩余的空闲内存，并将普通 4k 页转换为大页。该操作会在内存路径中加锁，而该守护进程可能会在错误的时间启动扫描和转换大页的操作，从而影响应用性能。</p>
-<p>此外，当缺页异常(page faults)增多时，透明大页会和普通 4k 页一样，产生同步内存压缩(direct compaction)操作，以节省内存。该操作是一个同步的内存整理操作，如果应用程序会短时间分配大量内存，内存压缩操作很可能会被触发，从而会对系统性能造成风险。<a href="https://yq.aliyun.com/articles/712830" target="_blank" rel="external">https://yq.aliyun.com/articles/712830</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">#查看系统级别的 THP 使用情况，执行下列命令：</div><div class="line">cat /proc/meminfo  | grep AnonHugePages</div><div class="line">#类似地，查看进程级别的 THP 使用情况，执行下列命令：</div><div class="line">cat /proc/1730/smaps | grep AnonHugePages |grep -v &quot;0 kB&quot;</div><div class="line">#是否开启了hugepage</div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
-<p><code>/proc/sys/vm/nr_hugepages</code> 中存储的数据就是大页面的数量，虽然在默认情况下它的值都是 0，不过我们可以通过更改该文件的内容申请或者释放操作系统中的大页：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$ echo 1 &gt; /proc/sys/vm/nr_hugepages</div><div class="line">$ cat /proc/meminfo | grep HugePages_</div><div class="line">HugePages_Total:       1</div><div class="line">HugePages_Free:        1</div></pre></td></tr></table></figure>
-<h2 id="MySQL-场景下代码大页对性能的影响"><a href="#MySQL-场景下代码大页对性能的影响" class="headerlink" title="MySQL 场景下代码大页对性能的影响"></a><a href="https://ata.alibaba-inc.com/articles/217859" target="_blank" rel="external">MySQL 场景下代码大页对性能的影响</a></h2><p>不只是数据可以用HugePage，代码段也可以开启HugePage, 无论在x86还是arm（arm下提升更明显）下，都可以得到大页优于透明大页，透明大页优于正常的4K page</p>
-<blockquote>
-<p>收益：代码大页 &gt; anon THP &gt; 4k</p>
-</blockquote>
-<p>arm下，对32core机器用32并发的sysbench来对比，代码大页带来的性能提升大概有11%，iTLB miss下降了10倍左右。</p>
-<p>x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右。</p>
-<h2 id="TLAB-miss高的案例"><a href="#TLAB-miss高的案例" class="headerlink" title="TLAB miss高的案例"></a><a href="https://ata.alibaba-inc.com/articles/152660" target="_blank" rel="external">TLAB miss高的案例</a></h2><p>程序运行久了之后会变慢大概10%</p>
-<p>刚开始运行的时候perf各项数据:</p>
-<p><img src="/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png" alt="img"></p>
-<p>长时间运行后：</p>
-<p><img src="/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png" alt="img"></p>
-<p>内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。</p>
-<p>既然无法理解这个结果，那就只有按部就班的查看内核执行路径上各个函数的差别了，祭出ftrace:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">echo kerel_func_name1 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line"></div><div class="line">echo kerel_func_name2 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line"></div><div class="line">echo kerel_func_name3 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</div><div class="line">echo 1 &gt; /sys/kernel/debug/tracing/function_profile_enabled</div></pre></td></tr></table></figure>
-<p>在CPU#20上执行代码:</p>
-<p>taskset -c 20 ./b</p>
-<p>代码执行完后:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">echo 0 &gt; /sys/kernel/debug/tracing/function_profile_enabled</div><div class="line">cat /sys/kernel/debug/tracing/trace_stat/function20</div></pre></td></tr></table></figure>
-<p>这个时候就会打印出在各个函数上花费的时间，比如:</p>
-<p><img src="/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png" alt="img"></p>
-<p>经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).</p>
-<p>在阅读代码的过程中，注意到当前内核使能了CONFIG_SPARSEMEM_VMEMMAP=y</p>
-<p>原因就是机器运行久了之后内存碎片化严重，导致TLAB Miss严重。</p>
-<p>解决：开启THP后，性能稳定</p>
-<h2 id="碎片化"><a href="#碎片化" class="headerlink" title="碎片化"></a>碎片化</h2><p>内存碎片严重的话会导致系统hang很久(回收、压缩内存）</p>
-<p>尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G/8G), 线上机器直接修改vm.min_free_kbytes<strong>会触发回收，导致系统hang住</strong> <a href="https://www.atatech.org/articles/163233" target="_blank" rel="external">https://www.atatech.org/articles/163233</a> <a href="https://www.atatech.org/articles/97130" target="_blank" rel="external">https://www.atatech.org/articles/97130</a></p>
-<p>compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。</p>
-<p><img src="/images/951413iMgBlog/image-20210628144121108.png" alt="image-20210628144121108"></p>
-<p>一次THP compact堆栈：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div></pre></td><td class="code"><pre><div class="line">java          R  running task        0 144305 144271 0x00000080</div><div class="line"> ffff88096393d788 0000000000000086 ffff88096393d7b8 ffffffff81060b13</div><div class="line"> ffff88096393d738 ffffea003968ce50 000000000000000e ffff880caa713040</div><div class="line"> ffff8801688b0638 ffff88096393dfd8 000000000000fbc8 ffff8801688b0640</div><div class="line"></div><div class="line">Call Trace:</div><div class="line"> [&lt;ffffffff81060b13&gt;] ? perf_event_task_sched_out+0x33/0x70</div><div class="line"> [&lt;ffffffff8100bb8e&gt;] ? apic_timer_interrupt+0xe/0x20</div><div class="line"> [&lt;ffffffff810686da&gt;] __cond_resched+0x2a/0x40</div><div class="line"> [&lt;ffffffff81528300&gt;] _cond_resched+0x30/0x40</div><div class="line"> [&lt;ffffffff81169505&gt;] compact_checklock_irqsave+0x65/0xd0</div><div class="line"> [&lt;ffffffff81169862&gt;] compaction_alloc+0x202/0x460</div><div class="line"> [&lt;ffffffff811748d8&gt;] ? buffer_migrate_page+0xe8/0x130</div><div class="line"> [&lt;ffffffff81174b4a&gt;] migrate_pages+0xaa/0x480</div><div class="line"> [&lt;ffffffff81169660&gt;] ? compaction_alloc+0x0/0x460                 //compact and migrate</div><div class="line"> [&lt;ffffffff8116a1a1&gt;] compact_zone+0x581/0x950</div><div class="line"> [&lt;ffffffff8116a81c&gt;] compact_zone_order+0xac/0x100</div><div class="line"> [&lt;ffffffff8116a951&gt;] try_to_compact_pages+0xe1/0x120</div><div class="line"> [&lt;ffffffff8112f1ba&gt;] __alloc_pages_direct_compact+0xda/0x1b0</div><div class="line"> [&lt;ffffffff8112f80b&gt;] __alloc_pages_nodemask+0x57b/0x8d0</div><div class="line"> [&lt;ffffffff81167b9a&gt;] alloc_pages_vma+0x9a/0x150</div><div class="line"> [&lt;ffffffff8118337d&gt;] do_huge_pmd_anonymous_page+0x14d/0x3b0        //huge page</div><div class="line"> [&lt;ffffffff8152a116&gt;] ? rwsem_down_read_failed+0x26/0x30</div><div class="line"> [&lt;ffffffff8114b350&gt;] handle_mm_fault+0x2f0/0x300</div><div class="line"> [&lt;ffffffff810ae950&gt;] ? wake_futex+0x40/0x60</div><div class="line"> [&lt;ffffffff8104a8d8&gt;] __do_page_fault+0x138/0x480</div><div class="line"> [&lt;ffffffff810097cc&gt;] ? __switch_to+0x1ac/0x320</div><div class="line"> [&lt;ffffffff81527910&gt;] ? thread_return+0x4e/0x76e</div><div class="line"> [&lt;ffffffff8152d45e&gt;] do_page_fault+0x3e/0xa0                       //page fault</div><div class="line"> [&lt;ffffffff8152a815&gt;] page_fault+0x25/0x30</div></pre></td></tr></table></figure>
-<h3 id="查看pagetypeinfo"><a href="#查看pagetypeinfo" class="headerlink" title="查看pagetypeinfo"></a>查看pagetypeinfo</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line">#cat /proc/pagetypeinfo</div><div class="line">Page block order: 9</div><div class="line">Pages per block:  512</div><div class="line"></div><div class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</div><div class="line">Node    0, zone      DMA, type    Unmovable      1      1      1      0      2      1      1      0      1      0      0</div><div class="line">Node    0, zone      DMA, type  Reclaimable      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      1      3</div><div class="line">Node    0, zone      DMA, type      Reserve      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone    DMA32, type    Unmovable     89    144     98     42     21     14      5      2      1      0      1</div><div class="line">Node    0, zone    DMA32, type  Reclaimable     28     22      9      8      0      0      0      0      0      1      7</div><div class="line">Node    0, zone    DMA32, type      Movable    402     50     21      8    880    924    321     51      4      1    227</div><div class="line">Node    0, zone    DMA32, type      Reserve      0      0      0      0      0      0      0      0      0      0      1</div><div class="line">Node    0, zone    DMA32, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type    Unmovable  13709  15231   6637   2646    816    181     46      4      4      1      0</div><div class="line">Node    0, zone   Normal, type  Reclaimable      1      5      6   3293   1295    128     29      7      5      0      0</div><div class="line">Node    0, zone   Normal, type      Movable   6396 1383350 1301956 1007627 670102 366248 160232  54894  13126   1482     37</div><div class="line">Node    0, zone   Normal, type      Reserve      0      0      0      2      1      1      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line"></div><div class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</div><div class="line">Node 0, zone      DMA            1            0            7            0            0            0</div><div class="line">Node 0, zone    DMA32           24           38          889            1            0            0</div><div class="line">Node 0, zone   Normal         1568          795       127683            2            0            0</div><div class="line">Page block order: 9</div><div class="line">Pages per block:  512</div><div class="line"></div><div class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</div><div class="line">Node    1, zone   Normal, type    Unmovable   3938   8735   5469   3221   2097    989    202      6      0      0      0</div><div class="line">Node    1, zone   Normal, type  Reclaimable      1      7      7      8      7      2      2      2      1      0      0</div><div class="line">Node    1, zone   Normal, type      Movable  18623 1001037 2084894 1261484 631159 276096  87272  17169   1389    797      0</div><div class="line">Node    1, zone   Normal, type      Reserve      0      0      0      8      0      0      0      0      0      0      0</div><div class="line">Node    1, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</div><div class="line">Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</div><div class="line"></div><div class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</div><div class="line">Node 1, zone   Normal         1530          637       128903            2            0            0</div></pre></td></tr></table></figure>
-<p>每个zone都有自己的min low high,如下，但是单位是page, 计算案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div></pre></td><td class="code"><pre><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#cat /proc/zoneinfo  |grep &quot;Node&quot;</div><div class="line">Node 0, zone      DMA</div><div class="line">Node 0, zone    DMA32</div><div class="line">Node 0, zone   Normal</div><div class="line">Node 1, zone   Normal</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#cat /proc/zoneinfo  |grep &quot;Node 0, zone&quot; -A10</div><div class="line">Node 0, zone      DMA</div><div class="line">  pages free     3975</div><div class="line">        min      20</div><div class="line">        low      25</div><div class="line">        high     30</div><div class="line">        scanned  0</div><div class="line">        spanned  4095</div><div class="line">        present  3996</div><div class="line">        managed  3975</div><div class="line">    nr_free_pages 3975</div><div class="line">    nr_alloc_batch 5</div><div class="line">--</div><div class="line">Node 0, zone    DMA32</div><div class="line">  pages free     382873</div><div class="line">        min      2335</div><div class="line">        low      2918</div><div class="line">        high     3502</div><div class="line">        scanned  0</div><div class="line">        spanned  1044480</div><div class="line">        present  513024</div><div class="line">        managed  450639</div><div class="line">    nr_free_pages 382873</div><div class="line">    nr_alloc_batch 584</div><div class="line">--</div><div class="line">Node 0, zone   Normal</div><div class="line">  pages free     11105097</div><div class="line">        min      61463</div><div class="line">        low      76828</div><div class="line">        high     92194</div><div class="line">        scanned  0</div><div class="line">        spanned  12058624</div><div class="line">        present  12058624</div><div class="line">        managed  11859912</div><div class="line">    nr_free_pages 11105097</div><div class="line">    nr_alloc_batch 12344</div><div class="line">    </div><div class="line">    low = 5/4 * min</div><div class="line">high = 3/2 * min</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=min;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=499 MB</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=low;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=624 MB</div><div class="line"></div><div class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</div><div class="line">#T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &apos;&#123;print $NF&#125;&apos;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</div><div class="line">sum=802 MB</div></pre></td></tr></table></figure>
-<h2 id="内存碎片化导致rt升高的诊断"><a href="#内存碎片化导致rt升高的诊断" class="headerlink" title="内存碎片化导致rt升高的诊断"></a>内存碎片化导致rt升高的诊断</h2><p>判定方法如下：</p>
-<ol>
-<li>运行 sar -B 观察 pgscand/s，其含义为每秒发生的直接内存回收次数，当在一段时间内持续大于 0 时，则应继续执行后续步骤进行排查；</li>
-<li>运行 <code>cat /sys/kernel/debug/extfrag/extfrag_index</code> 观察内存碎片指数，重点关注 order &gt;= 3 的碎片指数，当接近 1.000 时，表示碎片化严重，当接近 0 时表示内存不足；</li>
-<li>运行 <code>cat /proc/buddyinfo, cat /proc/pagetypeinfo</code> 查看内存碎片情况， 指标含义参考 （<a href="https://man7.org/linux/man-pages/man5/proc.5.html），同样关注" target="_blank" rel="external">https://man7.org/linux/man-pages/man5/proc.5.html），同样关注</a> order &gt;= 3 的剩余页面数量，pagetypeinfo 相比 buddyinfo 展示的信息更详细一些，根据迁移类型 （伙伴系统通过迁移类型实现反碎片化）进行分组，需要注意的是，当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重，我们需要结合其他工具来排查具体原因，在本文就不做过多介绍了；</li>
-<li>对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 <a href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt" target="_blank" rel="external">drsnoop</a>，<a href="https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt" target="_blank" rel="external">compactsnoop</a> 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；</li>
-<li>(Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。</li>
-</ol>
-<p>​    </p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/66885" target="_blank" rel="external">https://www.atatech.org/articles/66885</a></p>
-<p><a href="https://cloud.tencent.com/developer/article/1087455" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1087455</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/13719610.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><span class="space">&hellip;</span><a class="page-number" href="/page/14/">14</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/3/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/3/">3</a><span class="page-number current">4</span><a class="page-number" href="/page/5/">5</a><span class="space">&hellip;</span><a class="page-number" href="/page/15/">15</a><a class="extend next" rel="next" href="/page/5/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -2553,7 +2418,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">140</span>
+                <span class="site-state-item-count">142</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
