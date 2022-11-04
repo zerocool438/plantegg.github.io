@@ -115,7 +115,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/114b5b71468b33128e76129bbc7fb8f4.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/7cf291546a167b0ca6a017e98db5a821.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211104163732499.png">
-<meta property="og:updated_time" content="2022-06-06T07:28:25.534Z">
+<meta property="og:updated_time" content="2022-11-04T09:12:39.144Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="MySQL线程池导致的延时卡顿排查">
 <meta name="twitter:description" content="MySQL 线程池导致的延时卡顿排查问题描述简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。 通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。 所在节点的tsar监控没有异常，Tomcat manager监控上没有f">
@@ -450,7 +450,7 @@
 <p><img src="/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
 <p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。</p>
 <h2 id="线程池卡死案例：show-stats导致集群3406监控卡死"><a href="#线程池卡死案例：show-stats导致集群3406监控卡死" class="headerlink" title="线程池卡死案例：show stats导致集群3406监控卡死"></a>线程池卡死案例：show stats导致集群3406监控卡死</h2><h3 id="现象"><a href="#现象" class="headerlink" title="现象"></a>现象</h3><p>应用用于获取监控信息的端口 3406卡死，监控脚本无法连接上3406，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。</p>
-<p>通过jstack看到drds-server进程的manager线程池都是这样: </p>
+<p>通过jstack看到应用进程的3406端口线程池都是这样: </p>
 <figure class="highlight"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div></pre></td><td class="code"><pre><div class="line">"ManagerExecutor-1-thread-1" #47 daemon prio=5 os_prio=0 tid=0x00007fe924004000 nid=0x15c runnable [0x00007fe9034f4000]</div><div class="line">   java.lang.Thread.State: RUNNABLE</div><div class="line">    at java.net.SocketInputStream.socketRead0(Native Method)</div><div class="line">    at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)</div><div class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:171)</div><div class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:141)</div><div class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">    - locked &lt;0x0000000722538b60&gt; (a com.mysql.jdbc.util.ReadAheadInputStream)</div><div class="line">    at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3005)</div><div class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3466)</div><div class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3456)</div><div class="line">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3897)</div><div class="line">    at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2524)</div><div class="line">    at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2677)</div><div class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2545)</div><div class="line">    - locked &lt;0x00000007432e19c8&gt; (a com.mysql.jdbc.JDBC4Connection)</div><div class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2503)</div><div class="line">    at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1369)</div><div class="line">    - locked &lt;0x00000007432e19c8&gt; (a com.mysql.jdbc.JDBC4Connection)</div><div class="line">    at com.alibaba.druid.pool.ValidConnectionCheckerAdapter.isValidConnection(ValidConnectionCheckerAdapter.java:44)</div><div class="line">    at com.alibaba.druid.pool.DruidAbstractDataSource.testConnectionInternal(DruidAbstractDataSource.java:1298)</div><div class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnectionDirect(DruidDataSource.java:1057)</div><div class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:997)</div><div class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:987)</div><div class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:103)</div><div class="line">    at com.taobao.tddl.atom.AbstractTAtomDataSource.getConnection(AbstractTAtomDataSource.java:32)</div><div class="line">    at com.alibaba.cobar.ClusterSyncManager$1.run(ClusterSyncManager.java:60)</div><div class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1152)</div><div class="line">    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:627)</div><div class="line">    at java.lang.Thread.run(Thread.java:882)</div></pre></td></tr></table></figure>
 <h3 id="原因"><a href="#原因" class="headerlink" title="原因"></a>原因</h3><ol>
 <li>用户监控采集数据通过访问3306端口上的show stats，这个show stats命令要访问集群下所有节点的3406端口来执行show stats，3406端口上是一个大小为8个的Manager 线程池在执行这些show stats命令，导致占满了manager线程池的8个线程，每个3306的show stats线程都在wait 所有节点3406上的子任务的返回</li>
@@ -643,7 +643,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">142</span>
+                <span class="site-state-item-count">146</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -665,7 +665,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">235</span>
+                <span class="site-state-item-count">240</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

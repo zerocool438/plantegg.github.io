@@ -291,6 +291,1355 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/26/MySQL知识体系的三驾马车/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/26/MySQL知识体系的三驾马车/" itemprop="url">MySQL知识体系的三驾马车</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-26T17:30:03+08:00">
+                2019-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL知识体系的三驾马车"><a href="#MySQL知识体系的三驾马车" class="headerlink" title="MySQL知识体系的三驾马车"></a>MySQL知识体系的三驾马车</h1><p>在我看来要掌握好MySQL的话要理解好这三个东西：</p>
+<ul>
+<li>索引（B+树）</li>
+<li>日志（WAL）</li>
+<li>事务(可见性)</li>
+</ul>
+<p>索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了；</p>
+<p>而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写；</p>
+<p>事务则是数据库的皇冠。</p>
+<h2 id="索引"><a href="#索引" class="headerlink" title="索引"></a>索引</h2><p>索引主要是解决查询性能的问题，数据一般都是写少查多，而且要满足各种查，所以使用数据库过程中最常见的问题就是索引的优化。</p>
+<p>MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索引，能使得索引保持比较小，更容易加载到内存中；数据全部放在B+树的叶节点上，整个叶节点又是个有序双向链表，这样非常合适区间查找。</p>
+<p>如果用平衡二叉树当索引，想象一下一棵 100 万节点的平衡二叉树，树高 20。一次查询可能需要访问 20 个数据块。在机械硬盘时代，从磁盘随机读一个数据块需要 10 ms 左右的寻址时间。也就是说，对于一个 100 万行的表，如果使用二叉树来存储，单独访问一个行可能需要 20 个 10 ms 的时间，这个查询可真够慢的</p>
+<p>对比一下 InnoDB 的一个整数字段B+数索引为例，B+树的杈数一般是 1200。这棵树高是 4 的时候，就可以存 1200 的 3 次方个值，这已经 17 亿了。考虑到树根的数据块总是在内存中的，一个 10 亿行的表上一个整数字段的索引，查找一个值最多只需要访问 3 次磁盘。其实，树的第二层也有很大概率在内存中，那么访问磁盘的平均次数就更少了。</p>
+<p>明确以下几点：</p>
+<ul>
+<li>B+树是N叉树，以一个整数字段索引来看，N基本等于1200。数据库里的树高一般在2-4层。</li>
+<li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
+<li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
+</ul>
+<p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
+<p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="B-树"><a href="#B-树" class="headerlink" title="B+树"></a>B+树</h3><p>MySQL的索引结构主要是B+树，也可以选hash</p>
+<p>B+树特点：</p>
+<ul>
+<li>叶子结点才有数据，这些数据形成一个有序链表</li>
+<li>非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）</li>
+<li>删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除</li>
+<li>B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO</li>
+<li>因为叶子节点的有序链表存在，支持范围查找</li>
+</ul>
+<p>B+树的标准结构：</p>
+<p><img src="/images/951413iMgBlog/640-9735668." alt="Image"></p>
+<p>innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）</p>
+<p><img src="/images/951413iMgBlog/640-20211217181055800" alt="Image"></p>
+<h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
+<p>MySQL一个查询只能用一个索引。</p>
+<h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
+<p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>select <em> from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<em>*回表</em></em>导致非常慢。</p>
+<p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
+<p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
+<p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
+<h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
+<p>写数据除了记录redo-log之外还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</div></pre></td></tr></table></figure>
+<p><img src="/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<h3 id="Buffer-POOL"><a href="#Buffer-POOL" class="headerlink" title="Buffer POOL"></a>Buffer POOL</h3><p>（1）缓冲池(buffer pool)是一种<strong>常见的降低磁盘访问的机制；</strong></p>
+<p>（2）缓冲池通常<strong>以页(page)为单位缓存数据；</strong></p>
+<p>（3）缓冲池的<strong>常见管理算法是LRU</strong>，memcache，OS，InnoDB都使用了这种算法；</p>
+<p>（4）InnoDB对普通LRU进行了优化：</p>
+<p>  - 将缓冲池分为<strong>老生代和新生代</strong>，入缓冲池的页，优先进入老生代，页被访问，才进入新生代，以解决预读失效的问题</p>
+<p>  - 页被访问（预读的丢到old区），且在老生代<strong>停留时间超过配置阈值（innodb_old_blocks_time）</strong>的，才进入新生代，以解决批量数据访问，大量热数据淘汰的问题</p>
+<p><img src="/images/951413iMgBlog/640-8001413.png" alt="图片"></p>
+<p><strong>只有同时满足「被访问」与「在 old 区域停留时间超过 1 秒」两个条件，才会被插入到 young 区域头部</strong></p>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
+<h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
+<p>这是数据库优化的关键。</p>
+<h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
+<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性。</p>
+<p>MySQL 日志刷新策略通过 sync_binlog 参数进行配置，其有 3 个可选配置：</p>
+<ol>
+<li>sync_binlog=0：MySQL 应用将完全不负责日志同步到磁盘，将缓存中的日志数据刷新到磁盘全权交给操作系统来完成；</li>
+<li>sync_binlog=1：MySQL 应用在事务提交前将缓存区的日志刷新到磁盘；</li>
+<li>sync_binlog=N：当 N 不为 0 与 1 时，MySQL 在收集到 N 个日志提交后，才会将缓存区的日志同步到磁盘。</li>
+</ol>
+<h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
+<p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
+<p>redo-log和bin-log的比较：</p>
+<ul>
+<li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。redo-log保证了crash-safe的问题，binlog只能用于归档，保证不了safe。</li>
+<li>redo log 是物理日志，记录的是“在某个数据页上做了什么修改”；binlog 是逻辑日志，记录的是这个语句的原始逻辑，比如“给 ID=2 这一行的 c 字段加 1 ”。</li>
+<li>redo log 是循环写的，空间固定会用完；binlog 是可以追加写入的。“追加写”是指 binlog 文件写到一定大小后会切换到下一个，并不会覆盖以前的日志。</li>
+</ul>
+<p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
+<p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
+<p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<p>redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是<strong>Physiological Logging</strong>的方式，来兼得二者的优势。</p>
+<p>所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：</p>
+<blockquote>
+<p>（Page ID，Record Offset，(Filed 1, Value 1) … (Filed i, Value i) … )</p>
+</blockquote>
+<p>其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。</p>
+<p>Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入<strong>Double Write Buffer</strong>的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。</p>
+<p>InnoDB给每个REDO记录一个全局唯一递增的标号<strong>LSN(Log Sequence Number)</strong>。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
+<ol>
+<li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
+<li>如果redo-log里面事务只有完整的prepare，则去检查事务对应的binlog是否完整<ol>
+<li>如果binlog完整则提交事务</li>
+<li>如果不完整则回滚事务</li>
+</ol>
+</li>
+<li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
+</ol>
+<h3 id="组提交"><a href="#组提交" class="headerlink" title="组提交"></a>组提交</h3><p>在没有开启binlog时，Redo log的刷盘操作将会是最终影响MySQL TPS的瓶颈所在。为了缓解这一问题，MySQL使用了组提交，将多个刷盘操作合并成一个，如果说10个事务依次排队刷盘的时间成本是10，那么将这10个事务一次性一起刷盘的时间成本则近似于1。</p>
+<p>但是开启binlog后，binlog作为事务的协调者每次commit都需要落盘，这导致了Redo log的组提交失去了意义。</p>
+<p><img src="/images/951413iMgBlog/image-20211108152328424.png" alt="image-20211108152328424"></p>
+<p>Group Commit的方案中，其正确性的前提在于一个group内的事务没有并发冲突，因此即便并行也不会破坏事务的执行顺序。这个方案的局限性在于一个group 内的并行度仍然有限</p>
+<h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
+<ul>
+<li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。<strong>这时写性能跌0，这个场景对性能影响最大</strong>。</li>
+<li>系统内存不够，也需要将内存中的脏页释放，释放前需要先刷入到表空间。</li>
+<li>系统内存不够，但是redo-log空间够，也会刷脏，也就是刷脏不只是脏页写到redo-log，还要考虑读取情况。刷脏页后redo-log位点也一定会向前推荐</li>
+<li>系统空闲的时候也会趁机刷脏</li>
+<li>刷脏的时候默认还会连带刷邻居脏页（innodb_flush_neighbors)</li>
+</ul>
+<p>当然如果一次性要淘汰的脏页太多，也会导致查询卡顿严重，可以通过设置innodb_io_capacity（一般设置成磁盘的iops），这个值越小的话一次刷脏页的数量越小，如果刷脏页速度还跟不上脏页生成速度就会造成脏页堆积，影响查询、更新性能。</p>
+<p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
+<p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
+<p>表空间会刷进去没有提交的事务（比如大事务change buffer和redo-log都不够的时候），这个修改虽然在表空间中，但是通过可见性来控制是否可见。</p>
+<h3 id="落盘"><a href="#落盘" class="headerlink" title="落盘"></a>落盘</h3><p>innodb_flush_method 参数目前有 6 种可选配置值：</p>
+<ol>
+<li>fdatasync；</li>
+<li>O_DSYNC</li>
+<li>O_DIRECT</li>
+<li>O_DIRECT_NO_FSYNC</li>
+<li>littlesync</li>
+<li>nosync</li>
+</ol>
+<p>其中，littlesync 与 nosync 仅仅用于内部性能测试，并不建议使用。</p>
+<ul>
+<li>fdatasync，即取值 0，这是默认配置值。对 log files 以及 data files 都采用 fsync 的方式进行同步；</li>
+<li>O_DSYNC，即取值 1。对 log files 使用 O_SYNC 打开与刷新日志文件，使用 fsync 来刷新 data files 中的数据；</li>
+<li>O_DIRECT，即取值 4。利用 Direct I/O 的方式打开 data file，并且每次写操作都通过执行 fsync 系统调用的方式落盘；</li>
+<li>O_DIRECT_NO_FSYNC，即取值 5。利用 Direct I/O 的方式打开 data files，但是每次写操作并不会调用 fsync 系统调用进行落盘；</li>
+</ul>
+<p><strong>为什么有 O_DIRECT 与 O_DIRECT_NO_FSYNC 配置的区别？</strong></p>
+<p>首先，我们需要理解更新操作落盘分为两个具体的子步骤：①文件数据更新落盘②文件元数据更新落盘。O_DIRECT 的在部分操作系统中会导致文件元数据不落盘，除非主动调用 fsync，为此，MySQL 提供了 O_DIRECT 以及 O_DIRECT_NO_FSYNC 这两个配置。</p>
+<p>如果你确定在自己的操作系统上，即使不进行 fsync 调用，也能够确保文件元数据落盘，那么请使用 O_DIRECT_NO_FSYNC 配置，这对 MySQL 性能略有帮助。否则，请使用 O_DIRECT，不然文件元数据的丢失可能会导致 MySQL 运行错误。</p>
+<h3 id="Double-Write"><a href="#Double-Write" class="headerlink" title="Double Write"></a>Double Write</h3><p>MySQL默认数据页是16k，而操作系统内核的页目前为4k。因此当一个16k的MySQL页写入过程中突然断电，可能只写入了一部分，即数据存在不一致的情况。MySQL为了防止这种情况，每写一个数据页时，会先写在磁盘上的一个固定位置，然后再写入到真正的位置。如果第二次写入时掉电，MySQL会从第一次写入的位置恢复数据。开启double write之后数据被写入两次，如果能将其优化掉，对用户的性能将会有不小的提升。</p>
+<p>MySQL 8.0关掉Double Write能有5%左右的性能提升</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>在 MySQL/InnoDB 中，使用MVCC(Multi Version Concurrency Control) 来实现事务。每个事务修改数据之后，会创建一个新的版本，用事务id作为版本号；一行数据的多个版本会通过指针连接起来，通过指针即可遍历所有版本。</p>
+<p>当事务读取数据时，会根据隔离级别选择合适的版本。例如对于 Read Committed 隔离级别来说，每条SQL都会读取最新的已提交版本；而对于Repeatable Read来说，会在事务开始时选择已提交的最新版本，后续的每条SQL都会读取同一个版本的数据。</p>
+<p><img src="/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png" alt="img"></p>
+<p>Postgres用Old to New，INNODB使用的是New to Old, 即主表存最新的版本，用链表指向旧的版本。当读取最新版本数据时，由于索引直接指向了最新版本，因此较低；与之相反，读取旧版本的数据代价会随之增加，需要沿着链表遍历。</p>
+<p>INNODB中旧版本的数据存储于undo log中。这里的undo log起到了几个目的，一个是事务的回滚，事务回滚时从undo log可以恢复出原先的数据，另一个目的是实现MVCC，对于旧的事务可以从undo 读取旧版本数据。</p>
+<h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
+<p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
+<p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
+<p>如果两次读过程中，有一个别的事务修改了数据并提交了，第二次读到的还是别的事务修改前的数据，也就是这个修改后的数据不可见，因为别的事务在本事务之后。</p>
+<p>如果一个在本事务启动之后的事务已经提交了，本事务会读到最新的数据，但是因为隔离级别的设置，会要求MySQL判断这个数据不可见，这样只能按照undo-log去反推修改前的数据，如果有很多这样的已经提交的事务，那么需要反推很多次，也会造成卡顿。</p>
+<p>总结下，可见性的关键在于两个事务开始的先后关系：</p>
+<ul>
+<li>如果是可重复读RR（Repeatable Read），后开始的事务提交的结果对前面的事务<strong>不</strong>可见</li>
+<li>如果是读已提交RC（Read Committed），后开始的事务提交的结果对前面的事务可见</li>
+</ul>
+<h3 id="当前读"><a href="#当前读" class="headerlink" title="当前读"></a>当前读</h3><p><strong>更新数据都是先读后写的</strong>，而这个读，只能读当前的值，称为”<strong>当前读</strong>“（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。</p>
+<p>事务的可重复读的能力是怎么实现的？</p>
+<p>可重复读的核心就是一致性读（consistent read）；而<strong>事务更新数据的时候，只能用当前读</strong>。如果当前的记录的行锁被其他事务占用的话，就需要进入锁等待。</p>
+<p>而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：</p>
+<ul>
+<li>在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共<br>用这个一致性视图；</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。</li>
+</ul>
+<h3 id="幻读"><a href="#幻读" class="headerlink" title="幻读"></a>幻读</h3><p>幻读指的是一个事务中前后两次读到的数据不一致（读到了新插入的行）</p>
+<p>可重复读是不会出现幻读的，但是更新数据时只能用当前读，当前读要求读到其它事务的修改（新插入行）</p>
+<p><strong>Innodb 引擎为了解决「可重复读」隔离级别使用「当前读」而造成的幻读问题，就引出了 next-key 锁</strong>，就是记录锁和间隙锁的组合。</p>
+<ul>
+<li>记录锁，锁的是记录本身；</li>
+<li>间隙锁，锁的就是两个值之间的空隙，以防止其他事务在这个空隙间插入新的数据，从而避免幻读现象。</li>
+</ul>
+<h3 id="可重复读、当前读以及行锁案例"><a href="#可重复读、当前读以及行锁案例" class="headerlink" title="可重复读、当前读以及行锁案例"></a>可重复读、当前读以及行锁案例</h3><p>案例表结构</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line"></div><div class="line">mysql&gt; CREATE TABLE `t` (</div><div class="line">  `id` int(11) NOT NULL,</div><div class="line">  `k` int(11) DEFAULT NULL,</div><div class="line">  PRIMARY KEY (`id`)</div><div class="line">) ENGINE=InnoDB;</div><div class="line">insert into t(id, k) values(1,1),(2,2);</div></pre></td></tr></table></figure>
+<p>上表执行如下三个事务</p>
+<p><img src="/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png" alt="img"></p>
+<blockquote>
+<p>begin/start transaction 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果你想要马上启动一个事务，可以使用 start transaction with consistent snapshot 这个命令。</p>
+<p>“start transaction with consistent snapshot; ”的意思是从这个语句开始，创建一个持续整个事务的一致性快照</p>
+<p>在读提交隔离级别(RC)下，这个用法就没意义了，等效于普通的 start transaction。</p>
+</blockquote>
+<p>因为以上案例是RR(start transaction with consistent snapshot;), 也就是可重复读隔离级别。</p>
+<p>那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。</p>
+<p>事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.</p>
+<p>如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。</p>
+<h4 id="MySQL和PG事务实现上的差异"><a href="#MySQL和PG事务实现上的差异" class="headerlink" title="MySQL和PG事务实现上的差异"></a>MySQL和PG事务实现上的差异</h4><p>这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
+<p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
+<p>事务则是数据库皇冠。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/" target="_blank" rel="external">https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/</a> 回表</p>
+<p><a href="https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause" target="_blank" rel="external">https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/24/网络包的流转/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/24/网络包的流转/" itemprop="url">Linux Network Stack</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-24T17:30:03+08:00">
+                2019-05-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-Network-Stack"><a href="#Linux-Network-Stack" class="headerlink" title="Linux Network Stack"></a>Linux Network Stack</h1><h2 id="文章目标"><a href="#文章目标" class="headerlink" title="文章目标"></a>文章目标</h2><blockquote>
+<p> 从一个网络包进到网卡后续如何流转，进而了解中间有哪些关键参数可以控制他们，有什么工具能帮忙可以看到各个环节的一些指征，以及怎么调整他们。</p>
+</blockquote>
+<h2 id="接收流程"><a href="#接收流程" class="headerlink" title="接收流程"></a>接收流程</h2><h3 id="接收流程大纲"><a href="#接收流程大纲" class="headerlink" title="接收流程大纲"></a>接收流程大纲</h3><p>在开始收包之前，也就是OS启动的时候，Linux要做许多的准备工作：</p>
+<ol>
+<li>创建ksoftirqd线程，为它设置好它自己的线程函数，用来处理软中断</li>
+<li>协议栈注册，linux要实现许多协议，比如arp，icmp，ip，udp，tcp，每一个协议都会将自己的处理函数注册一下，方便包来了迅速找到对应的处理函数</li>
+<li>网卡驱动初始化，每个驱动都有一个初始化函数，内核会让驱动也初始化一下。在这个初始化过程中，把自己的DMA准备好，把NAPI的poll函数地址告诉内核</li>
+<li>启动网卡，分配RX，TX队列，注册中断对应的处理函数</li>
+</ol>
+<p>以上是内核准备收包之前的重要工作，当上面都ready之后，就可以打开硬中断，等待数据包的到来了。</p>
+<p>当数据到来了以后，第一个迎接它的是网卡：</p>
+<ol>
+<li>网卡将数据帧DMA到内存的RingBuffer中，然后向CPU发起中断通知</li>
+<li>CPU响应中断请求，调用网卡启动时注册的中断处理函数</li>
+<li>中断处理函数几乎没干啥，就发起了软中断请求</li>
+<li>内核线程ksoftirqd线程发现有软中断请求到来，先关闭硬中断</li>
+<li>ksoftirqd线程开始调用驱动的poll函数收包</li>
+<li>poll函数将收到的包送到协议栈注册的ip_rcv函数中</li>
+<li>ip_rcv函数再讲包送到udp_rcv函数中（对于tcp包就送到tcp_rcv）</li>
+</ol>
+<h3 id="详细接收流程"><a href="#详细接收流程" class="headerlink" title="详细接收流程"></a>详细接收流程</h3><ol>
+<li>网络包进到网卡，网卡驱动校验MAC，看是否扔掉，取决是否是混杂 promiscuous mode</li>
+<li>网卡在启动时会申请一个接收ring buffer，其条目都会指向一个skb的内存。</li>
+<li>DMA完成数据报文从网卡硬件到内存到拷贝</li>
+<li>网卡发送一个中断通知CPU。</li>
+<li>CPU执行网卡驱动注册的中断处理函数，中断处理函数只做一些必要的工作，如读取硬件状态等，并把当前该网卡挂在NAPI的链表中;</li>
+<li><strong>Driver “触发” soft IRQ(NET_RX_SOFTIRQ (其实就是设置对应软中断的标志位)</strong> </li>
+<li>CPU中断处理函数返回后，会检查是否有软中断需要执行。因第6步设置了NET_RX_SOFTIRQ，则执行报文接收软中断。</li>
+<li>在NET_RX_SOFTIRQ软中断中，执行NAPI操作，回调第5步挂载的驱动poll函数。</li>
+<li>驱动会对interface进行poll操作，检查网卡是否有接收完毕的数据报文。</li>
+<li>将网卡中已经接收完毕的数据报文取出，继续在软中断进行后续处理。注：驱动对interface执行poll操作时，会尝试循环检查网卡是否有接收完毕的报文，直到系统设置的<strong>net.core.netdev_budget</strong>上限(默认300)，或者已经就绪报文。</li>
+<li><strong>net_rx_action</strong></li>
+<li>内核分配 sk_buff 内存</li>
+<li>内核填充 metadata: 协议等，移除 ethernet 包头信息</li>
+<li><strong>将skb 传送给内核协议栈 netif_receive_skb</strong></li>
+<li><code>__netif_receive_skb_core</code>：将数据送到抓包点（tap）或协议层(i.e. tcpdump)</li>
+<li>进入到由 netdev_max_backlog 控制的qdisc</li>
+<li>开始 <strong>ip_rcv</strong> 处理流程，主要处理ip协议包头相关信息</li>
+<li><strong>调用内核 netfilter 框架(iptables PREROUTING)</strong></li>
+<li>进入L4 protocol <strong>tcp_v4_rcv</strong></li>
+<li>找到对应的socket</li>
+<li>根据 tcp_rmem 进入接收缓冲队列</li>
+<li>内核将数据送给接收的应用</li>
+</ol>
+<p><a href="http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh：" target="_blank" rel="external">http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh：</a></p>
+<p><img src="/images/951413iMgBlog/image-20220725164331535.png" alt="image-20220725164331535"></p>
+<p>TAP 处理点就是 <strong>tcpdump 抓包</strong>、流量过滤。</p>
+<p><a href="http://arthurchiao.art/blog/linux-net-stack-implementation-rx-zh" target="_blank" rel="external">注意：<strong>netfilter 或 iptables 规则都是在软中断上下文中执行的</strong>， 数量很多或规则很复杂时会导致<strong>网络延迟</strong>。</a></p>
+<blockquote>
+<p> 软中断：可以把软中断系统想象成一系列<strong>内核线程</strong>（每个 CPU 一个），这些线程执行针对不同 事件注册的处理函数（handler）。如果你用过 <code>top</code> 命令，可能会注意到 <code>ksoftirqd/0</code> 这个内核线程，其表示这个软中断线程跑在 CPU 0 上。</p>
+<p> 硬中断发生在哪一个核上，它发出的软中断就由哪个核来处理。可以通过加大网卡队列数，这样硬中断工作、软中断工作都会有更多的核心参与进来。</p>
+<p> <strong>napi_schedule干两件事情，一件事情是把struct napi_struct 挂到struct softnet_data 上，注意softnet_data是一个per cpu变量，换句话说，软中断结构是挂在触发硬中断的同一个CPU上；另一件事情是调用</strong>raise_softirq_irqoff 把irq_stat的__softirq_pending 字段置位，irq_stat 也是个per cpu 变量，表示当前这个cpu上有软中断待处理。</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/640-20211027133622981" alt="Image"></p>
+<p>从上图可以看到tcpdump在协议栈之前，也就是netfilter过滤规则对tcpdump无效，发包则是反过来：</p>
+<p><img src="/images/951413iMgBlog/640-20211027133758754" alt="Image"></p>
+<p><img src="/images/951413iMgBlog/f2d5399f-4fba-4159-9ce4-aefa78132a43.png" alt="img"></p>
+<h3 id="典型的接收堆栈"><a href="#典型的接收堆栈" class="headerlink" title="典型的接收堆栈"></a>典型的接收堆栈</h3><p><img src="/images/951413iMgBlog/1557292725626-2e4b452b-8a9e-4d9f-91a6-64357fbd4e0e.png" alt="undefined"> </p>
+<h3 id="从四层协议栈来看收包流程"><a href="#从四层协议栈来看收包流程" class="headerlink" title="从四层协议栈来看收包流程"></a>从四层协议栈来看收包流程</h3><p><img src="/images/oss/ddd50d2c70215d477d72734b0834410a.png" alt="image.png"></p>
+<h3 id="DMA驱动部分流程图"><a href="#DMA驱动部分流程图" class="headerlink" title="DMA驱动部分流程图"></a>DMA驱动部分流程图</h3><p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="external">DMA是一个硬件逻辑</a>，数据传输到系统物理内存的过程中，全程不需要CPU的干预，除了占用总线之外(期间CPU不能使用总线)，没有任何额外开销。</p>
+<p><img src="/images/951413iMgBlog/8edd2edf-5ae9-4f96-83fb-cef367697661.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/308138af-b3a6-4404-93eb-82dce612ba5b.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/ba2f1764fab3a7b3f485836e8e566ffb.png" alt="image.png"></p>
+<ol>
+<li>驱动在内存中分配一片缓冲区用来接收数据包，叫做sk_buffer;</li>
+<li>将上述缓冲区的地址和大小（即接收描述符），加入到rx ring buffer。描述符中的缓冲区地址是DMA使用的物理地址;</li>
+<li>驱动通知网卡有一个新的描述符;</li>
+<li>网卡从rx ring buffer中取出描述符，从而获知缓冲区的地址和大小;</li>
+<li>网卡收到新的数据包;</li>
+<li>网卡将新数据包通过DMA直接写到sk_buffer中。</li>
+</ol>
+<h3 id="Linux-network-queues-overview"><a href="#Linux-network-queues-overview" class="headerlink" title="Linux network queues overview"></a>Linux network queues overview</h3><p><img src="/images/951413iMgBlog/image-20220406163641215.png" alt="linux network queues"></p>
+<p>可以通过perf来监控包的堆栈：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">perf trace --no-syscalls --event &apos;net:*&apos; ping baidu.com -c1</div></pre></td></tr></table></figure>
+<h3 id="buffer和流控"><a href="#buffer和流控" class="headerlink" title="buffer和流控"></a>buffer和流控</h3><p>影响发送的速度的几个buffer和queue，接收基本一样</p>
+<p><img src="/images/951413iMgBlog/79e46270-de0d-48d5-99d8-90ced2964154.png" alt="img"></p>
+<h3 id="网卡传递数据包到内核的流程图及参数"><a href="#网卡传递数据包到内核的流程图及参数" class="headerlink" title="网卡传递数据包到内核的流程图及参数"></a>网卡传递数据包到内核的流程图及参数</h3><p>软中断NET_TX_SOFTIRQ的处理函数为net_tx_action，NET_RX_SOFTIRQ的为net_rx_action</p>
+<p><img src="/images/oss/daf7318302c0e7f42fb506d6b47fdbd5.png" alt="image.png"></p>
+<p>在网络子系统初始化中为NET_RX_SOFTIRQ注册了处理函数net_rx_action。所以<code>net_rx_action</code>函数就会被执行到了。</p>
+<p><img src="/images/oss/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
+<p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
+<p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
+<p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt=""></p>
+<p>对应的堆栈（本堆栈有问题，si%打满）：</p>
+<p><img src="/images/951413iMgBlog/image-20211210160634705.png" alt="image-20211210160634705"></p>
+<p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。<strong>收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段</strong>。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
+<h2 id="发送流程"><a href="#发送流程" class="headerlink" title="发送流程"></a>发送流程</h2><ol>
+<li>应用调 sendmsg</li>
+<li>数据拷贝到sk_write_queue上的最后一个skb中，如果该skb指向的数据区已经满了，则调用sk_stream_alloc_skb创建一个新的skb，并挂到这个sk_write_queue上</li>
+<li>TCP 分片 skb_buff</li>
+<li>根据 tcp_wmem 缓存需要发送的包</li>
+<li>构造TCP包头(src/dst port)</li>
+<li>ipv4 调用 tcp_write_xmit 和 tcp_transmit_skb</li>
+<li>ip_queue_xmit, 构建 ip 包头(获取目标ip和port，找路由)</li>
+<li>进入 netfilter 流程 nf_hook()，iptables规则在这里生效</li>
+<li>路由流程 POST_ROUTING，iptables 的nat和mangle表会在这里设置规则，对数据包进行一些修改</li>
+<li>ip_output 分片</li>
+<li>进入L2 dev_queue_xmit，tc 网络流控在这里</li>
+<li>填入 txqueuelen 队列</li>
+<li>进入发送 Ring Buffer tx</li>
+<li>驱动触发软中断 soft IRQ (NET_TX_SOFTIRQ)</li>
+</ol>
+<p>在传输层的出口函数tcp_transmit_skb中，会对这个skb进行克隆（skb_clone），克隆得到的子skb和原先的父skb 指向共同的数据区，如下图所示。并且会把struct skb_shared_info的dataref 的计数加一。</p>
+<p>传输层以下各层处理的skb 实际就是这个克隆出来的skb，而原先的skb保留在TCP连接的发送队列上。</p>
+<p>克隆skb再经过协议栈层层处理后进入到驱动程序的RingBuffer 中。随后网卡驱动真正将数据发送出去，当发送完成时，由硬中断通知 CPU，然后由中断处理程序来清理 RingBuffer中指向的skb。注意，这里只释放了这个skb结构本身，而skb指向的数据区，由于dataref而不会被释放。要等到<strong>TCP层接收到ACK</strong>后，再释放父skb的同时，释放数据区。</p>
+<p>比如ip_queue_xmit发现无法路由到目标地址，就会丢弃发送包，这里丢弃的是克隆包，原始包还在发送队列里，所以TCP层就会在<strong>定时器到期后进行重传</strong>。</p>
+<h3 id="从四层协议栈来看发包流程"><a href="#从四层协议栈来看发包流程" class="headerlink" title="从四层协议栈来看发包流程"></a>从四层协议栈来看发包流程</h3><p><img src="/images/951413iMgBlog/0126bbb59ac317337ca963ef83817159.png" alt="image.png"></p>
+<p>发包流程对应源代码：</p>
+<p><img src="/images/951413iMgBlog/640-5685512." alt="Image"></p>
+<p><code>net.core.dev_weight</code> 用来调整 <code>__qdisc_run</code> 的循环处理权重，调大后也就是 <code>__netif_schedule</code> 更多的被调用执</p>
+<p>另外发包默认是系统调用完成的(占用 sy cpu)，只有在包太多，为了避免系统调用长时间占用 CPU 导致应用层卡顿，这个时候内核给了发包时间一个quota(net.core.dev_weight 参数来控制)，用完后即使包没发送完也退出发包的系统调用，队列中未发送完的包留待 tx-softirq 来发送(这是占用 si cpu)</p>
+<p>tcp在做tcp_sendmsg 的时候会将应用层msg做copy到内核层的skb，在调用网络层执行tcp_transmit_skb 会将这个 skb再次copy交给网络层，内核态的skb继续保留直到收到ack。</p>
+<p>tcp_transmit_skb 还会设置tcp头，在skb中 tcp头、ip头内存都预留好了，只需要填写内容。</p>
+<p>然后就是ip层，主要是分包、路由控制，然后就是netfilter(比如iptables规则匹配)。再然后进入neighbour(arp) , 获取mac后进入网络层</p>
+<p>用 <code>sudo ifconfig eth0 txqueuelen **</code> 来控制qdisc 发送队列长度</p>
+<p><img src="/images/951413iMgBlog/image-20210714204347862.png" alt="image-20210714204347862"></p>
+<p>粗略汇总一下进出堆栈：</p>
+<p><img src="/images/951413iMgBlog/9492686528d67d6f63bcf46fde1d3f58.png" alt="image.png"></p>
+<p><a href="http://docshare02.docshare.tips/files/21804/218043783.pdf" target="_blank" rel="external">http://docshare02.docshare.tips/files/21804/218043783.pdf</a> 中也有描述：</p>
+<p><img src="/images/oss/e26ce9ed-4075-4837-8064-ea4d4aef09b8.png" alt="img"></p>
+<h2 id="软中断"><a href="#软中断" class="headerlink" title="软中断"></a>软中断</h2><p>一般net_rx 远大于net_tx, 如下所示，这是因为每个包发送完成后还需要清理回收内存(释放 skb)，这是通过硬中断触发 rx-softirq 来完成的，无论是收包、还是发送包完毕都是触发这个rx-softirq。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">#cut /proc/softirqs -c 1-70</div><div class="line">                    CPU0       CPU1       CPU2       CPU3       CPU4</div><div class="line">          HI:          3          0          0          0          0</div><div class="line">       TIMER: 1616454419 1001992045 1013647869 1366481348  884639123</div><div class="line">      NET_TX:     168326    1717390       7000       6083       5748</div><div class="line">      NET_RX:  771543422  132283770   96912580   77533029   85143572</div></pre></td></tr></table></figure>
+<p>发送的时候如果 net.core.dev_weight 配额够的话直接通过系统调用就将包发送完毕，不需要触发软中断</p>
+<h2 id="内核相关参数"><a href="#内核相关参数" class="headerlink" title="内核相关参数"></a>内核相关参数</h2><h3 id="Ring-Buffer"><a href="#Ring-Buffer" class="headerlink" title="Ring Buffer"></a>Ring Buffer</h3><p>Ring Buffer位于NIC和IP层之间，是一个典型的FIFO（先进先出）环形队列。Ring Buffer没有包含数据本身，而是包含了指向sk_buff（socket kernel buffers）的描述符。<br>可以使用ethtool -g eth0查看当前Ring Buffer的设置：</p>
+<pre><code>$sudo ethtool -g eth0
+Ring parameters for eth0:
+Pre-set maximums:
+RX:        256
+RX Mini:    0
+RX Jumbo:    0
+TX:        256
+Current hardware settings:
+RX:        256
+RX Mini:    0
+RX Jumbo:    0
+TX:        256
+</code></pre><p>上面的例子是一个小规格的ECS，接收队列、传输队列都为256。</p>
+<pre><code>$sudo ethtool -g eth0
+Ring parameters for eth0:
+Pre-set maximums:
+RX:        4096
+RX Mini:    0
+RX Jumbo:    0
+TX:        4096
+Current hardware settings:
+RX:        4096
+RX Mini:    0
+RX Jumbo:    0
+TX:        512
+</code></pre><p>这是一台物理机，接收队列为4096，传输队列为512。接收队列已经调到了最大，传输队列还可以调大。<strong>队列越大丢包的可能越小，但数据延迟会增加</strong></p>
+<h4 id="调整-Ring-Buffer-队列数量"><a href="#调整-Ring-Buffer-队列数量" class="headerlink" title="调整 Ring Buffer 队列数量"></a>调整 Ring Buffer 队列数量</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">ethtool -l eth0</div><div class="line">Channel parameters for eth0:</div><div class="line">Pre-set maximums:</div><div class="line">RX:             0</div><div class="line">TX:             0</div><div class="line">Other:          1</div><div class="line">Combined:       8</div><div class="line">Current hardware settings:</div><div class="line">RX:             0</div><div class="line">TX:             0</div><div class="line">Other:          1</div><div class="line">Combined:       8</div><div class="line"></div><div class="line">sudo ethtool -L eth0 combined 8</div><div class="line">sudo ethtool -L eth0 rx 8</div></pre></td></tr></table></figure>
+<p>网卡多队列就是指的有多个RingBuffer，每个RingBufffer可以由一个core来处理</p>
+<p><img src="/images/951413iMgBlog/51f13ecb5002f628fbe1900ab8b820aa.png" alt="image.png"></p>
+<h4 id="网卡各种统计数据查看"><a href="#网卡各种统计数据查看" class="headerlink" title="网卡各种统计数据查看"></a>网卡各种统计数据查看</h4><pre><code>ethtool -S eth0 | grep errors
+
+ethtool -S eth0 | grep rx_ | grep errors //查看网卡是否丢包，一般是ring buffer太小
+
+//监控
+ethtool -S eth0 | grep -e &quot;err&quot; -e &quot;drop&quot; -e &quot;over&quot; -e &quot;miss&quot; -e &quot;timeout&quot; -e &quot;reset&quot; -e &quot;restar&quot; -e &quot;collis&quot; -e &quot;over&quot; | grep -v &quot;\: 0&quot;
+</code></pre><h4 id="网卡进出队列大小调整"><a href="#网卡进出队列大小调整" class="headerlink" title="网卡进出队列大小调整"></a>网卡进出队列大小调整</h4><pre><code>//查看目前的进出队列大小
+ethtool -g eth0
+//修改进出队列
+ethtool -G eth0 rx 8192 tx 8192
+</code></pre><p>要注意如果设置的值超过了允许的最大值，用默认的最大值，一些ECS之类的虚拟机、容器就不允许修改这个值。</p>
+<h3 id="txqueuelen"><a href="#txqueuelen" class="headerlink" title="txqueuelen"></a>txqueuelen</h3><p>ifconfig 看到的 txqueuelen 跟Ring Buffer是两个东西，IP协议下面就是 txqueuelen，txqueuelen下面才到Ring Buffer. </p>
+<p>常用的tc qdisc、netfilter就是在txqueuelen这一环节。 qdisc 的队列长度是我们用 ifconfig 来看到的 txqueuelen</p>
+<p>发送队列就是指的这个txqueuelen，和网卡关联着。 而每个Core接收队列由内核参数： net.core.netdev_max_backlog来设置<br>        //当前值通过ifconfig可以查看到，修改：<br>        ifconfig eth0 txqueuelen 2000<br>        //监控<br>        ip -s link</p>
+<p>如果txqueuelen 太小导致数据包被丢弃的情况，这类问题可以通过下面这个命令来观察：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$ ip -s -s link ls dev eth0</div><div class="line">2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000</div><div class="line">    link/ether 00:16:3e:12:9b:c0 brd ff:ff:ff:ff:ff:ff</div><div class="line">    RX: bytes  packets  errors  dropped overrun mcast</div><div class="line">    13189414480980 22529315912 0       0       0       0</div><div class="line">    RX errors: length   crc     frame   fifo    missed</div><div class="line">               0        0       0       0       0</div><div class="line">    TX: bytes  packets  errors  dropped carrier collsns</div><div class="line">    15487121408466 12925733540 0       0       0       0</div><div class="line">    TX errors: aborted  fifo   window heartbeat transns</div><div class="line">               0        0       0       0       2</div></pre></td></tr></table></figure>
+<p>如果观察到 dropped 这一项不为 0，那就有可能是 txqueuelen 太小导致的。当遇到这种情况时，你就需要增大该值了，比如增加 eth0 这个网络接口的 txqueuelen：</p>
+<blockquote>
+<p> $ ifconfig eth0 txqueuelen 2000</p>
+</blockquote>
+<h3 id="Interrupt-Coalescence-IC-rx-usecs-tx-usecs-rx-frames-tx-frames-hardware-IRQ"><a href="#Interrupt-Coalescence-IC-rx-usecs-tx-usecs-rx-frames-tx-frames-hardware-IRQ" class="headerlink" title="Interrupt Coalescence (IC) - rx-usecs, tx-usecs, rx-frames, tx-frames (hardware IRQ)"></a>Interrupt Coalescence (IC) - rx-usecs, tx-usecs, rx-frames, tx-frames (hardware IRQ)</h3><p>可以通过降低终端的频率，也就是合并<strong>硬中断</strong>来提升处理网络包的能力，当然这是以增大网络包的延迟为代价。</p>
+<pre><code>    //检查
+    $ethtool -c eth0
+    Coalesce parameters for eth0:
+Adaptive RX: off  TX: off
+stats-block-usecs: 0
+sample-interval: 0
+pkt-rate-low: 0
+pkt-rate-high: 0
+
+rx-usecs: 1
+rx-frames: 0
+rx-usecs-irq: 0
+rx-frames-irq: 0
+
+tx-usecs: 0
+tx-frames: 0
+tx-usecs-irq: 0
+tx-frames-irq: 256
+
+rx-usecs-low: 0
+rx-frame-low: 0
+tx-usecs-low: 0
+tx-frame-low: 0
+
+rx-usecs-high: 0
+rx-frame-high: 0
+tx-usecs-high: 0
+tx-frame-high: 0
+    //修改, 
+    ethtool -C eth0 rx-usecs value tx-usecs value
+    //监控
+    cat /proc/interrupts
+</code></pre><p>我们来说一下上述结果的大致含义</p>
+<ul>
+<li>Adaptive RX: 自适应中断合并，网卡驱动自己判断啥时候该合并啥时候不合并</li>
+<li>rx-usecs：当过这么长时间过后，一个RX interrupt就会被产生。How many usecs to delay an RX interrupt after a packet arrives.</li>
+<li><p>rx-frames：当累计接收到这么多个帧后，一个RX interrupt就会被产生。Maximum number of data frames to receive before an RX interrupt.</p>
+</li>
+<li><p><code>rx-usecs-irq</code>: How many usecs to delay an RX interrupt while an interrupt is being serviced by the host.</p>
+</li>
+<li><code>rx-frames-irq</code>: Maximum number of data frames to receive before an RX interrupt is generated while the system is servicing an interrupt.</li>
+</ul>
+<h3 id="Ethtool-绑定端口"><a href="#Ethtool-绑定端口" class="headerlink" title="Ethtool 绑定端口"></a><a href="https://colobu.com/2019/12/09/monitoring-tuning-linux-networking-stack-receiving-data/#%E8%B0%83%E6%95%B4%E7%A1%AC%E4%B8%AD%E6%96%AD%E4%BA%B2%E5%92%8C%E6%80%A7%EF%BC%88IRQ_affinities%EF%BC%89" target="_blank" rel="external">Ethtool 绑定端口</a></h3><h4 id="ntuple-filtering-for-steering-network-flows"><a href="#ntuple-filtering-for-steering-network-flows" class="headerlink" title="ntuple filtering for steering network flows"></a>ntuple filtering for steering network flows</h4><p>一些网卡支持 “ntuple filtering” 特性。该特性允许用户（通过 ethtool ）指定一些参数来在硬件上过滤收到的包，然后将其直接放到特定的 RX queue。例如，用户可以指定到特定目端口的 TCP 包放到 RX queue 1。</p>
+<p>Intel 的网卡上这个特性叫 Intel Ethernet Flow Director，其他厂商可能也有他们的名字，这些都是出于市场宣传原因，底层原理是类似的。</p>
+<p>我们后面会看到，ntuple filtering 是一个叫 Accelerated Receive Flow Steering(aRFS) 功能的核心部分之一，后者使得 ntuple filtering 的使用更加方便。</p>
+<p>这个特性适用的场景：最大化数据本地性（data locality），以增加 CPU 处理网络数据时的缓存命中率。例如，考虑运行在 80 口的 web 服务器：</p>
+<ol>
+<li>webserver 进程运行在 80 口，并绑定到 CPU 2</li>
+<li>和某个 RX queue 关联的硬中断绑定到 CPU 2</li>
+<li>目的端口是 80 的 TCP 流量通过 ntuple filtering 绑定到 CPU 2</li>
+<li>接下来所有到 80 口的流量，从数据包进来到数据到达用户程序的整个过程，都由 CPU 2 处理</li>
+<li>仔细监控系统的缓存命中率、网络栈的延迟等信息，以验证以上配置是否生效</li>
+</ol>
+<p>检查 ntuple filtering 特性是否打开：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -k eth0</div><div class="line">Offload parameters for eth0:</div><div class="line">...</div><div class="line">ntuple-filters: off</div><div class="line">receive-hashing: on</div></pre></td></tr></table></figure>
+<p>可以看到，上面的 ntuple 是关闭的。</p>
+<p>打开：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -K eth0 ntuple on</div></pre></td></tr></table></figure>
+<p>打开 ntuple filtering 功能，并确认打开之后，可以用 <code>ethtool -u</code> 查看当前的 ntuple<br>rules：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -u eth0</div><div class="line">40 RX rings available</div><div class="line">Total 0 rules</div></pre></td></tr></table></figure>
+<p>可以看到当前没有 rules。</p>
+<p><a href="https://colobu.com/2019/12/09/monitoring-tuning-linux-networking-stack-receiving-data/#%E8%B0%83%E6%95%B4_RX_queue_%E7%9A%84%E6%9D%83%E9%87%8D%EF%BC%88weight%EF%BC%89" target="_blank" rel="external">我们来加一条：目的端口是 80 的放到 RX queue 2</a>：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$ sudo ethtool -U eth0 flow-type tcp4 dst-port 80 action 2</div><div class="line"></div><div class="line">删除</div><div class="line">ethtool -U eth0 delete 1023</div></pre></td></tr></table></figure>
+<p>你也可以用 ntuple filtering 在硬件层面直接 drop 某些 flow 的包。当特定 IP 过来的流量太大时，这种功能可能会派上用场。更多关于 ntuple 的信息，参 考 ethtool man page。</p>
+<h3 id="软中断合并-GRO"><a href="#软中断合并-GRO" class="headerlink" title="软中断合并 GRO"></a>软中断合并 GRO</h3><p>GRO和硬中断合并的思想很类似，不过阶段不同。硬中断合并是在中断发起之前，而GRO已经到了软中断上下文中了。</p>
+<p>如果应用中是大文件的传输，大部分包都是一段数据，不用GRO的话，会每次都将一个小包传送到协议栈（IP接收函数、TCP接收）函数中进行处理。开启GRO的话，Linux就会智能进行包的合并，之后将一个大包传给协议处理函数。这样CPU的效率也是就提高了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># ethtool -k eth0 | grep generic-receive-offload</div><div class="line">generic-receive-offload: on</div></pre></td></tr></table></figure>
+<p>如果你的网卡驱动没有打开GRO的话，可以通过如下方式打开。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"># ethtool -K eth0 gro on</div></pre></td></tr></table></figure>
+<p>这是收包，发包对应参数是GSO</p>
+<h3 id="ifconfig-监控指标"><a href="#ifconfig-监控指标" class="headerlink" title="ifconfig 监控指标"></a>ifconfig 监控指标</h3><ul>
+<li>RX overruns: overruns意味着数据包没到Ring Buffer就被网卡物理层给丢弃了，而CPU无法及时的处理中断是造成Ring Buffer满的原因之一，例如中断分配的不均匀。或者Ring Buffer太小导致的（很少见），overruns数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</li>
+<li>RX dropped: 表示数据包已经进入了Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。如下四种情况导致dropped：Softnet backlog full（pfmemalloc &amp;&amp; !skb_pfmemalloc_protocol(skb)–分配内存失败）；Bad / Unintended VLAN tags；Unknown / Unregistered protocols；IPv6 frames</li>
+<li>RX errors：表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
+</ul>
+<h4 id="overruns"><a href="#overruns" class="headerlink" title="overruns"></a>overruns</h4><p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
+<h3 id="监控指标-proc-net-softnet-stat"><a href="#监控指标-proc-net-softnet-stat" class="headerlink" title="监控指标 /proc/net/softnet_stat"></a>监控指标 /proc/net/softnet_stat</h3><p>Important details about <code>/proc/net/softnet_stat</code>:</p>
+<ul>
+<li>Each line of <code>/proc/net/softnet_stat</code> corresponds to a <code>struct softnet_data</code> structure, of which there is 1 per CPU.</li>
+<li>The values are separated by a single space and are displayed in hexadecimal</li>
+<li>The first value, <code>sd-&gt;processed</code>, is the number of network frames processed. This can be more than the total number of network frames received if you are using ethernet bonding. There are cases where the ethernet bonding driver will trigger network data to be re-processed, which would increment the <code>sd-&gt;processed</code> count more than once for the same packet.</li>
+<li>The second value, <code>sd-&gt;dropped</code>, is the number of network frames dropped because there was no room on the processing queue. More on this later.</li>
+<li>The third value, <code>sd-&gt;time_squeeze</code>, is (as we saw) the number of times the <code>net_rx_action</code> loop terminated because the budget was consumed or the time limit was reached, but more work could have been. Increasing the <code>budget</code> as explained earlier can help reduce this. <strong>time_squeeze 计数在内核中只有一个地方会更新</strong>（比如内核 5.10），如果看到监控中有 time_squeeze 升高， 那一定就是执行到了以上 budget 用完的逻辑</li>
+<li>The next 5 values are always 0.</li>
+<li>The ninth value, <code>sd-&gt;cpu_collision</code>, is a count of the number of times a collision occurred when trying to obtain a device lock when transmitting packets. This article is about receive, so this statistic will not be seen below.</li>
+<li>The tenth value, <code>sd-&gt;received_rps</code>, is a count of the number of times this CPU has been woken up to process packets via an <a href="https://en.wikipedia.org/wiki/Inter-processor_interrupt" target="_blank" rel="external">Inter-processor Interrupt</a></li>
+<li>The last value, <code>flow_limit_count</code>, is a count of the number of times the flow limit has been reached. Flow limiting is an optional <a href="https://lwn.net/Articles/362339" target="_blank" rel="external">Receive Packet Steering</a> feature that will be examined shortly.</li>
+</ul>
+<p>对应的代码实现：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">// https://github.com/torvalds/linux/blob/v5.10/net/core/net-procfs.c#L172</div><div class="line">static int softnet_seq_show(struct seq_file *seq, void *v) &#123;</div><div class="line">    struct softnet_data *sd = v;</div><div class="line"></div><div class="line">    seq_printf(seq,</div><div class="line">           &quot;%08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n&quot;,</div><div class="line">           sd-&gt;processed, sd-&gt;dropped, sd-&gt;time_squeeze, 0,</div><div class="line">           0, 0, 0, 0, /* was fastroute */</div><div class="line">           0,    /* was cpu_collision */</div><div class="line">           sd-&gt;received_rps, flow_limit_count,</div><div class="line">           softnet_backlog_len(sd), (int)seq-&gt;index);</div><div class="line">    return 0;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h4 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h4><p>一次软中断(ksoftirqd进程)能处理包的上限，有就多处理，处理到300个了一定要停下来让CPU能继续其它工作。单次poll 收包是所有注册到这个 CPU 的 NAPI 变量收包数量之和不能大于这个阈值。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sysctl net.core.netdev_budget //3.10 kernel默认300， The default value of the budget is 300. This will cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU</div></pre></td></tr></table></figure>
+<p>如果 /proc/net/softnet_stat <strong>第三列</strong>一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值，<strong>当这个值太大的话有可能导致包到了内核但是应用（userspace）抢不到时间片来读取这些packet。</strong></p>
+<p>增大和查看 net.core.netdev_budget    </p>
+<blockquote>
+<p>sysctl -a | grep net.core.netdev_budget<br>sysctl -w net.core.netdev_budget=400 //临时性增大</p>
+</blockquote>
+<p>早期的时候网卡一般是10Mb的，现在基本都是10Gb的了，还是每一次软中断、上下文切换只处理一个包的话代价太大，需要改进性能。于是引入的NAPI，一次软中断会poll很多packet</p>
+<p><img src="/images/951413iMgBlog/d0fb11d926f5f67357d98b69c23d86ae.png" alt="image.png"></p>
+<p><a href="https://github.blog/2019-11-21-debugging-network-stalls-on-kubernetes/" target="_blank" rel="external">来源</a> This is much faster, but brings up another problem. What happens if we have so many packets to process that we spend all our time processing packets from the NIC, but we never have time to let the userspace processes actually drain those queues (read from TCP connections, etc.)? Eventually the queues would fill up, and we’d start dropping packets. To try and make this fair, the kernel limits the amount of packets processed in a given softirq context to a certain budget. Once this budget is exceeded, it wakes up a separate thread called <code>ksoftirqd</code> (you’ll see one of these in <code>ps</code> for each core) which processes these softirqs outside of the normal syscall/interrupt path. This thread is scheduled using the standard process scheduler, which already tries to be fair.</p>
+<p>于是在Poll很多packet的时候有可能网卡队列一直都有包，那么导致这个Poll动作无法结束，造成应用一直在卡住状态，于是可以通过netdev_max_backlog来设置Poll多少Packet后停止Poll以响应用户请求。</p>
+<p><img src="/images/951413iMgBlog/61fd62cdf0dc0270ce108a4d43a14c85.png" alt="image.png"></p>
+<p>一旦出现slow syscall（如上图黄色部分慢）就会导致packet处理被延迟。</p>
+<p>发送包的时候系统调用循环发包，占用sy，只有当发包系统quota用完的时候，循环退出，剩下的包通过触发软中断的形式继续发送，此时占用si</p>
+<h4 id="netdev-max-backlog"><a href="#netdev-max-backlog" class="headerlink" title="netdev_max_backlog"></a>netdev_max_backlog</h4><p>The netdev_max_backlog is a queue within the Linux kernel where traffic is stored after reception from the NIC, but before processing by the protocol stacks (IP, TCP, etc). There is one backlog queue per CPU core. </p>
+<p>如果 /proc/net/softnet_stat 第二列一直在增加的话表示netdev backlog queue overflows. 需要增大 netdev_max_backlog</p>
+<p>增大和查看 netdev_max_backlog：<br>        sysctl -a |grep netdev_max_backlog<br>        sysctl -w net.core.netdev_max_backlog=1024 //临时性增大</p>
+<p>netdev_max_backlog(接收)和txqueuelen(发送)相对应 </p>
+<h4 id="softnet-stat"><a href="#softnet-stat" class="headerlink" title="softnet_stat"></a>softnet_stat</h4><p>关于<code>/proc/net/softnet_stat</code> 的重要细节:</p>
+<ol>
+<li>每一行代表一个 <code>struct softnet_data</code> 变量。因为每个 CPU core 都有一个该变量，所以每行 其实代表一个 CPU core</li>
+<li>每列用空格隔开，数值用 16 进制表示</li>
+<li>第一列 <code>sd-&gt;processed</code>，是处理的网络帧的数量。如果你使用了 ethernet bonding， 那这个值会大于总的网络帧的数量，因为 ethernet bonding 驱动有时会触发网络数据被 重新处理（re-processed）</li>
+<li>第二列，<code>sd-&gt;dropped</code>，是因为处理不过来而 drop 的网络帧数量。后面会展开这一话题</li>
+<li>第三列，<code>sd-&gt;time_squeeze</code>，前面介绍过了，由于 budget 或 time limit 用完而退出 <code>net_rx_action</code> 循环的次数</li>
+<li>接下来的 5 列全是 0</li>
+<li>第九列，<code>sd-&gt;cpu_collision</code>，是为了发送包而获取锁的时候有冲突的次数</li>
+<li>第十列，<code>sd-&gt;received_rps</code>，是这个 CPU 被其他 CPU 唤醒去收包的次数</li>
+<li>最后一列，<code>flow_limit_count</code>，是达到 flow limit 的次数。flow limit 是 RPS 的特性， 后面会稍微介绍一下</li>
+</ol>
+<h3 id="TCP协议栈Buffer"><a href="#TCP协议栈Buffer" class="headerlink" title="TCP协议栈Buffer"></a>TCP协议栈Buffer</h3><pre><code>    sysctl -a | grep net.ipv4.tcp_rmem   // receive
+    sysctl -a | grep net.ipv4.tcp_wmem   // send
+    //监控
+    cat /proc/net/sockstat
+
+参考：[TCP性能优化大全](https://www.atatech.org/articles/140017)    
+</code></pre><h4 id="接收Buffer"><a href="#接收Buffer" class="headerlink" title="接收Buffer"></a>接收Buffer</h4><pre><code>$netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
+17671 packets pruned from receive queue because of socket buffer overrun
+18671 packets pruned from receive queue because of socket buffer overrun
+</code></pre><p>如果 “pruning” 一直在增加很有可能是程序中调用了 setsockopt(SO_RCVBUF) 导致内核关闭了动态调整功能，或者压力大，缓存不够了。具体Case：<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a></p>
+<p>nstat也可以看到比较多的数据</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$nstat -z |grep -i drop</div><div class="line">TcpExtLockDroppedIcmps          0                  0.0</div><div class="line">TcpExtListenDrops               0                  0.0</div><div class="line">TcpExtTCPBacklogDrop            0                  0.0</div><div class="line">TcpExtPFMemallocDrop            0                  0.0</div><div class="line">TcpExtTCPMinTTLDrop             0                  0.0</div><div class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</div><div class="line">TcpExtTCPReqQFullDrop           0                  0.0</div><div class="line">TcpExtTCPOFODrop                0                  0.0</div><div class="line">TcpExtTCPZeroWindowDrop         0                  0.0</div><div class="line">TcpExtTCPRcvQDrop               0                  0.0</div></pre></td></tr></table></figure>
+<h2 id="总体简略接收包流程"><a href="#总体简略接收包流程" class="headerlink" title="总体简略接收包流程"></a>总体简略接收包流程</h2><p><img src="/images/951413iMgBlog/image-20210511114834433.png" alt="image-20210511114834433"></p>
+<p>带参数版收包流程：</p>
+<p><img src="/images/951413iMgBlog/aaf4ff8bbcc26e9e5efe48c984abe508.png" alt="image.png"></p>
+<h2 id="总体简略发送包流程"><a href="#总体简略发送包流程" class="headerlink" title="总体简略发送包流程"></a>总体简略发送包流程</h2><p><img src="/images/951413iMgBlog/1557291324544-ca69d448-08e4-46c4-9c49-8cf516fc3eaa.png" alt=""></p>
+<p>带参数版发包流程：</p>
+<p><img src="/images/951413iMgBlog/955fc732d8620561a9ebce992b0129b1.png" alt="image.png"></p>
+<h2 id="网络包流转结构图"><a href="#网络包流转结构图" class="headerlink" title="网络包流转结构图"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;scene=21#wechat_redirect" target="_blank" rel="external">网络包流转结构图</a></h2><h3 id="跨机器网络IO"><a href="#跨机器网络IO" class="headerlink" title="跨机器网络IO"></a>跨机器网络IO</h3><p><img src="/images/951413iMgBlog/640-20211027113522111" alt="Image"></p>
+<h3 id="lo-网卡"><a href="#lo-网卡" class="headerlink" title="lo 网卡"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247485270&amp;idx=1&amp;sn=503534e9f0560bfcfbd4539e028e0d57&amp;chksm=a6e3066d91948f7b4b56dc85cf12e7656cb8ac8c0bfe737df1ee400fc45b812476e1cb9bff1a&amp;scene=178&amp;cur_album_id=1532487451997454337#rd" target="_blank" rel="external">lo 网卡</a></h3><p>127.0.0.1(lo)本机网络 IO ，无需走到物理网卡，也不用进入RingBuffer驱动队列，但是还是要走内核协议栈，直接把 skb 传给接收协议栈（经过软中断）</p>
+<p><img src="/images/951413iMgBlog/640-20211027113545882" alt="Image"></p>
+<p>总的来说，本机网络 IO 和跨机 IO 比较起来，确实是节约了一些开销。发送数据不需要进 RingBuffer 的驱动队列，直接把 skb 传给接收协议栈（经过软中断）。但是在内核其它组件上，可是一点都没少，系统调用、协议栈（传输层、网络层等）、网络设备子系统、邻居子系统整个走了一个遍。连“驱动”程序都走了（虽然对于回环设备来说只是一个纯软件的虚拟出来的东东）。所以即使是本机网络 IO，也别误以为没啥开销，实际本机访问自己的eth0 ip也是走的lo网卡和访问127.0.0.1是一样的，测试用ab分别走127.0.0.1和eth0压nginx，在nginx进程跑满，ab还没满两者的nginx单核都是7万TPS左右，跨主机压nginx的单核也是7万左右（要调多ab的并发数）。</p>
+<p>如果是同一台宿主机走虚拟bridge通信的话（同一宿主机下的不容docker容器通信）：</p>
+<p><img src="/images/951413iMgBlog/640-20211027123524056" alt="Image"></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>ab  压 nginx单核（intel 8163 绑核）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>127.0.0.1</td>
+<td>Requests per second:    69498.96 [#/sec] (mean)<br>Time per request:       0.086 [ms] (mean)</td>
+</tr>
+<tr>
+<td>Eth0</td>
+<td>Requests per second:    70261.93 [#/sec] (mean)<br>Time per request:       0.085 [ms] (mean)</td>
+</tr>
+<tr>
+<td>跨主机压</td>
+<td>Requests per second:    70119.05 [#/sec] (mean)<br>Time per request:       0.143 [ms] (mean)</td>
+</tr>
+</tbody>
+</table>
+<p>ab不支持unix domain socket，如果增加ab和nginx之间的时延，QPS急剧下降，但是增加ab的并发数完全可以把QPS拉回去。</p>
+<h3 id="Unix-Domain-Socket工作原理"><a href="#Unix-Domain-Socket工作原理" class="headerlink" title="Unix Domain Socket工作原理"></a><a href="https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A" target="_blank" rel="external">Unix Domain Socket工作原理</a></h3><p>接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。</p>
+<p><img src="/images/951413iMgBlog/640-0054201." alt="Image"></p>
+<p>主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。</p>
+<p>直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) = sk 和 unix_peer(sk) = newsk 这两句。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//file: net/unix/af_unix.c</span></div><div class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">int</span> <span class="title">unix_stream_connect</span><span class="params">(struct socket *sock, struct sockaddr *uaddr,</span></span></div><div class="line">          <span class="keyword">int</span> addr_len, <span class="keyword">int</span> flags)</div><div class="line">&#123;</div><div class="line"> <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_un</span> *<span class="title">sunaddr</span> = (<span class="title">struct</span> <span class="title">sockaddr_un</span> *)<span class="title">uaddr</span>;</span></div><div class="line"></div><div class="line"> <span class="comment">// 1. 为服务器侧申请一个新的 socket 对象</span></div><div class="line"> newsk = unix_create1(sock_net(sk), <span class="literal">NULL</span>);</div><div class="line"></div><div class="line"> <span class="comment">// 2. 申请一个 skb，并关联上 newsk</span></div><div class="line"> skb = sock_wmalloc(newsk, <span class="number">1</span>, <span class="number">0</span>, GFP_KERNEL);</div><div class="line"> ...</div><div class="line"></div><div class="line"> <span class="comment">// 3. 建立两个 sock 对象之间的连接</span></div><div class="line"> unix_peer(newsk) = sk;</div><div class="line"> newsk-&gt;sk_state  = TCP_ESTABLISHED;</div><div class="line"> newsk-&gt;sk_type  = sk-&gt;sk_type;</div><div class="line"> ...</div><div class="line"> sk-&gt;sk_state = TCP_ESTABLISHED;</div><div class="line"> unix_peer(sk) = newsk;</div><div class="line"></div><div class="line"> <span class="comment">// 4. 把连接中的一头（新 socket）放到服务器接收队列中</span></div><div class="line"> __skb_queue_tail(&amp;other-&gt;sk_receive_queue, skb);</div><div class="line">&#125;</div><div class="line"></div><div class="line"><span class="comment">//file: net/unix/af_unix.c</span></div><div class="line"><span class="meta">#<span class="meta-keyword">define</span> unix_peer(sk) (unix_sk(sk)-&gt;peer)</span></div></pre></td></tr></table></figure>
+<p>收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，<strong>直接把 skb 给放到对端的接收队列里了</strong></p>
+<p><img src="/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
+<p>Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。</p>
+<p><img src="/images/951413iMgBlog/640-8447312.png" alt="Image"></p>
+<p><img src="/images/951413iMgBlog/640-20220328140221555.png" alt="Image"></p>
+<p>再来一个<a href="https://upload.wikimedia.org/wikipedia/commons/3/37/Netfilter-packet-flow.svg" target="_blank" rel="external">整体流转矢量图</a>:</p>
+<p><img src="/images/951413iMgBlog/image-20211116101345648.png" alt="image-20211116101345648"></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><h3 id="snat-dnat-宿主机port冲突，丢包"><a href="#snat-dnat-宿主机port冲突，丢包" class="headerlink" title="snat/dnat 宿主机port冲突，丢包"></a>snat/dnat 宿主机port冲突，丢包</h3><p><img src="/images/951413iMgBlog/d42ccdb0b8f6270d8b559145c0b89c86.png" alt="image.png"></p>
+<ol>
+<li>snat 就是要把 192.168.1.10和192.168.1.11的两个连接替换成宿主机的ip:port</li>
+<li>主要是在宿主机找可用port分别给这两个连接用</li>
+<li><p>找可用port分两步</p>
+<ul>
+<li>找到可用port</li>
+<li>将可用port写到数据库，后面做连接追踪用(conntrack)</li>
+</ul>
+</li>
+<li>上述两步不是事务，可能两个连接同时找到一个相同的可用port，但是只有第一个能写入成功，第二个fail，fail后这个包被扔掉</li>
+<li>1秒钟后被扔掉的包重传，后续正常</li>
+</ol>
+<p>症状：</p>
+<ul>
+<li>问题发生概率不高，跟压力没有关系，跟容器也没有关系，只要有snat/dnat和并发就会发生，只发生在创建连接的第一个syn包</li>
+<li>可以通过conntrack工具来检查fail的数量</li>
+<li>实际影响只是请求偶尔被拉长了1秒或者3秒</li>
+<li>snat规则创建的时候增加参数：NF_NAT_RANGE_PROTO_RANDOM_FULLY 来将冲突降低几个数量级—-可以认为修复了这个问题</li>
+</ul>
+<pre><code>sudo conntrack -L -d ip-addr
+</code></pre><p>来自：<a href="https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02" target="_blank" rel="external">https://tech.xing.com/a-reason-for-unexplained-connection-timeouts-on-kubernetes-docker-abd041cf7e02</a></p>
+<h3 id="容器-bridge-通过udp访问宿主机服务失败"><a href="#容器-bridge-通过udp访问宿主机服务失败" class="headerlink" title="容器(bridge)通过udp访问宿主机服务失败"></a>容器(bridge)通过udp访问宿主机服务失败</h3><p><img src="/images/oss/a067b484c593aa3a4b6a525d1f93506e.png" alt="image.png"></p>
+<p>这个案例主要是讲述回包的逻辑，如果是tcp，那么用dest ip当自己的source ip，如果是UDP，无连接状态信息，那么会根据route来选择一块网卡(上面的IP) 来当source ip</p>
+<p>来自：<a href="http://cizixs.com/2017/08/21/docker-udp-issue" target="_blank" rel="external">http://cizixs.com/2017/08/21/docker-udp-issue</a><br>     <a href="https://github.com/moby/moby/issues/15127" target="_blank" rel="external">https://github.com/moby/moby/issues/15127</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="external">The Missing Man Page for ifconfig–关于ifconfig的种种解释</a></p>
+<p><a href="https://cloud.tencent.com/developer/article/1400834?s=original-sharing" target="_blank" rel="external">Linux数据报文的来龙去脉</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">Linux TCP队列相关参数的总结–锋寒</a></p>
+<p><a href="https://github.com/leandromoreira/linux-network-performance-parameters" target="_blank" rel="external">linux-network-performance-parameters</a></p>
+<p><a href="https://www.cnblogs.com/fczjuever/archive/2013/04/17/3026694.html" target="_blank" rel="external">Linux之TCPIP内核参数优化</a></p>
+<p><a href="https://access.redhat.com/sites/default/files/attachments/20150325_network_performance_tuning.pdf" target="_blank" rel="external">https://access.redhat.com/sites/default/files/attachments/20150325_network_performance_tuning.pdf</a></p>
+<p><a href="https://ylgrgyq.github.io/2017/07/23/linux-receive-packet-1/" target="_blank" rel="external">Linux 网络协议栈收消息过程-Ring Buffer</a> : 支持 RSS 的网卡内部会有多个 Ring Buffer，NIC 收到 Frame 的时候能通过 Hash Function 来决定 Frame 该放在哪个 Ring Buffer 上，触发的 IRQ 也可以通过操作系统或者手动配置 IRQ affinity 将 IRQ 分配到多个 CPU 上。这样 IRQ 能被不同的 CPU 处理，从而做到 Ring Buffer 上的数据也能被不同的 CPU 处理，从而提高数据的并行处理能力。</p>
+<p><a href="http://arthurchiao.art/blog/tuning-stack-tx-zh/" target="_blank" rel="external">Linux 网络栈监控和调优：发送数据</a></p>
+<p><a href="http://arthurchiao.art/blog/tuning-stack-rx-zh/" target="_blank" rel="external">Linux 网络栈监控和调优：接收数据（2016）</a> <a href="https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/" target="_blank" rel="external">英文版</a></p>
+<p>收到包后内核层面的处理：<a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247484058&amp;idx=1&amp;sn=a2621bc27c74b313528eefbc81ee8c0f&amp;scene=21#wechat_redirect" target="_blank" rel="external">从网卡注册软中断处理函数到收包逻辑</a></p>
+<p>收到包后应用和协议层面的处理：图解 | 深入理解高性能网络开发路上的绊脚石 - 同步阻塞网络 IO<a href="https://mp.weixin.qq.com/s/cIcw0S-Q8pBl1-WYN0UwnA" target="_blank" rel="external">https://mp.weixin.qq.com/s/cIcw0S-Q8pBl1-WYN0UwnA</a> 当软中断上收到数据包时会通过调用 sk_data_ready 函数指针（实际被设置成了 sock_def_readable()） 来唤醒在 sock 上等待的进程</p>
+<p><a href="http://docshare02.docshare.tips/files/21804/218043783.pdf" target="_blank" rel="external">http://docshare02.docshare.tips/files/21804/218043783.pdf</a></p>
+<p><a href="https://wiki.linuxfoundation.org/networking/kernel_flow" target="_blank" rel="external">https://wiki.linuxfoundation.org/networking/kernel_flow</a></p>
+<p><a href="https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Netfilter-packet-flow.svg/2000px-Netfilter-packet-flow.svg.png" target="_blank" rel="external">https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Netfilter-packet-flow.svg/2000px-Netfilter-packet-flow.svg.png</a></p>
+<p><a href="https://wiki.nix-pro.com/view/Packet_journey_through_Linux_kernel" target="_blank" rel="external">https://wiki.nix-pro.com/view/Packet_journey_through_Linux_kernel</a></p>
+<p><a href="https://blog.packagecloud.io/eng/2017/02/06/monitoring-tuning-linux-networking-stack-sending-data/" target="_blank" rel="external">https://blog.packagecloud.io/eng/2017/02/06/monitoring-tuning-linux-networking-stack-sending-data/</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;scene=21#wechat_redirect" target="_blank" rel="external">美团redis丢包，调整多队列，绑核，软中断绑定node0</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/16/网络通不通是个大问题--半夜鸡叫/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/16/网络通不通是个大问题--半夜鸡叫/" itemprop="url">网络通不通是个大问题–半夜鸡叫</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-16T17:30:03+08:00">
+                2019-05-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="网络通不通是个大问题–半夜鸡叫"><a href="#网络通不通是个大问题–半夜鸡叫" class="headerlink" title="网络通不通是个大问题–半夜鸡叫"></a>网络通不通是个大问题–半夜鸡叫</h1><h2 id="半夜鸡叫"><a href="#半夜鸡叫" class="headerlink" title="半夜鸡叫"></a>半夜鸡叫</h2><p>凌晨啊，还有同学在为网络为什么不通的问题搏斗着：</p>
+<p><img src="/images/951413iMgBlog/1557909424085-04a7111c-fee8-440f-ba22-411dd70cbba0.png" alt="undefined"> </p>
+<p>问题描述大概如下：</p>
+<p>slb后面配了一台realserver(就叫172吧), 在172上通过curl <a href="http://127.0.0.1:80/" target="_blank" rel="external">http://127.0.0.1:80/</a> 是正常的(说明服务自身是正常的)<br>如果从开发同学的笔记本直接curl slb-ip 就卡住了，进一步发现如果从北京的办公网curl slb-ip就行，但是从杭州的curl slb-ip就不行。</p>
+<p>从杭州curl的时候在172上抓包如下：<br><img src="/images/951413iMgBlog/1557909749498-452acc94-f04b-48bf-803f-f1acb21dd4b2.png" alt="undefined"> </p>
+<p>明显可以看到tcp握手包正确到达了172，但是172一直没有回复。也就是如果是杭州访问服务的话，服务端收到握手请求后直接扔掉没有任何回复（回想下哪些场景会扔包）</p>
+<h2 id="问题排查"><a href="#问题排查" class="headerlink" title="问题排查"></a>问题排查</h2><h3 id="先排除了iptables的问题"><a href="#先排除了iptables的问题" class="headerlink" title="先排除了iptables的问题"></a>先排除了iptables的问题</h3><pre><code>略过
+</code></pre><h3 id="route-的嫌疑"><a href="#route-的嫌疑" class="headerlink" title="route 的嫌疑"></a>route 的嫌疑</h3><p>因为北京可以杭州不行，明显是某些IP可以，于是检查route 表，解决问题的<a href="https://www.atatech.org/articles/80573" target="_blank" rel="external">必杀技(基础知识)都在这里</a></p>
+<p>发现杭州的ip和北京的ip确实命中了不同的路由规则，简单说就是172绑在eth0上，机器还有另外一块网卡eth1. 而回复杭州ip的时候要走eth1. 至于为什么没有从eth1回复等会再说</p>
+<p>知道原因就好说了，修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
+<p>所以到这里，问题描述如下：<br>    <img src="/images/951413iMgBlog/1557910281403-59a60a80-5edf-472d-827c-b2c8d6db903f.png" alt="undefined"> </p>
+<p>机器有两块网卡，请求走eth0 进来(绿线)，然后走 eth1回复(路由决定的，红线)，但是实际没走eth1回复，像是丢包了。</p>
+<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
+<h3 id="为什么5U的机器可以"><a href="#为什么5U的机器可以" class="headerlink" title="为什么5U的机器可以"></a>为什么5U的机器可以</h3><p>开发同学接着反馈，出问题的172是7U2的系统，但是还有一些5U7的机器完全正常，5U7的机器上也是两块网卡，route规则也是一样的。</p>
+<p>这确实诡异，看着像是7U的内核行为跟5U不一致，咨询了内核同学，让检查一下 rp_filter 参数。果然看到7U2的系统默认 rp_filter 开着，而5U7是关着的，于是反复开关这个参数稳定重现了问题    </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sysctl -w net.ipv4.conf.eth0.rp_filter=0</div></pre></td></tr></table></figure>
+<h3 id="rp-filter-原理和监控"><a href="#rp-filter-原理和监控" class="headerlink" title="rp_filter 原理和监控"></a>rp_filter 原理和监控</h3><p>rp_filter参数用于控制系统是否开启对数据包源地址的校验, 收到包后根据source ip到route表中检查是否否和最佳路由，否的话扔掉这个包【可以防止DDoS，攻击等】</p>
+<blockquote>
+<p>​    0：不开启源地址校验。<br>​    1：开启严格的反向路径校验。对每个进来的数据包，校验其反向路径是否是最佳路径。如果反向路径不是最佳路径，则直接丢弃该数据包。<br>​    2：开启松散的反向路径校验。对每个进来的数据包，校验其源地址是否可达，即反向路径是否能通（通过任意网口），如果反向路径不通，则直接丢弃该数据包。</p>
+</blockquote>
+<p>那么对于这种丢包，可以打开日志：/proc/sys/net/ipv4/conf/eth0/log_martians 来监控到：</p>
+<p><img src="/images/951413iMgBlog/1557910737844-1ee231f0-1ddd-4dee-ac07-3b23f9659878.png" alt="undefined"></p>
+<p>rp_filter: IP Reverse Path Filter, 在ip层收包的时候检查一下反向路径是不是最优路由，代码位置：</p>
+<pre><code>ip_rcv-&gt;NF_HOOK-&gt;ip_rcv_finish-&gt;ip_rcv_finish_core
+</code></pre><p>也就是rp_filter在收包的流程中检查每个进来的包，是不是符合rp_filter规则，而不是回复的时候来做判断，这也就是为什么抓包只能看到进来的syn就没有然后了</p>
+<h3 id="开启rp-filter参数的作用"><a href="#开启rp-filter参数的作用" class="headerlink" title="开启rp_filter参数的作用"></a>开启rp_filter参数的作用</h3><ul>
+<li>减少DDoS攻击: 校验数据包的反向路径，如果反向路径不合适，则直接丢弃数据包，避免过多的无效连接消耗系统资源。</li>
+<li>防止IP Spoofing: 校验数据包的反向路径，如果客户端伪造的源IP地址对应的反向路径不在路由表中，或者反向路径不是最佳路径，则直接丢弃数据包，不会向伪造IP的客户端回复响应。</li>
+</ul>
+<h3 id="通过netstat-s来观察IPReversePathFilter"><a href="#通过netstat-s来观察IPReversePathFilter" class="headerlink" title="通过netstat -s来观察IPReversePathFilter"></a>通过netstat -s来观察IPReversePathFilter</h3><pre><code>$netstat -s | grep -i filter
+    IPReversePathFilter: 35428
+$netstat -s | grep -i filter
+    IPReversePathFilter: 35435
+</code></pre><p>能明显看到这个数字在增加，如果没开rp_filter 就看不到这个指标或者数值不变</p>
+<p><img src="/images/951413iMgBlog/1557975265195-ef0ed7c0-61be-452b-a27e-6d395b4aaff3.png" alt="undefined"> </p>
+<p>问题出现的时候，尝试过用 watch -d -n 3 ‘netstat -s’ 来观察过哪些指标在变化，只是变化的指标太多，留意不过来，或者只是想着跟drop、route有关的参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   InNoRoutes: 31</div></pre></td></tr></table></figure>
+<p>当时观察到这几个指标，都没有变化，实际他们看着像但是都跟rp_filter没关系，最后我打算收藏如下命令保平安：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 times the listen queue of a socket overflowed</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   IPReversePathFilter: 35435</div><div class="line">   InNoRoutes: 31</div><div class="line"></div><div class="line">$nstat -z -t 1 | egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">IpOutNoRoutes                   0                  0.0</div><div class="line">TcpRetransSegs                  20                 0.0</div><div class="line">Ip6InNoRoutes                   0                  0.0</div><div class="line">Ip6OutNoRoutes                  0                  0.0</div><div class="line">Icmp6InRouterSolicits           0                  0.0</div><div class="line">Icmp6InRouterAdvertisements     0                  0.0</div><div class="line">Icmp6OutRouterSolicits          0                  0.0</div><div class="line">Icmp6OutRouterAdvertisements    0                  0.0</div><div class="line">TcpExtLockDroppedIcmps          0                  0.0</div><div class="line">TcpExtArpFilter                 0                  0.0</div><div class="line">TcpExtListenOverflows           0                  0.0</div><div class="line">TcpExtListenDrops               0                  0.0</div><div class="line">TcpExtTCPPrequeueDropped        0                  0.0</div><div class="line">TcpExtTCPLostRetransmit         0                  0.0</div><div class="line">TcpExtTCPFastRetrans            0                  0.0</div><div class="line">TcpExtTCPForwardRetrans         0                  0.0</div><div class="line">TcpExtTCPSlowStartRetrans       0                  0.0</div><div class="line">TcpExtTCPBacklogDrop            0                  0.0</div><div class="line">TcpExtTCPMinTTLDrop             0                  0.0</div><div class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</div><div class="line">TcpExtIPReversePathFilter       2                  0.0</div><div class="line">TcpExtTCPTimeWaitOverflow       0                  0.0</div><div class="line">TcpExtTCPReqQFullDrop           0                  0.0</div><div class="line">TcpExtTCPRetransFail            0                  0.0</div><div class="line">TcpExtTCPOFODrop                0                  0.0</div><div class="line">TcpExtTCPFastOpenListenOverflow 0                  0.0</div><div class="line">TcpExtTCPSynRetrans             10                 0.0</div><div class="line">IpExtInNoRoutes                 0                  0.0</div></pre></td></tr></table></figure>
+<h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
+<li>网络不通，诊断：ping ip</li>
+<li>端口不通,  诊断：telnet ip port</li>
+<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
+<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
+<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
+<li>syn flood攻击, 诊断：同上</li>
+<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
+<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>本质原因就是服务器开启了 rp_filter 为1，严格校验进出包是否走同一块网卡，而如果请求从杭州机房发过来的话，回复包的路由走的是另外一块网卡，触发了内核的rp_filter扔包逻辑。</p>
+<p>改server的路由可以让杭州的包也走同一块网卡，就不扔掉了。当然将 rp_filter 改成0 关掉这个校验逻辑也可以完全避免这个扔包。</p>
+<p>从问题的解决思路来说，基本都可以认定是握手的时候服务器扔包了。只有知道 rp_filter 参数的内核老司机可以直接得出是这里的原因。如果对于一个新手的话还是得掌握如何推理分析得到原因。</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/15/就是要你懂网络--一个网络包的旅程/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/15/就是要你懂网络--一个网络包的旅程/" itemprop="url">就是要你懂网络--一个网络包的旅程</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-15T17:30:03+08:00">
+                2019-05-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="就是要你懂网络–一个网络包的旅程"><a href="#就是要你懂网络–一个网络包的旅程" class="headerlink" title="就是要你懂网络–一个网络包的旅程"></a>就是要你懂网络–一个网络包的旅程</h1><hr>
+<h2 id="写在最前面的"><a href="#写在最前面的" class="headerlink" title="写在最前面的"></a>写在最前面的</h2><p>我相信你脑子里关于网络的概念都在下面这张图上，但是乱成一团麻，这就是因为知识没有贯通、没有实践、没有组织</p>
+<p><img src="/images/oss/d37028807148f8ec630512bdd4223335.png" alt="image.png"></p>
+<p>上面的概念在<a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="external">RFC1180</a>中讲的无比的通熟易懂了，但是抱歉，当时你也许看懂了，但是一个月后又忘记了，或者碰到问题才发现之前即使觉得看懂了的东西实际没懂</p>
+<p><strong>所以这篇文章希望解决书本知识到实践的贯通，希望把网络概念之间的联系通过实践来组织起来</strong></p>
+<h2 id="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"><a href="#最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下" class="headerlink" title="最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下"></a>最近客户环境碰到一个网络ping不通的问题，折腾了一周，所以记录一下</h2><p>当时的网络链路是（大概是这样，略有简化）：</p>
+<pre><code>容器1-&gt;容器1所在物理机1-&gt;交换机-&gt;物理机2
+</code></pre><ul>
+<li>从容器1 ping 物理机2 不通；</li>
+<li>从物理机1上的容器2 ping物理机2 通；</li>
+<li>物理机用一个vlan，容器用另外一个vlan</li>
+<li>交换机都做了trunk，让两个vlan都允许通过（肯定没问题，因为容器2是通的）</li>
+<li>同时发现即使是通的，有的容器 ping物理机1只需要0.1ms，有的容器需要200ms以上（都在同一个交换机下），不合理</li>
+<li>所有容器 ping 其它外网IP反而是通的</li>
+</ul>
+<p>扯了一周是因为容器的网络是我们自己配置的，交换机我们没有权限接触，由客户配置。出问题的时候都会觉得自己没问题对方有问题，另外就是对网络基本知识认识不够所以都觉得自己没问题。</p>
+<p>这个问题的答案在大家看完本文的基础知识后会总结出来。</p>
+<blockquote>
+<p>开始前大家先想想，假如有个面试题是：输入 ping IP后 敲回车，然后发生了什么？</p>
+</blockquote>
+<h2 id="route-路由表"><a href="#route-路由表" class="headerlink" title="route 路由表"></a>route 路由表</h2><pre><code>$route -n
+Kernel IP routing table
+Destination Gateway Genmask Flags Metric RefUse Iface
+0.0.0.0     10.125.15.254   0.0.0.0 UG0  00 eth0
+10.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+10.125.0.0  0.0.0.0 255.255.240.0   U 0  00 eth0
+11.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+30.0.0.0    10.125.15.254   255.0.0.0   UG0  00 eth0
+100.64.0.0  10.125.15.254   255.192.0.0 UG0  00 eth0
+169.254.0.0 0.0.0.0 255.255.0.0 U 1002   00 eth0
+172.16.0.0  10.125.15.254   255.240.0.0 UG0  00 eth0
+172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
+192.168.0.0 10.125.15.254   255.255.0.0 UG0  00 eth0
+</code></pre><p>假如你现在在这台机器上ping 172.17.0.2 根据上面的route表得出 172.17.0.2这个IP符合：</p>
+<pre><code>172.17.0.0  0.0.0.0 255.255.0.0 U 0  00 docker0
+</code></pre><p>这条路由规则，那么ping 包会从docker0这张网卡发出去。</p>
+<p>但是如果是ping 10.125.4.4 根据路由规则应该走eth0这张网卡。</p>
+<p>接下来就要判断目标IP是否在同一个子网了</p>
+<h2 id="ifconfig"><a href="#ifconfig" class="headerlink" title="ifconfig"></a>ifconfig</h2><p>首先来看看这台机器的网卡情况：</p>
+<pre><code>$ifconfig
+docker0: flags=4099&lt;UP,BROADCAST,MULTICAST&gt;  mtu 1500
+    inet 172.17.42.1  netmask 255.255.0.0  broadcast 0.0.0.0
+    ether 02:42:49:a7:dc:ba  txqueuelen 0  (Ethernet)
+    RX packets 461259  bytes 126800808 (120.9 MiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 462820  bytes 103470899 (98.6 MiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
+    inet 10.125.3.33  netmask 255.255.240.0  broadcast 10.125.15.255
+    ether 00:16:3e:00:02:67  txqueuelen 1000  (Ethernet)
+    RX packets 280918095  bytes 89102074868 (82.9 GiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 333504217  bytes 96311277198 (89.6 GiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536
+    inet 127.0.0.1  netmask 255.0.0.0
+    loop  txqueuelen 0  (Local Loopback)
+    RX packets 1077128597  bytes 104915529133 (97.7 GiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 1077128597  bytes 104915529133 (97.7 GiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+</code></pre><p>这里有三个IP，三个子网掩码（netmask)，根据目标路由走哪张网卡，得到这个网卡的子网掩码，来计算目标IP是否在这个子网内。</p>
+<h2 id="arp协议"><a href="#arp协议" class="headerlink" title="arp协议"></a>arp协议</h2><p>网络包在物理层传输的时候依赖的mac 地址而不是上面的IP地址，也就是根据mac地址来决定把包发到哪里去。 </p>
+<p>arp协议就是查询某个IP地址的mac地址是多少，由于这种对应关系一般不太变化，所以每个os都有一份arp缓存（一般15分钟过期），也可以手工清理，下面是arp缓存的内容：</p>
+<pre><code>$arp -a
+e010125011202.bja.tbsite.net (10.125.11.202) at 00:16:3e:01:c2:00 [ether] on eth0
+? (10.125.15.254) at 0c:da:41:6e:23:00 [ether] on eth0
+v125004187.bja.tbsite.net (10.125.4.187) at 00:16:3e:01:cb:00 [ether] on eth0
+e010125001224.bja.tbsite.net (10.125.1.224) at 00:16:3e:01:64:00 [ether] on eth0
+v125009121.bja.tbsite.net (10.125.9.121) at 00:16:3e:01:b8:ff [ether] on eth0
+e010125009114.bja.tbsite.net (10.125.9.114) at 00:16:3e:01:7c:00 [ether] on eth0
+v125012028.bja.tbsite.net (10.125.12.28) at 00:16:3e:00:fb:ff [ether] on eth0
+e010125005234.bja.tbsite.net (10.125.5.234) at 00:16:3e:01:ee:00 [ether] on eth0
+</code></pre><h2 id="进入正题，回车后发生什么"><a href="#进入正题，回车后发生什么" class="headerlink" title="进入正题，回车后发生什么"></a>进入正题，回车后发生什么</h2><p>首先 os需要把ping命令封成一个icmp包，需要填上包头（包括IP、mac地址），那么os先根据目标IP和本机的route规则计算使用哪个interface(网卡），每条路由规则基本都包含目标IP范围、网关、网卡这样几个基本元素。</p>
+<h3 id="如果目标IP在同一子网"><a href="#如果目标IP在同一子网" class="headerlink" title="如果目标IP在同一子网"></a>如果目标IP在同一子网</h3><p>如果目标IP和本机IP是同一个子网（根据本机ifconfig上的每个网卡的netmask来判断），并且本机arp缓存没有这条IP对应的mac记录，那么给整个子网的所有机器广播发送一个 arp查询</p>
+<p>比如我ping 10.125.3.42，然后tcpdump抓包看到的arp请求：</p>
+<pre><code>$sudo tcpdump -i eth0  arp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+16:22:01.792501 ARP, Request who-has e010125003042.bja.tbsite.net tell e010125003033.bja, length 28
+16:22:01.792566 ARP, Reply e010125003042.bja.tbsite.net is-at 00:16:3e:01:8d:ff (oui Unknown), length 28
+</code></pre><p><img src="/images/951413iMgBlog/gif/packtrav-host-switch-host.gif" alt="Host to Host through a Switch - Switch Functions animation"></p>
+<p>上面就是本机发送广播消息，10.125.3.42的mac地址是多少，很快10.125.3.42回复了自己的mac地址。<br>收到这个回复后，先缓存起来，下个ping包就不需要再次arp广播了。<br>然后将这个mac地址填写到ping包的包头的目标Mac（icmp包），然后发出这个icmp request包，按照mac地址，正确到达目标机器，然后对方正确回复icmp reply【对方回复也要查路由规则，arp查发送放的mac，这样回包才能正确路由回来，略过】。</p>
+<p>来看一次完整的ping 10.125.3.43，tcpdump抓包结果：</p>
+<pre><code>$sudo tcpdump -i eth0  arp or icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+16:25:15.195401 ARP, Request who-has e010125003043.bja.tbsite.net tell e010125003033.bja, length 28
+16:25:15.195459 ARP, Reply e010125003043.bja.tbsite.net is-at 00:16:3e:01:0c:ff (oui Unknown), length 28
+16:25:15.211505 IP e010125003033.bja &gt; e010125003043.bja.tbsite.net: ICMP echo request, id 27990, seq 1, length 64
+16:25:15.212056 IP e010125003043.bja.tbsite.net &gt; e010125003033.bja: ICMP echo reply, id 27990, seq 1, length 64
+</code></pre><p>我换了个IP地址，接着再ping同一个IP地址，arp有缓存了就看不到arp广播查询过程了。</p>
+<h3 id="如果目标IP不是同一个子网"><a href="#如果目标IP不是同一个子网" class="headerlink" title="如果目标IP不是同一个子网"></a>如果目标IP不是同一个子网</h3><p>arp只是同一子网广播查询，如果目标IP不是同一子网的话就要经过本IP网关就行转发，如果本机没有缓存网关mac（一般肯定缓存了），那么先发送一次arp查询网关的mac，然后流程跟上面一样，只是这个icmp包发到网关上去了（mac地址填写的是网关的mac）</p>
+<p>从本机10.125.3.33 ping 11.239.161.60的过程，因为不是同一子网按照路由规则匹配，根据route表应该走10.125.15.254这个网关，如下截图：</p>
+<p><img src="/images/oss/8f5d8518c1d92ed68d23218028e3cd11.png" alt="image.png"></p>
+<p>首先是目标IP 11.239.161.60 符合最上面红框中的路由规则，又不是同一子网，所以查找路由规则中的网关10.125.15.254的Mac地址，arp cache中有，于是将 0c:da:41:6e:23:00 填入包头，那么这个icmp request包就发到10.125.15.254上了，虽然包头的mac是 0c:da:41:6e:23:00，但是IP还是 11.239.161.60.</p>
+<p>看看目标IP 11.239.161.60 的真正mac信息（跟ping包包头的Mac是不同的）：</p>
+<pre><code>eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500
+    inet 11.239.161.60  netmask 255.255.252.0  broadcast 11.239.163.255
+    ether 00:16:3e:00:04:c4  txqueuelen 1000  (Ethernet)
+</code></pre><p>这个包根据Mac地址路由到了网关上</p>
+<h3 id="网关接下来怎么办"><a href="#网关接下来怎么办" class="headerlink" title="网关接下来怎么办"></a>网关接下来怎么办</h3><p><strong>为了简化问题，假设两个网关直连</strong></p>
+<p>网关收到这个包后（因为mac地址是她的），打开一看IP地址是 11.239.161.60，不是自己的，于是继续查自己的route和arp缓存，发现11.239.161.60这个IP的网关是11.239.163.247，于是把包的目的mac地址改成11.239.163.247的mac继续发出去。</p>
+<p>11.239.163.247这个网关收到包后，一看 11.239.161.60是自己同一子网的IP，于是该arp广播找mac就广播，cache有就拿cache的，然后这个包才最终到达目的11.239.161.60上。</p>
+<p>整个过程中目标mac地址每一跳都在变，IP地址不变，每经过一次变化可以简单理解从一跳。</p>
+<p>实际上可能要经过多个网关多次跳跃才能真正到达目标机器</p>
+<h3 id="目标收到这个icmp包后的回复过程一样，略过。"><a href="#目标收到这个icmp包后的回复过程一样，略过。" class="headerlink" title="目标收到这个icmp包后的回复过程一样，略过。"></a>目标收到这个icmp包后的回复过程一样，略过。</h3><h3 id="arp广播风暴和arp欺骗"><a href="#arp广播风暴和arp欺骗" class="headerlink" title="arp广播风暴和arp欺骗"></a>arp广播风暴和arp欺骗</h3><p>广播风暴：如果一个子网非常大，机器非常多，每次arp查询都是广播的话，也容易因为N*N的问题导致广播风暴。</p>
+<p>arp欺骗：同样如果一个子网中的某台机器冒充网关或者其他机器，当收到arp查询的时候总是把自己的mac冒充目标机器的mac发给你，然后你的包先走到他，为了不被发现达到自己的目的后再转发给真正的网关或者机器，所以在里面都点什么手脚，看看你发送的内容都还是很容易的</p>
+<h2 id="讲完基础再来看开篇问题的答案"><a href="#讲完基础再来看开篇问题的答案" class="headerlink" title="讲完基础再来看开篇问题的答案"></a>讲完基础再来看开篇问题的答案</h2><h3 id="分别在两个物理机上抓包"><a href="#分别在两个物理机上抓包" class="headerlink" title="分别在两个物理机上抓包"></a>分别在两个物理机上抓包</h3><p>在物理机2上抓包：</p>
+<p><img src="/images/oss/510e9ea924b0b9d73f3fb556b25f3c1c.png" alt="image.png"></p>
+<pre><code>tcpdump: listening on em1, link-type EN10MB (Ethernet), capture size 65535 bytes
+f4:0f:1b:ae:15:fb &gt; 18:66:da:f0:15:90, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 63, id 5654, offset 0, flags [DF], proto ICMP (1), length 84)
+10.159.43.162 &gt; 10.159.43.1: ICMP echo request, id 6285, seq 1, length 64
+18:66:da:f0:15:90 &gt; 00:00:0c:9f:f0:86, ethertype 802.1Q (0x8100), length 102: vlan 134, p 0, ethertype IPv4, (tos 0x0, ttl 64, id 21395, offset 0, flags [none], proto ICMP (1), length 84)
+10.159.43.1 &gt; 10.159.43.162: ICMP echo reply, id 6285, seq 1, length 64
+</code></pre><p>这个抓包能看到核心证据，ping包有到达物理机2，同时物理机2也正确回复了（mac、ip都对）</p>
+<p>同时在物理机1上抓包只能看到ping包出去，回包没有到物理机1（所以回包肯定不会到容器里了）</p>
+<p><strong>所以问题的核心在交换机没有正确把物理机2的回包送到物理机1上面。</strong></p>
+<p>同时观察到的不正常延时：<br><img src="/images/oss/5639309276cbbb44e8dfd9f1dd207555.png" alt="image.png"></p>
+<h3 id="过程中的其它测试："><a href="#过程中的其它测试：" class="headerlink" title="过程中的其它测试："></a>过程中的其它测试：</h3><ol>
+<li>新拿出一台物理机配置上不通的容器的IP，这是通的，所以客户坚持是容器网络的配置；</li>
+<li>怀疑不通的IP所使用的mac地址冲突，在交换机上清理了交换机的arp缓存，没有帮助，还是不通</li>
+</ol>
+<p>对于1能通，我认为这个测试不严格，新物理机所用的mac不一样，并且所接的交换机口也不一样，影响了测试结果。</p>
+<h3 id="最终的原因"><a href="#最终的原因" class="headerlink" title="最终的原因"></a>最终的原因</h3><p>最后在交换机上分析包没正确发到物理机1上的原因跟客户交换机使用了HSRP（热备份路由器协议，就是多个交换机HA高可用，也就是同一子网可以有多个网关的IP），停掉HSRP后所有IP容器都能通了，并且前面的某些容器延时也恢复正常了。</p>
+<p><strong>通俗点说就是HSRP把回包拐跑了，有些回包拐跑了又送回来了（延时200ms那些）</strong></p>
+<p>至于HSRP为什么会这么做，要厂家出来解释了。</p>
+<p>大概结构如下图：</p>
+<p><img src="/images/oss/1561010762561-4a8510f9-db2f-44bd-b86f-ddfc5bc889d3.png" alt="undefined">     </p>
+<h4 id="关于HSRP和VRRP"><a href="#关于HSRP和VRRP" class="headerlink" title="关于HSRP和VRRP"></a>关于HSRP和VRRP</h4><p>VRRP是虚拟路由冗余协议的简称，这个协议的目的是为了让多台路由器共同组成一个虚拟路由器，从而解决单点故障。</p>
+<p>使用VRRP的网络架构大致如上面这个图所示，其中Master和Slave共同组成了一个虚拟路由器，这台虚拟路由器的IP是1.1.1.1，同时还会有一个虚拟的mac地址，所有主机的默认网关IP都将设置成1.1.1.1。</p>
+<p>假设主机H1需要对外发送数据，在发送IP数据包时主机H1需要知道1.1.1.1这个IP对应的物理地址，因此H1会向外广播一个ARP请求，询问1.1.1.1这个IP数据包对应的物理地址。此时，Master将会负责响应这个APR请求，将虚拟的mac地址报告给主机H1，主机H1就用这个物理地址发送IP数据包。</p>
+<p>当IP数据包到达交换机Switch A的时候，Switch A需要知道应该把这个数据包转发到哪条链路去，这个时候Switch A也会广播一个ARP请求，看看哪条链路会响应这个ARP请求。同样，Master会响应这个ARP请求，从而Switch A就知道了应该把数据包从自己的eth0对应的这条链路转发出去。此时，Master就是真正负责整个网络对外通信的路由器。</p>
+<p>当Master出现故障的时候，通过VRRP协议，Slave可以感知到这个故障(通过类似于心跳的方式)，这个时候Slave会主动广播一个ARP消息，告诉Switch A应该从eth1对应的链路转发物理地址是虚拟mac地址的数据包。这样就完成了主备路由器的切换，这个过程对网络中的主机来说是透明的。</p>
+<p>通过VRRP不仅可以实现1主1备的部署，还可以实现1主多备的部署。在1主多备的部署结构下，当Master路由器出现故障，多个Backup路由器会通过选举的方式产生一个新的Master路由器，由这个Master路由器来响应ARP请求。</p>
+<p>除了利用VRRP屏蔽单点故障之外，还可以实现负载均衡。在主备部署的情况下，Backup路由器其实是空转的，并不负责数据包的路由工作，这样显然是有点浪费的。此时，为了让Backup也负责一部分的路由工作，可以将两台路由器配制成互为主备的模式，这样就形成了两台虚拟路由器，网络中的主机可以选择任意一台作为默认网关。这种互为主备的模式也可以应用到1主多备的部署方式下。比如由3台路由器，分别是R1，R2和R3，用这3台路由器可以组成3台虚拟路由器，一台虚拟路由器以R1为Master，R2和R3为Backup路由器，另外一台以R2为Master，R1和R3为Backup路由器，第三台则以R3为Master，R1和R2为Backup路由器。</p>
+<p>通过VRRP，可以实现LVS的主备部署，屏蔽LVS单点故障对应用服务器的影响。</p>
+<h2 id="网络到底通不通是个复杂的问题"><a href="#网络到底通不通是个复杂的问题" class="headerlink" title="网络到底通不通是个复杂的问题"></a>网络到底通不通是个复杂的问题</h2><p>讲这个过程的核心目的是除了真正的网络不通，有些是服务不可用了也怪网络。很多现场的同学根本讲不清自己的服务（比如80端口上的tomcat服务）还在不在，网络通不通，网络不通的话该怎么办？</p>
+<p>实际这里涉及到四个节点（以两个网关直连为例），srcIP -&gt; src网关 -&gt; dest网关 -&gt; destIP.如果ping不通(也有特殊的防火墙限制ping包不让过的），那么分段ping（二分查找程序员应该最熟悉了）。 比如前面的例子就是网关没有把包转发回来</p>
+<p>抓包看ping包有没有出去，对方抓包看有没有收到，收到后有没有回复。</p>
+<p>ping自己网关能不能通，ping对方网关能不能通</p>
+<h2 id="接下来说点跟程序员日常相关的"><a href="#接下来说点跟程序员日常相关的" class="headerlink" title="接下来说点跟程序员日常相关的"></a>接下来说点跟程序员日常相关的</h2><h3 id="如果网络能ping通，服务无法访问"><a href="#如果网络能ping通，服务无法访问" class="headerlink" title="如果网络能ping通，服务无法访问"></a>如果网络能ping通，服务无法访问</h3><p>那么尝试telnet IP port 看看你的服务监听的端口是否还在，在的话是否能正常响应新的连接。有时候是进程挂掉了，端口也没人监听了。有时候是进程还在但是死掉了，所以端口也不响应新的请求了。</p>
+<p>如果端口还在也是正常的话，telnet应该是好的：</p>
+<pre><code>$telnet 11.239.161.60 2376
+Trying 11.239.161.60...
+Connected to 11.239.161.60.
+Escape character is &apos;^]&apos;.
+^C
+Connection closed by foreign host.
+</code></pre><p>假如我故意换成一个不存在的端口，目标机器上的OS直接就拒绝了这个连接（抓包的话一般是看到reset标识）：</p>
+<pre><code>$telnet 11.239.161.60 2379
+Trying 11.239.161.60...
+telnet: connect to address 11.239.161.60: Connection refused
+</code></pre><h2 id="一个服务不响应，然后首先怀疑网络不通、丢包的Case"><a href="#一个服务不响应，然后首先怀疑网络不通、丢包的Case" class="headerlink" title="一个服务不响应，然后首先怀疑网络不通、丢包的Case"></a>一个服务不响应，然后首先怀疑网络不通、丢包的Case</h2><p>当时的反馈应用代码抛SocketTimeoutException，怀疑网络问题：</p>
+<ol>
+<li>tsar检查，发现retran率特别高，docker容器（tlog-console）内达到50，物理机之间的retran在1-2之间。</li>
+<li>Tlog连接Hbase，出现大量连接断开，具体日志见附件，Hbase服务器完全正常，Hbase同学怀疑retran比较高导致。</li>
+<li>业务应用连接Diamond 偶尔会出现超时异常，具体日志见附件。</li>
+<li>业务很多这样的异常日志：[Diamond  SocketTimeoutException]</li>
+<li>有几台物理机io偶然情况下会飙升到80多。需要定位解决。</li>
+</ol>
+<p>其实当时看到tsar监控retran比较高，我也觉得网络有问题，但是我去看的时候网络又非常好，于是我看了一下出问题时间段的网卡的流量信息也非常正常：</p>
+<p><img src="/images/oss/e6fb91ba3d0c1b309295bff49730594e.png" alt="image.png"></p>
+<p>上图是通过sar监控到的9号 10.16.11.138（v24d9e0f23d40） 这个网卡的流量，看起来也是正常，流量没有出现明显的波动（10.16.11.138  出问题容器对应的网卡名：v24d9e0f23d40）</p>
+<p>为了监控网络到底有没有问题，接着在出问题的两个容器上各启动一个http server，然后在对方每1秒钟互相发一次发http get请求，基本认识告诉我们如果网络丢包、卡顿，那么我这个http server的监控日志时间戳也会跳跃，如果应用是因为网络出现异常那么我启动的http服务也会出现异常。</p>
+<p>实际监控来看，应用出异常的时候我的http服务是正常的（写了脚本判断日志的连续性，没问题）：</p>
+<p><img src="/images/oss/c9d5ff245eac6a023acd7148b7676b4f.png" alt="image.png"></p>
+<p>这也强有力地证明了网络没问题，所以大家集中火力查看应用的问题。后来的实际调查发现是应用假死掉了（内部线程太多，卡死了），服务端口不响应请求了。</p>
+<blockquote>
+<p>TCP建连接过程跟前面ping一样，只是把ping的icmp协议换成TCP协议，也是要先根据route，然后arp。</p>
+</blockquote>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><strong>网络丢包，卡顿，抖动很容易做背包侠，找到正确的原因解决问题才会更快，要不在错误的路径上怎么发力都不对。准的方向要靠好的基础知识和正确的逻辑以及证据来支撑，而不是猜测</strong></p>
+<ul>
+<li>有重传的时候（或者说重传率高的时候），ping有可能是正常的（icmp包网卡直接返回）；</li>
+<li>重传高，一般是tcp retrans，可能应用不响应，可能操作系统软中断太高等</li>
+<li>ping只是保证网络链路是否通畅</li>
+</ul>
+<p>这些原理基本都在RFC1180中阐述的清晰简洁，图文并茂，结构逻辑合理，但是对于90%的程序员没有什么卵用，因为看完几周后就忘得差不多。对于普通人来说还是要通过具体的案例来加深理解。</p>
+<p>一流的人看RFC就够了，差一些的人看《TCP/IP卷1》，再差些的人要看一个个案例带出来的具体知识的书籍了，比如《wireshark抓包艺术》，人和人的学习能力有差别必须要承认。</p>
+<hr>
+<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://tools.ietf.org/html/rfc1180" target="_blank" rel="external">https://tools.ietf.org/html/rfc1180</a></p>
+<p><a href="https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/" target="_blank" rel="external">https://www.practicalnetworking.net/series/packet-traveling/packet-traveling/</a></p>
+<p><a href="https://iximiuz.com/en/posts/computer-networking-101/" target="_blank" rel="external">Computer Networking Introduction - Ethernet and IP (Heavily Illustrated)</a> 这篇凑合吧，其实没我这篇写得好，不过这个博客还有些别的文章也不错</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/04/21/netstat定位性能案例/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -801,7 +2150,8 @@ void test_stub1(void)
       
         
           
-            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat change_kernel_parameter.sh </span></div><div class="line"><span class="meta">#</span><span class="bash">cat /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">grep <span class="string">''</span> /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /sys/kernel/mm/transparent_hugepage/enabled</span></div><div class="line"><span class="meta">#</span><span class="bash">transparent_hugepage=always</span></div><div class="line"><span class="meta">#</span><span class="bash">noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</span></div><div class="line"><span class="meta">#</span><span class="bash">追加nopti nospectre_v2到内核启动参数中</span></div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="built_in">limit</span> the journald <span class="built_in">log</span> to 500M</span></div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span><span class="bash">重启系统</span></div><div class="line"><span class="meta">#</span><span class="bash">sudo reboot</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 选择不同的kernel启动</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grep <span class="string">"menuentry "</span> /boot/grub2/grub.cfg | grep -n menu</span></div><div class="line"><span class="meta">#</span><span class="bash"><span class="comment">#grub认的index从0开始数的</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grub2-reboot 0; sudo reboot</span></div><div class="line">or</div><div class="line"><span class="meta">#</span><span class="bash">grub2-set-default <span class="string">"CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)"</span> ; sudo reboot</span></div></pre></td></tr></table></figure>
+            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><p>Linux 里面有一个工具，叫 Grub2，全称 Grand Unified Bootloader Version 2。顾名思义，就是搞系统启动的。</p>
+<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span>cat change_kernel_parameter.sh </div><div class="line"><span class="meta">#</span>cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>grep '' /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"><span class="meta"></span></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line"><span class="meta">#</span>transparent_hugepage=always</div><div class="line"><span class="meta">#</span>noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line"><span class="meta">#</span>追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span>重启系统</div><div class="line"><span class="meta">#</span>sudo reboot</div><div class="line"><span class="meta"></span></div><div class="line">## 选择不同的kernel启动</div><div class="line"><span class="meta">#</span>sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu</div><div class="line"><span class="meta">#</span>#grub认的index从0开始数的</div><div class="line"><span class="meta">#</span>sudo grub2-reboot 0; sudo reboot</div><div class="line">or</div><div class="line"><span class="meta">#</span>grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot</div></pre></td></tr></table></figure>
 <p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-working_with_the_grub_2_boot_loader" target="_blank" rel="external">GRUB 2 reads its configuration</a> from the <code>/boot/grub2/grub.cfg</code> file on traditional BIOS-based machines and from the <code>/boot/efi/EFI/redhat/grub.cfg</code> file on UEFI machines. This file contains menu information.</p>
 <p>The GRUB 2 configuration file, <code>grub.cfg</code>, is generated during installation, or by invoking the <strong>/usr/sbin/grub2-mkconfig</strong> utility, and is automatically updated by <code>grubby</code> each time a new kernel is installed. When regenerated manually using <strong>grub2-mkconfig</strong>, the file is generated according to the template files located in <code>/etc/grub.d/</code>, and custom settings in the <code>/etc/default/grub</code> file. Edits of <code>grub.cfg</code> will be lost any time <strong>grub2-mkconfig</strong> is used to regenerate the file, so care must be taken to reflect any manual changes in <code>/etc/default/grub</code> as well.</p>
 <h2 id="修改是否启用透明大页"><a href="#修改是否启用透明大页" class="headerlink" title="修改是否启用透明大页"></a>修改是否启用透明大页</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
@@ -828,7 +2178,7 @@ void test_stub1(void)
 <p>128G表示相对地址，$64G是绝对地址，128G\$64G 的意思是屏蔽64G到（64+128）G的地址对应的内存</p>
 <h2 id="检查"><a href="#检查" class="headerlink" title="检查"></a>检查</h2><p>检查正在运行的系统使用的grub参数：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/cmdline</div></pre></td></tr></table></figure>
-<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div></pre></td><td class="code"><pre><div class="line">#dmidecode -t memory</div><div class="line"># dmidecode 3.2</div><div class="line">Getting SMBIOS data from sysfs.</div><div class="line">SMBIOS 3.2.1 present.</div><div class="line"># SMBIOS implementations newer than version 3.2.0 are not</div><div class="line"># fully supported by this version of dmidecode.</div><div class="line"></div><div class="line">Handle 0x0033, DMI type 16, 23 bytes </div><div class="line">Physical Memory Array</div><div class="line">	Location: System Board Or Motherboard</div><div class="line">	Use: System Memory</div><div class="line">	Error Correction Type: Multi-bit ECC</div><div class="line">	Maximum Capacity: 2 TB  //最大支持2T</div><div class="line">	Error Information Handle: 0x0032</div><div class="line">	Number Of Devices: 32   //32个插槽</div><div class="line">	</div><div class="line">	Handle 0x0041, DMI type 17, 84 bytes</div><div class="line">Memory Device</div><div class="line">	Array Handle: 0x0033</div><div class="line">	Error Information Handle: 0x0040</div><div class="line">	Total Width: 72 bits</div><div class="line">	Data Width: 64 bits</div><div class="line">	Size: 32 GB</div><div class="line">	Form Factor: DIMM</div><div class="line">	Set: None</div><div class="line">	Locator: CPU0_DIMMA0</div><div class="line">	Bank Locator: P0 CHANNEL A</div><div class="line">	Type: DDR4</div><div class="line">	Type Detail: Synchronous Registered (Buffered)</div><div class="line">	Speed: 2933 MT/s                    //内存最大频率</div><div class="line">	Manufacturer: SK Hynix</div><div class="line">	Serial Number: 220F9EC0</div><div class="line">	Asset Tag: Not Specified</div><div class="line">	Part Number: HMAA4GR7AJR8N-WM</div><div class="line">	Rank: 2</div><div class="line">	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如海光CPU内存太多会给内存降频</div><div class="line">	Minimum Voltage: 1.2 V</div><div class="line">	Maximum Voltage: 1.2 V</div><div class="line">	Configured Voltage: 1.2 V</div><div class="line">	Memory Technology: DRAM</div><div class="line">	Memory Operating Mode Capability: Volatile memory</div><div class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</div><div class="line">	Non-Volatile Size: None</div><div class="line">	Volatile Size: 32 GB</div><div class="line">	</div><div class="line">	#lshw</div><div class="line">	*-bank:19  </div><div class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) //内存最大频率</div><div class="line">             product: HMAA4GR7AJR8N-WM</div><div class="line">             vendor: SK Hynix</div><div class="line">             physical id: 13</div><div class="line">             serial: 220F9F63</div><div class="line">             slot: CPU1_DIMMB0</div><div class="line">             size: 32GiB  //实际所插内存大小</div><div class="line">             width: 64 bits</div><div class="line">             clock: 2933MHz (0.3ns)</div></pre></td></tr></table></figure>
+<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div></pre></td><td class="code"><pre><div class="line">#dmidecode -t memory</div><div class="line"># dmidecode 3.2</div><div class="line">Getting SMBIOS data from sysfs.</div><div class="line">SMBIOS 3.2.1 present.</div><div class="line"># SMBIOS implementations newer than version 3.2.0 are not</div><div class="line"># fully supported by this version of dmidecode.</div><div class="line"></div><div class="line">Handle 0x0033, DMI type 16, 23 bytes </div><div class="line">Physical Memory Array</div><div class="line">	Location: System Board Or Motherboard</div><div class="line">	Use: System Memory</div><div class="line">	Error Correction Type: Multi-bit ECC</div><div class="line">	Maximum Capacity: 2 TB  //最大支持2T</div><div class="line">	Error Information Handle: 0x0032</div><div class="line">	Number Of Devices: 32   //32个插槽</div><div class="line">	</div><div class="line">	Handle 0x0041, DMI type 17, 84 bytes</div><div class="line">Memory Device</div><div class="line">	Array Handle: 0x0033</div><div class="line">	Error Information Handle: 0x0040</div><div class="line">	Total Width: 72 bits</div><div class="line">	Data Width: 64 bits</div><div class="line">	Size: 32 GB</div><div class="line">	Form Factor: DIMM</div><div class="line">	Set: None</div><div class="line">	Locator: CPU0_DIMMA0</div><div class="line">	Bank Locator: P0 CHANNEL A</div><div class="line">	Type: DDR4</div><div class="line">	Type Detail: Synchronous Registered (Buffered)</div><div class="line">	Speed: 2933 MT/s                    //内存最大频率</div><div class="line">	Manufacturer: SK Hynix</div><div class="line">	Serial Number: 220F9EC0</div><div class="line">	Asset Tag: Not Specified</div><div class="line">	Part Number: HMAA4GR7AJR8N-WM</div><div class="line">	Rank: 2</div><div class="line">	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如内存条数插太多会给内存降频</div><div class="line">	Minimum Voltage: 1.2 V</div><div class="line">	Maximum Voltage: 1.2 V</div><div class="line">	Configured Voltage: 1.2 V</div><div class="line">	Memory Technology: DRAM</div><div class="line">	Memory Operating Mode Capability: Volatile memory</div><div class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</div><div class="line">	Non-Volatile Size: None</div><div class="line">	Volatile Size: 32 GB</div><div class="line">	</div><div class="line">	#lshw</div><div class="line">	*-bank:19  </div><div class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) //内存最大频率</div><div class="line">             product: HMAA4GR7AJR8N-WM</div><div class="line">             vendor: SK Hynix</div><div class="line">             physical id: 13</div><div class="line">             serial: 220F9F63</div><div class="line">             slot: CPU1_DIMMB0</div><div class="line">             size: 32GiB  //实际所插内存大小</div><div class="line">             width: 64 bits</div><div class="line">             clock: 2933MHz (0.3ns)</div></pre></td></tr></table></figure>
 <h3 id="内存速度对延迟的影响"><a href="#内存速度对延迟的影响" class="headerlink" title="内存速度对延迟的影响"></a>内存速度对延迟的影响</h3><p>左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大</p>
 <p><img src="/images/951413iMgBlog/image-20220123094155595.png" alt="image-20220123094155595"></p>
 <p><img src="/images/951413iMgBlog/image-20220123094928794.png" alt="image-20220123094928794"></p>
@@ -1514,758 +2864,6 @@ IPv4 路由表
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/09/nslookup-OK-but-ping-fail/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/09/nslookup-OK-but-ping-fail/" itemprop="url">nslookup-OK-but-ping-fail</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-09T10:30:03+08:00">
-                2019-01-09
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="nslookup-域名结果正确，但是-ping-域名-返回-unknown-host"><a href="#nslookup-域名结果正确，但是-ping-域名-返回-unknown-host" class="headerlink" title="nslookup 域名结果正确，但是 ping 域名 返回 unknown host"></a>nslookup 域名结果正确，但是 ping 域名 返回 unknown host</h1><blockquote>
-<p>2018-02 update : 最根本的原因 <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="external">https://access.redhat.com/solutions/1426263</a></p>
-</blockquote>
-<h2 id="下面让我们来看看这个问题的定位过程"><a href="#下面让我们来看看这个问题的定位过程" class="headerlink" title="下面让我们来看看这个问题的定位过程"></a>下面让我们来看看这个问题的定位过程</h2><p>先Google一下: nslookup ok but ping fail, 这个关键词居然被Google自动提示了，看来碰到这个问题同学的好多</p>
-<p>Google到的帖子大概有如下原因：</p>
-<ul>
-<li>域名最后没有加 . 然后被自动追加了 tbsite.net aliyun.com alidc.net，自然 ping不到了</li>
-<li>/etc/resolv.conf 配置的nameserver要保证都是正常服务的</li>
-<li>/etc/nsswitch.conf 中的这行：hosts: files dns 配置成了 hosts: files mdns dns，而server不支持mdns</li>
-<li>域名是单标签的（domain 单标签； domain.com 多标签），单标签在windows下走的NBNS而不是DNS协议</li>
-</ul>
-<p>检查完我的环境不是上面描述的情况，比较悲催，居然碰到了一个Google不到的问题</p>
-<h3 id="抓包看为什么解析不了"><a href="#抓包看为什么解析不了" class="headerlink" title="抓包看为什么解析不了"></a>抓包看为什么解析不了</h3><blockquote>
-<p>DNS协议是典型的UDP应用，一来一回就搞定了查询，效率比TCP三次握手要高多了，DNS Server也支持TCP，不过一般不用TCP</p>
-</blockquote>
-<pre><code>sudo tcpdump -i eth0 udp and port 53 
-</code></pre><p>抓包发现ping 不通域名的时候都是把域名丢到了 /etc/resolv.conf 中的第二台nameserver，或者根本没有发送 dns查询。</p>
-<p>这里要多解释一下我们的环境， /etc/resolv.conf 配置了2台 nameserver，第一台负责解析内部域名，另外一台负责解析其它域名，如果内部域名的解析请求丢到了第二台上自然会解析不到。</p>
-<p>所以这个问题的根本原因是挑选的nameserver不对，按照 /etc/resolv.conf 的逻辑都是使用第一个nameserver，失败后才使用第二、第三个备用nameserver。</p>
-<p>比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS /etc/resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。</p>
-<h3 id="风波再起"><a href="#风波再起" class="headerlink" title="风波再起"></a>风波再起</h3><p>本来以为问题彻底解决了，结果还是有一台机器ping仍然是unknow host，眼睛都看瞎了没发现啥问题，抓包发现总是把dns请求交给第二个nameserver，或者根本不发送dns请求，这就有意思了，跟我们理解的不太一样。</p>
-<p>看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：</p>
-<p><img src="/images/oss/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
-<p>ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。</p>
-<p><strong>从strace来看所有的ping都会尝试看看 nscd 是否在运行，在的话找nscd要域名解析结果，如果nscd没有运行，那么再找 /etc/resolv.conf中的nameserver做域名解析</strong></p>
-<p>而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。</p>
-<p>如下文字摘自网络：</p>
-<blockquote>
-<p>NSCD(name service cache daemon)是GLIBC关于网络库的一个组件，服务基于glibc开发的各类网络服务，基本上来讲我们能见到的一些编程语言和开发框架最终均会调用到glibc的网络解析的函数（如GETHOSTBYNAME or GETHOSTBYADDR等），因此绝大部分程序能够使用NSCD提供的缓存服务。当然了如果是应用端自己用socker编写了一个网络client就无法使用NSCD提供的缓存服务，比如DNS领域常见的dig命令不会使用NSCD提供的缓存，而作为对比ping得到的DNS解析结果将使用NSCD提供的缓存</p>
-</blockquote>
-<h4 id="connect函数返回值的说明："><a href="#connect函数返回值的说明：" class="headerlink" title="connect函数返回值的说明："></a>connect函数返回值的说明：</h4><pre><code>RETURN VALUE
-   If  the  connection or binding succeeds, zero is returned.  On error, -1 is returned,and errno is set appropriately.
-</code></pre><p>Windows下客户端是默认有dns cache的，但是Linux Client上默认没有dns cache，DNS Server上是有cache的，所以忽视了这个问题。这个nscd是之前看ping不通，google到这么一个命令，但是应该没有搞明白它的作用，就执行了一个网上的命令，把nscd拉起来，然后ping 因为rotate的问题，还是不通，同时nscd cache了这个不通的结果，导致了新的问题</p>
-<h2 id="域名解析流程（或者说-glibc的-gethostbyname-函数流程–背后是NameServiceSwitch）"><a href="#域名解析流程（或者说-glibc的-gethostbyname-函数流程–背后是NameServiceSwitch）" class="headerlink" title="域名解析流程（或者说 glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch）"></a>域名解析流程（或者说 glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch）</h2><ul>
-<li>DNS域名解析的时候先根据 /etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
-<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns </li>
-<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="external">但是因为glibc库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
-</ul>
-<p><strong>nslookup和dig程序是bind程序包所带的工具，专门用来检测DNS Server的，实现上更简单，就一个目的，给DNS Server发DNS解析请求，没有调gethostbyname()函数，也就不遵循上述流程，而是直接到 /etc/resolv.conf 取第一个nameserver当dns server进行解析</strong></p>
-<h3 id="glibc函数"><a href="#glibc函数" class="headerlink" title="glibc函数"></a>glibc函数</h3><p>glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 地址的解析, gethostbyname 函数以同步阻塞的方式提供服务, 没有超时等选项, 仅提供 IPv4 的解析. getaddrinfo 则没有这些限制, 同时支持 IPv4, IPv6, 也支持 IPv4 到 IPv6 的映射选项. 包含 Linux 在内的很多系统都已废弃 gethostbyname 函数, 使用 getaddrinfo 函数代替. 不过从现实的情况来看, 还是有很多程序或网络库使用 gethostbyname 进行服务.</p>
-<p>备注:<br>线上开启 nscd 前, 建议做好程序的测试, nscd 仅支持通过 glibc, c 标准机制运行的程序, 没有基于 glibc 运行的程序可能不支持 nscd. 另外一些 go, perl 等编程语言网络库的解析函数是单独实现的, 不会走 nscd 的 socket, 这种情况下程序可以进行名称解析, 但不会使用 nscd 缓存. 不过我们在测试环境中使用go, java 的常规网络库都可以正常连接 nscd 的 socket 进行请求; perl 语言使用 Net::DNS 模块, 不会使用 nscd 缓存; python 语言使用 python-dns 模块, 不会使用 nscd 缓存. python 和 perl 不使用模块的时候进行解析还是遵循上述的过程, 同时使用 nscd 缓存.</p>
-<h2 id="下面是glibc中对rotate的处理："><a href="#下面是glibc中对rotate的处理：" class="headerlink" title="下面是glibc中对rotate的处理："></a>下面是glibc中对rotate的处理：</h2><p>这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：</p>
-<p><img src="/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
-<p>在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了</p>
-<p><img src="/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
-<p><img src="/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
-<p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
-<p><a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570" target="_blank" rel="external">参考 glibc bug</a></p>
-<p><a href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc" target="_blank" rel="external">Linux内核与glibc</a></p>
-<h2 id="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server"><a href="#还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server" class="headerlink" title="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server"></a>还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server</h2><p>这个时候ping 某个自己的dns server中才有的域名是没法解析到的，即使你配置了自己的dns server，如果这个时候你通过 nslookup 自己的域名, 自己的dns-server-ip 确实是能够解析到的。但是你只是 nslookup 自己的域名 就不行，明显可以看到这个时候nslookup把域名发给了127.0.0.1:53来解析，而这个端口正是easyconnect这个软件在监听，你也可以理解easyconnect这样的软件的工作方式就是必须要挟持你的dns解析，可以理解的是这个时候nslookup肯定解析不到你的域名(只把dns解析丢给第一个nameserver–127.0.0.1)，但是不能理解的是还是ping不通域名，正常ping的逻辑丢给第一个127.0.0.1解析不到域名的话，会丢给第二个dns-server继续尝试解析，但是这里的easyconnect没有进行第二次尝试，这也许是它实现上没有考虑到或者故意这样实现的。</p>
-<h2 id="其他情况"><a href="#其他情况" class="headerlink" title="其他情况"></a>其他情况</h2><p><a href="https://access.redhat.com/solutions/58028" target="_blank" rel="external">resolv.conf中search只能支持最多6个后缀（代码中写死了）</a>: This cannot be modified for RHEL 6.x and below and is resolved in RHEL7 glibc package versions at or exceeding glibc-2.17-222.el7.</p>
-<p>nameserver：指定nameserver，必须配置，每行指定一个nameserver，最多只能生效3行</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>/etc/resolv.conf rotate参数的关键作用</li>
-<li>nscd对域名解析的cache</li>
-<li>nslookup背后执行原理和ping不一样(前者不调glibc的gethostbyname() 函数), nslookup不会检查 /etc/hosts、/etc/nsswitch.conf, 而是直接从 /etc/resolv.conf 中取nameserver； 但是ping或者我们在程序一般最终都是通过调glibc的gethostbyname() 函数对域名进行解析的，也就是按照 /etc/nsswitch.conf 指示的来</li>
-<li>在没有源代码的情况下strace和抓包能够看到问题的本质</li>
-<li><a href="https://access.redhat.com/solutions/58028" target="_blank" rel="external">resolv.conf中最多只能使用前六个搜索域</a></li>
-</ul>
-<p>下一篇介绍《在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）》困扰了我两年，最近换了新笔记本还是有这个问题才痛下决心咬牙解决</p>
-<h3 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h3><p><a href="https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine" target="_blank" rel="external">https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine</a></p>
-<p><a href="https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt" target="_blank" rel="external">https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt</a></p>
-<p><a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="external">来自redhat上原因的描述，但是从代码的原作者的描述来看，他认为rotate下这个行为是合理的</a></p>
-<p><a href="https://arstercz.com/linux-%E7%B3%BB%E7%BB%9F%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86%E5%90%8D%E7%A7%B0%E8%A7%A3%E6%9E%90/" target="_blank" rel="external">Linux 系统如何处理名称解析</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/12/26/网络丢包/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/12/26/网络丢包/" itemprop="url">网络丢包</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-26T16:30:03+08:00">
-                2018-12-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络丢包"><a href="#网络丢包" class="headerlink" title="网络丢包"></a>网络丢包</h1><h2 id="查看网卡是否丢包，一般是ring-buffer太小"><a href="#查看网卡是否丢包，一般是ring-buffer太小" class="headerlink" title="查看网卡是否丢包，一般是ring buffer太小"></a>查看网卡是否丢包，一般是ring buffer太小</h2><pre><code>ethtool -S eth0 | grep rx_ | grep errors
-</code></pre><p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer(由网卡驱动直接在内核中分配的内存，并存放数据包，供内核软中断的时候读取)，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
-<h2 id="查看ring-buffer的大小设置"><a href="#查看ring-buffer的大小设置" class="headerlink" title="查看ring buffer的大小设置"></a>查看ring buffer的大小设置</h2><pre><code>ethtool ‐g eth0  
-</code></pre><h2 id="Socket-buffer太小导致的丢包（一般不多见）"><a href="#Socket-buffer太小导致的丢包（一般不多见）" class="headerlink" title="Socket buffer太小导致的丢包（一般不多见）"></a>Socket buffer太小导致的丢包（一般不多见）</h2><p>内核收到包后，会给对应的socket，每个socket会有 sk_rmem_alloc/sk_wmem_alloc/sk_omem_alloc、sk_rcvbuf(bytes)来存放包</p>
-<p>When sk_rmem_alloc &gt;<br>sk_rcvbuf the TCP stack will call a routine which “collapses” the receive queue</p>
-<p>查看collapses:</p>
-<pre><code>netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
-17671 packets pruned from receive queue because of socket buffer overrun
-18671 packets pruned from receive queue because of socket buffer overrun
-</code></pre><p>测试发现在小包情况下，这两个值相对会增大且比较快。增大 net.ipv4.tcp_rmem 和 net.core.rmem_max、net.core.rmem_default 后没什么效果 – 需要进一步验证</p>
-<h2 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h2><p>sysctl net.core.netdev_budget //默认300， The default value of the budget is 300. This will<br>cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU<br>如果 /proc/net/softnet_stat 第三列一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值<br>net/core/dev.c-&gt;net_rx_action 函数中会按netdev_budget 执行softirq，budget每次执行都要减少，一直到没有了，就退出softirq</p>
-<p>一般默认软中断只绑定在CPU0上，如果包的数量巨大的话会导致 CPU0利用率 100%（主要是si），这个时候可以检查文件 /proc/net/softnet_stat 的第三列 或者 RX overruns 是否在持续增大</p>
-<h2 id="net-core-netdev-max-backlog"><a href="#net-core-netdev-max-backlog" class="headerlink" title="net.core.netdev_max_backlog"></a>net.core.netdev_max_backlog</h2><p>enqueue_to_backlog函数中，会对CPU的softnet_data 实例中的接收队列（input_pkt_queue）进行判断，如果队列中的数据长度超过netdev_max_backlog ，那么数据包将直接丢弃，这就产生了丢包。</p>
-<p>参数net.core.netdev_max_backlog指定的，默认大小是 1000。</p>
-<p>netdev_max_backlog 接收包队列（网卡收到还没有进行协议的处理队列），每个cpu core一个队列,如果/proc/net/softnet_stat第二列增加就表示这个队列溢出了，需要改大。 </p>
-<blockquote>
-<p>/proc/net/softnet_stat：（第一列和第三列的关系？）<br>The 1st column is the number of frames received by the interrupt handler. （第一列是中断处理程序接收的帧数）<br>The 2nd column is the number of frames dropped due to netdev_max_backlog being exceeded. netdev_max_backlog<br>The 3rd column is the number of times ksoftirqd ran out of netdev_budget or CPU time when there was still work to be done   net.core.netdev_budget</p>
-</blockquote>
-<h2 id="rp-filter"><a href="#rp-filter" class="headerlink" title="rp_filter"></a>rp_filter</h2><p><a href="https://www.yuque.com/plantegg/weyi1s/uc7a5g" target="_blank" rel="external">https://www.yuque.com/plantegg/weyi1s/uc7a5g</a></p>
-<h2 id="关于ifconfig的种种解释"><a href="#关于ifconfig的种种解释" class="headerlink" title="关于ifconfig的种种解释"></a>关于ifconfig的种种解释</h2><ul>
-<li>RX errors: 表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
-<li>RX dropped: 表示数据包已经进入了 Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。</li>
-<li>RX overruns: 表示了 fifo 的 overruns，这是由于 Ring Buffer(aka Driver Queue) 传输的 IO 大于 kernel 能够处理的 IO 导致的，而 Ring Buffer 则是指在发起 IRQ 请求之前的那块 buffer。很明显，overruns 的增大意味着数据包没到 Ring Buffer 就被网卡物理层给丢弃了，而 CPU 无法及时地处理中断是造成 Ring Buffer 满的原因之一，上面那台有问题的机器就是因为 interruprs 分布的不均匀(都压在 core0)，没有做 affinity 而造成的丢包。</li>
-<li>RX frame: 表示 misaligned 的 frames。</li>
-</ul>
-<p><strong>dropped数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</strong></p>
-<p>txqueuelen:1000 对应着qdisc队列的长度（发送队列和网卡关联着）</p>
-<p>而对应的接收队列由内核参数来设置： </p>
-<pre><code>net.core.netdev_max_backlog
-</code></pre><p>Adapter buffer defaults are commonly set to a smaller size than the maximum//网卡进出队列大小调整 ethtool -G eth rx 8192 tx 8192</p>
-<p><img src="/images/oss/5478d28fb7aaba3adeb4260bc15c0c65.png" alt="image.png"></p>
-<h2 id="核心流程"><a href="#核心流程" class="headerlink" title="核心流程"></a>核心流程</h2><p><img src="/images/oss/48fb8755f8e96b8df58c6c537650b81b.png" alt="image.png"></p>
-<p>接收数据包是一个复杂的过程，涉及很多底层的技术细节，但大致需要以下几个步骤：</p>
-<ol>
-<li>网卡收到数据包。</li>
-<li>将数据包从网卡硬件缓存转移到服务器内存中。</li>
-<li>通知内核处理。</li>
-<li>经过TCP/IP协议逐层处理。</li>
-<li>应用程序通过read()从socket buffer读取数据。</li>
-</ol>
-<h2 id="通过-dropwatch来查看丢包点"><a href="#通过-dropwatch来查看丢包点" class="headerlink" title="通过 dropwatch来查看丢包点"></a>通过 dropwatch来查看丢包点</h2><p>dropwatch -l kas (-l 加载符号表） // 丢包点位置等于 ip_rcv地址+ cf(偏移量）</p>
-<p><img src="/images/oss/04283745fd082003e5f77e78a55e0d67.png" alt="image.png"></p>
-<p>一个典型的接收包调用堆栈：</p>
-<pre><code>0xffffffff8157af10 : tcp_may_send_now+0x0/0x160 [kernel]
-0xffffffff815765f8 : tcp_fastretrans_alert+0x868/0xb50 [kernel]
-0xffffffff8157729d : tcp_ack+0x8bd/0x12c0 [kernel]
-0xffffffff81578295 : tcp_rcv_established+0x1d5/0x750 [kernel]
-0xffffffff81582bca : tcp_v4_do_rcv+0x10a/0x340 [kernel]
-0xffffffff81584411 : tcp_v4_rcv+0x831/0x9f0 [kernel]
-0xffffffff8155e114 : ip_local_deliver_finish+0xb4/0x1f0 [kernel]
-0xffffffff8155e3f9 : ip_local_deliver+0x59/0xd0 [kernel]
-0xffffffff8155dd8d : ip_rcv_finish+0x7d/0x350 [kernel]
-0xffffffff8155e726 : ip_rcv+0x2b6/0x410 [kernel]
-0xffffffff81522d42 : __netif_receive_skb_core+0x582/0x7d0 [kernel]
-0xffffffff81522fa8 : __netif_receive_skb+0x18/0x60 [kernel]
-0xffffffff81523c7e : process_backlog+0xae/0x180 [kernel]
-0xffffffff81523462 : net_rx_action+0x152/0x240 [kernel]
-0xffffffff8107dfff : __do_softirq+0xef/0x280 [kernel]
-0xffffffff8163f61c : call_softirq+0x1c/0x30 [kernel]
-0xffffffff81016fc5 : do_softirq+0x65/0xa0 [kernel]
-0xffffffff8107d254 : local_bh_enable_ip+0x94/0xa0 [kernel]
-0xffffffff81634f4b : _raw_spin_unlock_bh+0x1b/0x40 [kernel]
-0xffffffff8150d968 : release_sock+0x118/0x170 [kernel]
-</code></pre><h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
-</ul>
-<h2 id="iptables和tcpdump"><a href="#iptables和tcpdump" class="headerlink" title="iptables和tcpdump"></a>iptables和tcpdump</h2><blockquote>
-<p>sudo iptables -A INPUT -p tcp –destination-port 8089 -j DROP</p>
-</blockquote>
-<p>tcpdump 是直接从网卡驱动拿包，也就是包还没进入内核tcpdump就拿到了，而iptables是工作在内核层，也就是即使被DROP还是能tcpdump到8089的packet。</p>
-<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd" target="_blank" rel="external">https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd</a></p>
-<p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="external">http://blog.hyfather.com/blog/2013/03/04/ifconfig/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/12/26/网络环路/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/12/26/网络环路/" itemprop="url">网络环路</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-26T16:30:03+08:00">
-                2018-12-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络环路"><a href="#网络环路" class="headerlink" title="网络环路"></a>网络环路</h1><pre><code>本文主要探讨网络环路的成因，危害以及预防
-</code></pre><h2 id="交换机之间多条网线导致环路"><a href="#交换机之间多条网线导致环路" class="headerlink" title="交换机之间多条网线导致环路"></a>交换机之间多条网线导致环路</h2><p><img src="/images/oss/9acff2ad39b8700a0cc194483351ae69.png" alt="image.png"></p>
-<p>如图sw1/2/3 三个交换机形成一个环路，一个arp广播包从sw1出来到sw2,然后到sw3，再然后又从sw3回到sw1，形成一个环路，这个arp包会重复前面的传播过程进而导致这个包一直在三个交换机之间死循环，进而把三个交换机的CPU、带宽全部打满，整个网络瘫痪</p>
-<p>对这种网络环路网络工程师们非常忌惮，因为一旦形成非常不好排查，并且整个网络瘫痪，基本上是严防死守。同时交换机也提供了各种功能（算法、策略）来自动检测网络环路并阻断网络环路。</p>
-<p>比如上图中交换机能检测到虚线形成了环路，并自动把这个交换机口Down掉以阻止成环。</p>
-<h2 id="交换机对环路的阻断–STP-Spanning-TreeProtocol-协议"><a href="#交换机对环路的阻断–STP-Spanning-TreeProtocol-协议" class="headerlink" title="交换机对环路的阻断–STP(Spanning TreeProtocol)协议"></a>交换机对环路的阻断–STP(Spanning TreeProtocol)协议</h2><p>STP协议的基本思想十分简单。大家知道，自然界中生长的树是不会出现环路的，如果网络也能够像一棵树一样生长就不会出现环路。于是，STP协议中定义了根桥(RootBridge)、根端口(RootPort)、指定端口(DesignatedPort)、路径开销(PathCost)等概念，目的就在于通过构造一棵自然树的方法达到裁剪冗余环路的目的，同时实现链路备份和路径最优化。用于构造这棵树的算法称为生成树算法SPA(Spanning TreeAlgorithm)。（摘自：<a href="http://network.51cto.com/art/201307/404013.htm）" target="_blank" rel="external">http://network.51cto.com/art/201307/404013.htm）</a></p>
-<p>STP是通过BPDU的网络包来在交换机之间交换信息、判断是否成环</p>
-<h3 id="一个STP的Case"><a href="#一个STP的Case" class="headerlink" title="一个STP的Case"></a>一个STP的Case</h3><p>下图是抓到的STP网络包<br><img src="/images/oss/3cfb19b45b85d171eab9e656b02123e9.png" alt="image.png"></p>
-<p>STP协议的后果就是带宽效率低，所以出现了PVST、PVST+、RSTP、MISTP、MSTP，这些协议可能不同厂家的交换机都不一样，互相之间也不一定兼容，所以是否生效要以实际测试为准</p>
-<h3 id="用tcpdump抓取stp包"><a href="#用tcpdump抓取stp包" class="headerlink" title="用tcpdump抓取stp包"></a>用tcpdump抓取stp包</h3><pre><code>$ sudo tcpdump -vvv -p -n -i eth1 stp
-tcpdump: listening on eth1, link-type EN10MB (Ethernet), capture size 65535 bytes
-
-15:44:10.772423 STP 802.1d, Config, Flags [none], bridge-id  8000.MAC.8687, length 43
-message-age 0.00s, max-age 20.00s, hello-time 2.00s, forwarding-delay 15.00s
-root-id 8000.MAC, root-pathcost 0
-15:44:12.768245 STP 802.1d, Config, Flags [none], bridge-id 8000.MAC8.8687, length 43
-message-age 0.00s, max-age 20.00s, hello-time 2.00s, forwarding-delay 15.00s
-root-id 8000.MAC, root-pathcost 0
-15:44:14.766513 STP 802.1d, Config, Flags [none], bridge-id 8000.MAC.8687, length 43
-message-age 0.00s, max-age 20.00s, hello-time 2.00s, forwarding-delay 15.00s
-root-id 8000.MAC, root-pathcost 0
-15:44:16.766478 STP 802.1d, Config, Flags [none], bridge-id 8000.MAC.8687, length 43
-message-age 0.00s, max-age 20.00s, hello-time 2.00s, forwarding-delay 15.00s
-root-id 8000.MAC, root-pathcost 0
-15:44:18.767851 STP 802.1d, Config, Flags [none], bridge-id 8000.MAC.8687, length 43
-message-age 0.00s, max-age 20.00s, hello-time 2.00s, forwarding-delay 15.00s
-root-id 8000.MAC, root-pathcost 0    
-</code></pre><h3 id="交换机上看到的STP"><a href="#交换机上看到的STP" class="headerlink" title="交换机上看到的STP"></a>交换机上看到的STP</h3><pre><code>C4948-D2-08-36U#show run int g1/31
-Building configuration...
-
-Current configuration : 482 bytes
-!
-interface GigabitEthernet1/31
- description to D2-9-09/10U-GWR730-eth1
- switchport access vlan 270
- switchport mode access
- switchport port-security maximum 50
- switchport port-security
- switchport port-security aging time 2
- switchport port-security violation restrict
- switchport port-security aging type inactivity
- switchport port-security aging static
- storm-control broadcast level 20.00
- spanning-tree portfast
- spanning-tree bpduguard enable
- spanning-tree guard root
-end
-</code></pre><h2 id="SDN或者说OVS对网络环路的影响"><a href="#SDN或者说OVS对网络环路的影响" class="headerlink" title="SDN或者说OVS对网络环路的影响"></a>SDN或者说OVS对网络环路的影响</h2><p>前面讨论的都是硬件交换机之间的网络环路以及硬件交换机对这些环路的处理，那么在SDN和OVS的场景下有没有可能成环呢？ 成环后硬件交换机能不能检测到，或者软交换机自己能否检测到并阻止这些环路呢？</p>
-<h3 id="来看一个OVS场景下的成环Case"><a href="#来看一个OVS场景下的成环Case" class="headerlink" title="来看一个OVS场景下的成环Case"></a>来看一个OVS场景下的成环Case</h3><p><img src="/images/oss/9fdfaf409f5963c1ecb661dc0f957c20.png" alt="image.png"></p>
-<p>上图中红色虚线部分组成了一个环路，是为了组成环路而人为构造的场景，同时发现OVS只支持STP算法，打开也没有用，因为OVS和硬件交换机之间没法通过BPDU来协商判断环路（物理交换机丢掉了硬件交换机的BPDU包）。</p>
-<p>也就是在硬件网络环境固定的情况下，我们可以在Linux环境下鼓捣出来一个网络环路，同时让Linux所在的物理二层网络瘫痪掉（好屌）</p>
-<h3 id="在这种网络环路下后果"><a href="#在这种网络环路下后果" class="headerlink" title="在这种网络环路下后果"></a>在这种网络环路下后果</h3><ul>
-<li>整个二层网络瘫痪，所有交换机CPU 100%，带宽100%</li>
-<li>连接在交换机上的所有服务器SYS CPU飙升到 30%左右（没有啥意义了，服务器没法跟外部做任何交流了）</li>
-</ul>
-<p>交换机的CPU状态：</p>
-<p><img src="/images/oss/e2e1972d0bf77bf5d0442cb976c4fc27.png" alt="image.png"> </p>
-<p>成环后抓到的arp广播风暴网络包（实际我只发了一个arp包）：</p>
-<p><img src="/images/oss/e4715913ef66fddcd0ca8ecd1e425d6f.png" alt="image.png"></p>
-<h2 id="其它网络环路"><a href="#其它网络环路" class="headerlink" title="其它网络环路"></a>其它网络环路</h2><ul>
-<li>直接把两个交换机用两根网线连接起来就是个环路</li>
-<li>拿一根网线两头连接在同一个交换机的两个网口上（短路） 2006年的一个Case： <a href="https://www.zhihu.com/question/49545070" target="_blank" rel="external">https://www.zhihu.com/question/49545070</a>，不过现在的交换机基本上都能识别这种短路</li>
-<li>两个交换机之间做bond失败，导致环路或者三角形（三角形的话会导致多个网口对应同一个mac地址，进而导致这个mac地址网络不通，三角形不会形成网络风暴）</li>
-</ul>
-<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://www.zhihu.com/question/49545070" target="_blank" rel="external">https://www.zhihu.com/question/49545070</a></p>
-<p><a href="http://network.51cto.com/art/201307/404013.htm" target="_blank" rel="external">http://network.51cto.com/art/201307/404013.htm</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/11/26/一个没有遵守tcp规则导致的问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/11/26/一个没有遵守tcp规则导致的问题/" itemprop="url">一个没有遵守tcp规则导致的问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-11-26T16:30:03+08:00">
-                2018-11-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="一个没有遵守tcp规则导致的问题"><a href="#一个没有遵守tcp规则导致的问题" class="headerlink" title="一个没有遵守tcp规则导致的问题"></a>一个没有遵守tcp规则导致的问题</h1><h3 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h3><p>应用连接数据库一段时间后，执行SQL的时候总是抛出异常，通过抓包分析发现每次发送SQL给数据的时候，数据库总是Reset这个连接</p>
-<p><img src="/images/oss/3ea1a415f772af24d8f619a38542eb7e.png" alt="image.png"></p>
-<p>注意图中34号包，server（5029）发了一个fin包给client ，想要断开连接。client没断开，接着发了一个查询SQL给server。</p>
-<p>进一步分析所有断开连接（发送第一个fin包）的时间点，得到如图：</p>
-<p><img src="/images/oss/0ac00bfe8dcf87fa5c4997c89a16eb59.png" alt="image.png"></p>
-<p>基本上可以猜测，server（5029端口）在建立连接100秒终止后如果没有任何请求过来就主动发送fin包给client，要断开连接，但是这个时候client比较无耻，收到端口请求后没搭理（除非是故意的），这个时候意味着server准备好关闭了，也不会再给client发送数据了（ack除外）。</p>
-<p>但是client虽然收到了fin断开连接的请求不但不理，过一会还不识时务发SQL查询给server，server一看不懂了（server早就申明连接关闭，没法发数据给client了），就只能回复reset，强制告诉client断开连接吧，client这时才迫于无奈断开了这次连接（图一绿框）</p>
-<p>client的应用代码层肯定会抛出异常。</p>
-<h3 id="server强行断开连接"><a href="#server强行断开连接" class="headerlink" title="server强行断开连接"></a>server强行断开连接</h3><p><img src="/images/oss/eca804fbb71e9cdfb033a9c072d8b72d.png" alt="image.png"></p>
-<p>18745号包，client发了一个查询SQL给server，server先是回复ack 18941号包，然后回复fin 19604号包，强行断开连接，client端只能抛异常了</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -2315,7 +2913,7 @@ end
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">142</span>
+                <span class="site-state-item-count">146</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -2337,7 +2935,7 @@ end
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">235</span>
+                <span class="site-state-item-count">240</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

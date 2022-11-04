@@ -117,7 +117,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210607113709945.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png">
-<meta property="og:updated_time" content="2022-09-22T01:06:57.241Z">
+<meta property="og:updated_time" content="2022-11-04T09:12:39.201Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="ssd&#x2F;san&#x2F;sas&#x2F;磁盘&#x2F;光纤性能比较">
 <meta name="twitter:description" content="ssd/san/sas/磁盘/光纤/RAID性能比较本文汇总HDD、SSD、SAN、LVM、软RAID等一些性能数据 性能比较正好有机会用到一个san存储设备，跑了一把性能数据，记录一下  所使用的测试命令： 1fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.te">
@@ -777,6 +777,9 @@
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># 编辑/etc/fstab，挂载参数设置为defaults,noatime,nodiratime,delalloc,nobarrier,data=writeback</div><div class="line">/dev/lvm1 /data    ext4    defaults,noatime,nodiratime,delalloc,nobarrier,data=writeback 0 0</div></pre></td></tr></table></figure>
 <p><code>noatime</code> 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新</p>
 <p><code>nodelalloc</code> 参数是关闭了ext4的delayed  allocation 特性。所谓delayed allocation 是指，把磁盘block的分配推后到真正要写数据的时候，比如写入文件的时候，先写内存，当数据需要落盘的时候，再由文件系统分配磁盘块，这有利于文件系统做出更佳的磁盘块分配决策，比如可以分配大片连续的磁盘块。显然 nodelalloc 性能要差些</p>
+<blockquote>
+<p>delalloc吞吐高，但是偶发性延迟抖动，平均延迟略高<br>nodelalloc延迟稳定，但是吞吐会下降，偶发性会延迟剧烈抖动.</p>
+</blockquote>
 <p><code>nobarrier</code> 参数是不保证先写入文件系统日志然后才写入数据，也就是不保证系统崩溃后文件系统恢复的正确性,但是对写入性能有提升</p>
 <h3 id="优化case"><a href="#优化case" class="headerlink" title="优化case"></a>优化case</h3><p>10个GB的原始文件里面都是随机数，如何快速建索引支持分页查询top(k,n)场景，机器配置是24核，JVM堆内存限制2.5G，磁盘读写为490-500MB/s左右。</p>
 <p>最后成绩在22.9s，去掉评测方法引入的1.1s，5次查询含建索引总时间21.8s，因为读10GB文件就需要21.5s时间。当向SSD开始写索引文件后SSD读取性能下降厉害，实际期望的是写出索引到SSD的时候会被PageCache，没触发刷脏。但是这里的刷盘就是ext4挂载参数 ordered 导致了刷盘。</p>
@@ -802,12 +805,14 @@
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://cizixs.com/2017/01/03/how-slow-is-disk-and-network" target="_blank" rel="external">http://cizixs.com/2017/01/03/how-slow-is-disk-and-network</a></p>
 <p><a href="https://tobert.github.io/post/2014-04-17-fio-output-explained.html" target="_blank" rel="external">https://tobert.github.io/post/2014-04-17-fio-output-explained.html</a> </p>
 <p><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/40497397</a></p>
+<p><a href="https://linux.die.net/man/1/fio" target="_blank" rel="external">https://linux.die.net/man/1/fio</a></p>
 <p><a href="https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&amp;flag_data_from=home_algorithm_article" target="_blank" rel="external">块存储NVMe云盘原型实践</a></p>
 <p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483999&amp;idx=1&amp;sn=238d3d1a8cf24443db0da4aa00c9fb7e&amp;chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="external">机械硬盘随机IO慢的超乎你的想象</a></p>
 <p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247484023&amp;idx=1&amp;sn=1946b4c286ed72da023b402cc30908b6&amp;chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="external">搭载固态硬盘的服务器究竟比搭机械硬盘快多少？</a></p>
 <p><a href="http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml" target="_blank" rel="external">SSD基本工作原理</a></p>
 <p><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="external">SSD原理解读</a></p>
 <p><a href="https://mp.weixin.qq.com/s?__biz=MzAxNDI5NzEzNg==&amp;mid=2651171913&amp;idx=1&amp;sn=68f658c539edc2b5063d6d15d0bfa0cf" target="_blank" rel="external">Linux 后台开发必知的 I/O 优化知识总结</a></p>
+<p><a href="https://www.sohu.com/a/390625596_505795" target="_blank" rel="external">SSD性能怎么测？看这一篇就够了</a></p>
 
       
     </div>
@@ -942,7 +947,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">142</span>
+                <span class="site-state-item-count">146</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -964,7 +969,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">235</span>
+                <span class="site-state-item-count">240</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

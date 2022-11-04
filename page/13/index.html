@@ -291,6 +291,917 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/24/Linux环境变量/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/03/24/Linux环境变量/" itemprop="url">Linux环境变量问题汇总</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-24T17:30:03+08:00">
+                2018-03-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux环境变量问题汇总"><a href="#Linux环境变量问题汇总" class="headerlink" title="Linux环境变量问题汇总"></a>Linux环境变量问题汇总</h1><h3 id="测试好的脚本放到-crontab-里就报错-找不到命令"><a href="#测试好的脚本放到-crontab-里就报错-找不到命令" class="headerlink" title="测试好的脚本放到 crontab 里就报错: 找不到命令"></a>测试好的脚本放到 crontab 里就报错: 找不到命令</h3><p>写好一个脚本，测试没有问题，然后放到crontab 想要定时执行，但是总是报错，去看日志的话显示某些命令找不到，这种一般都是因为PATH环境变量变了导致的</p>
+<p>自己在shell命令行下测试的时候当前环境变量就是这个用户的环境变量，可以通过命令：env 看到，脚本放到crontab 里面后一般都加了sudo 这个时候 env 变了。比如你可以在命令行下执行 env 和 sudo env 比较一下就发现他们很不一样</p>
+<p>sudo有一个参数 -E （–preserver-env）就是为了解决这个问题的。</p>
+<p>这个时候再比较一下 </p>
+<ul>
+<li>env</li>
+<li>sudo env</li>
+<li>sudo -E env</li>
+</ul>
+<p>大概就能理解这里的区别了。</p>
+<p>本文后面的回复中有同学提到了：</p>
+<blockquote>
+<p>第一个问题，sudo -E在集团的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source “/etc/profile.d/dockerenv.sh”才行</p>
+</blockquote>
+<p>我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里</p>
+<p><img src="/images/951413iMgBlog/crontab-7372074.png" alt="crontab"></p>
+<h3 id="docker-容器中admin取不到env参数"><a href="#docker-容器中admin取不到env参数" class="headerlink" title="docker 容器中admin取不到env参数"></a>docker 容器中admin取不到env参数</h3><p>docker run的时候带入一堆参数，用root能env中能看到这些参数，admin用户也能看见这些参数，但是通过crond用admin就没法启动应用了，因为读不到这些env。</p>
+<h3 id="同样一个命令ssh执行不了，-报找不到命令"><a href="#同样一个命令ssh执行不了，-报找不到命令" class="headerlink" title="同样一个命令ssh执行不了， 报找不到命令"></a>同样一个命令ssh执行不了， 报找不到命令</h3><p>比如：</p>
+<p>ssh user@ip “ ip a “  报错： bash: ip: command not found</p>
+<p>但是你要是先执行 ssh user@ip 连上服务器后，再执行 ip a 就可以，这里是同一个命令通过两种不同的方式使用，但是环境变量也不一样了。</p>
+<p>同样想要解决这个问题的话可以先 ssh 连上服务器，再执行 which ip ; env | grep PATH  </p>
+<pre><code>$ which ip
+/usr/sbin/ip
+$ env | grep PATH
+PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin
+</code></pre><p>很明显这里因为 ip在/usr/sbin下，而/usr/sbin又在PATH变量中，所以可以找到。</p>
+<p>那么接下来我们看看 </p>
+<pre><code>$ssh user@ip &quot;env | grep PATH&quot;
+PATH=/usr/local/bin:/usr/bin
+</code></pre><p>很明显这里的PATH比上面的PATH短了一截，/usr/sbin也没有在里面，所以/usr/sbin 下的ip命令自然也找不到了，这里虽然都是同一个用户，但是他们的环境变量还不一样，有点出乎我的意料之外。</p>
+<p>主要原因是我们的shell 分为login shell 和 no-login shell , 先ssh 登陆上去再执行命令就是一个login shell，Linux要为这个终端分配资源。</p>
+<p>而下面的直接在ssh 里面放执行命令实际上就不需要login，所以这是一个no-login shell.</p>
+<h4 id="login-shell-和-no-login-shell又有什么区别呢？"><a href="#login-shell-和-no-login-shell又有什么区别呢？" class="headerlink" title="login shell 和 no-login shell又有什么区别呢？"></a>login shell 和 no-login shell又有什么区别呢？</h4><ul>
+<li>login shell加载环境变量的顺序是：① /etc/profile ② ~/.bash_profile ③ ~/.bashrc ④ /etc/bashrc </li>
+<li>而non-login shell加载环境变量的顺序是： ① ~/.bashrc ② /etc/bashrc</li>
+</ul>
+<p>也就是nog-login少了前面两步，我们先看后面两步。</p>
+<p>下面是一个 .bashrc 的内容：</p>
+<pre><code>$ cat .bashrc 
+# .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+</code></pre><p>基本没有什么内容，它主要是去加载 /etc/bashrc  而他里面也没有看到sbin相关的东西</p>
+<p>那我们再看non-login少的两步： ① /etc/profile ② ~/.bash_profile </p>
+<p>cat /etc/profile :<br>    if [ “$EUID” = “0” ]; then<br>        pathmunge /usr/sbin<br>        pathmunge /usr/local/sbin<br>    else<br>        pathmunge /usr/local/sbin after<br>        pathmunge /usr/sbin after<br>    fi</p>
+<p>这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。</p>
+<p><strong>用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口</strong>：<br><img src="/images/oss/ae3095f063dede80a8c1ee79ec25685c.png" alt="image.png"></p>
+<p>像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？</p>
+<p>在 /etc/profile.d/ 下创建一个文件：/etc/profile.d/my_bashenv.sh 内容如下：</p>
+<pre><code>$cat /etc/profile.d/my_bashenv.sh 
+
+pathmunge () {
+if ! echo $PATH | /bin/egrep -q &quot;(^|:)$1($|:)&quot; ; then
+   if [ &quot;$2&quot; = &quot;after&quot; ] ; then
+  PATH=$PATH:$1
+   else
+  PATH=$1:$PATH
+   fi
+fi
+}
+
+pathmunge /sbin
+pathmunge /usr/sbin
+pathmunge /usr/local/sbin
+pathmunge /usr/local/bin
+pathmunge /usr/X11R6/bin after
+
+unset pathmunge
+
+complete -cf sudo
+
+    alias chgrp=&apos;chgrp --preserve-root&apos;
+    alias chown=&apos;chown --preserve-root&apos;
+    alias chmod=&apos;chmod --preserve-root&apos;
+    alias rm=&apos;rm -i --preserve-root&apos;
+
+HISTTIMEFORMAT=&apos;[%F %T] &apos;
+HISTSIZE=1000
+export EDITOR=vim    
+export PS1=&apos;\n\e[1;37m[\e[m\e[1;32m\u\e[m\e[1;33m@\e[m\e[1;35m\H\e[m \e[4m`pwd`\e[m\e[1;37m]\e[m\e[1;36m\e[m\n\$&apos;
+</code></pre><p> 通过前面我们可以看到 /etc/bashrc 总是会去加载 /etc/profile.d/ 下的所有 *.sh 文件，同时我们还可以在这个文件中修改我们喜欢的 shell 配色方案和环境变量等等 </p>
+<p><a href="https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html" target="_blank" rel="external">脚本前增加如下一行是好习惯</a></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">!/bin/bash --login</span></div></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20220505213833017.png" alt="image-20220505213833017"></p>
+<h3 id="BASH"><a href="#BASH" class="headerlink" title="BASH"></a>BASH</h3><p>1、交互式的登录shell （bash –il xxx.sh）<br>载入的信息：<br>/etc/profile<br>~/.bash_profile（ -&gt;  ~/.bashrc  -&gt;  /etc/bashrc）<br>~/.bash_login<br>~/.profile</p>
+<p>2、非交互式的登录shell （bash –l xxx.sh）<br>载入的信息：<br>/etc/profile<br>~/.bash_profile （ -&gt;  ~/.bashrc  -&gt;  /etc/bashrc）<br>~/.bash_login<br>~/.profile<br>$BASH_ENV</p>
+<p>3、交互式的非登录shell （bash –i xxx.sh）<br>载入的信息：<br>~/.bashrc （ -&gt;  /etc/bashrc）</p>
+<p>4、非交互式的非登录shell （bash xxx.sh）<br>载入的信息：<br>$BASH_ENV</p>
+<h3 id="SH"><a href="#SH" class="headerlink" title="SH"></a>SH</h3><p>1、交互式的登录shell<br>载入的信息：<br>/etc/profile<br>~/.profile</p>
+<p>2、非交互式的登录shell<br>载入的信息：<br>/etc/profile<br>~/.profile</p>
+<p>3、交互式的非登录shell<br>载入的信息：<br>$ENV</p>
+<h4 id="练习验证一下bash、sh和login、non-login"><a href="#练习验证一下bash、sh和login、non-login" class="headerlink" title="练习验证一下bash、sh和login、non-login"></a>练习验证一下bash、sh和login、non-login</h4><ul>
+<li>sudo ll 或者 sudo cd 是不是都报找不到命令</li>
+<li>先sudo bash 然后执行 ll或者cd就可以了</li>
+<li>先sudo sh   然后执行 ll或者cd还是报找不到命令</li>
+<li>sudo env | grep PATH 然后 sudo bash 后再执行 env | grep PATH 看到的PATH环境变量不一样了</li>
+</ul>
+<p><strong>找不到ll、cd命令不是因为login/non-login而是因为这两个命令是bash内部定义的，所以sh找不到，通过type -a cd 可以看到一个命令到底是哪里来的</strong></p>
+<p>4、非交互式的非登录shell<br>载入的信息：<br>nothing</p>
+<h3 id="export命令的作用"><a href="#export命令的作用" class="headerlink" title="export命令的作用"></a>export命令的作用</h3><p>Linux 中export是一种命令工具通过export命令把shell变量中包含的用户变量导入给子程序.<strong>默认情况下子程序仅会继承父程序的环境变量</strong>，子程序不会继承父程序的自定义变量，所以需要export让父程序中的<strong>自定义变量</strong>变成环境变量，然后子程序就能继承过来了。</p>
+<p>我们来看一个例子， 有一个变量，名字 abc 内容123 如果没有export ，那么通过bash创建一个新的shell（新shell是之前bash的子程序），在新的shell里面就没有abc这个变量， export之后在新的 shell 里面才可以看到这个变量，但是退出重新login后（产生了一个新的bash，只会加载env）abc变量都不在了</p>
+<pre><code>$echo $abc
+$abc=&quot;123&quot;
+$echo $abc
+123
+$bash
+$echo $abc
+
+$exit
+exit
+
+$export abc
+
+$echo $abc
+123
+
+$bash
+
+$echo $abc
+123
+</code></pre><h2 id="一些常见问题"><a href="#一些常见问题" class="headerlink" title="一些常见问题"></a>一些常见问题</h2><h3 id="执行好好地shell-脚本换台服务器就：source-not-found"><a href="#执行好好地shell-脚本换台服务器就：source-not-found" class="headerlink" title="执行好好地shell 脚本换台服务器就：source: not found"></a>执行好好地shell 脚本换台服务器就：source: not found</h3><p>source 是bash的一个内建命令（所以你找不到一个/bin/source 这样的可执行文件），也就是他是bash自带的，如果我们执行脚本是这样： sh shell.sh 而shell.sh中用到了source命令的话就会报 source: not found</p>
+<p>这是因为bash 和 sh是两个东西，sh是 POSIX shell，你可以把它看成是一个兼容某个规范的shell，而bash是 Bourne-Again shell script， bash是 POSIX shell的扩展，就是bash支持所有符合POSIX shell的规范，但是反过来就不一定了，而这里的 source 恰好就是 bash内建的，不符合 POSIX shell的规范（<strong>POSIX shell 中用 . 来代替source</strong>)</p>
+<blockquote>
+<p><a href="https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Bourne-Shell-Builtins" target="_blank" rel="external">. (a period)</a></p>
+<p>. filename [arguments]</p>
+<p>Read and execute commands from the filename argument in the current shell context. If filename does not contain a slash, the <code>PATH</code> variable is used to find filename. When Bash is not in POSIX mode, the current directory is searched if filename is not found in <code>$PATH</code>. If any arguments are supplied, they become the positional parameters when filename is executed. Otherwise the positional parameters are unchanged. If the -T option is enabled, <code>source</code> inherits any trap on <code>DEBUG</code>; if it is not, any <code>DEBUG</code> trap string is saved and restored around the call to <code>source</code>, and <code>source</code> unsets the <code>DEBUG</code> trap while it executes. If -T is not set, and the sourced file changes the <code>DEBUG</code> trap, the new value is retained when <code>source</code> completes. The return status is the exit status of the last command executed, or zero if no commands are executed. If filename is not found, or cannot be read, the return status is non-zero. This builtin is equivalent to <code>source</code>.</p>
+</blockquote>
+<h3 id="在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误"><a href="#在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误" class="headerlink" title="在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误"></a>在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误</h3><p>同上，如果到ubuntu上用 bash shell.sh是可以的，但是sh shell.sh就报语法错误，但是在centos上执行：sh或者bash shell.sh 都可以通过。 在centos上执行 ls -lh /usr/bin/sh 可以看到 /usr/bin/sh link到了 /usr/bin/bash 也就是sh等同于bash，所以都可以通过不足为奇。 </p>
+<p>但是在ubuntu上执行 ls -lh /usr/bin/sh 可以看到 /usr/bin/sh link到了 <strong>/usr/bin/dash</strong> ， 这就是为什么ubuntu上会报错</p>
+<h3 id="source-shell-sh-和-bash-shell-sh以及-shell-sh的区别"><a href="#source-shell-sh-和-bash-shell-sh以及-shell-sh的区别" class="headerlink" title="source shell.sh 和 bash shell.sh以及 ./shell.sh的区别"></a>source shell.sh 和 bash shell.sh以及 ./shell.sh的区别</h3><p>source shell.sh就在本shell中展开执行<br>bash shell.sh表示在本shell启动一个子程序（bash），在子程序中执行 shell.sh (shell.sh中产生的一些环境变量就没法带回父shell进程了)， 只需要有读 shell.sh 权限就可以执行<br>./shell.sh 跟bash shell.sh类似，但是必须要求shell.sh有rx权限，然后根据shell.sh前面的 #! 后面的指示来确定用bash还是sh </p>
+<pre><code>$cat test.sh 
+echo $$
+
+$echo $$
+2299
+
+$source test.sh 
+2299
+
+$bash test.sh 
+4037
+
+$./test.sh 
+4040
+</code></pre><p>如上实例，只有source的时候进程ID和bash进程ID一样，其它方式都创建了一个新的bash进程，所以ID也变了。</p>
+<p>bash test.sh 产生一个新的bash，但是这个新的bash中不会加载 .bashrc 需要加载的话必须 bash -l test.sh.</p>
+<h3 id="通过ssh-执行命令（命令前有sudo）的时候报错：sudo-sorry-you-must-have-a-tty-to-run-sudo"><a href="#通过ssh-执行命令（命令前有sudo）的时候报错：sudo-sorry-you-must-have-a-tty-to-run-sudo" class="headerlink" title="通过ssh 执行命令（命令前有sudo）的时候报错：sudo: sorry, you must have a tty to run sudo"></a>通过ssh 执行命令（命令前有sudo）的时候报错：sudo: sorry, you must have a tty to run sudo</h3><p>这是因为 /etc/sudoers (Linux控制sudo行为、权限的配置文件）中指定了 requiretty（<a href="https://www.shell-tips.com/2014/09/08/sudo-sorry-you-must-have-a-tty-to-run-sudo/" target="_blank" rel="external">Redhat、Fedora默认行为</a>），但是 通过ssh远程执行命令是没有tty的（不需要交互）。<br>解决办法可以试试 ssh -t or -tt (强制分配tty）或者先修改 /etc/sudoers把 requiretty 删掉或者改成 !requiretty</p>
+<h3 id="cp-命令即使使用了-f-force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等"><a href="#cp-命令即使使用了-f-force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等" class="headerlink" title="cp 命令即使使用了 -f force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等"></a>cp 命令即使使用了 -f force参数，overwrite的时候还是弹出交互信息，必须手工输入Y、yes等</h3><p>Google搜索一下别人给出的方案是这样 echo yes | cp -rf xxx yyy 算是笨办法，但是没有找到这里为什么-f 不管用。<br>type -a cp 先确认一下 cp到底是个什么东西：</p>
+<pre><code>#type -a cp
+cp is aliased to `cp -i&apos;
+cp is /usr/bin/cp
+</code></pre><p>这下算是有点清楚了，原来默认cp 都是-i了（-i, –interactive prompt before overwrite (overrides a previous -n option)），看起来就是默认情况下为了保护我们的目录不经意间被修改了。所以真的确认要overwrite的话直接用 /usr/bin/cp -f 就不需要每次yes确认了</p>
+<h3 id="重定向"><a href="#重定向" class="headerlink" title="重定向"></a>重定向</h3><p>sudo docker logs swarm-agent-master &gt;master.log 2&gt;&amp;1 输出重定向<a href="http://www.kissyu.org/2016/12/25/shell%E4%B8%AD%3E%20:dev:null%202%20%3E%20&amp;1%E6%98%AF%E4%BB%80%E4%B9%88%E9%AC%BC%EF%BC%9F/" target="_blank" rel="external">http://www.kissyu.org/2016/12/25/shell%E4%B8%AD%3E%20:dev:null%202%20%3E%20&amp;1%E6%98%AF%E4%BB%80%E4%B9%88%E9%AC%BC%EF%BC%9F/</a></p>
+<pre><code>&gt;/dev/null 2&gt;&amp;1 标准输出丢弃 错误输出丢弃
+2&gt;&amp;1 &gt;/dev/null 标准输出丢弃 错误输出屏幕
+</code></pre><p><a href="http://kodango.com/bash-one-liners-explained-part-three" target="_blank" rel="external">http://kodango.com/bash-one-liners-explained-part-three</a></p>
+<h3 id="umask"><a href="#umask" class="headerlink" title="umask"></a>umask</h3><p>创建文件的默认权限是 666 文件夹是777 但是都要跟 umask做运算（按位减法） 一般umask是002<br>所以创建出来文件最终是664，文件夹是775，如果umask 是027的话最终文件是 640 文件夹是750<br>『尽量不要以数字相加减啦！』你应该要这样想(-rw-rw- rw-) – (——–wx)=-rw-rw-r–这样就对啦！不要用十进制的数字喔！够能力的话，用二进制来算，不晓得的话，用 rwx 来算喔！</p>
+<h3 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h3><pre><code>echo $-   // himBH 
+</code></pre><p>“$-” 中含有“i”代表“交互式shell”<br>“$0”的显示结果为“-bash”，bash前面多个“-”，代表“登录shell”.<br>没有“i“和“-”的，是“非交互式的非登录shell”</p>
+<p>set +o histexpand （！ 是history展开符号， histexpand 可以打开或者关闭这个展开符）<br>alias 之后，想要用原来的命令：+alias  （命令前加)</p>
+<p>bash程序执行，当“$0”是“sh”的时候，则要求下面的代码遵循一定的规范，当不符合规范的语法存在时，则会报错，所以可以这样理解，“sh”并不是一个程序，而是一种标准（POSIX），这种标准，在一定程度上（具体区别见下面的“Things bash has that sh does not”）保证了脚本的跨系统性（跨UNIX系统）</p>
+<p>Linux 分 shell变量(set)，用户变量(env)， shell变量包含用户变量，export是一种命令工具，是显式那些通过export命令把shell变量中包含的用户变量导入给用户变量的那些变量.</p>
+<p>set -euxo pipefail //-u unset -e 异常退出  <a href="http://www.ruanyifeng.com/blog/2017/11/bash-set.html" target="_blank" rel="external">http://www.ruanyifeng.com/blog/2017/11/bash-set.html</a></p>
+<h3 id="引号"><a href="#引号" class="headerlink" title="引号"></a>引号</h3><p>shell 中：单引号的处理是比较简单的，被单引号包括的所有字符都保留原有的意思，例如’$a’不会被展开, ‘<code>cmd</code>‘也不会执行命令；而双引号，则相对比较松，在双引号中，以下几个字符 $, `, \ 依然有其特殊的含义，比如$可以用于变量展开, 反引号`可以执行命令，反斜杠\可以用于转义。但是，在双引号包围的字符串里，反斜杠的转义也是有限的，它只能转义$, `, “, \或者newline（回车）这几个字符，后面如果跟着的不是这几个字符，只不会被黑底，反斜杠会被保留  <a href="http://kodango.com/simple-bash-programming-skills-2" target="_blank" rel="external">http://kodango.com/simple-bash-programming-skills-2</a></p>
+<h3 id="su-和-su-的区别"><a href="#su-和-su-的区别" class="headerlink" title="su 和 su - 的区别"></a>su 和 su - 的区别</h3><p>su命令和su -命令最大的本质区别就是：前者只是切换了root身份，但Shell环境仍然是普通用户的Shell；而后者连用户和Shell环境一起切换成root身份了。只有切换了Shell环境才不会出现PATH环境变量错误。su切换成root用户以后，pwd一下，发现工作目录仍然是普通用户的工作目录；而用su -命令切换以后，工作目录变成root的工作目录了。用echo $PATH命令看一下su和su -以后的环境变量有何不同。以此类推，要从当前用户切换到其它用户也一样，应该使用su -命令。</p>
+<p>比如：<br>   su admin 会重新加载 ~/.bashrc ，但是不会切换到admin 的home目录。<br>   但是 su - admin 不会重新加载 ~/.bashrc ，但是会切换admin的home目录。</p>
+<p>The su command is used to become another user during a login session. Invoked without a username, su defaults to becoming the superuser. The optional argument - may be used to provide an environment similar to what the user would expect had the user logged in directly.</p>
+<h3 id="后台任务执行"><a href="#后台任务执行" class="headerlink" title="后台任务执行"></a>后台任务执行</h3><p>将任务放到后台，断开ssh后还能运行：<br>“ctrl-Z”将当前任务挂起（实际是发送 SIGTSTP 信号），父进程ssh退出时会给所有子进程发送 SIGHUP；</p>
+<p>jobs -l 查看所有job</p>
+<p>“disown -h %序号” 让该任务忽略SIGHUP信号（不会因为掉线而终止执行），序号为 Jobs -l 看到的顺序号；<br>“bg”让该任务在后台恢复运行。</p>
+<h2 id="shell-调试与参数"><a href="#shell-调试与参数" class="headerlink" title="shell 调试与参数"></a>shell 调试与参数</h2><p>为了方便 Debug，有时在启动 Bash 的时候，可以加上启动参数。</p>
+<ul>
+<li><code>-n</code>：不运行脚本，只检查是否有语法错误。</li>
+<li><code>-v</code>：输出每一行语句运行结果前，会先输出该行语句。</li>
+<li><code>-x</code>：每一个命令处理完以后，先输出该命令，再进行下一个命令的处理。</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ bash -n scriptname</div><div class="line">$ bash -v scriptname</div><div class="line">$ bash -x scriptname</div></pre></td></tr></table></figure>
+<h2 id="shell-数值运算"><a href="#shell-数值运算" class="headerlink" title="shell 数值运算"></a>shell 数值运算</h2><p>bash中数值运算要这样 $(( $a+$b )) // declare -i 才是定义一个整型变量</p>
+<ul>
+<li>在中括号 [] 内的每个组件都需要有空白键来分隔；</li>
+<li>在中括号内的变量，最好都以双引号括号起来；</li>
+<li>在中括号内的常数，最好都以单或双引号括号起来。</li>
+</ul>
+<p>在bash中为变量赋值的语法是<code>foo=bar</code>，访问变量中存储的数值，其语法为 <code>$foo</code>。 需要注意的是，<code>foo = bar</code> （使用空格隔开）是不能正确工作的，因为解释器会调用程序<code>foo</code> 并将 <code>=</code> 和 <code>bar</code>作为参数。 总的来说，在shell脚本中使用空格会起到分割参数的作用，有时候可能会造成混淆，请务必多加检查。</p>
+<h2 id="其它-1"><a href="#其它-1" class="headerlink" title="其它"></a>其它</h2><ul>
+<li>系统合法的 shell 均写在 /etc/shells 文件中；</li>
+<li>用户默认登陆取得的 shell 记录于 /etc/passwd 的最后一个字段；</li>
+<li>type 可以用来找到运行命令为何种类型，亦可用于与 which 相同的功能 [<strong>type -a</strong>]；</li>
+<li>变量主要有环境变量与自定义变量，或称为全局变量与局部变量</li>
+<li>使用 env 与 export 可观察环境变量，其中 export 可以将自定义变量转成环境变量；</li>
+<li>set 可以观察目前 bash 环境下的所有变量；</li>
+<li>stty -a</li>
+<li><strong>$? 亦为变量，是前一个命令运行完毕后的回传值</strong>。在 Linux 回传值为 0 代表运行成功；</li>
+<li>bash 的配置文件主要分为 login shell 与 non-login shell。login shell 主要读取 /etc/profile 与 ~/.bash_profile， non-login shell 则仅读取 ~/.bashrc</li>
+</ul>
+<p>在bash中进行比较时，尽量使用双方括号 <code>[[ ]]</code> 而不是单方括号 <code>[ ]</code>，<a href="http://mywiki.wooledge.org/BashFAQ/031" target="_blank" rel="external">这样会降低犯错的几率</a>，尽管这样并不能兼容 <code>sh</code></p>
+<h3 id="type"><a href="#type" class="headerlink" title="type"></a>type</h3><p><strong>执行顺序(type -a ls 可以查看到顺序)：</strong></p>
+<ol>
+<li>以相对/绝对路径运行命令，例如『 /bin/ls 』或『 ./ls 』；</li>
+<li>由 alias 找到该命令来运行；</li>
+<li>由 bash 内建的 (builtin) 命令来运行；</li>
+<li>透过 $PATH 这个变量的顺序搜寻到的第一个命令来运行。</li>
+</ol>
+<p><a href="https://tldr.sh/" target="_blank" rel="external">tldr 可以用来查询命令的常用语法</a>，比man简短些，偏case型</p>
+<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://blog.csdn.net/u010871982/article/details/78525367" target="_blank" rel="external">关于ansible远程执行的环境变量问题</a></p>
+<p><a href="http://bbs.chinaunix.net/thread-1068678-1-1.html" target="_blank" rel="external">Bash和Sh的区别</a></p>
+<p><a href="http://kodango.com/what-is-interactive-and-login-shell" target="_blank" rel="external">什么是交互式登录 Shell what-is-interactive-and-login-shell</a></p>
+<p><a href="http://kodango.com/explain-shell-default-options" target="_blank" rel="external">Shell 默认选项 himBH 的解释</a></p>
+<p><a href="http://kodango.com/useful-documents-about-shell" target="_blank" rel="external">useful-documents-about-shell</a></p>
+<p><a href="http://coolnull.com/4432.html" target="_blank" rel="external">linux cp实现强制覆盖</a></p>
+<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="external">https://wangdoc.com/bash/startup.html</a></p>
+<p><a href="https://cjting.me/2020/12/10/tiny-x64-helloworld/" target="_blank" rel="external">编写一个最小的 64 位 Hello World</a></p>
+<p><a href="https://missing-semester-cn.github.io/" target="_blank" rel="external">计算机教育中缺失的一课</a></p>
+<p> <a href="https://foxwho.com/article/184" target="_blank" rel="external">MacOS设置环境变量path/paths的完全总结</a> 很详细</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/14/如何设置git Proxy/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/03/14/如何设置git Proxy/" itemprop="url">Git HTTP Proxy and SSH Proxy</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-14T10:30:03+08:00">
+                2018-03-14
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/SSH/" itemprop="url" rel="index">
+                    <span itemprop="name">SSH</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何设置git-Proxy"><a href="#如何设置git-Proxy" class="headerlink" title="如何设置git Proxy"></a>如何设置git Proxy</h1><h2 id="git-http-proxy"><a href="#git-http-proxy" class="headerlink" title="git http proxy"></a>git http proxy</h2><blockquote>
+<p>首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。</p>
+<p>Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658</p>
+</blockquote>
+<p>下面的例子假设你的socks5代理是： 127.0.0.1:13658</p>
+<h3 id="配置git-http-proxy"><a href="#配置git-http-proxy" class="headerlink" title="配置git http proxy"></a>配置git http proxy</h3><pre><code>git config --global http.proxy socks5://127.0.0.1:13658
+</code></pre><p>上面的命令实际上是修改了 .gitconfig：</p>
+<pre><code>$cat ~/.gitconfig   
+[http]
+    proxy = socks5://127.0.0.1:13658
+</code></pre><p>现在git的http代理就配置好了， git clone <a href="https://github.com/torvalds/linux.git" target="_blank" rel="external">https://github.com/torvalds/linux.git</a> 速度会快到你流泪（取决于你的代理速度），我这里是从每秒10K到了3M 。</p>
+<p>注意：</p>
+<ul>
+<li>http.proxy就可以了，不需要配置https.proxy</li>
+<li>这个http代理仅仅针对 git clone <strong>https://</strong> 的方式生效</li>
+</ul>
+<h2 id="配置git-ssh-proxy"><a href="#配置git-ssh-proxy" class="headerlink" title="配置git ssh proxy"></a>配置git ssh proxy</h2><p>如果想要 git clone <strong>git@</strong>github.com:torvalds/linux.git 也要快起来的话 需要配置 ssh proxy</p>
+<blockquote>
+<p>这里要求你有一台海外的服务器，能ssh登陆，做好免密码，假设这台服务器的IP是：2.2.2.2</p>
+</blockquote>
+<p>修改（如果没有就创建这个文件）~/.ssh/config, 内容如下：</p>
+<pre><code>$cat ~/.ssh/config 
+host github.com
+#LogLevel DEBUG3
+ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
+</code></pre><p>然后 git clone git@github.com:torvalds/linux.git 也能飞起来了</p>
+<p>需要注意你的代理服务器2.2.2.2上nc有没有安装，没有的话yum装上，装上后再检查一下安装的位置，对应配置中的 /usr/bin/nc<br>写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。</p>
+<p>整个原理还是穿墙术。 可以参考 ：<a href="https://www.atatech.org/articles/76026" target="_blank" rel="external">SSH 高级用法和技巧大全</a>  </p>
+<h3 id="配置git-走socks"><a href="#配置git-走socks" class="headerlink" title="配置git 走socks"></a><a href="https://superuser.com/questions/454210/how-can-i-use-ssh-with-a-socks-5-proxy" target="_blank" rel="external">配置git 走socks</a></h3><p>如果没有海外服务器，但是本地已经有了socks5 服务那么也可以直接走socks5来proxy所有git 流量</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">cat ~/.ssh/config</div><div class="line">host github.com</div><div class="line">ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口来转发代理流量</div><div class="line">#ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump</div></pre></td></tr></table></figure>
+<p>nc代理参数-X proxy_version 指定 nc 请求时使用代理服务的协议</p>
+<ul>
+<li><code>proxy_version</code> 为 <code>4</code> : 表示使用的代理为 SOCKS4 代理</li>
+<li><code>proxy_version</code> 为 <code>5</code> : 表示使用的代理为 SOCKS5 代理</li>
+<li><code>proxy_version</code> 为 <code>connect</code> : 表示使用的代理为 HTTPS 代理</li>
+<li>如果不指定协议, 则默认使用的代理为 SOCKS5 代理</li>
+</ul>
+<blockquote>
+<p><strong>-X</strong> <em>proxy_version</em><br>Requests that <strong>nc</strong> should use the specified protocol when talking to the proxy server. Supported protocols are ‘’4’’ (SOCKS v.4), ‘’5’’ (SOCKS v.5) and ‘’connect’’ (HTTPS proxy). If the protocol is not specified, SOCKS version 5 is used.</p>
+</blockquote>
+<h2 id="我的拉起代理自动脚本"><a href="#我的拉起代理自动脚本" class="headerlink" title="我的拉起代理自动脚本"></a>我的拉起代理自动脚本</h2><p>下面的脚本总共拉起了三个socks5代理，端口13657-13659，其中13659是阿里郎网络加速的代理<br>最后还启动了一个8123的http 代理（有些场景只支持http代理）</p>
+<p>macos：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13658&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    #sh ~/ssh-jump.sh</div><div class="line">    nohup ssh -qTfnN -D 13658 root@jump vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13658&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13657&quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    nohup ssh -qTfnN -D 13657 azureuser@yu2 vmstat 10  &gt;/dev/null 2&gt;&amp;1</div><div class="line">    echo &quot;start socks5 on port 13657&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.13659&quot; |grep LISTEN`</div><div class="line">#if [ &quot;$listPort&quot; != &quot;tcp4       0      0  127.0.0.1.13659        *.*                    LISTEN     &quot; ]; then</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2 &gt;~/jump.log 2&gt;&amp;1</div><div class="line">    echo &quot;start listPort $listPort&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">listPort=`/usr/sbin/netstat -ant |grep &quot;127.0.0.1.8123 &quot; |grep LISTEN`</div><div class="line">if [[ &quot;$listPort&quot; != tcp4* ]]; then</div><div class="line">    polipo socksParentProxy=127.0.0.1:13659 1&gt;~/jump.log 2&gt;1&amp;</div><div class="line">    echo &quot;start polipo http proxy at 8123&quot;</div><div class="line">fi</div><div class="line"></div><div class="line">#分别测试http和socks5代理能工作</div><div class="line">#curl --proxy http://127.0.0.1:8123 https://www.google.com</div><div class="line">#curl -x socks5h://localhost:13657 http://www.google.com/</div></pre></td></tr></table></figure></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/25/Docker常见问题/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Docker常见问题/" itemprop="url">Docker 常见问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Docker-常见问题"><a href="#Docker-常见问题" class="headerlink" title="Docker 常见问题"></a>Docker 常见问题</h1><h2 id="启动"><a href="#启动" class="headerlink" title="启动"></a>启动</h2><p>docker daemon启动的时候如果报 socket错误，是因为daemon启动参数配置了： -H fd://  ，但是 docker.socket是disable状态，启动daemon依赖socket，但是systemctl又拉不起来docker.socket，因为被disable了，先  sudo systemctl enable docker.socket 就可以了。</p>
+<p>如果docker.socket service被mask后比disable更粗暴，mask后手工都不能拉起来了，但是disable后还可以手工拉起，然后再拉起docker service。 这是需要先 systemctl unmask </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$sudo systemctl restart docker.socket</div><div class="line">Failed to restart docker.socket: Unit docker.socket is masked.</div></pre></td></tr></table></figure>
+<p>另外 docker.socket 启动依赖环境的要有 docker group这个组，可以添加： groupadd docker</p>
+<h2 id="failed-to-start-docker-service-unit-not-found-rhel-7-7"><a href="#failed-to-start-docker-service-unit-not-found-rhel-7-7" class="headerlink" title="failed to start docker.service unit not found. rhel 7.7"></a>failed to start docker.service unit not found. rhel 7.7</h2><p>systemctl list-unit-files |grep docker.service 可以看到docker.service 是存在并enable了</p>
+<p>实际是redhat 7.7的yum仓库所带的docker启动参数变了， 如果手工启动的话也会报找不到docker-runc 手工:</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">&gt; ln -s /usr/libexec/docker/docker-runc-current /usr/bin/docker-runc</div><div class="line">&gt;</div></pre></td></tr></table></figure>
+</blockquote>
+<p><a href="https://access.redhat.com/solutions/2876431" target="_blank" rel="external">https://access.redhat.com/solutions/2876431</a>  <a href="https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system" target="_blank" rel="external">https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system</a></p>
+<p>yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)</p>
+<h3 id="Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network"><a href="#Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network" class="headerlink" title="Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network"></a><a href="http://blog.joylau.cn/2019/04/08/Docker-Start-Error/" target="_blank" rel="external">Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network</a></h3><p>这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ip link add docker0 type bridge</div><div class="line">ip addr add dev docker0 172.30.0.0/24</div></pre></td></tr></table></figure>
+<p>启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#systemctl status docker -l</div><div class="line">● docker.service - Docker Application Container Engine</div><div class="line">   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)</div><div class="line">   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago</div><div class="line">     Docs: http://docs.docker.io</div><div class="line">  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)</div><div class="line">  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)</div><div class="line"> Main PID: 68317 (code=exited, status=1/FAILURE)</div><div class="line"></div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991179104+08:00&quot; level=warning msg=&quot;failed to load plugin io.containerd.snapshotter.v1.aufs&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991371956+08:00&quot; level=warning msg=&quot;could not use snapshotter btrfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991381620+08:00&quot; level=warning msg=&quot;could not use snapshotter aufs in metadata plugin&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991388991+08:00&quot; level=warning msg=&quot;could not use snapshotter zfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin&quot;</div><div class="line">Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.</div></pre></td></tr></table></figure>
+<p>参考：<a href="https://github.com/docker/for-linux/issues/123" target="_blank" rel="external">https://github.com/docker/for-linux/issues/123</a>  </p>
+<p>或者这样解决：<a href="https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller" target="_blank" rel="external">https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller</a></p>
+<p>This was related to the machine having several network cards (can also happen in machines with VPN)</p>
+<p>The solution was to start manually docker like this:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">/usr/bin/docker daemon --debug --bip=192.168.y.x/24</div></pre></td></tr></table></figure>
+<p>where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The –debug is not really needed, but might help if something else fails.</p>
+<p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
+<p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
+<h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
+<p><img src="/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
+<p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
+<p><img src="/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
+<p>猜测是 alios 的bug</p>
+<h2 id="systemctl-start-docker"><a href="#systemctl-start-docker" class="headerlink" title="systemctl start docker"></a>systemctl start docker</h2><p>Failed to start docker.service: Unit not found.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">UNIT LOAD PATH</div><div class="line">          Unit files are loaded from a set of paths determined during </div><div class="line">          compilation, described in the two tables below. Unit files found </div><div class="line">          in directories listed earlier override files with the same name </div><div class="line">          in directories lower in the list.</div><div class="line"></div><div class="line">           Table 1.  Load path when running in system mode (--system).</div><div class="line">           ┌────────────────────────┬─────────────────────────────┐</div><div class="line">           │Path                    │ Description                 │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/etc/systemd/system     │ Local configuration         │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/run/systemd/system     │ Runtime units               │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/usr/lib/systemd/system │ Units of installed packages │</div><div class="line">           └────────────────────────┴─────────────────────────────┘</div></pre></td></tr></table></figure>
+<p><a href="https://askubuntu.com/questions/1014480/how-do-i-add-bin-to-path-for-a-systemd-service" target="_blank" rel="external">systemd 设置path环境变量，可以设置</a>：</p>
+<blockquote>
+<p>[Service]<br>Type=notify<br>Environment=PATH=/opt/kube/bin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/opt/satools:/root/bin</p>
+</blockquote>
+<h2 id="容器没有systemctl"><a href="#容器没有systemctl" class="headerlink" title="容器没有systemctl"></a>容器没有systemctl</h2><p><strong>Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候</strong> </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd</div></pre></td></tr></table></figure>
+<p>1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：<a href="https://github.com/gdraheim/docker-systemctl-replacement" target="_blank" rel="external">https://github.com/gdraheim/docker-systemctl-replacement</a></p>
+<p>systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。</p>
+<p><strong>新版本init link向了systemd</strong></p>
+<h2 id="busybox-Alpine-Scratch"><a href="#busybox-Alpine-Scratch" class="headerlink" title="busybox/Alpine/Scratch"></a>busybox/Alpine/Scratch</h2><p>busybox集成了常用的linux工具(nc/telnet/cat……），保持精细，方便一张软盘能装下。</p>
+<p>Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而不是glibc</p>
+<p>scratch一个空的框架，什么也没有</p>
+<h2 id="找不到shell"><a href="#找不到shell" class="headerlink" title="找不到shell"></a>找不到shell</h2><p>Dockerfile 中(<a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：" target="_blank" rel="external">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">CMD ./hello OR RUN 等同于 /bin/sh -c &quot;./hello&quot;, 需要shell，</div><div class="line">改用：</div><div class="line">CMD [&quot;./hello&quot;] 等同于 ./hello 不需要shell</div></pre></td></tr></table></figure>
+<h2 id="entrypoint-VS-cmd"><a href="#entrypoint-VS-cmd" class="headerlink" title="entrypoint VS cmd"></a>entrypoint VS cmd</h2><p>dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT</p>
+<p>在写Dockerfile时, ENTRYPOINT或者CMD命令会自动覆盖之前的ENTRYPOINT或者CMD命令</p>
+<p>从参数中传入的ENTRYPOINT或者CMD命令会自动覆盖Dockerfile中的ENTRYPOINT或者CMD命令</p>
+<h2 id="copy-VS-add"><a href="#copy-VS-add" class="headerlink" title="copy VS add"></a>copy VS add</h2><p><strong>COPY</strong>指令和<strong>ADD</strong>指令的唯一区别在于是否支持从远程URL获取资源。 <strong>COPY</strong>指令只能从执行<strong>docker</strong> build所在的主机上读取资源并复制到镜像中。 而<strong>ADD</strong>指令还支持通过URL从远程服务器读取资源并复制到镜像中。 </p>
+<p>满足同等功能的情况下，推荐使用<strong>COPY</strong>指令。ADD指令更擅长读取本地tar文件并解压缩</p>
+<h2 id="Digest-VS-Image-ID"><a href="#Digest-VS-Image-ID" class="headerlink" title="Digest VS Image ID"></a>Digest VS Image ID</h2><p>pull镜像的时候，将docker digest带上，即使黑客使用手段将某一个digest对应的内容强行修改了，docker也能check出来，因为docker会在pull下镜像的时候，只要根据image的内容计算sha256</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker images --digests</div></pre></td></tr></table></figure>
+<ul>
+<li>The “digest” is a hash of the manifest, introduced in Docker registry v2.</li>
+<li>The image ID is a hash of the local image JSON configuration. 就是inspect 看到的 RepoDigests</li>
+</ul>
+<h2 id="容器中抓包和调试-–-nsenter"><a href="#容器中抓包和调试-–-nsenter" class="headerlink" title="容器中抓包和调试 – nsenter"></a>容器中抓包和调试 – nsenter</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div></pre></td><td class="code"><pre><div class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</div><div class="line"></div><div class="line">进入namespace：nsenter --target 17277 --net --pid –mount</div><div class="line"></div><div class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</div><div class="line">nsenter --target 17277 --net </div><div class="line"></div><div class="line">// ip netns 获取容器网络信息</div><div class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &apos;&#123;&#123;.State.Pid&#125;&#125;&apos; ab4e471edf50   //获取容器进程id</div><div class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</div><div class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</div><div class="line"> </div><div class="line">// 宿主机上查看容器ip</div><div class="line"> 1026  [2021-04-14 15:54:11] ip netns list</div><div class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</div><div class="line"> </div><div class="line"> //nsenter调试网络</div><div class="line"> Get the pause container&apos;s sandboxkey: </div><div class="line">root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey</div><div class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/82ec9e32d486&quot;,</div><div class="line">root@worker01:~#</div><div class="line">Now, using nsenter you can see the container&apos;s information.</div><div class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ip addr show</div><div class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1</div><div class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</div><div class="line">    inet 127.0.0.1/8 scope host lo</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">3: eth0@if7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default</div><div class="line">   link/ether 0a:58:0a:f4:01:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0</div><div class="line">   inet 10.244.1.2/24 scope global eth0</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">Identify the peer_ifindex, and finally you can see the veth pair endpoint in root namespace.</div><div class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ethtool -S eth0</div><div class="line">NIC statistics:</div><div class="line">     peer_ifindex: 7</div><div class="line">root@worker01:~#</div><div class="line">root@worker01:~# ip -d link show | grep &apos;7: veth&apos;</div><div class="line">7: veth5e43ca47@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue master cni0 state UP mode DEFAULT group default</div><div class="line">root@worker01:~#</div></pre></td></tr></table></figure>
+<p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可，<a href="https://medium.com/@anilkreddyr/kubernetes-with-flannel-understanding-the-networking-part-2-78b53e5364c7" target="_blank" rel="external">详细case</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#docker inspect cb7b05d82153 | grep -i SandboxKey   //根据 pause 容器id找network namespace</div><div class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/d6b2ef3cf886&quot;,</div><div class="line"></div><div class="line">[root@hygon252 19:00 /root]</div><div class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ip addr show</div><div class="line">3: eth0@if496: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default  //496对应宿主机上的veth编号</div><div class="line">    link/ether 1e:95:dd:d9:88:bd brd ff:ff:ff:ff:ff:ff link-netnsid 0</div><div class="line">    inet 192.168.3.22/24 brd 192.168.3.255 scope global eth0</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ethtool -S eth0</div><div class="line">NIC statistics:</div><div class="line">     peer_ifindex: 496</div><div class="line">     </div><div class="line">#ip -d -4 addr show cni0</div><div class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</div><div class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</div><div class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer   43.31 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</div><div class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</div><div class="line">       valid_lft forever preferred_lft forever</div></pre></td></tr></table></figure>
+<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</div><div class="line">$ sudo lsmod | grep dummy</div><div class="line">$ sudo modprobe dummy</div><div class="line">$ sudo lsmod | grep dummy</div><div class="line">dummy                  12960  0 </div><div class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</div><div class="line"></div><div class="line">$ sudo ip link add eth10 type dummy</div></pre></td></tr></table></figure>
+<h2 id="修改网卡名字"><a href="#修改网卡名字" class="headerlink" title="修改网卡名字"></a>修改网卡名字</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">ip link set ens33 down</div><div class="line">ip link set ens33 name eth0</div><div class="line">ip link set eth0 up</div><div class="line"></div><div class="line">mv /etc/sysconfig/network-scripts/ifcfg-&#123;ens33,eth0&#125;</div><div class="line">sed -ire &quot;s/NAME=\&quot;ens33\&quot;/NAME=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</div><div class="line">sed -ire &quot;s/DEVICE=\&quot;ens33\&quot;/DEVICE=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</div><div class="line">MAC=$(cat /sys/class/net/eth0/address)</div><div class="line">echo -n &apos;HWADDR=&quot;&apos;$MAC\&quot; &gt;&gt; /etc/sysconfig/network-scripts/ifcfg-eth0</div></pre></td></tr></table></figure>
+<h2 id="OS版本"><a href="#OS版本" class="headerlink" title="OS版本"></a>OS版本</h2><p><strong>搞Docker就得上el7， 6的性能太差了</strong> Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。</p>
+<h2 id="清理mount文件"><a href="#清理mount文件" class="headerlink" title="清理mount文件"></a>清理mount文件</h2><p>删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk ‘{ print $3 }’ |grep overlay2| xargs umount 批量删除</p>
+<h2 id="sock"><a href="#sock" class="headerlink" title="sock"></a>sock</h2><p>docker有两个sock，一个是dockershim.sock，一个是docker.sock。dockershim.sock是由实现了CRI接口的一个插件提供的，主要把k8s请求转换成docker请求，最终docker还是要 通过docker.sock来管理容器。</p>
+<blockquote>
+<p>kubelet —CRI—-&gt; docker-shim(kubelet内置的CRI-plugin) –&gt; docker</p>
+</blockquote>
+<h2 id="docker-image-api"><a href="#docker-image-api" class="headerlink" title="docker image api"></a>docker image api</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">获取所有镜像名字： GET /v2/_catalog   </div><div class="line">curl registry:5000/v2/_catalog</div><div class="line"></div><div class="line">获取某个镜像的tag： GET /v2/&lt;name&gt;/tags/list  </div><div class="line">curl registry:5000/v2/drds/corona-server/tags/list</div></pre></td></tr></table></figure>
+<h3 id="从registry中删除镜像"><a href="#从registry中删除镜像" class="headerlink" title="从registry中删除镜像"></a>从registry中删除镜像</h3><p>默认registry仓库不支持删除镜像，修改registry配置来支持删除</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">#cat config.yml</div><div class="line">version: 0.1</div><div class="line">log:</div><div class="line">  fields:</div><div class="line">    service: registry</div><div class="line">storage:</div><div class="line">  delete: //增加如下两行，默认是false，不能删除</div><div class="line">    enabled: true</div><div class="line">  cache:</div><div class="line">    blobdescriptor: inmemory</div><div class="line">  filesystem:</div><div class="line">    rootdirectory: /var/lib/registry</div><div class="line">http:</div><div class="line">  addr: :5000</div><div class="line">  headers:</div><div class="line">    X-Content-Type-Options: [nosniff]</div><div class="line">health:</div><div class="line">  storagedriver:</div><div class="line">    enabled: true</div><div class="line">    interval: 10s</div><div class="line">    threshold: 3</div><div class="line">    </div><div class="line">#docker cp ./config.yml registry:/etc/docker/registry/config.yml    </div><div class="line">#docker restart registry</div></pre></td></tr></table></figure>
+<p>然后通过API来查询要删除镜像的id：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">//查询要删除镜像的tag</div><div class="line">curl registry:5000/v2/drds/corona-server/tags/list</div><div class="line">//根据tag查找Etag</div><div class="line">curl -v registry:5000/v2/drds/corona-server/manifests/2.0.0_3012622_20220214_4ca91d96-arm64 -H &apos;Accept: application/vnd.docker.distribution.manifest.v2+json&apos;</div><div class="line">//根据前一步返回的Etag来删除对应的tag</div><div class="line">curl -X  DELETE registry:5000/v2/drds/corona-server/manifests/sha256:207ec19c1df6a3fa494d41a1a8b5332b969a010f0d4d980e39f153b1eaca2fe2 -v</div><div class="line"></div><div class="line">//执行垃圾回收</div><div class="line">docker exec -it registry bin/registry garbage-collect /etc/docker/registry/config.yml</div></pre></td></tr></table></figure>
+<h2 id="检查是否restart能支持只重启deamon，容器还能正常运行"><a href="#检查是否restart能支持只重启deamon，容器还能正常运行" class="headerlink" title="检查是否restart能支持只重启deamon，容器还能正常运行"></a>检查是否restart能支持只重启deamon，容器还能正常运行</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$sudo docker info | grep Restore</div><div class="line">Live Restore Enabled: true</div></pre></td></tr></table></figure>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html" target="_blank" rel="external">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/25/Linux LVM使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/02/25/Linux LVM使用/" itemprop="url">Linux LVM使用</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
+                2018-02-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p>LVM是 Logical Volume Manager（逻辑<a href="https://baike.baidu.com/item/卷管理" target="_blank" rel="external">卷管理</a>）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。</p>
+<p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
+<p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
+<p><img src="/images/951413iMgBlog/949069-20200416104045527-1858978940.png" alt="img"></p>
+<p>LVM磁盘管理方式</p>
+<p><img src="/images/951413iMgBlog/image-20220725100705140.png" alt="image-20220725100705140"></p>
+<p><strong>lvreduce 缩小LV</strong></p>
+<p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ==谨慎用==</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</div><div class="line"></div><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$lsblk  -f</div><div class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</div><div class="line">sda                                                                              </div><div class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</div><div class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</div><div class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</div><div class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </div><div class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</div><div class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</div><div class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</div><div class="line">nvme0n1                                                                          </div><div class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</div><div class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </div><div class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </div><div class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</div></pre></td></tr></table></figure>
+<h2 id="LVM-创建、扩容"><a href="#LVM-创建、扩容" class="headerlink" title="LVM 创建、扩容"></a>LVM 创建、扩容</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div></pre></td><td class="code"><pre><div class="line">sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1</div><div class="line">如果报错：</div><div class="line">  Can&apos;t open /dev/nvme1n1 exclusively.  Mounted filesystem?</div><div class="line">  Can&apos;t open /dev/nvme0n1 exclusively.  Mounted filesystem?</div><div class="line">是说/dev/nvme0n1已经mounted了，需要先umount</div><div class="line"></div><div class="line">vgdisplay </div><div class="line">sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1</div><div class="line">sudo mkfs.ext4 /dev/vg1/u03   </div><div class="line">sudo mkdir /lvm</div><div class="line">sudo fdisk -l</div><div class="line">sudo umount /lvm</div><div class="line">sudo lvresize -L 5.8T /dev/vg1/u03 //lv 扩容</div><div class="line">sudo e2fsck -f /dev/vg1/u03 </div><div class="line">sudo resize2fs /dev/vg1/u03</div><div class="line">sudo mount /dev/vg1/u03 /lvm</div><div class="line">cd /lvm/</div><div class="line">lvdisplay </div><div class="line">sudo vgdisplay vg1</div><div class="line">lsblk -l</div><div class="line">lsblk </div><div class="line">sudo vgextend vg1 /dev/nvme3n1  //vg 扩容, 增加一块磁盘到vg1</div><div class="line">ls /u01</div><div class="line">sudo vgdisplay </div><div class="line">sudo fdisk  -l</div><div class="line">sudo pvdisplay </div><div class="line">sudo lvcreate -L 1T -n lv2 vg1  //从vg1中再分配一块1T大小的磁盘</div><div class="line">sudo lvdisplay </div><div class="line">sudo mkfs.ext4 /dev/vg1/lv2 </div><div class="line">mkdir /lv2</div><div class="line">ls /</div><div class="line">sudo mkdir /lv2</div><div class="line">sudo mount /dev/vg1/lv2 /lv2</div><div class="line">df -lh</div><div class="line"></div><div class="line">//手工创建lvm</div><div class="line"> 1281  18/05/22 11:04:22 ls -l /dev/|grep -v ^l|awk &apos;&#123;print $NF&#125;&apos;|grep -E &quot;^nvme[7-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$&quot;</div><div class="line"> 1282  18/05/22 11:05:06 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1</div><div class="line"> 1283  18/05/22 11:05:50 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1</div><div class="line"> 1287  18/05/22 11:07:59 lvcreate -A y -I 128K -l 100%FREE  -i 3 -n big vgbig</div><div class="line"> 1288  18/05/22 11:08:02 df -h</div><div class="line"> 1289  18/05/22 11:08:21 lvdisplay</div><div class="line"> 1290  18/05/22 11:08:34 df -lh</div><div class="line"> 1291  18/05/22 11:08:42 df -h</div><div class="line"> 1292  18/05/22 11:09:05 mkfs.ext4 /dev/vgbig/big -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L big -J size=4000</div><div class="line"> 1298  18/05/22 11:10:28 mkdir -p /big</div><div class="line"> 1301  18/05/22 11:12:11 mount /dev/vgbig/big /big</div></pre></td></tr></table></figure>
+<h2 id="创建LVM"><a href="#创建LVM" class="headerlink" title="创建LVM"></a>创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">function create_polarx_lvm_V62()&#123;</div><div class="line">    vgremove vgpolarx</div><div class="line"></div><div class="line">    #sed -i "97 a\    types = ['nvme', 252]" /etc/lvm/lvm.conf</div><div class="line">    parted -s /dev/nvme0n1 rm 1</div><div class="line">    parted -s /dev/nvme1n1 rm 1</div><div class="line">    parted -s /dev/nvme2n1 rm 1</div><div class="line">    parted -s /dev/nvme3n1 rm 1</div><div class="line">    dd if=/dev/zero of=/dev/nvme0n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme1n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme2n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme3n1  count=10000 bs=512</div><div class="line"></div><div class="line">    #lvmdiskscan</div><div class="line">    vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1</div><div class="line">    lvcreate -A y -I 16K -l 100%FREE  -i 4 -n polarx vgpolarx</div><div class="line">    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">    sed  -i  "/polarx/d" /etc/fstab</div><div class="line">    mkdir -p /polarx</div><div class="line">    echo "LABEL=polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0" &gt;&gt; /etc/fstab</div><div class="line">    mount -a</div><div class="line">&#125;</div><div class="line"></div><div class="line">create_polarx_lvm_V62</div></pre></td></tr></table></figure>
+<p>-I 64K 值条带粒度，默认64K，mysql pagesize 16K，所以最好16K</p>
+<h2 id="复杂版创建LVM"><a href="#复杂版创建LVM" class="headerlink" title="复杂版创建LVM"></a>复杂版创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div></pre></td><td class="code"><pre><div class="line">function disk_part()&#123;</div><div class="line">    set -e</div><div class="line">    if [ $# -le 1 ]</div><div class="line">    then</div><div class="line">        echo "disk_part argument error"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line">    action=$1</div><div class="line">    disk_device_list=(`echo $*`)</div><div class="line"></div><div class="line">    echo $disk_device_list</div><div class="line">    unset disk_device_list[0]</div><div class="line"></div><div class="line">    echo $action</div><div class="line">    echo $&#123;disk_device_list[*]&#125;</div><div class="line">    len=`echo $&#123;#disk_device_list[@]&#125;`</div><div class="line">    echo "start remove origin partition  "</div><div class="line">    for dev in  $&#123;disk_device_list[@]&#125;</div><div class="line">    do</div><div class="line">        #echo $&#123;dev&#125;</div><div class="line">        `parted -s $&#123;dev&#125; rm 1` || true</div><div class="line">        dd if=/dev/zero of=$&#123;dev&#125;  count=100000 bs=512</div><div class="line">    done</div><div class="line"><span class="meta">#</span>替换98行，插入的话r改成a</div><div class="line">    sed -i "98 r\    types = ['aliflash' , 252 , 'nvme' ,252 , 'venice', 252 , 'aocblk', 252]" /etc/lvm/lvm.conf</div><div class="line">    sed  -i  "/flash/d" /etc/fstab</div><div class="line"></div><div class="line">    if [ x$&#123;1&#125; == x"split" ]</div><div class="line">    then</div><div class="line">        echo "split disk "</div><div class="line">        #lvmdiskscan</div><div class="line">    echo $&#123;disk_device_list&#125;</div><div class="line">        vgcreate -s 32 vgpolarx $&#123;disk_device_list[*]&#125;</div><div class="line">    lvcreate -A y -I 16K -l 100%FREE  -i 4 -n polarx vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 75%VG  -i $&#123;len&#125; -n volume1 vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 100%FREE  -i $&#123;len&#125; -n volume2 vgpolarx</div><div class="line">        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">        sed  -i  "/polarx/d" /etc/fstab</div><div class="line">        mkdir -p /polarx</div><div class="line">    opt="defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0"</div><div class="line">        echo "LABEL=polarx /polarx     ext4        $&#123;opt&#125;    0 0" &gt;&gt; /etc/fstab</div><div class="line">        mount -a</div><div class="line">    else</div><div class="line">        echo "unkonw action "</div><div class="line">    fi</div><div class="line"></div><div class="line">&#125;</div><div class="line"></div><div class="line">function format_nvme_mysql()&#123;</div><div class="line"></div><div class="line">    if [ `df |grep flash|wc -l` -eq $1  ]</div><div class="line">    then</div><div class="line">        echo "check success"</div><div class="line">        echo "start umount partition "</div><div class="line">        parttion_list=`df |grep flash|awk -F ' ' '&#123;print $1&#125;'`</div><div class="line">        for partition in $&#123;parttion_list[@]&#125;</div><div class="line">        do</div><div class="line">            echo $partition</div><div class="line">            umount $partition</div><div class="line">        done</div><div class="line"></div><div class="line">    else</div><div class="line">        echo "check host fail"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line"></div><div class="line">  disk_device_list=(`ls -l /dev/|grep -v ^l|awk '&#123;print $NF&#125;'|grep -E "^nvme[0-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$"`)</div><div class="line">  full_disk_device_list=()</div><div class="line">    for i in $&#123;!disk_device_list[@]&#125;</div><div class="line">  do</div><div class="line">        echo $&#123;i&#125;</div><div class="line">    full_disk_device_list[$&#123;i&#125;]=/dev/$&#123;disk_device_list[$&#123;i&#125;]&#125;</div><div class="line">  done</div><div class="line">    echo $&#123;full_disk_device_list[@]&#125;</div><div class="line">    disk_part split $&#123;full_disk_device_list[@]&#125;</div><div class="line">&#125;</div><div class="line"></div><div class="line">if [ ! -d "/polarx" ]; then</div><div class="line">    umount /dev/vgpolarx/polarx</div><div class="line">    vgremove -f vgpolarx</div><div class="line">    dmsetup --force --retry --deferred remove vgpolarx-polarx</div><div class="line">    format_nvme_mysql $1</div><div class="line">else</div><div class="line">   echo "the lvm exists."</div><div class="line">fi</div></pre></td></tr></table></figure>
+<p>LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样</p>
+<h2 id="安装LVM"><a href="#安装LVM" class="headerlink" title="安装LVM"></a>安装LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo yum install lvm2 -y</div></pre></td></tr></table></figure>
+<h2 id="dmsetup查看LVM"><a href="#dmsetup查看LVM" class="headerlink" title="dmsetup查看LVM"></a>dmsetup查看LVM</h2><p>管理工具dmsetup是 Device mapper in the kernel 中的一个</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">dmsetup ls</div><div class="line">dmsetup info /dev/dm-0</div></pre></td></tr></table></figure>
+<h2 id="reboot-失败"><a href="#reboot-失败" class="headerlink" title="reboot 失败"></a>reboot 失败</h2><p>在麒麟下OS reboot的时候可能因为<code>mount: /polarx: 找不到 LABEL=/polarx.</code> 导致OS无法启动，可以进入紧急模式，然后注释掉 /etc/fstab 中的polarx 行，再reboot</p>
+<p>这是因为LVM的label、uuid丢失了，导致挂载失败。</p>
+<p>查看设备的label</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo lsblk -o name,mountpoint,label,size,uuid  or lsblk -f</div></pre></td></tr></table></figure>
+<p>修复：</p>
+<p>紧急模式下修改 /etc/fstab 去掉有问题的挂载; 修改标签</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#blkid   //查询uuid、label</div><div class="line">/dev/mapper/klas-root: UUID=&quot;c4793d67-867e-4f14-be87-f6713aa7fa36&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot;</div><div class="line">/dev/sda2: UUID=&quot;8DCEc5-b4P7-fW0y-mYwR-5YTH-Yf81-rH1CO8&quot; TYPE=&quot;LVM2_member&quot; PARTUUID=&quot;4ffd9bfa-02&quot;</div><div class="line">/dev/nvme0n1: UUID=&quot;nJAHxP-d15V-Fvmq-rxa3-GKJg-TCqe-gD1A2Z&quot; TYPE=&quot;LVM2_member&quot;</div><div class="line">/dev/sda1: UUID=&quot;29f59517-91c6-4b3c-bd22-0a47c800d7f4&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot; PARTUUID=&quot;4ffd9bfa-01&quot;</div><div class="line">/dev/mapper/vgpolarx-polarx: LABEL=&quot;polarx&quot; UUID=&quot;025a3ac5-d38a-42f1-80b6-563a55cba12a&quot; BLOCK_SIZE=&quot;4096&quot; TYPE=&quot;ext4&quot;</div><div class="line"></div><div class="line">e2label /dev/mapper/vgpolarx-polarx polarx</div></pre></td></tr></table></figure>
+<p>比如，下图右边的是启动失败的</p>
+<p><img src="/images/951413iMgBlog/image-20211228185144635.png" alt="image-20211228185144635"></p>
+<h2 id="软RAID"><a href="#软RAID" class="headerlink" title="软RAID"></a><a href="https://xiaoz.co/2020/04/28/array-with-mdadm/" target="_blank" rel="external">软RAID</a></h2><blockquote>
+<p>mdadm(multiple devices admin)是一个非常有用的管理软raid的工具，可以用它来创建、管理、监控raid设备，当用mdadm来创建磁盘阵列时，可以使用整块独立的磁盘(如/dev/sdb,/dev/sdc)，也可以使用特定的分区(/dev/sdb1,/dev/sdc1)</p>
+</blockquote>
+<p>mdadm使用手册</p>
+<blockquote>
+<p>mdadm –create device –level=Y –raid-devices=Z devices<br>    -C | –create /dev/mdn<br>    -l | –level  0|1|4|5<br>    -n | –raid-devices device [..]<br>    -x | –spare-devices device [..]</p>
+</blockquote>
+<p><a href="https://www.cxyzjd.com/article/weixin_51486343/113114906" target="_blank" rel="external">创建</a> -l 0表示raid0， -l 10表示raid10</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line">mdadm -C /dev/md0 -a yes -l 0 -n2 /dev/nvme&#123;6,7&#125;n1  //raid0</div><div class="line">mdadm -D /dev/md0</div><div class="line">mkfs.ext4 /dev/md0</div><div class="line">mkdir /md0</div><div class="line">mount /dev/md0 /md0</div><div class="line"></div><div class="line">//条带</div><div class="line">mdadm --create --verbose /dev/md0 --level=linear --raid-devices=2 /dev/sdb /dev/sdc</div><div class="line">检查</div><div class="line">mdadm -E /dev/nvme[0-5]n1</div></pre></td></tr></table></figure>
+<p>删除</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">umount /md0 </div><div class="line">mdadm -S /dev/md0</div></pre></td></tr></table></figure>
+<p>监控raid</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">#cat /proc/mdstat</div><div class="line">Personalities : [raid0] [raid6] [raid5] [raid4]</div><div class="line">md6 : active raid6 nvme3n1[3] nvme2n1[2] nvme1n1[1] nvme0n1[0]</div><div class="line">      7501211648 blocks super 1.2 level 6, 512k chunk, algorithm 2 [4/4] [UUUU]</div><div class="line">      [=&gt;...................]  resync =  7.4% (280712064/3750605824) finish=388.4min speed=148887K/sec</div><div class="line">      bitmap: 28/28 pages [112KB], 65536KB chunk //raid6一直在异步刷数据</div><div class="line"></div><div class="line">md0 : active raid0 nvme7n1[3] nvme6n1[2] nvme4n1[0] nvme5n1[1]</div><div class="line">      15002423296 blocks super 1.2 512k chunks</div></pre></td></tr></table></figure>
+<p>控制刷盘速度</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep raid</div><div class="line">dev.raid.speed_limit_max = 0</div><div class="line">dev.raid.speed_limit_min = 0</div></pre></td></tr></table></figure>
+<h2 id="nvme-cli"><a href="#nvme-cli" class="headerlink" title="nvme-cli"></a>nvme-cli</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">nvme id-ns /dev/nvme1n1 -H</div><div class="line">for i in `seq 0 1 2`; do nvme format --lbaf=3 /dev/nvme$&#123;i&#125;n1 ; done  //格式化，选择不同的扇区大小，默认512，可选4K</div><div class="line"></div><div class="line">fuser -km /data/</div></pre></td></tr></table></figure>
+<h2 id="raid硬件卡"><a href="#raid硬件卡" class="headerlink" title="raid硬件卡"></a>raid硬件卡</h2><p><a href="http://aijishu.com/a/1060000000225602" target="_blank" rel="external">raid卡外观</a></p>
+<p><img src="/images/951413iMgBlog/bV6Ra.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/" target="_blank" rel="external">https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/</a></p>
+<p><a href="https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/" target="_blank" rel="external">pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?</a></p>
+<p>软RAID配置方法<a href="https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/" target="_blank" rel="external">参考这里</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/24/Linux LVS配置/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1550,1039 +2461,6 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/08/28/netstat 等网络工具/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/08/28/netstat 等网络工具/" itemprop="url">netstat timer keepalive RTO explain</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-08-28T10:30:03+08:00">
-                2017-08-28
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="netstat-等网络工具"><a href="#netstat-等网络工具" class="headerlink" title="netstat 等网络工具"></a>netstat 等网络工具</h1><h2 id="netstat-和重传–-timer"><a href="#netstat-和重传–-timer" class="headerlink" title="netstat 和重传– timer"></a>netstat 和重传– timer</h2><p>经常碰到一些断网环境下需要做快速切换，那么断网后需要多久tcp才能感知到这个断网，并断开连接触发上层的重连（一般会连向新的server）</p>
-<p>netstat -st命令中，tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp</p>
-<h3 id="keepalive"><a href="#keepalive" class="headerlink" title="keepalive"></a>keepalive</h3><p>from: <a href="https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers" target="_blank" rel="external">https://superuser.com/questions/240456/how-to-interpret-the-output-of-netstat-o-netstat-timers</a></p>
-<p>The timer column has two fields (from your o/p above):</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">keepalive     (6176.47/0/0)  </div><div class="line">&lt;1st field&gt;   &lt;2nd field&gt;</div></pre></td></tr></table></figure>
-<p>The 1st field can have values:<br>keepalive - when the keepalive timer is ON for the socket  </p>
-<p>on - when the retransmission timer is ON for the socket  </p>
-<p>off - none of the above is ON</p>
-<p>on - #表示是重发（retransmission）的时间计时</p>
-<p>off - #表示没有时间计时</p>
-<p>timewait - #表示等待（timewait）时间计时</p>
-<p>keepalive 是指在连接闲置状态发送心跳包来检测连接是否还有效（比如对方掉电后肯定就无效了，tcp得靠这个keepalive来感知）。如果有流量在传输过程中对方掉电后会不停地 retransmission ，这个时候看到的就是 on，然后重传间隔和次数跟keepalive参数无关，只和 net.ipv4.tcp_retries1、net.ipv4.tcp_retries2相关了。</p>
-<p>keepalive 状态下的连接：</p>
-<p><img src="/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png" alt="image.png"></p>
-<p>The 2nd field has THREE subfields:</p>
-<p>(6176.47/0/0) -&gt; (a/b/c)<br>a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)  </p>
-<p>b=number of retransmissions that have occurred  </p>
-<p>c=number of keepalive probes that have been sent</p>
-<blockquote>
-<p>/proc/sys/net/ipv4/tcp_keepalive_time<br>当keepalive起用的时候，TCP发送keepalive消息的频度。缺省是2小时。</p>
-<p>/proc/sys/net/ipv4/tcp_keepalive_intvl<br>当探测没有确认时，重新发送探测的频度。缺省是75秒。</p>
-<p>/proc/sys/net/ipv4/tcp_keepalive_probes<br>在认定连接失效之前，发送多少个TCP的keepalive探测包。缺省值是9。这个值乘以tcp_keepalive_intvl之后决定了，一个连接发送了keepalive之后可以有多少时间没有回应</p>
-</blockquote>
-<p>For example, I had two sockets opened between a client &amp; a server (not loopback). The keepalive setting are:</p>
-<p>KEEPALIVE_IDLETIME   30<br>KEEPALIVE_NUMPROBES   4<br>KEEPALIVE_INTVL      10  </p>
-<p>And I did a shutdown of the client machine, so at …SHED on (2.47/254/2)  </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.39/254/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (0.31/254/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (2.19/255/2)  </div><div class="line">tcp        0    210 192.0.0.1:36483             192.0.68.1:43881            ESTABLISHED on (1.12/255/2)</div></pre></td></tr></table></figure>
-<p>As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.</p>
-<p>Hope this explains the netstat –timer option well.</p>
-<h2 id="RTO-重传"><a href="#RTO-重传" class="headerlink" title="RTO 重传"></a><a href="https://pracucci.com/linux-tcp-rto-min-max-and-tcp-retries2.html" target="_blank" rel="external">RTO</a> 重传</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">#define TCP_RTO_MAX ((unsigned)(120*HZ)) //HZ 通常为1秒 </div><div class="line">#define TCP_RTO_MIN ((unsigned)(HZ/5))</div></pre></td></tr></table></figure>
-<p>Linux 2.6+ uses HZ of 1000ms, so <code>TCP_RTO_MIN</code> is ~200 ms and <code>TCP_RTO_MAX</code> is ~120 seconds. Given a default value of <code>tcp_retries</code> set to <code>15</code>, it means that <strong>it takes 924.6 seconds</strong> before a broken network link is notified to the upper layer (ie. application), since the connection is detected as broken when the last (15th) retry expires.</p>
-<p><img src="https://pracucci.com/assets/2018-04-27-linux-tcp-rto-retries2-b71ad2ef586126c2ad4180543f78d8b0a4bf66925fb88d69889f04c4b7aedeaa.png" alt="2018-04-27-linux-tcp-rto-retries2.png"></p>
-<p>The <code>tcp_retries2</code> sysctl can be <strong>tuned</strong> via <code>/proc/sys/net/ipv4/tcp_retries2</code> or the sysctl <code>net.ipv4.tcp_retries2</code>.</p>
-<h3 id="查看重传状态"><a href="#查看重传状态" class="headerlink" title="查看重传状态"></a>查看重传状态</h3><p>重传状态的连接：</p>
-<p><img src="/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png" alt="image.png"></p>
-<p>前两个 syn_sent 状态明显是 9031端口不work了，握手不上。</p>
-<p>最后 established 状态的连接, 是22端口给53795发了136字节的数据但是没有收到ack，所以在倒计时准备重传中。</p>
-<blockquote>
-<p><strong>net.ipv4.tcp_retries1 = 3</strong></p>
-</blockquote>
-<p>放弃回应一个TCP <strong>连接请求前</strong>﹐需要进行多少次重试。RFC 规定最低的数值是3﹐这也是默认值﹐根据RTO的值大约在3秒 - 8分钟之间。(注意:这个值同时还决定进入的syn连接)</p>
-<p><strong>(第二种解释：它表示的是TCP传输失败时不检测路由表的最大的重试次数，当超过了这个值，我们就需要检测路由表了)</strong></p>
-<p>从kernel代码可以看到，一旦重传超过阈值tcp_retries1，主要的动作就是更新路由缓存。<br>用以避免由于路由选路变化带来的问题。<strong>这个时候tcp连接没有关闭</strong></p>
-<blockquote>
-<p> <strong>net.ipv4.tcp_retries2 = 15</strong></p>
-</blockquote>
-<p><strong>在丢弃激活(已建立通讯状况)</strong>的TCP连接之前﹐需要进行多少次重试。默认值为15，根据RTO的值来决定，相当于13-30分钟(RFC1122规定，必须大于100秒).(这个值根据目前的网络设置,可以适当地改小,我的网络内修改为了5)</p>
-<p><strong>(第二种解释：表示重试最大次数，只不过这个值一般要比上面的值大。和上面那个不同的是，当重试次数超过这个值，我们就必须关闭连接了)</strong></p>
-<p>from：Documentation/networking/ip-sysctl.txt</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">tcp_retries1 - INTEGER</div><div class="line">    This value influences the time, after which TCP decides, that</div><div class="line">    something is wrong due to unacknowledged RTO retransmissions,</div><div class="line">    and reports this suspicion to the network layer.</div><div class="line">    See tcp_retries2 for more details.</div><div class="line"></div><div class="line">    RFC 1122 recommends at least 3 retransmissions, which is the</div><div class="line">    default.</div><div class="line"></div><div class="line">tcp_retries2 - INTEGER</div><div class="line">    This value influences the timeout of an alive TCP connection,</div><div class="line">    when RTO retransmissions remain unacknowledged.</div><div class="line">    Given a value of N, a hypothetical TCP connection following</div><div class="line">    exponential backoff with an initial RTO of TCP_RTO_MIN would</div><div class="line">    retransmit N times before killing the connection at the (N+1)th RTO.</div><div class="line"></div><div class="line">    The default value of 15 yields a hypothetical timeout of 924.6</div><div class="line">    seconds and is a lower bound for the effective timeout.</div><div class="line">    TCP will effectively time out at the first RTO which exceeds the</div><div class="line">    hypothetical timeout.</div><div class="line"></div><div class="line">    RFC 1122 recommends at least 100 seconds for the timeout,</div><div class="line">    which corresponds to a value of at least 8.</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png" alt="img"></p>
-<h3 id="retries限制的重传次数吗"><a href="#retries限制的重传次数吗" class="headerlink" title="retries限制的重传次数吗"></a>retries限制的重传次数吗</h3><p>咋一看文档，很容易想到retries的数字就是限定的重传的次数，甚至源码中对于retries常量注释中都写着”This is how many retries it does…”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">#define TCP_RETR1       3   /*</div><div class="line">                             * This is how many retries it does before it</div><div class="line">                             * tries to figure out if the gateway is</div><div class="line">                             * down. Minimal RFC value is 3; it corresponds</div><div class="line">                             * to ~3sec-8min depending on RTO.</div><div class="line">                             */</div><div class="line"></div><div class="line">#define TCP_RETR2       15  /*</div><div class="line">                             * This should take at least</div><div class="line">                             * 90 minutes to time out.</div><div class="line">                             * RFC1122 says that the limit is 100 sec.</div><div class="line">                             * 15 is ~13-30min depending on RTO.</div><div class="line">                             */</div></pre></td></tr></table></figure>
-<p>那就就来看看retransmits_timed_out的具体实现，看看到底是不是限制的重传次数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div></pre></td><td class="code"><pre><div class="line">/* This function calculates a &quot;timeout&quot; which is equivalent to the timeout of a</div><div class="line"> * TCP connection after &quot;boundary&quot; unsuccessful, exponentially backed-off</div><div class="line"> * retransmissions with an initial RTO of TCP_RTO_MIN or TCP_TIMEOUT_INIT if</div><div class="line"> * syn_set flag is set.</div><div class="line"> */</div><div class="line">static bool retransmits_timed_out(struct sock *sk,</div><div class="line">                              unsigned int boundary,</div><div class="line">                              unsigned int timeout,</div><div class="line">                              bool syn_set)</div><div class="line">&#123;</div><div class="line">    unsigned int linear_backoff_thresh, start_ts;</div><div class="line">    // 如果是在三次握手阶段，syn_set为真</div><div class="line">    unsigned int rto_base = syn_set ? TCP_TIMEOUT_INIT : TCP_RTO_MIN;</div><div class="line"></div><div class="line">    if (!inet_csk(sk)-&gt;icsk_retransmits)</div><div class="line">            return false;</div><div class="line"></div><div class="line">    // retrans_stamp记录的是数据包第一次发送的时间，在tcp_retransmit_skb()中设置</div><div class="line">    if (unlikely(!tcp_sk(sk)-&gt;retrans_stamp))</div><div class="line">            start_ts = TCP_SKB_CB(tcp_write_queue_head(sk))-&gt;when;</div><div class="line">    else</div><div class="line">            start_ts = tcp_sk(sk)-&gt;retrans_stamp;</div><div class="line"></div><div class="line">    // 如果用户态未指定timeout，则算一个出来</div><div class="line">    if (likely(timeout == 0)) &#123;</div><div class="line">            /* 下面的计算过程，其实就是算一下如果以rto_base为第一次重传间隔，</div><div class="line">             * 重传boundary次需要多长时间</div><div class="line">             */</div><div class="line">            linear_backoff_thresh = ilog2(TCP_RTO_MAX/rto_base);</div><div class="line"></div><div class="line">            if (boundary &lt;= linear_backoff_thresh)</div><div class="line">                    timeout = ((2 &lt;&lt; boundary) - 1) * rto_base;</div><div class="line">            else</div><div class="line">                    timeout = ((2 &lt;&lt; linear_backoff_thresh) - 1) * rto_base +</div><div class="line">                            (boundary - linear_backoff_thresh) * TCP_RTO_MAX;</div><div class="line">    &#125;</div><div class="line">    // 如果数据包第一次发送的时间距离现在的时间间隔，超过了timeout值，则认为重传超于阈值了</div><div class="line">    return (tcp_time_stamp - start_ts) &gt;= timeout;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>从以上的代码分析可以看到，真正起到限制重传次数的并不是真正的重传次数。<br>而是以tcp_retries1或tcp_retries2为boundary，以rto_base(如TCP_RTO_MIN 200ms)为初始RTO，计算得到一个timeout值出来。如果重传间隔超过这个timeout，则认为超过了阈值。<br>上面这段话太绕了，下面举两个个例子来说明</p>
-<blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">&gt; 以判断是否放弃TCP流为例，如果tcp_retries2=15，那么计算得到的timeout=924600ms。</div><div class="line">&gt; </div><div class="line">&gt; 1. 如果RTT比较小，那么RTO初始值就约等于下限200ms</div><div class="line">&gt;    由于timeout总时长是924600ms，表现出来的现象刚好就是重传了15次，超过了timeout值，从而放弃TCP流</div><div class="line">&gt; </div><div class="line">&gt; 2. 如果RTT较大，比如RTO初始值计算得到的是1000ms</div><div class="line">&gt;    那么根本不需要重传15次，重传总间隔就会超过924600ms。</div><div class="line">&gt;    比如我测试的一个RTT=400ms的情况，当tcp_retries2=10时，仅重传了3次就放弃了TCP流</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<p>一些重传的其它问题</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">&gt;&gt; effective timeout指的是什么？  </div><div class="line">&lt;&lt; 就是retransmits_timed_out计算得到的timeout值</div><div class="line"></div><div class="line">&gt;&gt; 924.6s是怎么算出来的？</div><div class="line">&lt;&lt; 924.6s = (( 2 &lt;&lt; 9) -1) * 200ms + (15 - 9) * 120s</div><div class="line"></div><div class="line">&gt;&gt; 为什么924.6s是lower bound？</div><div class="line">&lt;&lt; 重传总间隔必须大于timeout值，即 (tcp_time_stamp - start_ts) &gt;= timeout</div><div class="line"></div><div class="line">&gt;&gt; 那RTO超时的间隔到底是不是源码注释的&quot;15 is ~13-30min depending on RTO.&quot;呢？  </div><div class="line">&lt;&lt; 显然不是! 虽然924.6s(15min)是一个lower bound，但是它同时也是一个upper bound!</div><div class="line">   怎么理解？举例说明  </div><div class="line">        1. 如果某个RTO值导致，在已经重传了14次后，总重传间隔开销是924s</div><div class="line">        那么它还需要重传第15次，即使离924.6s只差0.6s。这就是发挥了lower bound的作用</div><div class="line">        2. 如果某个RTO值导致，在重传了10次后，总重传间隔开销是924s</div><div class="line">        重传第11次后，第12次超时触发时计算得到的总间隔变为1044s，超过924.6s</div><div class="line">        那么此时会放弃第12次重传，这就是924.6s发挥了upper bound的作用</div><div class="line">   总的来说，在Linux3.10中，如果tcp_retres2设置为15。总重传超时周期应该在如下范围内</div><div class="line">        [924.6s, 1044.6s)</div></pre></td></tr></table></figure>
-<h3 id="RTO重传案例"><a href="#RTO重传案例" class="headerlink" title="RTO重传案例"></a>RTO重传案例</h3><p>我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快</p>
-<p><img src="/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png" alt="image.png"></p>
-<p>上图中垂直方向基本都是发出3-5个包，然后休息120秒，继续发3-5个 包，速度肯定慢，下图可以看到具体的包：</p>
-<p><img src="/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png" alt="image.png"></p>
-<p>来看下到9627的RTT，基本稳定在245秒或者122秒，这RTT也实在太大了。可以看到：</p>
-<ol>
-<li><p>网络质量很不好，丢包有点多；</p>
-</li>
-<li><p>rtt高得离谱，导致rto计算出来120秒了，所以一旦丢包就卡120秒以上。</p>
-</li>
-</ol>
-<p>下图是RTT图</p>
-<p><img src="/images/oss/932b5124b7d445ee82c82a5f65a98321.png" alt="image.png"></p>
-<p>两个原因一叠加，就出现了奇慢无比.</p>
-<p>正常情况下RTO是从200ms开始翻倍，实际上OS层面限制了最小RTO 200ms、最大RTO 120秒，由于RTT都超过120秒了，计算所得的RTO必定也大于120秒，所以最终就是我们看到的一上来第一个RTO不是常见的200ms，直接干到了120秒。</p>
-<h2 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h2><p>netstat -s统计，有两个和timestamp stamp reject相关的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">netstat -st | grep stamp | grep reject</div><div class="line">18 passive connections rejected because of time stamp</div><div class="line">1453 packets rejects in established connections because of timestamp</div></pre></td></tr></table></figure>
-<p>丢包统计：</p>
-<blockquote>
-<p>netstat -s |egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
-<p>nstat -z -t 1 | egrep -i “drop|route|overflow|filter|retran|fails|listen”</p>
-</blockquote>
-<p>netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp</p>
-<h2 id="nc-测试"><a href="#nc-测试" class="headerlink" title="nc 测试"></a>nc 测试</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">nc -v -u -z -w 3 10.101.0.1 53 //测试server 的53端口上的udp服务能否通</div></pre></td></tr></table></figure>
-<h3 id="nc-6-5-快速fin"><a href="#nc-6-5-快速fin" class="headerlink" title="nc 6.5 快速fin"></a>nc 6.5 快速fin</h3><p><img src="/images/951413iMgBlog/1607660605575-1305739f-1621-4a01-89ad-0f81eef94922.png" alt="img"></p>
-<p> nc -i 3 10.97.170.11 3306 -w 4 -p 1234</p>
-<p>-i 3 表示握手成功后 等三秒钟nc退出（发fin）</p>
-<p>nc 6.5 握手后立即发fin断开连接，导致可能收不到Greeting，换成7.5或者mysql client就OK了</p>
-<p>也就是用nc 6.5来验证mysql 服务是否正常可能会碰到nc自己断的太快，实际mysql还是正常的，从而像是mysql没有回复Greeting，从而产生误判。</p>
-<p>nc 7.5的抓包，明显可以看到nc在发fin前会先等3秒钟：</p>
-<p><img src="/images/951413iMgBlog/1607660937618-d66c4074-9aa2-44cb-8054-f7d3680d1181.png" alt="img"></p>
-<h2 id="ping"><a href="#ping" class="headerlink" title="ping"></a>ping</h2><p>sudo ping -f ip 大批量的icmp包</p>
-<p>ping -D  带时间戳 或者：ping -i 5 google.com | xargs -L 1 -I ‘{}’ date ‘+%Y-%m-%d %H:%M:%S: {}’  或者 ping www.google.fr | while read pong; do echo “$(date): $pong”; done</p>
-<p>ping -O  不通的时候输出：no answer yet for icmp_seq=xxx </p>
-<p>或者-D + awk</p>
-<blockquote>
-<p>ping -D 114.114.114.114 | awk ‘{ if(gsub(/[|]/, “”, $1)) $1=strftime(“[%F %T]”, $1); print}’</p>
-</blockquote>
-<p>Linux 下直接增加如下函数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">ping.ts()&#123;</div><div class="line">    if [ -t 1 ]; then</div><div class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[\033[34m%F %T\033[0m]&quot;, $1); print; fflush()&#125;&apos;</div><div class="line">    else</div><div class="line">        ping -D &quot;$@&quot; | awk &apos;&#123; if(gsub(/\[|\]/, &quot;&quot;, $1)) $1=strftime(&quot;[%F %T]&quot;, $1); print; fflush()&#125;&apos;</div><div class="line">    fi  </div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<h2 id="mtr"><a href="#mtr" class="headerlink" title="mtr"></a>mtr</h2><p>若需要将mtr的结果提供给第三方，建议可以使用-rc参数，r代表不使用交互界面，而是在最后给出一个探测结果报告；c参数指定需要作几次探测（一般建议是至少200个包，可以配合-i参数减少包间隔来加快得到结果的时间）。</p>
-<h2 id="traceroute"><a href="#traceroute" class="headerlink" title="traceroute"></a>traceroute</h2><p>和mtr不同的是，traceroute默认使用UDP作为四层协议，下层还是依靠IP头的TTL来控制中间的节点返回ICMP差错报文，来获得中间节点的IP和延时。唯一的区别是，在达到目标节点时，若是ICMP协议，目标大概率是会回复ICMP reply；如果是UDP协议，按照RFC协议规定，系统是要回复ICMP 端口不可达的差错报文，虽然三大平台Windows/MacOS/Linux都实现了这个行为，但出于某些原因，这个包可能还是会在链路上被丢弃，导致路由跟踪的结果无法显示出最后一跳。所以建议在一般的情况下，traceroute命令可以加上-I参数，让程序使用ICMP协议来发送探测数据包。</p>
-<h2 id="dstat"><a href="#dstat" class="headerlink" title="dstat"></a>dstat</h2><p><a href="https://www.huaweicloud.com/articles/9fc282e450af6f9b2878008a9e938d4d.html" target="_blank" rel="external">dstat 监控</a></p>
-<p><img src="/images/951413iMgBlog/image-20210425082343156.png" alt="image-20210425082343156"></p>
-<p>dstat -cdgilmnrsy –aio –fs –lock –raw</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/" target="_blank" rel="external">http://perthcharles.github.io/2015/09/07/wiki-tcp-retries/</a></p>
-<p><a href="ttps://github.com/huigher/tcpping2" target="_blank" rel="external">tcpping2</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/" itemprop="url">就是要你懂TCP--半连接队列和全连接队列</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-07T17:30:03+08:00">
-                2017-06-07
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
-<p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
-<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
-<p>1)  这两个队列是干什么用的；</p>
-<p>2）怎么设置和观察他们的最大值；</p>
-<p>3）怎么查看这两个队列当前使用到了多少；</p>
-<p>4）一旦溢出的后果和现象是什么</p>
-</blockquote>
-<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
-
-1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
-2.出问题的时间点，会同时有很多连接出现这个问题。
-3.selector没有销毁重建，一直用的都是一个。
-4.程序刚启动的时候必会出现一些，之后会间歇性出现。
-</code></pre><h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><h3 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h3><p><img src="/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
-<ul>
-<li>第一步：client 发送 syn 到server 发起握手；</li>
-<li>第二步：server 收到 syn后回复syn+ack给client；</li>
-<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
-</ul>
-<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
-<pre><code>667399 times the listen queue of a socket overflowed
-</code></pre><p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
-<p>接着查看溢出后，OS怎么处理：</p>
-<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
-0
-</code></pre><p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
-<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
-<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
-<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
-<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
-<blockquote>
-<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
-</blockquote>
-<h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
-<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
-<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
-<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
-</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
-<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
-<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
-<pre><code>net.ipv4.tcp_synack_retries = 2
-</code></pre><h2 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
-<p>（<em>通过具体的、感性的东西来强化我们对知识点的理解和吸收</em>）</p>
-<h3 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
-667399 times the listen queue of a socket overflowed
-667399 SYNs to LISTEN sockets ignored
-</code></pre><p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。</p>
-<h3 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h3><pre><code>[root@server ~]# ss -lnt
-Recv-Q Send-Q Local Address:Port  Peer Address:Port 
-0        50               *:3306             *:* 
-</code></pre><p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
-<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
-<p>《Unix Network Programming》中关于backlog的描述</p>
-<blockquote>
-<p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
-<p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it “defines the maximum length the queue of pending connections may grow to.” Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
-</blockquote>
-<p>关于 <a href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4" target="_blank" rel="external">somaxconn 终于在2019年将默认值从128调整到了2048</a>, 这个调整合并到了kernel 5.17中</p>
-<blockquote>
-<p>SOMAXCONN is /proc/sys/net/core/somaxconn default value.</p>
-<p>It has been defined as 128 more than 20 years ago.</p>
-<p>Since it caps the listen() backlog values, the very small value has<br>caused numerous problems over the years, and many people had<br>to raise it on their hosts after beeing hit by problems.</p>
-<p>Google has been using 1024 for at least 15 years, and we increased<br>this to 4096 after TCP listener rework has been completed, more than<br>4 years ago. We got no complain of this change breaking any<br>legacy application.</p>
-<p>Many applications indeed setup a TCP listener with listen(fd, -1);<br>meaning they let the system select the backlog.</p>
-<p>Raising SOMAXCONN lowers chance of the port being unavailable under<br>even small SYNFLOOD attack, and reduces possibilities of side channel<br>vulnerabilities.</p>
-</blockquote>
-<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
-<pre><code>ServerSocket()
-    Creates an unbound server socket.
-ServerSocket(int port)
-    Creates a server socket, bound to the specified port.
-ServerSocket(int port, int backlog)
-    Creates a server socket and binds it to the specified local port number, with the specified backlog.
-ServerSocket(int port, int backlog, InetAddress bindAddr)
-    Create a server with the specified port, listen backlog, and local IP address to bind to.
-</code></pre><p>（来自JDK帮助文档：<a href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）" target="_blank" rel="external">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
-<p><strong>半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 <a href="https://developer.aliyun.com/article/804896" target="_blank" rel="external">不同版本的os会有些差异</a></strong></p>
-<blockquote>
-<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
-</blockquote>
-<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
-<pre><code>$netstat -tn  
-Active Internet connections (w/o servers)
-Proto Recv-Q Send-Q Local Address   Foreign Address State  
-tcp    0  0 server:8182  client-1:15260 SYN_RECV   
-tcp    0 28 server:22    client-1:51708  ESTABLISHED
-tcp    0  0 server:2376  client-1:60269 ESTABLISHED
-</code></pre><p><strong>netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆</strong>  </p>
-<p>所以ss看到的 Send-Q、Recv-Q是目前全连接队列使用情况和最大设置<br>netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话就是发出的bytes并且没有ack的包、和os接收到的bytes还没交给应用</p>
-<p>我们看到的 Recv-Q、Send-Q获取源代码如下（ net/ipv4/tcp_diag.c ）：   </p>
-<pre><code>static void tcp_diag_get_info(struct sock *sk, struct inet_diag_msg *r,
-  void *_info)
-{
-    const struct tcp_sock *tp = tcp_sk(sk);
-    struct tcp_info *info = _info;
-
-    if (sk-&gt;sk_state == TCP_LISTEN) {  //LISTEN状态下的 Recv-Q、Send-Q
-        r-&gt;idiag_rqueue = sk-&gt;sk_ack_backlog;
-        r-&gt;idiag_wqueue = sk-&gt;sk_max_ack_backlog; //Send-Q 最大backlog
-    } else {                           //其它状态下的 Recv-Q、Send-Q
-        r-&gt;idiag_rqueue = max_t(int, tp-&gt;rcv_nxt - tp-&gt;copied_seq, 0);
-        r-&gt;idiag_wqueue = tp-&gt;write_seq - tp-&gt;snd_una;
-    }
-    if (info != NULL)
-        tcp_get_info(sk, info);
-}
-</code></pre><p>比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
-<p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
-<h4 id="netstat看到的listen状态的Recv-Q-Send-Q"><a href="#netstat看到的listen状态的Recv-Q-Send-Q" class="headerlink" title="netstat看到的listen状态的Recv-Q/Send-Q"></a>netstat看到的listen状态的Recv-Q/Send-Q</h4><p>netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全不一样。上面的 netstat 对非listen的描述没问题，但是listen状态似乎Send-Q这个值总是0，这要去看netstat的代码了，实际上Listen状态它不是一个连接，所以肯定统计不到流量，netstat似乎只是针对连接的统计</p>
-<p>从网上找了两个Case，server的8765端口故意不去读取对方发过来的2000字节，所看到的是：</p>
-<pre><code>$ netstat -ano | grep 8765  
-tcp0  0 0.0.0.0:87650.0.0.0:*   LISTEN  off (0.00/0/0)  
-tcp 2000  0 10.100.70.140:8765  10.100.70.139:43634 ESTABLISHED off (0.00/0/0)
-</code></pre><p>第二个Case，8000端口的半连接满了（129），但是这个时候Send-Q还是看到的0</p>
-<pre><code>$ netstat -ntap | grep 8000 
-tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- 
-tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    - 
-tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    - 
-tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -  
-</code></pre><h2 id="案列：如果TCP连接队列溢出，抓包是什么现象呢？"><a href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？" class="headerlink" title="案列：如果TCP连接队列溢出，抓包是什么现象呢？"></a>案列：如果TCP连接队列溢出，抓包是什么现象呢？</h2><p><img src="/images/oss/c0849615ae52531887ce6b0313d7d2d1.png" alt="image.png"></p>
-<p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
-<h3 id="通过ss和netstat所观察到的状态"><a href="#通过ss和netstat所观察到的状态" class="headerlink" title="通过ss和netstat所观察到的状态"></a>通过ss和netstat所观察到的状态</h3><p><img src="/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png" alt="image.png"></p>
-<p><img src="/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png" alt="image.png"></p>
-<p><a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
-<h2 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下 </p>
-<p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
-<pre><code>Fri May  5 13:50:23 CST 2017
-Recv-Q Send-QLocal Address:Port  Peer Address:Port
-11         10         *:3306               *:*
-</code></pre><p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
-<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;=</strong> 。</p>
-<blockquote>
-<p>Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果</p>
-<p>kill -19 pid 即可； kill -18 pid 恢复暂停进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">&gt; #define SIGKILL     9    /* Kill, unblockable (POSIX). */</div><div class="line">&gt; #define SIGCONT     18   /* Continue (POSIX).  */</div><div class="line">&gt; #define SIGSTOP     19   /* Stop, unblockable (POSIX). */</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<p>tsar监控accept队列的溢出</p>
-<blockquote>
-<p>tsar –tcpx -s=lisove -li 1</p>
-</blockquote>
-<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
-<pre><code>#ss -lnt
-Recv-Q Send-Q   Local Address:Port Peer Address:Port
-0       100                 *:8080            *:*
-</code></pre><p>Nginx默认是511</p>
-<pre><code>$sudo ss -lnt
-State  Recv-Q Send-Q Local Address:PortPeer Address:Port
-LISTEN    0     511              *:8085           *:*
-LISTEN    0     511              *:8085           *:*
-</code></pre><p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
-<p><img src="/images/oss/01dc036aca4b445ed86e3e295bf245b8.png" alt="image.png"></p>
-<h2 id="进一步思考-client-fooling-问题"><a href="#进一步思考-client-fooling-问题" class="headerlink" title="进一步思考 client fooling 问题"></a>进一步思考 client fooling 问题</h2><p>如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）</p>
-<p>先来看一个例子：</p>
-<p><img src="/images/oss/9179e08ac24ce3d53e74b92dbd044906.png" alt="image.png"></p>
-<p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
-<p><img src="/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png" alt="image.png"></p>
-<p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：<a href="https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071" target="_blank" rel="external">https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</a> ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
-<p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
-<p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
-<h2 id="过程中发现的一个奇怪问题"><a href="#过程中发现的一个奇怪问题" class="headerlink" title="过程中发现的一个奇怪问题"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
-Fri May  5 15:39:58 CST 2017
-1641685 times the listen queue of a socket overflowed
-1641685 SYNs to LISTEN sockets ignored
-
-[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
-Fri May  5 15:39:59 CST 2017
-1641906 times the listen queue of a socket overflowed
-1641906 SYNs to LISTEN sockets ignored
-</code></pre><p>如上所示：<br>overflowed和ignored居然总是一样多，并且都是同步增加，overflowed表示全连接队列溢出次数，socket ignored表示半连接队列溢出次数，没这么巧吧。</p>
-<p>翻看内核源代码（<a href="http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：" target="_blank" rel="external">http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：</a></p>
-<p><img src="/images/oss/a5616904df3a505572d99d557b534db2.png" alt="image.png"></p>
-<p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
-<p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
-<pre><code>server1
-150 SYNs to LISTEN sockets dropped
-
-server2
-193 SYNs to LISTEN sockets dropped
-
-server3
-16329 times the listen queue of a socket overflowed
-16422 SYNs to LISTEN sockets dropped
-
-server4
-20 times the listen queue of a socket overflowed
-51 SYNs to LISTEN sockets dropped
-
-server5
-984932 times the listen queue of a socket overflowed
-988003 SYNs to LISTEN sockets dropped
-</code></pre><h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：" target="_blank" rel="external">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
-<p><img src="/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png" alt="image.png"></p>
-<p>TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：</p>
-<pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
-//如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
-  if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
-      goto drop;
-</code></pre><h2 id="半连接队列的长度"><a href="#半连接队列的长度" class="headerlink" title="半连接队列的长度"></a>半连接队列的长度</h2><p><strong>半连接队列的长度由三个参数指定：</strong></p>
-<ul>
-<li><strong>调用</strong> <strong>listen</strong> <strong>时，传入的 backlog</strong></li>
-<li><strong>/proc/sys/net/core/somaxconn</strong> <strong>默认值为 128</strong></li>
-<li><em>/proc/sys/net/ipv4/tcp_max_syn_backlog<strong> </strong>默认值为 1024*</em></li>
-</ul>
-<p>假设 listen 传入的 backlog = 128，其他配置采用默认值，来计算下半连接队列的最大长度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">backlog = min(somaxconn, backlog) = min(128, 128) = 128</div><div class="line">nr_table_entries = backlog = 128</div><div class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog) = min(128, 1024) = 128</div><div class="line">nr_table_entries = max(nr_table_entries, 8) = max(128, 8) = 128</div><div class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1) = 256</div><div class="line">max_qlen_log = max(3, log2(nr_table_entries)) = max(3, 8) = 8</div><div class="line">max_queue_length = 2^max_qlen_log = 2^8 = 256</div></pre></td></tr></table></figure>
-<p>可以得到半队列大小是 256，以上计算方法：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">backlog = min(somaxconn, backlog)</div><div class="line">nr_table_entries = backlog</div><div class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog)</div><div class="line">nr_table_entries = max(nr_table_entries, 8)</div><div class="line">// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1</div><div class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)</div><div class="line">max_qlen_log = max(3, log2(nr_table_entries))</div><div class="line">max_queue_length = 2^max_qlen_log</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png" alt=""></p>
-<p>没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是<strong>应用层代码还没有完成 accept() 的连接</strong>）两个概念，用于存放在握手中的连接。</p>
-<p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
-<p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="external">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
-<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
-<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
-<hr>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="external">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
-<p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="external">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
-<p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="external">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
-<p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="external">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
-<p><a href="http://jin-yang.github.io/blog/network-synack-queue.html#" target="_blank" rel="external">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
-<p><a href="http://blog.chinaunix.net/uid-20662820-id-4154399.html" target="_blank" rel="external">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
-<p><a href="https://www.atatech.org/articles/12919" target="_blank" rel="external">https://www.atatech.org/articles/12919</a></p>
-<p><a href="https://blog.cloudflare.com/syn-packet-handling-in-the-wild/" target="_blank" rel="external">https://blog.cloudflare.com/syn-packet-handling-in-the-wild/</a></p>
-<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="external">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
-<p><a href="https://developer.aliyun.com/article/804896" target="_blank" rel="external">从一次线上问题说起，详解 TCP 半连接队列、全连接队列–详细的实验验证各种溢出</a></p>
-<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
-<figure class="highlight"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div></pre></td><td class="code"><pre><div class="line">commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</div><div class="line">Author: Eric Dumazet &lt;edumazet@google.com&gt;</div><div class="line">Date:   Thu Oct 27 00:27:57 2016</div><div class="line"></div><div class="line"> tcp/dccp: drop SYN packets if accept queue is full</div><div class="line"></div><div class="line"> Per listen(fd, backlog) rules, there is really no point accepting a SYN,</div><div class="line"> sending a SYNACK, and dropping the following ACK packet if accept queue</div><div class="line"> is full, because application is not draining accept queue fast enough.</div><div class="line"></div><div class="line"> This behavior is fooling TCP clients that believe they established a</div><div class="line"> flow, while there is nothing at server side. They might then send about</div><div class="line"> 10 MSS (if using IW10) that will be dropped anyway while server is under</div><div class="line"> stress.</div><div class="line"></div><div class="line">   -       /* Accept backlog is full. If we have already queued enough</div><div class="line">   -        * of warm entries in syn queue, drop request. It is better than</div><div class="line">   -        * clogging syn queue with openreqs with exponentially increasing</div><div class="line">   -        * timeout.</div><div class="line">   -        */</div><div class="line">   -       if (sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; 1) &#123;</div><div class="line">   +       if (sk_acceptq_is_full(sk)) &#123;</div><div class="line">                   NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);</div><div class="line">                   goto drop;</div><div class="line">           &#125;</div></pre></td></tr></table></figure>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/02/就是要你懂TCP--连接和握手/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/06/02/就是要你懂TCP--连接和握手/" itemprop="url">就是要你懂TCP--握手和挥手</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-02T17:30:03+08:00">
-                2017-06-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂TCP–握手和挥手"><a href="#就是要你懂TCP–握手和挥手" class="headerlink" title="就是要你懂TCP–握手和挥手"></a>就是要你懂TCP–握手和挥手</h1><blockquote>
-<p>看过太多tcp相关文章，但是看完总是不过瘾，似懂非懂，反复考虑过后，我觉得是那些文章太过理论，看起来没有体感，所以吸收不了。</p>
-<p>希望这篇文章能做到言简意赅，帮助大家透过案例来理解原理</p>
-</blockquote>
-<h2 id="tcp的特点"><a href="#tcp的特点" class="headerlink" title="tcp的特点"></a>tcp的特点</h2><p>这个大家基本都能说几句，面试的时候候选人也肯定会告诉你这些：</p>
-<ul>
-<li>三次握手</li>
-<li>四次挥手</li>
-<li>可靠连接</li>
-<li>丢包重传</li>
-<li>速度自我调整</li>
-</ul>
-<p>但是我只希望大家记住一个核心的：<strong>tcp是可靠传输协议，它的所有特点都为这个可靠传输服务</strong>。</p>
-<h3 id="那么tcp是怎么样来保障可靠传输呢？"><a href="#那么tcp是怎么样来保障可靠传输呢？" class="headerlink" title="那么tcp是怎么样来保障可靠传输呢？"></a>那么tcp是怎么样来保障可靠传输呢？</h3><p>tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到那些包了。这样发送方能知道有没有丢包，进而确定重传</p>
-<h3 id="tcp建连接的三次握手"><a href="#tcp建连接的三次握手" class="headerlink" title="tcp建连接的三次握手"></a>tcp建连接的三次握手</h3><p>来看一个java代码连接数据库的三次握手过程</p>
-<p><img src="/images/oss/6d66dadecb72e11e3e5ab765c6c3ea2e.png" alt="image.png"></p>
-<p>三个红框表示建立连接的三次握手：</p>
-<ul>
-<li>第一步：client 发送 syn 到server 发起握手；</li>
-<li>第二步：server 收到 syn后回复syn+ack给client；</li>
-<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的48287端口的连接已经是established）</li>
-</ul>
-<p>握手的核心目的是告知对方seq（绿框是client的初始seq，蓝色框是server 的初始seq），对方回复ack（收到的seq+包的大小），这样发送端就知道有没有丢包了</p>
-<p>握手的次要目的是告知和协商一些信息，图中黄框。</p>
-<ul>
-<li>MSS–最大传输包</li>
-<li>SACK_PERM–是否支持Selective ack(用户优化重传效率）</li>
-<li>WS–窗口计算指数（有点复杂的话先不用管）</li>
-</ul>
-<p><img src="/images/oss/1423013fe76719cfa3088ebc4704c023.png" alt="image.png"></p>
-<p>全连接队列（accept queue）的长度是由 listen(sockfd, backlog) 这个函数里的 backlog 控制的，而该 backlog 的最大值则是 somaxconn。somaxconn 在 5.4 之前的内核中，默认都是 128（5.4 开始调整为了默认 4096）</p>
-<p>当服务器中积压的全连接个数超过该值后，新的全连接就会被丢弃掉。Server 在将新连接丢弃时，有的时候需要发送 reset 来通知 Client，这样 Client 就不会再次重试了。不过，默认行为是直接丢弃不去通知 Client。至于是否需要给 Client 发送 reset，是由 tcp_abort_on_overflow 这个配置项来控制的，该值默认为 0，即不发送 reset 给 Client。推荐也是将该值配置为 0</p>
-<blockquote>
-<p>net.ipv4.tcp_abort_on_overflow = 0</p>
-</blockquote>
-<p><strong>这就是tcp为什么要握手建立连接，就是为了解决tcp的可靠传输</strong></p>
-<p>物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的连接是指tcp是拥有和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。</p>
-<h3 id="unres-qlen-和-握手"><a href="#unres-qlen-和-握手" class="headerlink" title="unres_qlen  和 握手"></a>unres_qlen  和 握手</h3><p>tcp connect 的本地流程是这样的：</p>
-<p>1、tcp发出SYN建链报文后，报文到ip层需要进行路由查询</p>
-<p>2、路由查询完成后，报文到arp层查询下一跳mac地址</p>
-<p>3、如果本地没有对应网关的arp缓存，就需要缓存住这个报文，发起arp请求</p>
-<p>4、arp层收到arp回应报文之后，从缓存中取出SYN报文，完成mac头填写并发送给驱动。</p>
-<p>问题在于，arp层报文缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
-<p>TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
-<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3。</p>
-<h3 id="建连接失败经常碰到的问题"><a href="#建连接失败经常碰到的问题" class="headerlink" title="建连接失败经常碰到的问题"></a>建连接失败经常碰到的问题</h3><p>内核扔掉syn的情况（握手失败，建不上连接）：</p>
-<ul>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， troubleshooting:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况</li>
-<li>syn flood攻击</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增）</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
-</ul>
-<h3 id="tcp断开连接的四次挥手"><a href="#tcp断开连接的四次挥手" class="headerlink" title="tcp断开连接的四次挥手"></a>tcp断开连接的四次挥手</h3><p>再来看java连上mysql后，执行了一个SQL： select sleep(2); 然后就断开了连接</p>
-<p><img src="/images/oss/b6f4a952cdf8ffbb8f6e9434d1432e05.png" alt="image.png"></p>
-<p>四个红框表示断开连接的四次挥手：</p>
-<ul>
-<li>第一步： client主动发送fin包给server</li>
-<li>第二步： server回复ack（对应第一步fin包的ack）给client，表示server知道client要断开了</li>
-<li>第三步： server发送fin包给client，表示server也可以断开了</li>
-<li>第四部： client回复ack给server，表示既然双发都发送fin包表示断开，那么就真的断开吧</li>
-</ul>
-<p><img src="/images/oss/321f96243eef2f6437fe4e1559c15efe.png" alt="image.png"></p>
-<p>除了 CLOSE_WAIT 状态外，其余两个状态都有对应的系统配置项来控制。</p>
-<p>我们首先来看 FIN_WAIT_2 状态，TCP 进入到这个状态后，如果本端迟迟收不到对端的 FIN 包，那就会一直处于这个状态，于是就会一直消耗系统资源。Linux 为了防止这种资源的开销，设置了这个状态的超时时间 tcp_fin_timeout，默认为 60s，超过这个时间后就会自动销毁该连接。</p>
-<p>至于本端为何迟迟收不到对端的 FIN 包，通常情况下都是因为对端机器出了问题，或者是因为太繁忙而不能及时 close()。所以，通常我们都建议将 tcp_fin_timeout 调小一些，以尽量避免这种状态下的资源开销。对于数据中心内部的机器而言，将它调整为 2s 足以：</p>
-<blockquote>
-<p>net.ipv4.tcp_fin_timeout = 2</p>
-</blockquote>
-<p>TIME_WAIT 状态存在的意义是：最后发送的这个 ACK 包可能会被丢弃掉或者有延迟，这样对端就会再次发送 FIN 包。如果不维持 TIME_WAIT 这个状态，那么再次收到对端的 FIN 包后，本端就会回一个 Reset 包，这可能会产生一些异常。</p>
-<p><img src="/images/oss/9fbe15fa8b913ba76048f3b2ad2b923a.png" alt="image.png"></p>
-<h3 id="为什么握手三次、挥手四次"><a href="#为什么握手三次、挥手四次" class="headerlink" title="为什么握手三次、挥手四次"></a>为什么握手三次、挥手四次</h3><p>这个问题太恶心，面试官太喜欢问，其实大部分面试官只会背诵：因为TCP是双向的，所以关闭需要四次挥手……。</p>
-<p>你要是想怼面试官的话可以问他握手也是双向的但是只需要三次呢？</p>
-<p>我也不知道怎么回答。网上都说tcp是双向的，所以断开要四次。但是我认为建连接也是双向的（双向都协调告知对方自己的seq号），为什么不需要四次握手呢，所以网上说的不一定精准。</p>
-<p>你再看三次握手的第二步发 syn+ack，如果拆分成两步先发ack再发syn完全也是可以的（效率略低），这样三次握手也变成四次握手了。</p>
-<p>看起来挥手的时候多一次，主要是收到第一个fin包后单独回复了一个ack包，如果能回复fin+ack那么四次挥手也就变成三次了。 来看一个案例：</p>
-<p><img src="/images/oss/9db33f9304f8236b1ebcb215064bb2af.png" alt="image.png"></p>
-<p>图中第二个红框就是回复的fin+ack，这样四次挥手变成三次了（如果一个包就是一次的话）。</p>
-<p>我的理解：之所以绝大数时候我们看到的都是四次挥手，是因为收到fin后，知道对方要关闭了，然后OS通知应用层要关闭，这里应用层可能需要做些准备工作，可能还有数据没发送完，所以内核先回ack，等应用准备好了主动调close时再发fin 。 握手过程没有这个准备过程所以可以立即发送syn+ack（把这里的两步合成一步了）。 内核收到对方的fin后，只能ack，不能主动替应用来fin，因为他不清楚应用能不能关闭。</p>
-<h3 id="ack-seq-len"><a href="#ack-seq-len" class="headerlink" title="ack=seq+len"></a>ack=seq+len</h3><p>ack总是seq+len（包的大小），这样发送方明确知道server收到那些东西了</p>
-<p>但是特例是三次握手和四次挥手，虽然len都是0，但是syn和fin都要占用一个seq号，所以这里的ack都是seq+1</p>
-<p><img src="/images/oss/45c6d36ce8b17a5c0442e66fce002ab4.png" alt="image.png"></p>
-<p>看图中左边红框里的len+seq就是接收方回复的ack的数字，表示这个包接收方收到了。然后下一个包的seq就是前一个包的len+seq，依次增加，一旦中间发出去的东西没有收到ack就是丢包了，过一段时间（或者其他方式）触发重传，保障了tcp传输的可靠性。</p>
-<h3 id="三次握手中协商的其它信息"><a href="#三次握手中协商的其它信息" class="headerlink" title="三次握手中协商的其它信息"></a>三次握手中协商的其它信息</h3><p>MSS 最大一个包中能传输的信息（不含tcp、ip包头），MSS+包头就是MTU（最大传输单元），如果MTU过大可能在传输的过程中被卡住过不去造成卡死（这个大小的包一直传输不过去），跟丢包还不一样</p>
-<p>MSS的问题具体可以看我这篇文章： <a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">scp某个文件的时候卡死问题的解决过程</a></p>
-<p>SACK_PERM 用于丢包的话提升重传效率，比如client一次发了1、2、3、4、5 这5个包给server，实际server收到了 1、3、4、5这四个包，中间2丢掉了。这个时候server回复ack的时候，都只能回复2，表示2前面所有的包都收到了，给我发第二个包吧，如果server 收到3、4、5还是没有收到2的话，也是回复ack 2而不是回复ack 3、4、5、6的，表示快点发2过来。</p>
-<p>但是这个时候client虽然知道2丢了，然后会重发2，但是不知道3、4、5有没有丢啊，实际3、4、5 server都收到了，如果支持sack，那么可以ack 2的时候同时告诉client 3、4、5都收到了，这样client重传的时候只重传2就可以，如果没有sack的话那么可能会重传2、3、4、5，这样效率就低了。</p>
-<p>来看一个例子：</p>
-<p><img src="/images/oss/5322d0cf77a3a1ae6c87a972cc5843d0.png" alt="image.png"></p>
-<p>图中的红框就是SACK。</p>
-<p>知识点：ack数字表示这个数字前面的数据<strong>都</strong>收到了</p>
-<h2 id="TIME-WAIT-和-CLOSE-WAIT"><a href="#TIME-WAIT-和-CLOSE-WAIT" class="headerlink" title="TIME_WAIT 和 CLOSE_WAIT"></a>TIME_WAIT 和 CLOSE_WAIT</h2><p>假设服务端和客户端跑在同一台机器上，服务端监听在 18080端口上，客户端使用18089端口建立连接。</p>
-<p>如果client主动断开连接那么就会看到client端的连接在 TIME_WAIT：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 1808</div><div class="line">tcp        0      0 0.0.0.0:18080           0.0.0.0:*               LISTEN      </div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      TIME_WAIT</div></pre></td></tr></table></figure>
-<p>如果Server主动断开连接(也就是18080）那么就会看到client端的连接在CLOSE_WAIT 而Server在FIN_WAIT2：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 1808</div><div class="line">tcp    0      0 192.168.1.79:18080      192.168.1.79:18089      FIN_WAIT2  --&lt;&lt; server</div><div class="line">tcp    0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT --&lt;&lt; client</div></pre></td></tr></table></figure>
-<p><strong>TIME_WAIT是主动断连方出现的状态（ 2MSL）</strong></p>
-<h3 id="被动关闭方收到fin后有两种选择"><a href="#被动关闭方收到fin后有两种选择" class="headerlink" title="被动关闭方收到fin后有两种选择"></a>被动关闭方收到fin后有两种选择</h3><p>如下描述是server端主动关闭的情况</p>
-<p>1 如果client也立即断开，那么Server的这个连接会进入 TIME_WAIT状态</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 1808</div><div class="line">tcp    0      0 0.0.0.0:18080           0.0.0.0:*            LISTEN  --&lt;&lt; server还在  </div><div class="line">tcp    0      0 192.168.1.79:18080      192.168.1.79:18089   TIME_WAIT --&lt;&lt; server</div></pre></td></tr></table></figure>
-<p>2 client 坚持不断开过 Server 一段时间后（3.10：net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 120， 4.19：net.ipv4.tcp_fin_timeout = 15）会结束这个连接但是client还是会 在CLOSE_WAIT 直到client进程退出</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 1808</div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT</div></pre></td></tr></table></figure>
-<h3 id="CLOSE-WAIT"><a href="#CLOSE-WAIT" class="headerlink" title="CLOSE_WAIT"></a>CLOSE_WAIT</h3><p><strong>CLOSE_WAIT是被动关闭端在等待应用进程的关闭</strong></p>
-<p>通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着被动关闭的一方没有及时发出 FIN 包，一般有如下几种可能：</p>
-<ul>
-<li><strong>程序问题</strong>：如果代码层面忘记了 close 相应的 socket 连接，那么自然不会发出 FIN 包，从而导致 CLOSE_WAIT 累积；或者代码不严谨，出现死循环之类的问题，导致即便后面写了 close 也永远执行不到。</li>
-<li>响应太慢或者超时设置过小：如果连接双方不和谐，一方不耐烦直接 timeout，另一方却还在忙于耗时逻辑，就会导致 close 被延后。响应太慢是首要问题，不过换个角度看，也可能是 timeout 设置过小。</li>
-<li>BACKLOG 太大：此处的 backlog 不是 syn backlog，而是 accept 的 backlog，如果 backlog 太大的话，设想突然遭遇大访问量的话，即便响应速度不慢，也可能出现来不及消费的情况，导致多余的请求还在<a href="http://jaseywang.me/2014/07/20/tcp-queue-的一些问题/" target="_blank" rel="external">队列</a>里就被对方关闭了。</li>
-</ul>
-<p>如果你通过「netstat -ant」或者「ss -ant」命令发现了很多 CLOSE_WAIT 连接，请注意结果中的「Recv-Q」和「Local Address」字段，通常「Recv-Q」会不为空，它表示应用还没来得及接收数据，而「Local Address」表示哪个地址和端口有问题，我们可以通过「lsof -i:<port>」来确认端口对应运行的是什么程序以及它的进程号是多少。</port></p>
-<p>如果是我们自己写的一些程序，比如用 HttpClient 自定义的蜘蛛，那么八九不离十是程序问题，如果是一些使用广泛的程序，比如 Tomcat 之类的，那么更可能是响应速度太慢或者 timeout 设置太小或者 BACKLOG 设置过大导致的故障。</p>
-<h4 id="server端大量close-wait案例"><a href="#server端大量close-wait案例" class="headerlink" title="server端大量close_wait案例"></a>server端大量close_wait案例</h4><p>看了这么多理论，下面用个案例来检查自己对close_wait理论（tcp握手本质）的掌握。同时也可以看看自己从知识到问题的推理能力（跟文章最后的知识效率呼应一下）。</p>
-<p>问题描述：</p>
-<blockquote>
-<p>服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）</p>
-</blockquote>
-<p>根据这个描述先不要往下看，自己推理分析下可能的原因。</p>
-<p>我的推理如下：</p>
-<p>从这里看起来，client跟server成功建立了somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这个连接，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时Server上这个连接变成了CLOSE_WAIT .</p>
-<p>也就是从开始到结束这些连接都在accept queue中，没有被应用accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。</p>
-<p>如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到server是否accept()了，只是发了数据后server的os代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。</p>
-<p>得检查server 应用为什么没有accept。</p>
-<p><img src="/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"></p>
-<p>结论：</p>
-<blockquote>
-<p>这个case的最终原因是因为<strong>OS的open files设置的是1024,达到了上限</strong>，进而导致server不能accept，但这个时候的tcp连接状态已经是ESTABLISHED了（这个状态变换是取决于内核收发包，跟应用是否accept()无关）。</p>
-<p>同时从这里可以推断 netstat 即使看到一个tcp连接状态是ESTABLISHED也不能代表占用了 open files句柄。此时client可以正常发送数据了，只是应用服务在accept之前没法receive数据和close连接。</p>
-</blockquote>
-<h2 id="TCP连接状态图"><a href="#TCP连接状态图" class="headerlink" title="TCP连接状态图"></a>TCP连接状态图</h2><p><img src="/images/oss/b3d075782450b0c8d2615c5d2b75d923.png" alt="image.png"></p>
-<h2 id="总结下"><a href="#总结下" class="headerlink" title="总结下"></a>总结下</h2><p>tcp所有特性基本上核心都是为了<strong>可靠传输</strong>这个目标来服务的，然后有一些是出于优化性能的目的</p>
-<p>三次握手建连接的详细过程可以参考我这篇： <a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
-<p>后续希望再通过几个案例来深化一下上面的知识。</p>
-<hr>
-<p>为什么要案例来深化一下上面的知识，说点关于学习的题外话</p>
-<h2 id="什么是工程效率，什么是知识效率"><a href="#什么是工程效率，什么是知识效率" class="headerlink" title="什么是工程效率，什么是知识效率"></a>什么是工程效率，什么是知识效率</h2><p>有些人纯看理论就能掌握好一门技能，还能举三反一，这是知识效率，这种人非常少；</p>
-<p>大多数普通人都是看点知识然后结合实践来强化理解理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。</p>
-<p>对于费曼（参考费曼学习法）这样的聪明人就是很容易看到一个理论知识就能理解这个理论知识背后的本质。</p>
-<p>肯定知识效率最牛逼，但是拥有这种能力的人毕竟非常少。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快地掌握一个新知识。剩下的绝大部分只能拼时间(刷题)+方法+总结等也能掌握一些知识</p>
-<p>非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）</p>
-<p>使劲挖掘自己在知识效率型方面的能力吧，即使灰色地带也行啊。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/02/就是要你懂TCP--wireshark-dup-ack-issue/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/06/02/就是要你懂TCP--wireshark-dup-ack-issue/" itemprop="url">就是要你懂TCP--wireshark-dup-ack-issue</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-02T15:30:03+08:00">
-                2017-06-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="就是要你懂TCP–wireshark-dup-ack-issue"><a href="#就是要你懂TCP–wireshark-dup-ack-issue" class="headerlink" title="就是要你懂TCP–wireshark-dup-ack-issue"></a>就是要你懂TCP–wireshark-dup-ack-issue</h1><h2 id="问题："><a href="#问题：" class="headerlink" title="问题："></a>问题：</h2><p>很多同学学会抓包后，经常拿着这样一个抓包来问我是怎么回事：</p>
-<p>在wireshark中看到一个tcp会话中的两台机器突然一直互相发dup ack包，但是没有触发重传。每次重复ack都是间隔精确的20秒</p>
-<h2 id="如下截图："><a href="#如下截图：" class="headerlink" title="如下截图："></a>如下截图：</h2><p><img src="/images/951413iMgBlog/bm3W68Q.png" alt=""></p>
-<p>client都一直在回复收到2号包（ack=2）了，可是server跟傻了一样居然还发seq=1的包（按理，应该发比2大的包啊）</p>
-<h2 id="系统配置："><a href="#系统配置：" class="headerlink" title="系统配置："></a>系统配置：</h2><pre><code>net.ipv4.tcp_keepalive_time = 20
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_keepalive_intvl = 3
-</code></pre><h2 id="原因："><a href="#原因：" class="headerlink" title="原因："></a>原因：</h2><p>抓包不全的话wireshark有缺陷，把keepalive包识别成了dup ack包，看内容这种dup ack和keepalive似乎是一样的，flags都是0x010。keep alive的定义的是后退一格(seq少1）。</p>
-<p>2、4、6、8……号包，都有一个“tcp acked unseen segment”。这个一般表示它ack的这个包，没有被抓到。Wirshark如何作出此判断呢？前面一个包是seq=1, len=0，所以正常情况下是ack = seq + len = 1，然而Wireshark看到的确是ack = 2, 它只能判断有一个seq =1, len = 1的包没有抓到。<br>dup ack也是类似道理，这些包完全符合dup ack的定义，因为“ack = ” 某个数连续多次出现了。</p>
-<p>这一切都是因为keep alive的特殊性导致的。打开66号包的tcp层（见后面的截图），可以看到它的 next sequence number = 12583，表示正常情况下server发出的下一个包应该是seq = 12583。可是在下一个包，也就是68号包中，却是seq = 12582。keep alive的定义的确是这样，即后退一格。<br>Wireshark只有在抓到数据包（66号包）和keep alive包的情况下才有可能正确识别，前面的抓包中恰好在keep alive之前丢失了数据包，所以Wireshark就蒙了。</p>
-<h2 id="构造重现"><a href="#构造重现" class="headerlink" title="构造重现"></a>构造重现</h2><p>如果用“frame.number &gt;= 68” 过滤这个包，然后File–&gt;export specified packets保存成一个新文件，再打开那个新文件，就会发现Wireshark又蒙了。本来能够正常识别的keep alive包又被错看成dup ack了，所以一旦碰到这种情况不要慌要稳</p>
-<p>下面是知识点啦</p>
-<h2 id="Keepalive"><a href="#Keepalive" class="headerlink" title="Keepalive"></a>Keepalive</h2><p>TCP报文接收方必须回复的场景：</p>
-<p>TCP携带字节数据<br>没有字节数据，携带SYN状态位<br>没有字节数据，携带FIN状态位</p>
-<p>keepalive 提取历史发送的最后一个字节，充当心跳字节数据，依然使用该字节的最初序列号。也就是前面所说的seq回退了一个</p>
-<p>对方收到后因为seq小于TCP滑动窗口的左侧，被判定为duplicated数据包，然后扔掉了，并回复一个duplicated ack</p>
-<p>所以keepalive跟duplicated本质是一回事，就看wireshark能够正确识别了。</p>
-<h2 id="Duplication-ack是指："><a href="#Duplication-ack是指：" class="headerlink" title="Duplication ack是指："></a>Duplication ack是指：</h2><p>server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server就会ack 3，如果client还是继续发8/9号包，那么server会继续发dup ack 3#1 ; dup ack 3#2 来向客户端说明只收到了3号包，不要着急发后面的大包，把4/5/6/7给我发过来</p>
-<h2 id="TCP-Window-Update"><a href="#TCP-Window-Update" class="headerlink" title="TCP Window Update"></a>TCP Window Update</h2><p><img src="/images/oss/1558941016099-bc4504f1-e9c7-4d84-85e1-a7f5c6554306.png" alt=""></p>
-<p>如上图，当接收方的tcp Window Size不足一个MSS的时候，为了避免 Silly Window Syndrome，Client不再发小包，而是发送探测包（跟keepalive一样，发一个回退一格的包，触发server ack同时server ack的时候会带过来新的window size）探测包间隔时间是200/400/800/1600……ms这样</p>
-<h2 id="正常的keep-alive-Case："><a href="#正常的keep-alive-Case：" class="headerlink" title="正常的keep-alive Case："></a>正常的keep-alive Case：</h2><p><img src="/images/951413iMgBlog/DsTWFZr.png" alt=""></p>
-<p>keep-alive 通过发一个比实际seq小1的包，比如server都已经 ack 12583了，client故意发一个seq 12582来标识这是一个keep-Alive包</p>
-<h2 id="Duplication-ack是指：-1"><a href="#Duplication-ack是指：-1" class="headerlink" title="Duplication ack是指："></a>Duplication ack是指：</h2><p>server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server就会ack 3，如果client还是继续发8/9号包，那么server会继续发dup ack 3#1 ; dup ack 3#2 来向客户端说明只收到了3号包，不要着急发后面的大包，把4/5/6/7给我发过来</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -2632,7 +2510,7 @@ net.ipv4.tcp_keepalive_intvl = 3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">142</span>
+                <span class="site-state-item-count">146</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -2654,7 +2532,7 @@ net.ipv4.tcp_keepalive_intvl = 3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">235</span>
+                <span class="site-state-item-count">240</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

@@ -114,6 +114,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f4.jpg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221102161222519.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg">
@@ -129,7 +130,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2022-10-11T08:17:59.901Z">
+<meta property="og:updated_time" content="2022-11-04T09:12:40.029Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
 <meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
@@ -499,7 +500,7 @@
 <h3 id="Deeper-Pipelines深度流水线"><a href="#Deeper-Pipelines深度流水线" class="headerlink" title="Deeper Pipelines深度流水线"></a>Deeper Pipelines深度流水线</h3><p>由于时钟速度受流水线中最长阶段的长度的限制，因此每个级的逻辑门可以再细分，尤其是较长的逻辑门，从而将流水线转换为更深的深度流水线,各阶段的数量长度变小而阶段总数量变多，如下图。</p>
 <p><img src="/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png" alt="img"></p>
 <p>​    这样整个处理器可以更高的时钟速度运行。当然，每个指令将需要更多的周期来完成（等待时间），但是处理器仍将在每个周期中完成1条指令，这样每秒将有更多的周期，处理器每秒将完成更多的指令。</p>
-<p>​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。。</p>
+<p>​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。</p>
 <p>​    如今，现代处理器努力将每个流水线阶段的门延迟数量降低到很少（大约12-25个）。</p>
 <p>​    在PowerPC G4e中为7-12，在ARM11和Cortex-A9中为8+，在Athlon中为10-15，在Pentium-Pro/II/III/M中为12+，在Athlon64/Phenom/Fusion-A中为12-17，在Cortex-A8中为13+，在UltraSPARC-III/IV中为14，在Core 2中为14+，在Core i*2中为14-18+，在Core i中为16+，在PowerPC G5中为16-25，在Pentium-4中为20+， 在奔腾4E中为31+。 与RISC相比，x86处理器通常具有更深的流水线，因为它们需要做更多的工作来解码复杂的x86指令。UltraSPARC-T1/T2/T3是深度流水线趋势的例外（UltraSPARC-T1仅6个，T2/T3是8-12，因为其倾向让单核简化的方式来堆叠核数量）。</p>
 <p>​    不同架构的CPU流水线的级数（长度）存在很大差异，从几级到几十级不等，流水线级数越多，CPU结构就越复杂，功能也就越强大，同时功耗也会越大。相反地，流水线级数少，CPU结构简单，功耗就会降低很多。下表是一些典型的ARM流水线级别。</p>
@@ -541,6 +542,12 @@
 </tr>
 </tbody>
 </table>
+<p>流水线越长带来的问题：</p>
+<ul>
+<li>每一级流水线之间需要流水线寄存器暂存数据，存取需要额外的负担</li>
+<li>功耗高</li>
+<li>对分支预测不友好</li>
+</ul>
 <h3 id="指令延时"><a href="#指令延时" class="headerlink" title="指令延时"></a>指令延时</h3><p>​    考虑一个非流水线机器，具有6个执行阶段，长度分别为50 ns，50 ns，60 ns，60 ns，50 ns和50 ns。</p>
 <p>​    -这台机器上的指令等待时间是多少？</p>
 <p>​    -执行100条指令需要多少时间？</p>
@@ -552,8 +559,11 @@
 <p>​    流水线级的长度= MAX（非流水线级的长度）+开销= 60 + 5 = 65 ns</p>
 <p>​    指令等待时间= 65 ns</p>
 <p>​    执行100条指令的时间= 65 <em> 6 </em> 1 + 65 <em> 1 </em> 99 = 390 + 6435 = 6825 ns</p>
-<h3 id="从流水线获得加速"><a href="#从流水线获得加速" class="headerlink" title="从流水线获得加速"></a>从流水线获得加速</h3><p>​    加速是没有流水线的平均指令时间与有流水线的平均指令时间之比。（这里不考虑由不同类型的危害引起的任何失速）</p>
-<p>​    假设：</p>
+<h3 id="保留站和乱序执行"><a href="#保留站和乱序执行" class="headerlink" title="保留站和乱序执行"></a>保留站和乱序执行</h3><p>指令在做完取码、译码后一般先交由一个指令保留站，统一交给后面的多个执行单元（多发射），执行完后再次将结果排序就行，有依赖关系的需要等待。</p>
+<p>保留站后面就是乱序执行技术，就好像在指令的执行阶段提供一个“线程池”。指令不再是顺序执行的，而是根据池里所拥有的资源，以及各个任务是否可以进行执行，进行动态调度。在执行完成之后，又重新把结果在一个队列里面，按照指令的分发顺序重新排序。即使内部是“乱序”的，但是在外部看起来，仍然是井井有条地顺序执行。</p>
+<p><img src="/images/951413iMgBlog/image-20221102161222519.png" alt="image-20221102161222519"></p>
+<h3 id="从流水线获得加速"><a href="#从流水线获得加速" class="headerlink" title="从流水线获得加速"></a>从流水线获得加速</h3><p>加速是没有流水线的平均指令时间与有流水线的平均指令时间之比。（这里不考虑由不同类型的危害引起的任何失速）</p>
+<p>假设：</p>
 <p>​    未流水线的平均指令时间= 320 ns</p>
 <p>​    流水线的平均指令时间= 65 ns</p>
 <p>​    那么，100条指令的加速= 32000/6825 = 4.69，这种理想情况下效率提升了4.69倍。</p>
@@ -857,7 +867,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">142</span>
+                <span class="site-state-item-count">146</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -879,7 +889,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">235</span>
+                <span class="site-state-item-count">240</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -921,7 +931,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Perf-IPC以及CPU性能"><span class="nav-number">1.</span> <span class="nav-text">Perf IPC以及CPU性能</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#系列文章"><span class="nav-number">1.1.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#程序性能"><span class="nav-number">1.2.</span> <span class="nav-text">程序性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#CPU-流水线工作原理"><span class="nav-number">1.3.</span> <span class="nav-text">CPU 流水线工作原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pipeline效率和IPC"><span class="nav-number">1.3.1.</span> <span class="nav-text">pipeline效率和IPC</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#流水线案例"><span class="nav-number">1.3.2.</span> <span class="nav-text">流水线案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#流水线的实际效果"><span class="nav-number">1.3.3.</span> <span class="nav-text">流水线的实际效果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Deeper-Pipelines深度流水线"><span class="nav-number">1.3.4.</span> <span class="nav-text">Deeper Pipelines深度流水线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#指令延时"><span class="nav-number">1.3.5.</span> <span class="nav-text">指令延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#对比流水线延时"><span class="nav-number">1.3.6.</span> <span class="nav-text">对比流水线延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#从流水线获得加速"><span class="nav-number">1.3.7.</span> <span class="nav-text">从流水线获得加速</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#指令缓存（Instruction-Cache）和数据缓存（Data-Cache）"><span class="nav-number">1.3.8.</span> <span class="nav-text">指令缓存（Instruction Cache）和数据缓存（Data Cache）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel-X86每个指令需要的cycle"><span class="nav-number">1.3.9.</span> <span class="nav-text">Intel X86每个指令需要的cycle</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-使用"><span class="nav-number">1.4.</span> <span class="nav-text">perf 使用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC测试"><span class="nav-number">1.5.</span> <span class="nav-text">IPC测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC和超线程"><span class="nav-number">1.6.</span> <span class="nav-text">IPC和超线程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#超线程-Hyper-Threading-原理"><span class="nav-number">1.6.1.</span> <span class="nav-text">超线程(Hyper-Threading)原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#超线程如何查看"><span class="nav-number">1.6.2.</span> <span class="nav-text">超线程如何查看</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IPC和超线程的关系"><span class="nav-number">1.6.3.</span> <span class="nav-text">IPC和超线程的关系</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel和AMD单核以及HT性能比较"><span class="nav-number">1.6.4.</span> <span class="nav-text">Intel和AMD单核以及HT性能比较</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#主频和性价比"><span class="nav-number">1.7.</span> <span class="nav-text">主频和性价比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-top-和-pause-的案例"><span class="nav-number">1.8.</span> <span class="nav-text">perf top 和 pause 的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-和火焰图"><span class="nav-number">1.9.</span> <span class="nav-text">perf 和火焰图</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ECS和perf"><span class="nav-number">1.10.</span> <span class="nav-text">ECS和perf</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Perf-和-false-share-cache-line"><span class="nav-number">1.11.</span> <span class="nav-text">Perf 和 false share cache_line</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#系列文章-1"><span class="nav-number">1.12.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.13.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Perf-IPC以及CPU性能"><span class="nav-number">1.</span> <span class="nav-text">Perf IPC以及CPU性能</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#系列文章"><span class="nav-number">1.1.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#程序性能"><span class="nav-number">1.2.</span> <span class="nav-text">程序性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#CPU-流水线工作原理"><span class="nav-number">1.3.</span> <span class="nav-text">CPU 流水线工作原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pipeline效率和IPC"><span class="nav-number">1.3.1.</span> <span class="nav-text">pipeline效率和IPC</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#流水线案例"><span class="nav-number">1.3.2.</span> <span class="nav-text">流水线案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#流水线的实际效果"><span class="nav-number">1.3.3.</span> <span class="nav-text">流水线的实际效果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Deeper-Pipelines深度流水线"><span class="nav-number">1.3.4.</span> <span class="nav-text">Deeper Pipelines深度流水线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#指令延时"><span class="nav-number">1.3.5.</span> <span class="nav-text">指令延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#对比流水线延时"><span class="nav-number">1.3.6.</span> <span class="nav-text">对比流水线延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#保留站和乱序执行"><span class="nav-number">1.3.7.</span> <span class="nav-text">保留站和乱序执行</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#从流水线获得加速"><span class="nav-number">1.3.8.</span> <span class="nav-text">从流水线获得加速</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#指令缓存（Instruction-Cache）和数据缓存（Data-Cache）"><span class="nav-number">1.3.9.</span> <span class="nav-text">指令缓存（Instruction Cache）和数据缓存（Data Cache）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel-X86每个指令需要的cycle"><span class="nav-number">1.3.10.</span> <span class="nav-text">Intel X86每个指令需要的cycle</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-使用"><span class="nav-number">1.4.</span> <span class="nav-text">perf 使用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC测试"><span class="nav-number">1.5.</span> <span class="nav-text">IPC测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC和超线程"><span class="nav-number">1.6.</span> <span class="nav-text">IPC和超线程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#超线程-Hyper-Threading-原理"><span class="nav-number">1.6.1.</span> <span class="nav-text">超线程(Hyper-Threading)原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#超线程如何查看"><span class="nav-number">1.6.2.</span> <span class="nav-text">超线程如何查看</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IPC和超线程的关系"><span class="nav-number">1.6.3.</span> <span class="nav-text">IPC和超线程的关系</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel和AMD单核以及HT性能比较"><span class="nav-number">1.6.4.</span> <span class="nav-text">Intel和AMD单核以及HT性能比较</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#主频和性价比"><span class="nav-number">1.7.</span> <span class="nav-text">主频和性价比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-top-和-pause-的案例"><span class="nav-number">1.8.</span> <span class="nav-text">perf top 和 pause 的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-和火焰图"><span class="nav-number">1.9.</span> <span class="nav-text">perf 和火焰图</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ECS和perf"><span class="nav-number">1.10.</span> <span class="nav-text">ECS和perf</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Perf-和-false-share-cache-line"><span class="nav-number">1.11.</span> <span class="nav-text">Perf 和 false share cache_line</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#系列文章-1"><span class="nav-number">1.12.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.13.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>
