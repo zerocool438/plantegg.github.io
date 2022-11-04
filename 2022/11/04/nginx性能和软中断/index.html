@@ -102,15 +102,15 @@
 <meta property="og:url" content="https://plantegg.github.io/2022/11/04/nginx性能和软中断/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="nginx性能和软中断问题 如何调整软中断才能达到最优性能？ 通过 top 观察软中断 和 si%、sy% 的关系  测试机型双路 Intel(R) Xeon(R) CPU E5-2682 v4 两块万兆网卡：Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01) 内核：3.10.0-327 12NUMA">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152031791.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152044825.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221101113948809.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221101114217738.png">
-<meta property="og:updated_time" content="2022-11-04T09:12:39.306Z">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20221031152031791.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20221031152044825.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20221101113948809.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20221101114217738.png">
+<meta property="og:updated_time" content="2022-11-04T09:33:13.656Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="nginx性能和软中断">
 <meta name="twitter:description" content="nginx性能和软中断问题 如何调整软中断才能达到最优性能？ 通过 top 观察软中断 和 si%、sy% 的关系  测试机型双路 Intel(R) Xeon(R) CPU E5-2682 v4 两块万兆网卡：Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01) 内核：3.10.0-327 12NUMA">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152031791.png">
+<meta name="twitter:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20221031152031791.png">
 
 
 
@@ -299,7 +299,7 @@
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/11/04/nginx性能和软中断/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="weibo @plantegg">
+      <meta itemprop="name" content="twitter @plantegg">
       <meta itemprop="description" content="">
       <meta itemprop="image" content="/images/avatar.gif">
     </span>
@@ -396,14 +396,14 @@
 <p>内核：3.10.0-327</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">NUMA node0 CPU(s):     0-15,32-47</div><div class="line">NUMA node1 CPU(s):     16-31,48-63</div></pre></td></tr></table></figure>
 <h2 id="软中断和-si"><a href="#软中断和-si" class="headerlink" title="软中断和 si%"></a>软中断和 si%</h2><p>压nginx 碰到一个奇怪的问题，将软中断绑到48-63核，如果nginx绑到这个socket下的其它核比如 16-23，我就基本上看不到 si% 的使用率；如果所有条件都不变我将nginx 绑0-7core（另外一个socket），那么我能看到0-7 core上的软中断 si%使用率达到600%以上（8core累加）。 si%使用率应该只和 PPS、流量相关，这个测试中不同绑核nginx的QPS 差了20%以内。</p>
-<p><img src="/images/951413iMgBlog/image-20221031152031791.png" alt="image-20221031152031791"><img src="/images/951413iMgBlog/image-20221031152044825.png" alt="image-20221031152044825"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20221031152031791.png" alt="image-20221031152031791"><img src="/Users/ren/src/blog/951413iMgBlog/image-20221031152044825.png" alt="image-20221031152044825"></p>
 <p>CPU是intel E5，网卡插在node0上</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</div><div class="line">NUMA node0 CPU(s):     0-15,32-47</div><div class="line">NUMA node1 CPU(s):     16-31,48-63</div><div class="line"></div><div class="line">软中断绑定：IRQBALANCE_BANNED_CPUS=0000ffff,ffffffff</div></pre></td></tr></table></figure>
 <p>默认业务进程调用内核软中断do_softirq等来处理收发包，不需要跨core，如果将软中断绑定到具体的core后，会触发ksoftirqd 来调用do_softirq来处理收发包，整体上肯定效率不如同一个core处理业务和软中断的效率高。进一步如果软中断跨socket绑定导致处理时长进一步升高、总效率更差</p>
 <p><a href="https://askubuntu.com/questions/7858/why-is-ksoftirqd-0-process-using-all-of-my-cpu" target="_blank" rel="external">https://askubuntu.com/questions/7858/why-is-ksoftirqd-0-process-using-all-of-my-cpu</a></p>
-<p><img src="/images/951413iMgBlog/image-20221101113948809.png" alt="image-20221101113948809"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20221101113948809.png" alt="image-20221101113948809"></p>
 <p>下图场景下，收包没有占用 si，而是占用的 sy</p>
-<p><img src="/images/951413iMgBlog/image-20221101114217738.png" alt="image-20221101114217738"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20221101114217738.png" alt="image-20221101114217738"></p>
 <p>将软中断和业务进程拆开绑核，均将软中断、业务基本压满的情况下，如果软中断在本node，QPS 增加20%+</p>
 <p>软中断打满单核后的IPC：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div></pre></td><td class="code"><pre><div class="line">#perf stat --cpu 29  //软中断所在core，si%=100%，和业务以及网卡跨node</div><div class="line">^C</div><div class="line"> Performance counter stats for &apos;CPU(s) 29&apos;:</div><div class="line"></div><div class="line">       4470.584807      task-clock (msec)         #    1.001 CPUs utilized            (100.00%)</div><div class="line">               252      context-switches          #    0.056 K/sec                    (100.00%)</div><div class="line">                 8      cpu-migrations            #    0.002 K/sec                    (100.00%)</div><div class="line">                 3      page-faults               #    0.001 K/sec</div><div class="line">    11,158,106,237      cycles                    #    2.496 GHz                      (100.00%)</div><div class="line">   &lt;not supported&gt;      stalled-cycles-frontend</div><div class="line">   &lt;not supported&gt;      stalled-cycles-backend</div><div class="line">     7,976,745,525      instructions              #    0.71  insns per cycle          (100.00%)</div><div class="line">     1,444,740,326      branches                  #  323.166 M/sec                    (100.00%)</div><div class="line">         7,073,805      branch-misses             #    0.49% of all branches</div><div class="line"></div><div class="line">       4.465613433 seconds time elapsed</div><div class="line"></div><div class="line">#perf stat --cpu 1  //软中断所在core，si%=100%，和业务以及网卡跨node</div><div class="line">^C</div><div class="line">^C</div><div class="line"> Performance counter stats for &apos;CPU(s) 1&apos;:</div><div class="line"></div><div class="line">       5132.639092      task-clock (msec)         #    1.002 CPUs utilized            (100.00%)</div><div class="line">             1,119      context-switches          #    0.218 K/sec                    (100.00%)</div><div class="line">                 6      cpu-migrations            #    0.001 K/sec                    (100.00%)</div><div class="line">                 0      page-faults               #    0.000 K/sec</div><div class="line">    12,773,996,227      cycles                    #    2.489 GHz                      (100.00%)</div><div class="line">   &lt;not supported&gt;      stalled-cycles-frontend</div><div class="line">   &lt;not supported&gt;      stalled-cycles-backend</div><div class="line">    12,457,832,798      instructions              #    0.98  insns per cycle          (100.00%)</div><div class="line">     2,243,820,953      branches                  #  437.167 M/sec                    (100.00%)</div><div class="line">        12,769,358      branch-misses             #    0.57% of all branches</div><div class="line"></div><div class="line">       5.124937947 seconds time elapsed</div></pre></td></tr></table></figure>
@@ -544,8 +544,8 @@
         <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
           <img class="site-author-image" itemprop="image"
                src="/images/avatar.gif"
-               alt="weibo @plantegg" />
-          <p class="site-author-name" itemprop="name">weibo @plantegg</p>
+               alt="twitter @plantegg" />
+          <p class="site-author-name" itemprop="name">twitter @plantegg</p>
            
               <p class="site-description motion-element" itemprop="description"></p>
            
@@ -649,7 +649,7 @@
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
-  <span class="author" itemprop="copyrightHolder">weibo @plantegg</span>
+  <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
 </div>
 
 
