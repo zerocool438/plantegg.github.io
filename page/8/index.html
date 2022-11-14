@@ -291,6 +291,957 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/ipmitool修改BIOS/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/01/ipmitool修改BIOS/" itemprop="url">ipmitool 和 BIOS</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T12:30:03+08:00">
+                2020-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="ipmitool-和-BIOS"><a href="#ipmitool-和-BIOS" class="headerlink" title="ipmitool 和 BIOS"></a>ipmitool 和 BIOS</h1><h2 id="什么是-IPMI"><a href="#什么是-IPMI" class="headerlink" title="什么是 IPMI"></a>什么是 IPMI</h2><p>IPMI（智能平台管理接口），Intelligent Platform Management Interface 的缩写。原本是一种<a href="https://baike.baidu.com/item/Intel" target="_blank" rel="external">Intel</a>架构的企业系统的周边设备所采用的一种工业标准。IPMI亦是一个开放的免费标准，用户无需支付额外的费用即可使用此标准。</p>
+<p>IPMI 能够横跨不同的操作系统、固件和硬件平台，可以智能的监视、控制和自动回报大量服务器的运作状况，以降低服务器系统成本。</p>
+<p>1998年Intel、DELL、HP及NEC共同提出IPMI规格，可以透过网路远端控制温度、电压。</p>
+<p>2001年IPMI从1.0版改版至1.5版，新增 PCI Management Bus等功能。</p>
+<p>2004年Intel发表了IPMI 2.0的规格，能够向下相容IPMI 1.0及1.5的规格。新增了Console Redirection，并可以通过Port、Modem以及Lan远端管理伺服器，并加强了安全、VLAN 和刀锋伺服器的支援性。</p>
+<p>Intel/amd/hygon 基本都支持 ipmitool，看起来ARM 支持的接口也许不一样</p>
+<p>BMC（Baseboard Management Controller）即我们常说的带外系统，是在机器上电时即完成自身初始化，开始运行。其系统可在standby电模式下工作。所以，通过带外监控服务器硬件故障，不受OS存活状态影响，可实现7*24小时无间断监控，甚至我们可以通过带外方式，精确感知带内存活，实现OS存活监控。</p>
+<p>BMC在物理形态上，由一主嵌入式芯片+系列总线+末端芯片组成的一个硬件监控&amp;控制系统，嵌入式芯片中运行嵌入式Linux操作系统，负责整个BMC系统的资源协调及用户交互，核心进程是IPMImain进程，实现了全部IPMI2.0协议的消息传递&amp;处理工作。</p>
+<h2 id="ipmitool-用法"><a href="#ipmitool-用法" class="headerlink" title="ipmitool 用法"></a>ipmitool 用法</h2><p>基本步骤：</p>
+<ol>
+<li>查看当前值：ipmitool raw 0x3e 0x5f 0x00 0x11 （非必要，列出目前BIOS中的值）</li>
+<li>打开配置开关(让BIOS进入可配置，默认不可配置)：ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</li>
+<li>修改某个值，比如将numa 设置为on：ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</li>
+<li>查看修改后的值：ipmitool raw 0x3e 0x5d 0x05 0x01 (必须要)</li>
+<li>最后reboot机器新的值就会apply到BIOS中</li>
+</ol>
+<p><a href="https://blog.csdn.net/zygblock/article/details/53367664" target="_blank" rel="external">ipmitool使用</a>基本语法</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">         固定-不变 0x5c修改   要修改的项    长度(一搬都是01)    新的值(0x81 表示on、0x80表示off)</div><div class="line">ipmitool raw 0x3e 0x5c      index       0x01                value</div></pre></td></tr></table></figure>
+<p>第1/2个参数raw 0x3e 固定不变</p>
+<p>第三个参数表示操作可以是：</p>
+<ul>
+<li>0x5c 修改</li>
+<li>0x5f 查看BIOS中的当前值（海光是这样，intel不是）</li>
+<li>0x5d 查询即将写入的值（修改后没有写入 0x5f 看到的是老值）  </li>
+</ul>
+<p>第四个参数Index表示需要修改的配置项（具体见后表）</p>
+<p>第五个参数 0x01 表示值的长度，一般固定不需要改</p>
+<p>value 表示值，0x81表示enable; 0x80表示disable</p>
+<h3 id="ipmitool带外设置步骤"><a href="#ipmitool带外设置步骤" class="headerlink" title="ipmitool带外设置步骤"></a><a href="https://promisechen.github.io/kbase/ipmi.html" target="_blank" rel="external">ipmitool</a>带外设置步骤</h3><p>1）设置valid flag：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c 0x00 0x01 0x81</p>
+<p>2） 设置对应的选项：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c index 0x01 Data  —- index 和Data参考下述表格；</p>
+<p>3）重启CN：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 power reset</p>
+<p>4）读取当前值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10  raw 0x3e 0x5f index 0x01 </p>
+<p> 如moc机型，读取CN的 Numa值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5f 0x05 0x01 </p>
+<h3 id="确认是否设置成功"><a href="#确认是否设置成功" class="headerlink" title="确认是否设置成功"></a>确认是否设置成功</h3><p>查询要写入的新值：ipmitool 0x3e 0x5d 0x00 0x11</p>
+<p> 返回值，如：11 <strong>81</strong> 81 00 00 00 00 00 00 00 00 00 00 00 00 00  00 00</p>
+<p>​      第一个byte 表示查询数量，表示查询0x11个设置项；</p>
+<pre><code>第二个byte 表示index=0的值，即Configuration，必须保证是0x81，才能进行重启，否则设置不生效；
+</code></pre><p>​      第三个byte 表示index=1的值，即Turbo，表示要设置为0x81；</p>
+<p>​      剩余byte依次类推……….</p>
+<p>​      未设置新值的index对应值是00，要设置的index其对应值为Data（步骤3的设置值）；</p>
+<h2 id="海光服务器修改案例"><a href="#海光服务器修改案例" class="headerlink" title="海光服务器修改案例"></a>海光服务器修改案例</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">//海光+alios下 第二列为：0x5c 修改、0x5f BIOS中的查询、0x5d 查询即将写入的值 </div><div class="line">//0x5f 查询BIOS中的值</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5f 0x00 0x11</div><div class="line"> 11 81 81 81 81 80 81 80 81 81 80 81 81 00 00 81</div><div class="line"> 80 81</div><div class="line"> </div><div class="line">//还没有写入任何新值</div><div class="line">#ipmitool raw 0x3e 0x5d 0x00 0x11</div><div class="line"> 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00</div><div class="line"> 00 00 </div><div class="line"></div><div class="line">//enable numa</div><div class="line">#ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</div><div class="line">#ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</div><div class="line"></div><div class="line">//enable boost</div><div class="line">#ipmitool raw 0x3e 0x5c 0x01 0x01 0x81</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x01 0x01</div><div class="line"> 11 81 </div><div class="line">//关闭 SMT</div><div class="line">#ipmitool raw 0x3e 0x5c 0x02 0x01 0x80</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x02 0x01</div><div class="line"> 11 81</div></pre></td></tr></table></figure>
+<h2 id="BIOS中选项的对应关系"><a href="#BIOS中选项的对应关系" class="headerlink" title="BIOS中选项的对应关系"></a>BIOS中选项的对应关系</h2><h3 id="Intel服务器"><a href="#Intel服务器" class="headerlink" title="Intel服务器"></a>Intel服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)0x00  BIOS在读取设定后，会发送index=0x00，data=0x00的命令给BMC，BMC应清零所有参数值。</td>
+</tr>
+<tr>
+<td>Turbo</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>HT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Numa</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – disable 0x81 - enable</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT-d</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+</tr>
+<tr>
+<td>Active Cores</td>
+<td>0x11</td>
+<td>1</td>
+<td>0x80 - Default Core Number0x81 - Active 1 Core0x82 - Active 2 Cores0x83 - Active 3 Cores…0xFE - Active 126 Cores</td>
+</tr>
+<tr>
+<td>C   State</td>
+<td>0x12</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>HWPM</td>
+<td>0x13</td>
+<td>1</td>
+<td>0x80-Disable0x81-Native   mode0x82-OOB   Mode0x83-Native   mode Without Legacy support</td>
+</tr>
+<tr>
+<td>Intel   SgxSW Guard Extensions (SGX)</td>
+<td>0x14</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SGX PRMRR Size</td>
+<td>0x15</td>
+<td>1</td>
+<td>0X80-[00]No valid PRMRR   size    0X81-[40000000]1G0X82-[80000000]2G0X83-[100000000]4G0X84-[200000000]8G0X85-[400000000]16G0X86-[800000000]32G0X87-[1000000000]64G0X88-[2000000000]128G0X89-[4000000000]256G0X8A-[8000000000]512G</td>
+</tr>
+<tr>
+<td>SGX Factory Reset</td>
+<td>0x16</td>
+<td></td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td></td>
+<td>0x17</td>
+<td></td>
+<td>预留</td>
+</tr>
+<tr>
+<td>CPU0_IOU0 (IIO PCIe Br1)</td>
+<td>0x18</td>
+<td>1</td>
+<td>0x80 – x4x4x4x4   0x81 – x4x4x8   0x82 – x8x4x4   0x83 – x8x8   0x84 – x16   0x85 - Auto</td>
+</tr>
+<tr>
+<td>CPU0_IOU1 (IIO PCIe Br2)</td>
+<td>0x19</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU2 (IIO PCIe Br3)</td>
+<td>0x1a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU3 (IIO PCIe Br4)</td>
+<td>0x1b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU4 (IIO PCIe Br5)</td>
+<td>0x1c</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU0 (IIO PCIe Br1)</td>
+<td>0x1d</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU1 (IIO PCIe Br2)</td>
+<td>0x1e</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU2 (IIO PCIe Br3)</td>
+<td>0x1f</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU3 (IIO PCIe Br4)</td>
+<td>0x20</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU4 (IIO PCIe Br5)</td>
+<td>0x21</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU0 (IIO PCIe Br1)</td>
+<td>0x22</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU1 (IIO PCIe Br2)</td>
+<td>0x23</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU2 (IIO PCIe Br3)</td>
+<td>0x24</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU3 (IIO PCIe Br4)</td>
+<td>0x25</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU4 (IIO PCIe Br5)</td>
+<td>0x26</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU0 (IIO PCIe Br1)</td>
+<td>0x27</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU1 (IIO PCIe Br2)</td>
+<td>0x28</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU2 (IIO PCIe Br3)</td>
+<td>0x29</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU3 (IIO PCIe Br4)</td>
+<td>0x2a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU4 (IIO PCIe Br5)</td>
+<td>0x2b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>SGXLEPUBKEYHASHx Write Enable</td>
+<td>0x2C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SubNuma</td>
+<td>0x2D</td>
+<td>1</td>
+<td>0x80-Disabled0x81-SN2</td>
+</tr>
+<tr>
+<td>VirtualNuma</td>
+<td>0x2E</td>
+<td>1</td>
+<td>0x80-Disabled0x81-Enabled</td>
+</tr>
+<tr>
+<td>TPM Priority</td>
+<td>0x2F</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>TDX</td>
+<td>0x30</td>
+<td>1</td>
+<td>0x80 - Disabled0x81 - Enabled</td>
+</tr>
+<tr>
+<td>Select Owner EPOCH input type</td>
+<td>0x31</td>
+<td>1</td>
+<td>0x81-Change to New Random Owner EPOCHs0x82-Manual User Defined Owner EPOCHs</td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 0</td>
+<td>0x32</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 1</td>
+<td>0x33</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="AMD服务器"><a href="#AMD服务器" class="headerlink" title="AMD服务器"></a>AMD服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SMT Mode</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SVM Mode</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 (AMD默认支持智能调频但无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>NUMA nodes per socket</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – NPS0 0x81 – NPS1 0x82 – NPS2 0x83 – NPS4 （开）0x87 – Auto(Auto为NPS1)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x8F – Auto</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80 (AMD无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80 (AMD暂未做IMS功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x83 – enable &amp; TPM   clear</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 (AMD暂未做此功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>RomeMilan</td>
+</tr>
+</tbody>
+</table>
+<h3 id="海光服务器"><a href="#海光服务器" class="headerlink" title="海光服务器"></a>海光服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SMT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SVM</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>P-State Control</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – Performance0x81 – Normal</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Memory Interleaving</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – Socket (关numa) 0x81 - channel（8 node）</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Onboard VGA</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Boot option Filter</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>海光2</td>
+</tr>
+</tbody>
+</table>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/2010到2020这10年的碎碎念念/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/01/2010到2020这10年的碎碎念念/" itemprop="url">2010到2020这10年的碎碎念念</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T00:30:03+08:00">
+                2020-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/others/" itemprop="url" rel="index">
+                    <span itemprop="name">others</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="2010到2020这10年的碎碎念念"><a href="#2010到2020这10年的碎碎念念" class="headerlink" title="2010到2020这10年的碎碎念念"></a>2010到2020这10年的碎碎念念</h1><h2 id="来自网络的一些数据"><a href="#来自网络的一些数据" class="headerlink" title="来自网络的一些数据"></a>来自网络的一些数据</h2><p>这十年，中国的人均GDP从大约3300美金干到了9800美金。这意味着：更多的中国人脱贫，更多的中国人变成了中产。这是这一轮消费升级的核心原动力，没有之一。</p>
+<p>这十年，中国的进出口的总额从2009年占GDP的44.86%，降至34.35%。</p>
+<p>互联网从美国copy开始变成创新、走在前列，因为有庞大的存量市场</p>
+<p>2010年，一个数据发生了逆势波动。那就是中国的适龄小学人口增速。在此之前从1997年后，基本呈负增长。这是因为中国80后家长开始登上历史舞台。这带动了诸多产业的蓬勃发展，比如互联网教育，当然还有学区房。</p>
+<p>10年吉利收购沃尔沃，18年吉利收购戴姆勒10%的股份。</p>
+<p>微信崛起、头条崛起、百度走下神坛。美团、pdd崛起</p>
+<p>12年2月6号的王护士长外逃美国大使馆也让大家兴奋了，11年的郭美美红十字会事件快要被忘记了，但是也让大家对慈善事件更加警惕，倒是谅解了汶川地震的王石10块捐款事件，不过老王很快因为娶了年轻的影星田朴珺一下子人设坍塌，大家更热衷老王的负面言论了。</p>
+<p>温州动车事件让高铁降速了</p>
+<p>我爸是李刚、药家鑫、李天一、邓玉娇（09年），陈冠希艳照门、三鹿奶粉、汶川地震、奥运会（08年）</p>
+<p>2018年：中美贸易站、问题疫苗、个税改革、中兴被美制裁，北京驱赶低端人口，鸿茅药酒，p2p暴雷，昆山反杀案，相互宝</p>
+<p>2015年：雾霾、柴静纪录片《穹顶之下》，屠呦呦诺贝尔奖，放开二胎</p>
+<p>2014年：东莞扫黄、马航370事件；周师傅被查、占中</p>
+<p>2013年：劳教正式被废除，想起2003年的孙志刚事件废除收容制度</p>
+<p>2012年：方韩之争，韩寒走下神坛</p>
+<p>2011年：日本海啸地震，中国抢盐事件；郭美美，温州动车</p>
+<p>2010年：google退出中国，上海世博会开幕，富士康N连跳楼事件；我爸是李刚，腾讯大战360</p>
+<h2 id="自我记忆"><a href="#自我记忆" class="headerlink" title="自我记忆"></a>自我记忆</h2><p>刚看到有人在说乐清钱云会事件，一晃10年了，10年前微博开始流行改变了好多新闻、热点事件的引爆方式。</p>
+<p>这十年BBS、门户慢慢在消亡，10年前大家都知道三大门户网站和天涯，现在的新网民应该知道的不多了。</p>
+<p>影响最大的还是移动网络的崛起，这也取决于4G和山寨机以及后来的小米手机，真正给中国的移动互联网带来巨大的红利，注入的巨大的增长。<br>我自己对移动互联网的判断是极端错误的，即使09年我就开始用上了iphone手机，那又怎么样，看问题还是用静态的视觉观点。手机没有键盘、手机屏幕狭小，这些确实是限制，到2014年我还想不明白为什么要在手机上购物，比较、看物品图片太不方便了，结果便利性秒杀了这些不方便；只有手机的群体秒杀了办公室里的白领，最后大家都很高兴地用手机购物了，甚至PC端bug更多，更甚至有些网站不提供PC端。</p>
+<p>移动网络的崛起和微信的成功也相辅相成的，在移动网络时代每个人都有自己的手机，所以账号系统的打通不再是问题，尤其是都被微信这个移动航母在吞噬，其它公司都活在微信的阴影里。</p>
+<p>当然移动支付的崛起就理所当然了。</p>
+<p>即使今天网上购物还是PC上要方便，那又怎么样，很多时候网上购物都是不在电脑前的零碎时间。</p>
+<p>10多年前第一次看到智能手机是室友购买的多普达，20年前也是这个室友半夜里很兴奋地播报台湾大选，让我知道了台湾大选这个事情。</p>
+<p>基本的价值观、世界观，没怎么改变，不应该是年龄大了僵化了，应该是掌握信息的手段和能力增强了，翻墙获取信息也很容易，基本的逻辑还在也没那么容易跑偏了。可能就是别人看到的年纪大了脑子僵化了吧，自我感觉不一定对。</p>
+<p>最近10年经济发展的非常好，政府对言论的控制越来越精准，舆论引导也非常”成功”,所以网络上看到这5年和5年前基本差别很大，5年前公知是个褒义词，5年后居然成了贬义词。</p>
+<p>房价自然是这10年最火的话题，07年大家开始感觉到房价上涨快、房价高，08年金融危机本来是最好的机会，结果4万亿刺激下09年年底房价开始翻倍，到10年面对翻倍了的房价政府、媒体、老百姓都在喊高，实际也只是横盘，13-14年小拉一波，16年涨价去库存再大拉一波。基本让很多人绝望了</p>
+<p>这十年做的最错的事情除了没有早点买房外就是想搞点投资收入投了制造外加炒股，踩点能力太差了，虽然前5年像任志强一样一直看多房价的不多，这个5年都被现实教育了，房价也基本到头了。</p>
+<p>工作上应该更早地、坚定地进入互联网、移动互联网，这10年互联网对人才的需求实在太大了，虽然最终能伴随公司成长的太少，毕竟活下来长大的公司不多。</p>
+<p>Google退出中国、看着小杨同学和一些同事移民、360大战QQ、诺贝尔和平奖、华为251事件都算是自己在一些公众事情上投入比较多的。非常不舍google的离开，这些年也基本还是只用google，既是无奈中用下百度也还是觉得搜不到什么有效信息；好奇移民的想法和他们出去后的各种生活；360跟QQ大战的时候觉得腾讯的垄断太牛叉了，同时认为可能360有这种资源的话会更作恶和垄断的更厉害，至少腾讯还是在乎外面的看法和要面子的；LXB到现在也是敏感词，直到病死在软禁中，这些年敏感词越来越多，言论的控制更严厉了；华为251也是个奇葩事件了，暴露了资本家的粗野和枉法。</p>
+<p>自己工作上跳槽一次，继续做一个北漂。公司对自己的方法论改变确实比较大，近距离看到了一些成功因素方面的逻辑（更有效的激励和企业文化）。</p>
+<p>经历了从外企到私企，从小公司到大公司的不同，外企英语是天花板，也看到了华为所谓的狼性、在金钱激励下的狼性，和对企业文化的维护，不能否认90%以上的人工作是为了钱</p>
+<p>这几年也开始习惯写技术文章来总结了，这得益于Markdown+截图表述的便利，也深刻感受到深抠，然后总结分享的方法真的很好（高斯学习方法），也体会到了抓手、触类旁通的运用。10年前在搜狐blog写过一两年的博客放弃的很快，很难一直有持续的高水平总结和输出。</p>
+<p>10年前还在比较MSN和QQ谁更好（我是坚定站在QQ这边的），10年后MSN再也看不见了，QQ也有了更好的替代工具微信。用处不大的地方倒是站对了，对自己最有用的关键地方都站错了。</p>
+<p>10年前差点要去豆瓣，10年后豆瓣还活着，依然倔强地保持自己的品味，这太难得了。相反十年前好用得不得了的RSS订阅，从抓虾转到google reader再到feedly好东西就是活得这么艰难。反过来公众号起来了、贴吧式微了，公众号运作新闻类是没问题的（看完就过），但是对技术类深度一点的就很不合适了，你看看一篇文章24小时内的阅读量占据了98%以上，再到后面就存亡了！但是公众号有流量，流量可以让大家跪在地上。</p>
+<p>10年前啃老是被看不起的，10年后早结婚、多啃老也基本成了这10年更对的事情，结婚得买房，啃老买得更早，不对的事情变对了（结婚早没错）。</p>
+<p>很成功地组织了一次同学20周年的聚会，也看到了远则亲、近则仇的现实情况，自己组织统筹能力还可以。</p>
+<p>情绪控制能力太差、容易失眠。这十年爱上了羽毛球和滑雪，虽然最近几年滑雪少了。</p>
+<p>体会到自小贫穷带来的一些抠门的坏习惯。</p>
+<p>2015年的股票大跌让自己很痛苦，这个过程反馈出来的不愿意撒手、在股市上的鸵鸟方式，股市上总是踩不到正确的点。割肉太难，割掉的总是错误的。</p>
+<p>15、16年我认为云计算不怎么样，觉得无非就是新瓶装旧酒，现在云计算不再有人质疑了，即使现在都还是亏钱。</p>
+<p>当然我也质疑过外卖就是一跑腿的，确实撑不起那么大的盘子，虽然没有像团购一样消亡，基本跟共享单车一样了，主要因为我是共享单车的重度用户，而我极端不喜欢外卖，所以要站出来看问题、屁股坐在哪边会严重影响看法，也就是不够客观。</p>
+<p>网约车和移动支付一起在硝烟中混战</p>
+<p>电动车开始起来，主要受政府弯道超车的刺激，目前看取决于自有充电位（适合三四线城市），可是三四线城市用户舍不得花这个溢价，汽油车都还没爽够呢。</p>
+<p>对世界杯不再那么关注，对AlphaGo的新闻倒是很在意了。魏则西事件牢牢地把百度钉死在耻辱柱上。</p>
+<p>随着12306的发展和高铁的起来，终于过年回家的火车票不用再靠半夜排队了。</p>
+<p>2019年年末行政强制安装ETC，让我想起20年前物理老师在课堂上跟我们描述的将来小汽车走高速公路再也不用停下来收费了，会自动感应，开过去就自动扣钱了。我一直对这个未来场景念念不忘，最近10年我经常问别人为什么不办ETC，这个年底看到的是行政命令下的各种抱怨。</p>
+<h3 id="看到："><a href="#看到：" class="headerlink" title="看到："></a>看到：</h3><ul>
+<li><p>老人、家人更不愿意听身边亲近人员的建议；</p>
+</li>
+<li><p>老人思维为什么固化、怎么样在自己老后不是那样固化；</p>
+</li>
+</ul>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/24/Linux内核版本升级，性能到底提升多少？拿数据说话/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2565,846 +3516,6 @@ probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/27/arthas常用命令速记/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/09/27/arthas常用命令速记/" itemprop="url">arthas常用命令速记</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-27T13:30:03+08:00">
-                2019-09-27
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Java/" itemprop="url" rel="index">
-                    <span itemprop="name">Java</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="arthas常用命令速记"><a href="#arthas常用命令速记" class="headerlink" title="arthas常用命令速记"></a>arthas常用命令速记</h1><p><a href="https://github.com/alibaba/arthas" target="_blank" rel="external">https://github.com/alibaba/arthas</a></p>
-<h2 id="thread"><a href="#thread" class="headerlink" title="thread"></a>thread</h2><p>thread -n 3<br>thread 16</p>
-<h2 id="jad-反编译"><a href="#jad-反编译" class="headerlink" title="jad 反编译"></a>jad 反编译</h2><pre><code>jad org.slf4j.Logger
-jad org.slf4j.Logger -c 61bbe9ba
-
-jad com.taobao.tddl.common.IdGenerator
-jad --source-only com.taobao.tddl.common.IdGenerator
-jad --source-only com.taobao.tddl.common.IdGenerator &gt; /tmp/IdGenerator.java
-</code></pre><p>反编译生成java代码</p>
-<h2 id="mc-编译生成新的class"><a href="#mc-编译生成新的class" class="headerlink" title="mc 编译生成新的class"></a>mc 编译生成新的class</h2><p>将修改后的java代码编译成class（因为依赖的关系可能失败）</p>
-<pre><code>mc /tmp/IdGenerator.java -d /tmp
-</code></pre><h2 id="redefine-加载新的class"><a href="#redefine-加载新的class" class="headerlink" title="redefine 加载新的class"></a>redefine 加载新的class</h2><p>将修改后的class代码热加载</p>
-<pre><code>redefine /tmp/IdGenerator.class
-redefine -c 1e80bfe8 /tmp/com/alibaba/middleware/drds/worker/task/RegisterTask.class
-</code></pre><p>可以再次jad 反编译确认class中是修改后的代码：</p>
-<pre><code>jad --source-only com.alibaba.cobar.server.ServerConnection &gt; /tmp/SC.java
-</code></pre><p>有时候 redefine 看到成功，可是实际并不一定，最好再次 jad 确认一下。</p>
-<p>线上环境快速修改代码验证三部曲：jad反编译得到源代码、修改后mc编译成class、redefine替换新的class。</p>
-<h2 id="classload"><a href="#classload" class="headerlink" title="classload"></a>classload</h2><pre><code>classloader -l
-classloader -c 1e80bfe8 -r com/alibaba/middleware/drds/worker/task/RegisterTask.class
-classload -t
-classload -c 6e0be858
-classloader ch.qos.logback.core.AppenderBase
-</code></pre><h2 id="sc"><a href="#sc" class="headerlink" title="sc"></a>sc</h2><pre><code>sc -d com.taobao.tddl.common.IdGenerator
-sc -df ch.qos.logback.core.AppenderBase
-</code></pre><h2 id="sm"><a href="#sm" class="headerlink" title="sm"></a>sm</h2><p>列出class的方法</p>
-<pre><code>sm ch.qos.logback.core.AppenderBase -d
-</code></pre><h2 id="getstatic-查看静态成员"><a href="#getstatic-查看静态成员" class="headerlink" title="getstatic 查看静态成员"></a>getstatic 查看静态成员</h2><p>通过getstatic查看静态成员，来追踪一个logger没有设置level的话他的输出级别到底是什么？</p>
-<p>先 sc 获取classloader的hash</p>
-<pre><code>sc -df io.netty.channel.nio.NioEventLoop
-
-getstatic -c 1e80bfe8 io.netty.channel.nio.NioEventLoop logger &apos;getClass().getName()&apos;
-field: logger
-@String[io.netty.util.internal.logging.Slf4JLogger]
-Affect(row-cnt:1) cost in 5 ms.
-</code></pre><p>然后查看 logger的具体内容，可以看到level等，level为null的话会从父logger继承：</p>
-<pre><code>getstatic -c 1e80bfe8 io.netty.channel.nio.NioEventLoop logger &apos;logger&apos;
-field: logger
-@Logger[
-    serialVersionUID=@Long[5454405123156820674],
-    FQCN=@String[ch.qos.logback.classic.Logger],
-    name=@String[io.netty.channel.nio.NioEventLoop],
-    level=null,
-    effectiveLevelInt=@Integer[20000],
-    parent=@Logger[Logger[io.netty.channel.nio]],
-    childrenList=null,
-    aai=null,
-    additive=@Boolean[true],
-    loggerContext=@LoggerContext[ch.qos.logback.classic.LoggerContext[default]],
-]
-</code></pre><p>再次用getstatic命令来确定jar包的location：</p>
-<pre><code>getstatic -c 1e80bfe8 io.netty.channel.nio.NioEventLoop logger &apos;logger.getClass().getProtectionDomain().getCodeSource().getLocation()&apos;
-field: logger
-@URL[
-    BUILTIN_HANDLERS_PREFIX=@String[sun.net.www.protocol],
-    serialVersionUID=@Long[-7627629688361524110],
-    protocolPathProp=@String[java.protocol.handler.pkgs],
-    protocol=@String[file],
-    host=@String[],
-    port=@Integer[-1],
-    file=@String[/home/admin/drds-worker/lib/logback-classic-1.1.8.jar],
-    query=null,
-    authority=@String[],
-    path=@String[/home/admin/drds-worker/lib/logback-classic-1.1.8.jar],
-    userInfo=null,
-    ref=null,
-    hostAddress=null,
-    handler=@Handler[sun.net.www.protocol.file.Handler@5a98007],
-    hashCode=@Integer[-1217964899],
-    tempState=null,
-    factory=null,
-    handlers=@Hashtable[isEmpty=false;size=3],
-    streamHandlerLock=@Object[java.lang.Object@3bf379e9],
-    serialPersistentFields=@ObjectStreamField[][isEmpty=false;size=7],
-]
-</code></pre><p>然后通过getstatic来获取到这个parent属性的内容。然后通过多个parent操作，可以发现level都是INFO，最终发现ROOT level是INFO：</p>
-<pre><code>getstatic -c 1e80bfe8 io.netty.channel.nio.NioEventLoop logger &apos;logger.parent.parent.parent.parent.parent&apos;
-field: logger
-@Logger[
-    serialVersionUID=@Long[5454405123156820674],
-    FQCN=@String[ch.qos.logback.classic.Logger],
-    name=@String[ROOT],
-    level=@Level[INFO],
-    effectiveLevelInt=@Integer[20000],
-    parent=null,
-    childrenList=@CopyOnWriteArrayList[isEmpty=false;size=4],
-    aai=@AppenderAttachableImpl[ch.qos.logback.core.spi.AppenderAttachableImpl@3f0908e1],
-    additive=@Boolean[true],
-    loggerContext=@LoggerContext[ch.qos.logback.classic.LoggerContext[default]],
-]
-</code></pre><h2 id="logger-查看logger配置"><a href="#logger-查看logger配置" class="headerlink" title="logger 查看logger配置"></a>logger 查看logger配置</h2><p>列出所有logger，然后修改logger的level</p>
-<pre><code>classloader -l
-logger -c 27bc2616
-ognl -c 6e0be858 &apos;@com.alibaba.cobar.server.ServerConnection@logger&apos;
-ognl -c 6e0be858 &apos;@org.slf4j.LoggerFactory@getLogger(&quot;root&quot;).setLevel(@ch.qos.logback.classic.Level@DEBUG)&apos;
-</code></pre><p>或者</p>
-<pre><code>logger --name ROOT --level debug
-</code></pre><h2 id="trace-耗时超过10ms的方法堆栈"><a href="#trace-耗时超过10ms的方法堆栈" class="headerlink" title="trace 耗时超过10ms的方法堆栈"></a>trace 耗时超过10ms的方法堆栈</h2><p>查看调用耗时超过 10ms的函数堆栈</p>
-<pre><code>stack ch.qos.logback.core.AppenderBase doAppend
-trace -j ch.qos.logback.core.AppenderBase doAppend &apos;#cost &gt; 10&apos;
-</code></pre><p><img src="/images/oss/a62e3703ec9f3fef024fef4ff39441c7.png" alt="image.png"></p>
-<p>截图中红框的数字表示代码行号</p>
-<h2 id="ongl-调用static函数并查看返回值"><a href="#ongl-调用static函数并查看返回值" class="headerlink" title="ongl 调用static函数并查看返回值"></a>ongl 调用static函数并查看返回值</h2><pre><code>ognl &apos;#value1=@com.alibaba.middleware.drds.manager.common.utils.AddressUtil@getHostIp(), {#value1}&apos;
-@ArrayList[
-    @String[10.0.174.135],
-]
-
-
- ognl &apos;#value1=@com.alibaba.middleware.drds.worker.Config@getInstance(), {#value1}&apos;
-    @ArrayList[
-@Config[Config(receivedManagerInfo=true, registeredToManager=true, workerRpcPort=8188, managerIp=10.0.171.193, managerPort=8080, drdsServerPort=3306, drdsManagerPort=3406, host=10.0.118.18, vpcId=vpc-bp1tsocjn451k7ur52vwl, urlToGetVpcId=http://100.100.100.200/latest/meta-data/vpc-id, heartBeatIntervalSeconds=180, registerInveralSeconds=2, manageDrdsIntervalSeconds=60, miniVersion=1, version=0.0.0.41, registerUrl=http://hostPlaceHolder:portPlaceHolder/v1/worker/register, heartBeatUrl=http://hostPlaceHolder:portPlaceHolder/v1/worker/heartBeat, manageDrdsServerUrl=http://hostPlaceHolder:portPlaceHolder/v1/worker/manageDrdsServer, gotVpcId=true, nodeType=drds-server, watcher=null, scheduledThreadPoolExecutor=java.util.concurrent.ScheduledThreadPoolExecutor@3aa3f85f[Running, pool size = 1, active threads = 1, queued tasks = 0, completed tasks = 0])],
-]
-
-#Netty的SelectorProvider.provider()创建Selector驱动的时候通过JDK create到的Selector驱动
-#如果是windows平台：WindowsSelectorProvider(); macos
-#下面是Linux平台的默认Selector驱动：
-$ options unsafe true
-$ ognl  &apos;#value1=@sun.nio.ch.DefaultSelectorProvider@create(), {#value1}&apos;
-@ArrayList[
-    @EPollSelectorProvider[sun.nio.ch.EPollSelectorProvider@5bf6cb51],
-]
-#或者
-$  ognl  &apos;#value1=@java.nio.channels.spi.SelectorProvider@provider(), {#value1}&apos;
-@ArrayList[
-    @EPollSelectorProvider[sun.nio.ch.EPollSelectorProvider@74c4ede7],
-]
-</code></pre><h2 id="tt-观察函数调用和回放"><a href="#tt-观察函数调用和回放" class="headerlink" title="tt 观察函数调用和回放"></a>tt 观察函数调用和回放</h2><p>先通过tt观察某个函数的调用，然后再用 tt -i 回放这个调用并查看返回值等</p>
-<pre><code>tt -t com.alibaba.middleware.drds.manager.common.utils.AddressUtil getHostIp
-tt -t com.alibaba.middleware.drds.worker.task.RegisterTask getHostInfoIfNeeded
-tt -i 1000
-tt -i 1000 -p
-tt -n 3 -t com.alibaba.middleware.drds.worker.task.RegisterTask getHostInfoIfNeeded
-tt -n 3 -t com.alibaba.middleware.drds.manager.common.utils.AddressUtil getHostIp
-
- tt -i 1010 -p
-     RE-INDEX      1010
-     GMT-REPLAY    2019-09-27 12:59:05
-     OBJECT        NULL
-     CLASS         com.alibaba.middleware.drds.manager.common.utils.AddressUtil
-     METHOD        getHostIp
-     IS-RETURN     true
-     IS-EXCEPTION  false
-     COST(ms)      0.577817
-     RETURN-OBJ    @String[10.0.118.18]
-</code></pre><h2 id="watch-查看函数调用的参数内容和返回值"><a href="#watch-查看函数调用的参数内容和返回值" class="headerlink" title="watch 查看函数调用的参数内容和返回值"></a>watch 查看函数调用的参数内容和返回值</h2><p>指定输出结果的属性遍历深度，默认为 1：</p>
-<pre><code>watch  com.alibaba.middleware.drds.manager.common.utils.AddressUtil getHostIp &quot;{params,returnObj}&quot; -x 2
-
-watch com.alibaba.middleware.drds.worker.task.RegisterTask getHostInfoIfNeeded &quot;{params,returnObj}&quot; -x 2
-    Press Q or Ctrl+C to abort.
-    Affect(class-cnt:1 , method-cnt:1) cost in 56 ms.
-    ts=2019-09-27 13:24:00; [cost=0.2698ms] result=@ArrayList[
-        @Object[][isEmpty=true;size=0],
-        @Boolean[true],
-    ]
-    ts=2019-09-27 13:24:02; [cost=0.030039ms] result=@ArrayList[
-        @Object[][isEmpty=true;size=0],
-        @Boolean[true],
-    ]
-</code></pre><p>可以看到处理请求的handler是 om.example.demo.arthas.user.UserController.findUserById：</p>
-<pre><code>$ watch org.springframework.web.servlet.DispatcherServlet getHandler returnObj
-Press Q or Ctrl+C to abort.
-Affect(class-cnt:1 , method-cnt:1) cost in 332 ms.
-ts=2019-06-04 11:38:06; [cost=2.75218ms] result=@HandlerExecutionChain[
-    logger=@SLF4JLocationAwareLog[org.apache.commons.logging.impl.SLF4JLocationAwareLog@665c08a],
-    handler=@HandlerMethod[public com.example.demo.arthas.user.User com.example.demo.arthas.user.UserController.findUserById(java.lang.Integer)],
-    interceptors=null,
-    interceptorList=@ArrayList[isEmpty=false;size=2],
-    interceptorIndex=@Integer[-1],
-]
-</code></pre><ul>
-<li>watch 命令定义了4个观察事件点，即 -b 方法调用前，-e 方法异常后，-s 方法返回后，-f 方法结束后</li>
-<li>4个观察事件点 -b、-e、-s 默认关闭，-f 默认打开，当指定观察点被打开后，在相应事件点会对观察表达式进行求值并输出</li>
-<li>这里要注意方法入参和方法出参的区别，有可能在中间被修改导致前后不一致，除了 -b 事件点 params 代表方法入参外，其余事件都代表方法出参</li>
-<li>当使用 -b 时，由于观察事件点是在方法调用前，此时返回值或异常均不存在</li>
-</ul>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://alibaba.github.io/arthas/commands.html" target="_blank" rel="external">官方文档</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/16/SystemStap/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/09/16/SystemStap/" itemprop="url">SystemStap、BCC、bpftrace</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-16T12:30:03+08:00">
-                2019-09-16
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/performance/" itemprop="url" rel="index">
-                    <span itemprop="name">performance</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="SystemStap、BCC、bpftrace"><a href="#SystemStap、BCC、bpftrace" class="headerlink" title="SystemStap、BCC、bpftrace"></a>SystemStap、BCC、bpftrace</h1><p>Linux <code>4.4+</code> 支持 <code>eBPF</code>。基于 <code>eBPF</code> 可以将任何<strong>内核函数调用</strong>转换成<strong>可带任何 数据</strong>的<strong>用户空间事件</strong>。<code>bcc</code> 作为一个更上层的工具使这个过程更加方便。内核探测 代码用 C 写，数据处理代码用 Python。</p>
-<p>从 Linux 3.15 开始，BPF 被扩展成了 eBPF，extended BPF 的缩写。它<strong>从 2 个 32bit 寄存器扩展到了 10 个 64bit 寄存器，并增加了后向跳转</strong>。Linux 3.18 中又进行了进一 步扩展，将它从网络子系统中移出来，并添加了 maps 等工具。为了保证安全性又引入了一 个检测器，用于验证内存访问的合法性和可能的代码路径。如果检测器不能推断出程序会在 有限的步骤内结束，就会拒绝程序的注入（内核）。</p>
-<p>SystemTap 是一个 tracing 系统，<strong>简单来说，它提供了一种领域特定语言（DSL），代码编译成内核模块，然后热加 载到运行中的内核</strong>。但<strong>出于安全考虑，一些生产系统禁止动态模块加载</strong>，例如我研究 eBPF 时所用的系统就不允许。</p>
-<p><code>perf</code> 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。<code>perf</code> 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。<strong>可以把它想象成开销更低，但功能更强大的 <code>strace</code></strong>。 本文只会使用非常简单的 <code>perf</code> 命令。想了解更多，强烈建议访问 <a href="http://www.brendangregg.com/perf.html" target="_blank" rel="external">Brendan Gregg</a>的博客。</p>
-<p><img src="/images/951413iMgBlog/640-4652000.png" alt="图片"></p>
-<h2 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h2><p>sudo stap-prep //安装好systemtap所有依赖的（debugfs等等）</p>
-<p>执行安装内核debug等等需要的一些包，然后才能运行systemtap</p>
-<pre><code># 简单的脚本，打印4s内所有进程打开了哪些文件
-#!/usr/bin/stap
-probe begin
-{
-    log(&quot;begin to probe&quot;)
-}
-
-probe syscall.open
-{
-    printf (&quot;%s(%d) open (%s)\n&quot;, execname(), pid(), argstr)
-}
-
-probe timer.ms(4000) # after 4 seconds
-{
-    exit ()
-}
-
-probe end
-{
-    log(&quot;end to probe&quot;)
-}
-</code></pre><p>主要需要两个包[“kernel-debuginfo”, “kernel-debuginfo-common”]<br>建议不要从yum装，可能会和内核小版本不同导致无法使用</p>
-<p>1 获取内核的参数<br>uname -r</p>
-<p>2 从下面的链接中取找对应内核的包</p>
-<p><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807" target="_blank" rel="external">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo&amp;d=1&amp;rid=1807</a><br><a href="http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805" target="_blank" rel="external">http://rpm.alibaba-inc.com/find.php?t=&amp;os=&amp;q=kernel-debuginfo-common-x86_64&amp;d=1&amp;rid=1805</a></p>
-<p>如果小版本不对导致装不上的话，加上–nodeps 参数<br>rpm -ivh kernel-debuginfo-2.6.32-220.23.2.ali878.el6.x86_64.rpm –nodeps</p>
-<pre><code>#验证安装是否成功
-sudo stap -v -e &apos;probe begin{printf(&quot;Hello, World&quot;); exit();}&apos;
-</code></pre><h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/<br>stap 部分源代码：  /usr/share/systemtap/tapset/linux/</p>
-<ul>
-<li>sudo ./socktop -N 20  //每个进程的流量，取最多的20个</li>
-<li>sudo stap netfilter_summary.stp -c “sleep 1” //每对IP之间的流量信息</li>
-<li>stap tcp_connections.stp -c “sleep 1” //每个进来的新连接</li>
-<li>sudo stap latencytap.stp –all-modules -w -t -x 38730 //监控进程38730最慢的内核操作</li>
-</ul>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div></pre></td><td class="code"><pre><div class="line"></div><div class="line">#! /usr/bin/env stap</div><div class="line"></div><div class="line">#################################################################</div><div class="line"># tcp_retransmit.stp</div><div class="line"># Author: Yang Bingwu (detailyang) &lt;detailyang@gmail.com&gt;</div><div class="line"># This systemtap script will prints the tcp retransmission packet</div><div class="line">#################################################################</div><div class="line"></div><div class="line">global record%</div><div class="line">global cwnd_record%</div><div class="line"></div><div class="line">probe begin &#123;</div><div class="line">log(&quot;Printing tcp retransmission&quot;)</div><div class="line">&#125;</div><div class="line"></div><div class="line">#probe kernel.function(&quot;tcp_retransmit_skb&quot;) &#123;</div><div class="line">#probe kernel.function(&quot;tcp_xmit_retransmit_queue&quot;) &#123;</div><div class="line">probe kernel.function(&quot;tcp_may_send_now&quot;) &#123;</div><div class="line">	#print_usyms(ubacktrace())</div><div class="line">	</div><div class="line">	print_backtrace()</div><div class="line"></div><div class="line">	#sudo stap tcp_retransmission.stp -x 19317  19317 is pid</div><div class="line">	if (pid() == target()) &#123;</div><div class="line"></div><div class="line">  rto = tcp_get_info_rto($sk)</div><div class="line">  snd_cwnd = tcp_get_info_snd_cwnd($sk)</div><div class="line">  saddr   = format_ipaddr(__ip_sock_saddr($sk), __ip_sock_family($sk))</div><div class="line">  daddr   = format_ipaddr(__ip_sock_daddr($sk), __ip_sock_family($sk))</div><div class="line">  sport   = __tcp_sock_sport($sk)</div><div class="line">  dport   = __tcp_sock_dport($sk)</div><div class="line">  lastrto = record[saddr, sport, daddr, dport]</div><div class="line">  lastcwnd = cwnd_record[saddr, sport, daddr, dport]</div><div class="line">  state = tcp_ts_get_info_state($sk)</div><div class="line">  </div><div class="line">  if (lastrto != rto) &#123;</div><div class="line">   if (lastrto) &#123;</div><div class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d -&gt; %d (ms)\n&quot;, saddr, sport,</div><div class="line">    daddr, dport, tcp_sockstate_str(state), lastrto/1000, rto/1000)</div><div class="line">   &#125; else &#123;</div><div class="line">    printf(&quot;%s:%d =&gt; %s:%d STATE:%s RTO:%d (ms)\n&quot;, saddr, sport,</div><div class="line">    daddr, dport, tcp_sockstate_str(state), rto/1000)</div><div class="line">   &#125;</div><div class="line">  </div><div class="line">printf(&quot;%s:%d =&gt; %s:%d STATE:%s snd_cwnd: %d -&gt; %d\n&quot;, saddr, sport, daddr, dport, tcp_sockstate_str(state), snd_cwnd, lastcwnd);</div><div class="line">		&#125;</div><div class="line"></div><div class="line">		record[saddr, sport, daddr, dport] = rto</div><div class="line">		cwnd_record[saddr, sport, daddr, dport] = snd_cwnd</div><div class="line"></div><div class="line">	&#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p><a href="https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp" target="_blank" rel="external">https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp</a></p>
-<h2 id="案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"><a href="#案例2-需要模拟磁盘hang导致的io延迟，可以用systemtab来搞" class="headerlink" title="案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞"></a>案例2:需要模拟磁盘hang导致的io延迟，可以用systemtab来搞</h2><pre><code>#!/usr/bin/env stap
-# 使用方式： stap delay.stp -g  --all-modules -x 7222   只对7222进程进行延迟hack
-
-# 延迟多少ms
-global DELAY = 100;
-global quit = 0;
-global found;
-
-probe begin {
-    warn(sprintf(&quot;Tracing pid %d ...\\n&quot;, target()))
-}
-
-# 如果想要针对mysql的写入，可以将下面换成
-#probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;sync_binlog_file&quot;).call
-probe syscall.write.return {
-      if (pid() == target() &amp;&amp; !quit ) {
-          mdelay( DELAY );
-          printf(&quot;write delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
-    }
-}
-</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​<br>​    # 任务持续时间<br>​    probe timer.s(20) {<br>​        if (!found) {<br>​            warn(“No backtraces found. Quitting now…\n”)<br>​            exit()<br>​        } else {<br>​            warn(“Time’s up. Quitting now…(it may take a while)\n”)<br>​            quit = 1<br>​        }<br>​    }</p>
-<p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
-<pre><code>%{
-#undef STP_OVERLOAD
-#include &lt;linux/delay.h&gt;
-%}
-
-function mdelay(ms:long) %{
-  mdelay(THIS-&gt;ms);
-%}
-</code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="external">使用Systemtap生成Flame Graph(火焰图) </a></p>
-<h2 id="案例3-追踪丢包"><a href="#案例3-追踪丢包" class="headerlink" title="案例3 追踪丢包"></a>案例3 追踪丢包</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">probe kernel.trace(&quot;kfree_skb&quot;)</div><div class="line">&#123;</div><div class="line"></div><div class="line">         printf(&quot;sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n&quot;,$skb-&gt;sk,$skb,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;rst,ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;seq),ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack_seq), symname($location));</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png" alt="img"></p>
-<p>以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">probe kernel.statement(&quot;tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*&quot;)</div><div class="line">&#123;</div><div class="line">                  printf(&quot;source:%d,dest:%d,skb:%x,sk:%x,syn:%x,ack:%x,%x-%x,%s\n&quot;,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),$skb,$skb-&gt;sk,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest,pp())</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png" alt="img"></p>
-<p>以上输出对应的代码如下：</p>
-<p><img src="/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png" alt="img"></p>
-<h2 id="网络重传"><a href="#网络重传" class="headerlink" title="网络重传"></a>网络重传</h2><p><img src="/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
-<p><img src="/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
-<p><img src="/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
-<h2 id="网络包大小分布"><a href="#网络包大小分布" class="headerlink" title="网络包大小分布"></a>网络包大小分布</h2><pre><code>bpftrace -e &apos;tracepoint:net:net_dev_queue{
-@txsize=hist(args-&gt;len);
-@txstat=stats(args-&gt;len);
-}
-
-tracepoint:net:netif_receive_skb
-{
-    @rxsize=hist(args-&gt;len);
-    @rxstat=stats(args-&gt;len);
-}&apos;
-</code></pre><p><img src="/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png" alt="image.png"></p>
-<p>或者，采集10秒中的网络包大小直方图</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">#bpftrace -e &apos;k:tcp_sendmsg &#123; @size = hist(arg2); &#125; interval:s:10 &#123; exit(); &#125;&apos;</div><div class="line">Attaching 2 probes...</div><div class="line"></div><div class="line">@size:</div><div class="line">[16, 32)              63 |@@@@@@@                                             |</div><div class="line">[32, 64)             431 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|</div><div class="line">[64, 128)            247 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                       |</div><div class="line">[128, 256)            26 |@@@                                                 |</div><div class="line">[256, 512)            80 |@@@@@@@@@                                           |</div><div class="line">[512, 1K)             52 |@@@@@@                                              |</div><div class="line">[1K, 2K)              70 |@@@@@@@@                                            |</div><div class="line">[2K, 4K)               9 |@                                                   |</div><div class="line">[4K, 8K)              36 |@@@@                                                |</div><div class="line">[8K, 16K)              1 |                                                    |</div></pre></td></tr></table></figure>
-<h2 id="bpftrace-单行命令"><a href="#bpftrace-单行命令" class="headerlink" title="bpftrace 单行命令"></a><a href="https://lwn.net/Articles/793749/" target="_blank" rel="external">bpftrace 单行命令</a></h2><p>这里有一些其他的单行命令来展示 <code>bpftrace</code> 的能力，你可以把这些换成其他的内核函数：</p>
-<p>获取 tcp_sendmsg() szie 大于 8192 字节的所有事件:</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg /arg2 &gt; 8192/ &#123; printf("PID %d: %d bytes\n", pid, arg2); &#125;'</span></div></pre></td></tr></table></figure>
-<p>获取每个进程(PID 和 comm)的请求大小的直方图：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @size[pid, comm] = hist(arg2); &#125;'</span></div></pre></td></tr></table></figure>
-<p>返回值出现频率统计：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'kr:tcp_sendmsg &#123; @return[retval] = count(); &#125;'</span></div></pre></td></tr></table></figure>
-<p>获取每秒的统计：事件数，平均大小，和总字节数：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @size = stats(arg2); &#125;</span></div><div class="line">    interval:s:1 &#123; print(@size); clear(@size); &#125;'</div></pre></td></tr></table></figure>
-<p>统计调用栈：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @[kstack] = count(); &#125;'</span></div></pre></td></tr></table></figure>
-<p>统计调用栈，深度为3：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @[kstack(3)] = count(); &#125;'</span></div></pre></td></tr></table></figure>
-<p>获取函数调用延时的直方图，纳秒级：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">bpftrace -e <span class="string">'k:tcp_sendmsg &#123; @ts[tid] = nsecs; &#125; kr:tcp_sendmsg /@ts[tid]/ &#123; @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); &#125;'</span></div><div class="line"></div><div class="line">bpftrace -e <span class="string">'k:net_rx_action &#123; @ts[tid] = nsecs; &#125; kr:tcp_sendmsg /@ts[tid]/ &#123; @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); &#125;'</span></div></pre></td></tr></table></figure>
-<p>最后一个例子在探测点（线程 ID 作为主键）保存时间戳，并在另外一个探测点获得这个时间戳。这个模式可以用来计算各种延时。</p>
-<h2 id="产看网络流量由哪个进程发出，或者说哪个进程在发包"><a href="#产看网络流量由哪个进程发出，或者说哪个进程在发包" class="headerlink" title="产看网络流量由哪个进程发出，或者说哪个进程在发包"></a>产看网络流量由哪个进程发出，或者说哪个进程在发包</h2><p><img src="/images/oss/74b0a393a6334421957a032f1f141a9c.png" alt="image.png"></p>
-<h2 id="网络连接创建rt？"><a href="#网络连接创建rt？" class="headerlink" title="网络连接创建rt？"></a>网络连接创建rt？</h2><pre><code># ./tools/bcc/tcpconnlat
-PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
-1935   java         4  10.81.177.14     100.100.110.2    80    0.21
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
-1930   java         4  10.81.177.14     100.100.110.2    80    0.23
-1914   java         4  10.81.177.14     100.100.110.2    80    0.26
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.04
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
-1778   java         4  10.81.177.14     100.100.17.97    8000  1.62
-1915   java         4  10.81.177.14     100.100.110.2    80    0.20
-1944   java         4  10.81.177.14     100.100.110.2    80    0.23
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
-1823   java         4  10.81.177.14     100.100.110.2    80    9.58
-1928   java         4  10.81.177.14     100.100.110.2    80    9.61
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
-1796   java         4  10.81.177.14     100.100.110.2    80    0.27
-1949   java         4  10.81.177.14     100.100.110.2    80    0.22
-1795   java         4  10.81.177.14     100.100.110.2    80    0.26
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.02
-1916   java         4  10.81.177.14     100.100.110.2    80    3.70
-1929   java         4  10.81.177.14     100.100.110.2    80    3.73
-7059   java         4  127.0.0.1        127.0.0.1        3406  0.05
-7059   java         4  127.0.0.1        127.0.0.1        3406  0.02
-948    java         4  10.81.177.14     100.100.110.2    80    0.27
-1917   java         4  10.81.177.14     100.100.110.2    80    0.20
-1934   java         4  10.81.177.14     100.100.110.2    80    0.22
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.05
-6844   java         4  127.0.0.1        127.0.0.1        3406  0.03
-</code></pre><h2 id="TCP队列实时查看"><a href="#TCP队列实时查看" class="headerlink" title="TCP队列实时查看"></a>TCP队列实时查看</h2><p>bpftrace工具包</p>
-<pre><code>cat tcpsynbl_example.txt
-Demonstrations of tcpsynbl, the Linux bpftrace/eBPF version.
-</code></pre><p>​<br>​    This tool shows the TCP SYN backlog size during SYN arrival as a histogram.<br>​    This lets you see how close your applications are to hitting the backlog limit<br>​    and dropping SYNs (causing performance issues with SYN retransmits). For<br>​    example:<br>​<br>​    # ./tcpsynbl.bt<br>​    Attaching 4 probes…<br>​    Tracing SYN backlog size. Ctrl-C to end.<br>​    ^C<br>​    @backlog[backlog limit]: histogram of backlog size</p>
-<p>​<br>​    @backlog[500]:<br>​    [0]                 2266 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​    [1]                    3 |                                                    |<br>​    [2, 4)                 1 |                                                    |</p>
-<pre><code>$sudo bpftrace ./tcpsynbl.bt
-Attaching 4 probes...
-Tracing SYN backlog size. Ctrl-C to end.
-
-^C
-@backlog[backlog limit]: histogram of backlog size
-</code></pre><p>​<br>​    @backlog[10]:<br>​    [0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|<br>​<br>​    @backlog[256]:<br>​    [0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|</p>
-<p>或者 bpftrace tcpaccept.bt</p>
-<pre><code>cat tcpaccept_example.txt 
-Demonstrations of tcpaccept, the Linux bpftrace/eBPF version.
-</code></pre><p>​<br>​    This tool traces the kernel function accepting TCP socket connections (eg, a<br>​    passive connection via accept(); not connect()). Some example output (IP<br>​    addresses changed to protect the innocent):<br>​<br>​    # ./tcpaccept<br>​    Tracing tcp accepts. Hit Ctrl-C to end.<br>​    TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL<br>​    00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128<br>​    00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128<br>​    00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128</p>
-<p>​<br>​    This output shows three connections, an IPv4 connections to PID 1463622, a “redis-server”<br>​    process listening on port 6379, and one IPv6 connection to a “thread.rb” process<br>​    listening on port 8000. The remote address and port are also printed, and the accept queue<br>​    current size as well as maximum size are shown.<br>​<br>​    The overhead of this tool should be negligible, since it is only tracing the<br>​    kernel function performing accept. It is not tracing every packet and then<br>​    filtering.<br>​<br>​    This tool only traces successful TCP accept()s. Connection attempts to closed<br>​    ports will not be shown (those can be traced via other functions).<br>​<br>​    There is another version of this tool in bcc: <a href="https://github.com/iovisor/bcc" target="_blank" rel="external">https://github.com/iovisor/bcc</a></p>
-<p>最后一列就是backlog最大大小和已经多少</p>
-<h2 id="DNS-域名解析时间"><a href="#DNS-域名解析时间" class="headerlink" title="DNS 域名解析时间"></a>DNS 域名解析时间</h2><pre><code>$sudo ./gethostlatency 
-TIME      PID    COMM                  LATms HOST
-15:40:01  10549  sendmail               0.19 localhost
-15:40:03  1782   java                   0.11 iZbp143cmod4v59cgon4zwZ
-15:40:13  10580  ping                   0.98 abck.akksda
-15:40:18  1823   java                   0.12 iZbp143cmod4v59cgon4zwZ
-</code></pre><p>可以明显抓到ping但是nslookup抓不到（因为nslookup 不调用 getaddrinfo/gethostbyname)</p>
-<h2 id="统计线程执行时间排名"><a href="#统计线程执行时间排名" class="headerlink" title="统计线程执行时间排名"></a>统计线程执行时间排名</h2><pre><code>$sudo stap thread-times.stp -T 5
-        comm   tid   %user %kernel (of 19997 ticks)
-        java 30474  20.06%   0.75%
-   swapper/0     0   0.00%   2.55%
-   swapper/2     0   0.00%   2.00%
-   swapper/3     0   0.00%   1.49%
-        java 19500   0.38%   0.72%
-        java 19501   0.35%   0.64%
-        java 19503   0.34%   0.65%
-        java 19496   0.28%   0.69%
-        java 19497   0.28%   0.67%
-        java 19502   0.31%   0.61%
-        java 19498   0.30%   0.58%
-        java 19499   0.26%   0.52%
-   swapper/1     0   0.00%   0.75%
-        java 20004   0.45%   0.18%
-        java 19995   0.40%   0.19%
-        java 20061   0.43%   0.16%
-        java 20066   0.41%   0.17%
-        java 20083   0.44%   0.13%
-        java 20027   0.41%   0.16%
-        java 20195   0.43%   0.13%
-</code></pre><p>如上java线程执行消耗在用户态和内核态的CPU占比，根据tid可以到jstack中对应，相当于是将top命令中的线程消耗CPU做了累积，分清了用户态和内核态</p>
-<h2 id="内核函数执行时间"><a href="#内核函数执行时间" class="headerlink" title="内核函数执行时间"></a>内核函数执行时间</h2><pre><code>$sudo ./funclatency &apos;c:connect&apos;
-Tracing 1 functions for &quot;c:connect&quot;... Hit Ctrl-C to end.
-^C
-
-Function = [unknown] [10997] 
-     nsecs               : count     distribution
-         0 -&gt; 1          : 0        |                                        |
-         2 -&gt; 3          : 0        |                                        |
-         4 -&gt; 7          : 0        |                                        |
-         8 -&gt; 15         : 0        |                                        |
-        16 -&gt; 31         : 0        |                                        |
-        32 -&gt; 63         : 0        |                                        |
-        64 -&gt; 127        : 0        |                                        |
-       128 -&gt; 255        : 0        |                                        |
-       256 -&gt; 511        : 0        |                                        |
-       512 -&gt; 1023       : 0        |                                        |
-      1024 -&gt; 2047       : 0        |                                        |
-      2048 -&gt; 4095       : 0        |                                        |
-      4096 -&gt; 8191       : 4        |****************************************|
-      8192 -&gt; 16383      : 2        |********************                    |
-     16384 -&gt; 32767      : 1        |**********                              |
-
-Function = connect [10999]  //telnet 连不上 tcp retry 
-     nsecs               : count     distribution
-         0 -&gt; 1          : 0        |                                        |
-         2 -&gt; 3          : 0        |                                        |
-         4 -&gt; 7          : 0        |                                        |
-         8 -&gt; 15         : 0        |                                        |
-        16 -&gt; 31         : 0        |                                        |
-        32 -&gt; 63         : 0        |                                        |
-        64 -&gt; 127        : 0        |                                        |
-       128 -&gt; 255        : 0        |                                        |
-       256 -&gt; 511        : 0        |                                        |
-       512 -&gt; 1023       : 0        |                                        |
-      1024 -&gt; 2047       : 0        |                                        |
-      2048 -&gt; 4095       : 0        |                                        |
-      4096 -&gt; 8191       : 3        |****************************************|
-      8192 -&gt; 16383      : 2        |**************************              |
-     16384 -&gt; 32767      : 1        |*************                           |
-</code></pre><p>内核收发包耗时分析</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 &apos;pthread:__libc_send&apos;</div><div class="line">sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 &apos;pthread:__libc_recv&apos;</div><div class="line">sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 &apos;tcp_sendmsg&apos;</div><div class="line">sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 &apos;tcp_recvmsg&apos;</div><div class="line">sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 &apos;tcp_cleanup_rbuf&apos;</div></pre></td></tr></table></figure>
-<h2 id="磁盘"><a href="#磁盘" class="headerlink" title="磁盘"></a>磁盘</h2><pre><code>15:49:40 loadavg: 0.07 0.04 0.05 1/1008 11533
-
-PID    COMM             D MAJ MIN DISK       I/O  Kbytes  AVGms
-10784  kworker/u8:0     W 254 0   vda         31     140   2.41
-416    jbd2/vda1-8      W 254 0   vda          2     100   0.93
-Detaching...
-
-[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
-$df -lh
-Filesystem      Size  Used Avail Use% Mounted on
-devtmpfs        3.8G     0  3.8G   0% /dev
-tmpfs           3.9G     0  3.9G   0% /dev/shm
-tmpfs           3.9G  620K  3.9G   1% /run
-tmpfs           3.9G     0  3.9G   0% /sys/fs/cgroup
-/dev/vda1        99G  5.1G   89G   6% /
-tmpfs           779M     0  779M   0% /run/user/0
-tmpfs           779M     0  779M   0% /run/user/1000
-
-[admin@iZbp143cmod4v59cgon4zwZ 15:49 /home/admin/tools/bcc]
-$sudo ./biotop 5 1
-</code></pre><p> 或者</p>
-<pre><code>$sudo stap iostats.stp -T 5
-starting probe
-
-                                       read     read             write    write
-            name     open     read   KB tot    B avg    write   KB tot    B avg
-            java        8   125797     5406       44   251673    44337      180
-              ps      754      784      319      417        6       29     5105
-            grep       39       27       73     2781        9       42     4891
-              wc       10        6       17     2979        1        0        2
-       AliYunDun       43       53        9      175        0        0        0
-              sh        8        4        3      880        0        0        0
-             fio       20       20        2      136        5        0       81
-            sshd        0        6        0       70        6        0      121
- AliYunDunUpdate        2        4        0       75        0        0        0
-   systemd-udevd        1        4        0       65        0        0        0
-    DragoonAgent        0        0        0        0        1        0      100
-          stapio        0       27        0        1        1        0       15
-  aliyun-service        0       25        0        0        0        0        0
-</code></pre><h2 id="fs-latency"><a href="#fs-latency" class="headerlink" title="fs latency"></a>fs latency</h2><pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# stap fslatency-nd.stp 1 1
-Tracing FS sync reads and writes... Output every 1 secs.
-
-Thu Sep 19 07:48:54 2019 FS latency (ns):
-
-FS call: __vfs_read()
- value |-------------------------------------------------- count
-   128 |                                                       0
-   256 |                                                       0
-   512 |                                                       2
-  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  12423
-  2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@          10330
-  4096 |@@                                                   514
-  8192 |@@@@@@                                              1624
- 16384 |@                                                    273
- 32768 |                                                      48
- 65536 |                                                       1
-131072 |                                                       0
-262144 |                                                       0
-
-FS call: __vfs_write()
- value |-------------------------------------------------- count
-    64 |                                                       0
-   128 |                                                       0
-   256 |                                                     169
-   512 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  32549
-  1024 |@@@@@@@@@@@@@@@@@@@@@@@@@                          16276
-  2048 |                                                     469
-  4096 |                                                     385
-  8192 |                                                     439
- 16384 |                                                     100
- 32768 |                                                       5
- 65536 |                                                       1
-131072 |                                                       0
-262144 |                                                       0
-</code></pre><p>读写时间分布：<br>    [root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./rwtime-nd.stp java<br>    Tracing read/write syscalls for processes named “java”… Hit Ctrl-C to end.<br>    ^C<br>    syscall read latency (ns):<br>     value |————————————————– count<br>       128 |                                                       0<br>       256 |                                                       0<br>       512 |@                                                   3129<br>      1024 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  85897<br>      2048 |@@@@@@@@@@@@@@@                                    26032<br>      4096 |                                                     386<br>      8192 |                                                    1142<br>     16384 |                                                      63<br>     32768 |                                                       3<br>     65536 |                                                       1<br>    131072 |                                                       1<br>    262144 |                                                       0<br>    524288 |                                                       0</p>
-<pre><code>syscall write latency (ns):
-  value |-------------------------------------------------- count
-    256 |                                                        0
-    512 |                                                        0
-   1024 |                                                     1720
-   2048 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  104247
-   4096 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  105507
-   8192 |@@@@@@@@                                            17768
-  16384 |@                                                    3715
-  32768 |                                                      353
-  65536 |                                                       44
- 131072 |                                                        0
- 262144 |                                                        3
- 524288 |                                                        0
-1048576 |                                                        0
-</code></pre><p>SLOW FS READ AND WRITE</p>
-<pre><code>[root@iZbp1d1tuijx3yqz46meimZ lwtools]# ./fsslower-nd.stp 5
-Tracing FS sync reads and writes slower than 5 ms... Hit Ctrl-C to end.
-TIME     PID    COMM             FUNC           SIZE     LAT(ms)
-07:55:13 30941  grep             __vfs_read     32768         18
-07:55:13 30942  grep             __vfs_read     32768          5
-07:55:13 30943  grep             __vfs_read     32768         23
-07:55:13 30944  wc               __vfs_read     16384         24
-07:55:13 1102   java             __vfs_read     8192          39
-07:55:13 1102   java             __vfs_read     8192          40
-</code></pre><h2 id="cache"><a href="#cache" class="headerlink" title="cache"></a>cache</h2><pre><code>$sudo ./cachestat -T 5 1
-TIME         HITS   MISSES  DIRTIES HITRATIO   BUFFERS_MB  CACHED_MB
-16:01:10     6297        0       52  100.00%           31        652
-</code></pre><h2 id="中断发生，主要是网卡"><a href="#中断发生，主要是网卡" class="headerlink" title="中断发生，主要是网卡"></a>中断发生，主要是网卡</h2><pre><code># sudo stap interrupts-by-dev.stp -c &apos;sleep 1&apos;
-  DEVICE      NUMBER OF INTERRUPTS 
-    virtio2-req.0 :      1
- virtio0-output.0 :      2
-  virtio0-input.0 :      1
- virtio0-output.0 :      1
-  virtio0-input.0 :      2
- virtio0-output.0 :      1
- virtio0-output.0 :      1
-  virtio0-input.0 :      1
- virtio0-output.0 :      1
-  virtio0-input.0 :      1
- virtio0-output.0 :      1
-  virtio0-input.0 :      1
-</code></pre><h2 id="futex"><a href="#futex" class="headerlink" title="futex"></a>futex</h2><pre><code>$sudo stap futexes.stp  -T 1
-java[4457] lock 0x7f5da0bbd548 contended 1 times, 1 avg us
-java[4457] lock 0x7f5d23c46188 contended 1 times, 27 avg us
-java[4457] lock 0x7f5d52f3f154 contended 1 times, 1945 avg us
-java[4457] lock 0x7f5da06a03f0 contended 1 times, 20 avg us
-java[4457] lock 0x7f5da2baad54 contended 1 times, 267 avg us
-java[4457] lock 0x7f5d23a8d574 contended 1 times, 60130 avg us
-java[4457] lock 0x7f5d23c30154 contended 1 times, 664 avg us
-java[4457] lock 0x7f5d23c5e1b4 contended 3 times, 70979 avg us
-java[4457] lock 0x7f5d23bc3154 contended 1 times, 4342 avg us
-java[4457] lock 0x7f5da2b897b4 contended 1 times, 70190 avg us
-java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
-</code></pre><h2 id="给程序注入系统调用setsockopt"><a href="#给程序注入系统调用setsockopt" class="headerlink" title="给程序注入系统调用setsockopt"></a><a href="https://lrita.github.io/2018/06/30/systemtap-inject-setsockopt/" target="_blank" rel="external">给程序注入系统调用setsockopt</a></h2><p>没有源代码，需要将应用的keepalive 打开。可以通过<code>SystemTap</code>，给进程注入一个<code>setsockopt</code>调用，使其开启<code>SO_KEEPALIVE</code></p>
-<p>在<code>accept</code>调用返回的时候注入这个调用，脚本源码为, 必须要在有新连接进来的时候：</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div></pre></td><td class="code"><pre><div class="line">%&#123;</div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;net/sock.h&gt;</span></span></div><div class="line">%&#125;</div><div class="line"></div><div class="line">function set_sock_keepalive:<span class="keyword">long</span>(fd) %&#123;</div><div class="line">  <span class="keyword">int</span> err = <span class="number">-1</span>;</div><div class="line">  <span class="keyword">int</span> keepalive = <span class="number">1</span>;</div><div class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">socket</span> *<span class="title">sock</span> = <span class="title">sockfd_lookup</span>(<span class="title">STAP_ARG_fd</span>, &amp;<span class="title">err</span>);</span></div><div class="line">  <span class="keyword">if</span> (sock != <span class="literal">NULL</span>) &#123;</div><div class="line">    <span class="comment">/*</span></div><div class="line">     * sock_setsockopt 的参数在内核中声明为来自用户空间，</div><div class="line">     * 因此其内部会对该值的来源进行校验，该脚本注入的这段C</div><div class="line">     * 代码运行在内核空间，因此我们需要临时跳过这层校验。</div><div class="line">     * 下面三行就是跳过的方法。</div><div class="line">     */</div><div class="line">    <span class="keyword">mm_segment_t</span> oldfs;</div><div class="line">    oldfs = get_fs();</div><div class="line">    set_fs(KERNEL_DS);</div><div class="line">    err = sock_setsockopt(sock, SOL_SOCKET,</div><div class="line">            SO_KEEPALIVE, (<span class="keyword">char</span> __user*)&amp;keepalive, <span class="keyword">sizeof</span>(keepalive));</div><div class="line">    set_fs(oldfs);</div><div class="line">    sockfd_put(sock);</div><div class="line">  &#125;</div><div class="line">  STAP_RETURN(err);</div><div class="line">%&#125;</div><div class="line"></div><div class="line">probe begin &#123;</div><div class="line">  <span class="built_in">printf</span>(<span class="string">"inject begin... \n"</span>)</div><div class="line">&#125;</div><div class="line"></div><div class="line"><span class="comment">/*</span></div><div class="line"> * 注入点选择accept系统调用返回时，accept的返回值就是新建连接的文件描述符</div><div class="line"> * 当触发的进程pid是给定进程时，进行注入操作</div><div class="line"> * 在生产环境中，可以删除ok之后的打印以提升性能</div><div class="line"> */</div><div class="line">probe syscall.accept.<span class="keyword">return</span>, syscall.accept4.<span class="keyword">return</span> &#123;</div><div class="line">  fd = $<span class="keyword">return</span></div><div class="line">  <span class="keyword">if</span> ((pid() == $<span class="number">1</span>) &amp;&amp; (fd != <span class="number">-1</span>)) &#123;</div><div class="line">    ok = set_sock_keepalive(fd)</div><div class="line">    <span class="keyword">if</span> (ok)</div><div class="line">      <span class="built_in">printf</span>(<span class="string">"set_sock_keepalive %d\n"</span>, ok)</div><div class="line">  &#125;</div><div class="line">&#125;</div><div class="line"></div><div class="line">probe end &#123;</div><div class="line">  <span class="built_in">printf</span>(<span class="string">"inject end... \n"</span>)</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>执行的方式是，<code>$pid</code>为指定的进程pid：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">&gt; stap -g inject_keepalive.stp $pid</div></pre></td></tr></table></figure>
-<h2 id="Systemtap-抓取-mysql-insert-慢操作"><a href="#Systemtap-抓取-mysql-insert-慢操作" class="headerlink" title="Systemtap 抓取 mysql insert 慢操作"></a>Systemtap 抓取 mysql insert 慢操作</h2><p>主要抓取下面的函数</p>
-<p>row_ins_clust_index_entry_low  主键insert</p>
-<p>fsp_try_extend_data_file      文件扩展</p>
-<p>mysql_insert              mysql insert的最上层函数</p>
-<p>os_aio_func               mysql 调用aio的函数，我们测试时只抓取其中的同步io</p>
-<p>stap 脚本</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div></pre></td><td class="code"><pre><div class="line">global start_time;</div><div class="line">global quit = 0;</div><div class="line">global found;</div><div class="line">global threshold = 6000;</div><div class="line"> </div><div class="line">probe begin &#123;</div><div class="line">    warn(sprintf(&quot;Tracing begin ...\\n&quot;))</div><div class="line">&#125;</div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;row_ins_clust_index_entry_low&quot;).call &#123;</div><div class="line">    if (!quit ) &#123;</div><div class="line">        start_time[tid(), ppfunc()] = gettimeofday_us()</div><div class="line">        &#125;</div><div class="line">    else&#123;</div><div class="line">        exit()</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;row_ins_clust_index_entry_low&quot;).return &#123;</div><div class="line">    if (!quit) &#123;</div><div class="line">        t = tid()</div><div class="line">        begin = start_time[t, ppfunc()]</div><div class="line">        if (begin &gt; 0) &#123;</div><div class="line">            elapsed = gettimeofday_us() - begin</div><div class="line">            if (elapsed &gt;= threshold) &#123;</div><div class="line">                printf(&quot;pid-&gt;%d   tid-&gt;%d   func-&gt;%s   start_time-&gt;%d    elapsed_time-&gt;%d \n&quot;,pid(), t, ppfunc(),begin, elapsed)</div><div class="line">                found = 1</div><div class="line">            &#125;</div><div class="line">            delete start_time[t, ppfunc()]</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;fsp_try_extend_data_file&quot;).call &#123;</div><div class="line">    if (!quit ) &#123;</div><div class="line">        start_time[tid(), ppfunc()] = gettimeofday_us()</div><div class="line">        &#125;</div><div class="line">    else&#123;</div><div class="line">        exit()</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;fsp_try_extend_data_file&quot;).return &#123;</div><div class="line">    if (!quit) &#123;</div><div class="line">        t = tid()</div><div class="line">        begin = start_time[t, ppfunc()]</div><div class="line">        if (begin &gt; 0) &#123;</div><div class="line">            elapsed = gettimeofday_us() - begin</div><div class="line">            if (elapsed &gt;= threshold) &#123;</div><div class="line">                printf(&quot;pid-&gt;%d   tid-&gt;%d   func-&gt;%s   start_time-&gt;%d    elapsed_time-&gt;%d \n&quot;,pid(), t, ppfunc(),begin, elapsed)</div><div class="line">                found = 1</div><div class="line">            &#125;</div><div class="line">            delete start_time[t, ppfunc()]</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;mysql_insert&quot;).call &#123;</div><div class="line">    if (!quit ) &#123;</div><div class="line">        start_time[tid(), ppfunc()] = gettimeofday_us()</div><div class="line">        &#125;</div><div class="line">    else&#123;</div><div class="line">        exit()</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;mysql_insert&quot;).return &#123;</div><div class="line">    if (!quit) &#123;</div><div class="line">        t = tid()</div><div class="line">        begin = start_time[t, ppfunc()]</div><div class="line">        if (begin &gt; 0) &#123;</div><div class="line">            elapsed = gettimeofday_us() - begin</div><div class="line">            if (elapsed &gt;= threshold) &#123;</div><div class="line">                printf(&quot;pid-&gt;%d   tid-&gt;%d   func-&gt;%s   start_time-&gt;%d    elapsed_time-&gt;%d sql:%s \n&quot;,pid(), t, ppfunc(),begin, elapsed, user_string($table_list-&gt;table_name))</div><div class="line">                found = 1</div><div class="line">            &#125;</div><div class="line">            delete start_time[t, ppfunc()]</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;os_aio_func&quot;).call &#123;</div><div class="line">    if (!quit ) &#123;</div><div class="line">        if ($mode == 24)&#123;</div><div class="line">            start_time[tid(), ppfunc()] = gettimeofday_us()</div><div class="line">            &#125;</div><div class="line">        &#125;</div><div class="line">    else&#123;</div><div class="line">        exit()</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line">probe process(&quot;/u01/mysql/bin/mysqld&quot;).function(&quot;os_aio_func&quot;).return &#123;</div><div class="line">    if (!quit) &#123;</div><div class="line">        # 只抓取同步IO</div><div class="line">        if ($mode == 24)&#123;</div><div class="line">            t = tid()</div><div class="line">            begin = start_time[t, ppfunc()]</div><div class="line">            if (begin &gt; 0) &#123;</div><div class="line">                elapsed = gettimeofday_us() - begin</div><div class="line">                if (elapsed &gt;= threshold) &#123;</div><div class="line">                    #针对mysql 5.6</div><div class="line">                    printf(&quot;pid-&gt;%d   tid-&gt;%d   func-&gt;%s   start_time-&gt;%d    elapsed_time-&gt;%d  %d %d %d\n&quot;,pid(), t, ppfunc(),begin, elapsed, $type ,$offset,$n)</div><div class="line">                    found = 1</div><div class="line">                &#125;</div><div class="line">                delete start_time[t, ppfunc()]</div><div class="line">            &#125;</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">&#125;</div><div class="line"> </div><div class="line"> </div><div class="line"># 持续3000s</div><div class="line">probe timer.s(3000) &#123;</div><div class="line">    if (!found) &#123;</div><div class="line">        warn(&quot;No backtraces found. Quitting now...\n&quot;)</div><div class="line">        exit()</div><div class="line">    &#125; else &#123;</div><div class="line">        warn(&quot;Time&apos;s up. Quitting now...(it may take a while)\n&quot;)</div><div class="line">        quit = 1</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>抓取结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">pid-&gt;30530   tid-&gt;90738   func-&gt;os_aio_func   start_time-&gt;1508234813956745    elapsed_time-&gt;11396</div><div class="line">pid-&gt;30530   tid-&gt;90738   func-&gt;row_ins_clust_index_entry_low   start_time-&gt;1508234813956724    elapsed_time-&gt;11463</div><div class="line">pid-&gt;30530   tid-&gt;90738   func-&gt;mysql_insert   start_time-&gt;1508234813956667    elapsed_time-&gt;11565 sql:__test_iss_schedule_job_instance_1015</div><div class="line"> </div><div class="line"> </div><div class="line">pid-&gt;30530   tid-&gt;56144   func-&gt;os_aio_func   start_time-&gt;1508236199976100    elapsed_time-&gt;7762  10 1304248320 16384</div><div class="line">pid-&gt;30530   tid-&gt;56144   func-&gt;row_ins_clust_index_entry_low   start_time-&gt;1508236199976072    elapsed_time-&gt;7840</div><div class="line">pid-&gt;30530   tid-&gt;56144   func-&gt;mysql_insert   start_time-&gt;1508236199976023    elapsed_time-&gt;7939 sql:iss_schedule_job_instance_0963</div><div class="line"> </div><div class="line"> </div><div class="line">pid-&gt;129041   tid-&gt;35427   func-&gt;os_aio_func   start_time-&gt;1508236506228913    elapsed_time-&gt;7686  10 188694528 16384</div><div class="line">pid-&gt;129041   tid-&gt;35427   func-&gt;row_ins_clust_index_entry_low   start_time-&gt;1508236506228896    elapsed_time-&gt;12958</div><div class="line">pid-&gt;129041   tid-&gt;35427   func-&gt;mysql_insert   start_time-&gt;1508236506228848    elapsed_time-&gt;13039 sql:iss_schedule_job_log_0115</div><div class="line"> </div><div class="line"> </div><div class="line">pid-&gt;30530   tid-&gt;42311   func-&gt;os_aio_func   start_time-&gt;1508236576977222    elapsed_time-&gt;7265  10 3863937024 16384</div><div class="line">pid-&gt;30530   tid-&gt;42311   func-&gt;row_ins_clust_index_entry_low   start_time-&gt;1508236576977200    elapsed_time-&gt;7338</div><div class="line">pid-&gt;30530   tid-&gt;42311   func-&gt;mysql_insert   start_time-&gt;1508236576977143    elapsed_time-&gt;7446 sql:iss_schedule_job_instance_0982</div></pre></td></tr></table></figure>
-<p>可以看出调用关系是 mysql_insert -&gt; row_ins_clust_index_entry_low -&gt; os_aio_func</p>
-<p>pid 30530和129041 分别指两个mysqld 进程，怀疑IO问题</p>
-<p>io逻辑以及涉及到的 perf 事件</p>
-<p><img src="/images/951413iMgBlog/perf_block_event.png" alt="image.png"></p>
-<p>如果想要准确知道是不是硬件设备的问题，可以抓取block layer层和device driver层之间的rt，也就是以下两个事件：</p>
-<p><strong>block:block_rq_issue</strong>  IO块经过io调度算法，以及队列等待后，最终下发出去的事件</p>
-<p><strong>block:block_rq_complete</strong> IO块从device driver 返回的事件</p>
-<p>除了上面两个，假如我们想排查是不是由于IO调度策略，及队列的问题，可以追踪<strong>block:block_rq_insert</strong> 和 <strong>block:block_rq_complete</strong> 之间的rt</p>
-<p>perf是通过cpu的打点来计算事件发生的时间，我们只要通过后期进行处理，即可知道RT</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line"># 抓取事件，会自动输出结果到当前目录下的perf.data中</div><div class="line">perf record -ga -e block:block_rq_issue -e block:block_rq_complete sleep 10</div><div class="line"></div><div class="line"># 读取perf.data 打印所有采集信息</div><div class="line">perf script</div><div class="line"></div><div class="line"># 只打印所有事件发生的信息（忽略具体堆栈）</div><div class="line">perf script -G</div></pre></td></tr></table></figure>
-<p>结果如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">进程名    pid      cpu         time                    事件                </div><div class="line">mysqld 117330 [002] 3630658.631426: block:block_rq_issue: 259,2   WS 0 ()     3536832512 + 512 [mysqld]</div><div class="line">swapper     0 [000] 3630658.631612: block:block_rq_complete: 259,2 WS ()       3536832512 + 512 [0]</div><div class="line">mysqld 117330 [002] 3630658.631462: block:block_rq_issue: 259,2    WS 0 () 3536833536 + 512 [mysqld]</div></pre></td></tr></table></figure>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect" target="_blank" rel="external">https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect</a></p>
-<p>Demo集锦：<a href="https://github.com/openresty/openresty-systemtap-toolkit/blob/master/README-CN.markdown" target="_blank" rel="external">openresty systemtap demo</a></p>
-<p><a href="https://yq.aliyun.com/articles/174916" target="_blank" rel="external">SystemTap原理、安装、入门、脚本语言及技巧</a></p>
-<p><a href="https://yq.aliyun.com/articles/697679" target="_blank" rel="external">eBCC性能分析最佳实践–开启性能分析新篇章</a></p>
-<p><a href="http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/" target="_blank" rel="external">eBPF 内核探测：如何将任意系统调用转换成事件（2016）</a></p>
-<p><a href="http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/" target="_blank" rel="external">使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)</a></p>
-<p><a href="https://mp.weixin.qq.com/s/yEMp70FmFYn6qL8kCZgS8A" target="_blank" rel="external">使用ftrace分析函数性能</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -3454,7 +3565,7 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">145</span>
+                <span class="site-state-item-count">147</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3476,7 +3587,7 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">240</span>
+                <span class="site-state-item-count">244</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

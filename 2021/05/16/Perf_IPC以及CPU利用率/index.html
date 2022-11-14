@@ -127,10 +127,14 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210513123233344.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210513130252565.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108095422200.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108094802841.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108095753861.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108175100638.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
-<meta property="og:updated_time" content="2022-11-04T09:12:40.029Z">
+<meta property="og:updated_time" content="2022-11-14T07:31:04.468Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Perf IPC以及CPU性能">
 <meta name="twitter:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
@@ -647,6 +651,16 @@ Performance counter stats for &apos;system wide&apos;:
 <p>对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%</p>
 <p><img src="/images/951413iMgBlog/image-20210513130252565.png" alt="image-20210513130252565"></p>
 <p>以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)</p>
+<p>再来看如下CPU上，0和64核是一对HT，单独跑nop、Pause指令的IPC分别是5/0.17(nop是一条完全不会卡顿的指令)，可以得到这款CPU的最高IPC是5，一条 Pause 指令需要28-30个时钟周期。</p>
+<p>如果在0/64上同时跑两个nop指令，虽然是两个超线程得到的IPC只有5的一半，也就是超线程在这种完全不卡顿的 nop 指令上完全没用；另外对比在0/64上同时跑两个Pause 指令，IPC 都还是0.17，也就是 Pause 指令完全可以将一个物理核发挥出两倍的运算能力</p>
+<p><img src="/images/951413iMgBlog/image-20221108095422200.png" alt="image-20221108095422200"></p>
+<p>Pause指令和nop指令同时跑在一对HT上，nop基本不受影响，Pause降得非常低</p>
+<p><img src="/images/951413iMgBlog/image-20221108094802841.png" alt="image-20221108094802841"></p>
+<p>Pause指令和nop指令同时跑在一个核上，IPC 倒是各自保持不变，但是抢到的 CPU 配额相当于各自 50%(在自己的50%范围内独占，IPC也不受影响)</p>
+<p><img src="/images/951413iMgBlog/image-20221108095753861.png" alt="image-20221108095753861"></p>
+<p>关掉如上CPU的超线程，从测试结果看海光如果开了超线程 Pause 是28个时钟周期，关掉超线程 Pause 是14个时钟周期</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div></pre></td><td class="code"><pre><div class="line">//关掉超线程后 Pause 的IPC 从0.17提升到了0.34</div><div class="line">#perf stat taskset -c 0 ./pause</div><div class="line">^Ctaskset: Interrupt</div><div class="line"></div><div class="line"> Performance counter stats for &apos;taskset -c 0 ./pause&apos;:</div><div class="line"></div><div class="line">          3,190.28 msec task-clock                #    0.999 CPUs utilized</div><div class="line">               302      context-switches          #    0.095 K/sec</div><div class="line">                 1      cpu-migrations            #    0.000 K/sec</div><div class="line">                99      page-faults               #    0.031 K/sec</div><div class="line">     7,951,451,789      cycles                    #    2.492 GHz</div><div class="line">         1,337,801      stalled-cycles-frontend   #    0.02% frontend cycles idle</div><div class="line">     7,842,812,091      stalled-cycles-backend    #   98.63% backend cycles idle</div><div class="line">     2,671,280,445      instructions              #    0.34  insn per cycle</div><div class="line">                                                  #    2.94  stalled cycles per insn</div><div class="line">        21,917,856      branches                  #    6.870 M/sec</div><div class="line">            29,607      branch-misses             #    0.14% of all branches</div><div class="line"></div><div class="line">       3.192937987 seconds time elapsed</div><div class="line"></div><div class="line">       3.190322000 seconds user</div><div class="line">       0.000000000 seconds sys</div><div class="line"></div><div class="line"></div><div class="line">#lscpu</div><div class="line">Architecture:        x86_64</div><div class="line">CPU op-mode(s):      32-bit, 64-bit</div><div class="line">Byte Order:          Little Endian</div><div class="line">Address sizes:       43 bits physical, 48 bits virtual</div><div class="line">CPU(s):              48</div><div class="line">On-line CPU(s) list: 0-47</div><div class="line">Thread(s) per core:  1</div><div class="line">Core(s) per socket:  24</div><div class="line">Socket(s):           2</div><div class="line">NUMA node(s):        8</div><div class="line">Vendor ID:           HygonGenuine</div><div class="line">CPU family:          24</div><div class="line">Model:               1</div><div class="line">Model name:          Hygon C86 7260 24-core Processor</div><div class="line">Stepping:            1</div><div class="line">Frequency boost:     enabled</div><div class="line">CPU MHz:             1070.009</div><div class="line">CPU max MHz:         2200.0000</div><div class="line">CPU min MHz:         1200.0000</div><div class="line">BogoMIPS:            4399.40</div><div class="line">Virtualization:      AMD-V</div><div class="line">L1d cache:           1.5 MiB</div><div class="line">L1i cache:           3 MiB</div><div class="line">L2 cache:            24 MiB</div><div class="line">L3 cache:            128 MiB</div><div class="line">NUMA node0 CPU(s):   0-5</div><div class="line">NUMA node1 CPU(s):   6-11</div><div class="line">NUMA node2 CPU(s):   12-17</div><div class="line">NUMA node3 CPU(s):   18-23</div><div class="line">NUMA node4 CPU(s):   24-29</div><div class="line">NUMA node5 CPU(s):   30-35</div><div class="line">NUMA node6 CPU(s):   36-41</div><div class="line">NUMA node7 CPU(s):   42-47</div></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20221108175100638.png" alt="image-20221108175100638"></p>
 <h3 id="Intel和AMD单核以及HT性能比较"><a href="#Intel和AMD单核以及HT性能比较" class="headerlink" title="Intel和AMD单核以及HT性能比较"></a>Intel和AMD单核以及HT性能比较</h3><p>测试命令，这个测试命令无论在哪个CPU下，用2个物理核用时都是一个物理核的一半，所以这个计算是可以完全并行的</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">taskset -c 1,53 /usr/bin/sysbench --num-threads=2 --test=cpu --cpu-max-prime=50000 run //单核用一个threads，绑核， HT用2个threads，绑一对HT</div></pre></td></tr></table></figure>
 <p>测试结果为耗时，单位秒，Hygon 7280 就是Zen2架构</p>
@@ -867,7 +881,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">145</span>
+                <span class="site-state-item-count">147</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -889,7 +903,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">240</span>
+                <span class="site-state-item-count">244</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
