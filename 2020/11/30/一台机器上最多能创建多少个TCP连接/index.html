@@ -109,7 +109,8 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721093116395.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png">
-<meta property="og:updated_time" content="2022-08-24T02:32:50.670Z">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20220413134252639">
+<meta property="og:updated_time" content="2022-12-01T06:52:54.975Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底一台服务器上最多能创建多少个TCP连接">
 <meta name="twitter:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range中随机取一个可用的 12# cat /proc/sys/net/ipv4/ip_l">
@@ -425,7 +426,7 @@
 <li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
 <li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
 </ol>
-<p>==SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用==</p>
+<p>==SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//而 SO_REUSEPORT主要是解决Server端的port重用==</p>
 <p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">SO_REUSEADDR 还可以重用TIME_WAIT状态的port</a>, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出<u>Address Already in use</u>的错误导致启动失败。这时候可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
 <blockquote>
 <p>What exactly does SO_REUSEADDR do?</p>
@@ -514,6 +515,26 @@
 <p><img src="/images/951413iMgBlog/image-20220627154822263.png" alt="image-20220627154822263"></p>
 <p>再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万</p>
 <p><img src="/images/951413iMgBlog/image-20220627154931495.png" alt="image-20220627154931495"></p>
+<h2 id="一条连接的开销"><a href="#一条连接的开销" class="headerlink" title="一条连接的开销"></a><a href="https://mp.weixin.qq.com/s/BwddYkVLSYlkKFNeA-NUVg" target="_blank" rel="external">一条连接的开销</a></h2><p>主要是内存开销(如图，来源见水印)，另外就是每个连接都会占用一个文件句柄，可以通过参数来设置：fs.nr_open、nofile（其实 nofile 还分 soft 和 hard） 和 fs.file-max</p>
+<p><img src="/images/951413iMgBlog/640-20220413134252639" alt="Image"></p>
+<p>从上图可以看到：</p>
+<ul>
+<li><p>没有收发数据的时候收发buffer不用提前分配，3K多点的内存是指一个连接的元信息数据空间，不包含传输数据的内存buffer</p>
+</li>
+<li><p>客户端发送数据后，会根据数据大小分配send buffer（一般不超过wmem，默认kernel会根据系统内存压力来调整send buffer大小)</p>
+</li>
+<li><p>server端kernel收到数据后存放在rmem中，应用读走后就会释放对应的rmem</p>
+</li>
+<li><p>rmem和wmem都不会重用，用时分配用完释放</p>
+</li>
+</ul>
+<p>可见，内核在 socket 内存开销优化上采取了不少方法:</p>
+<ul>
+<li>内核会尽量及时回收发送缓存区、接收缓存区，但高版本做的更好</li>
+<li>发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0</li>
+<li>其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象</li>
+</ul>
+<h2 id="可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><a href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例" class="headerlink" title="可用 local port 不够导致对端time_wait 连接重用进而卡顿案例"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="external">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</a></h2><p>A进程选择某个端口，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象</p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
 <li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
 <li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
@@ -660,7 +681,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">147</span>
+                <span class="site-state-item-count">148</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -724,7 +745,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SO-LINGER"><span class="nav-number">1.8.</span> <span class="nav-text">SO_LINGER</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NIO下设置-SO-LINGER-的错误案例"><span class="nav-number">1.8.1.</span> <span class="nav-text">NIO下设置 SO_LINGER 的错误案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么要有-time-wait-状态"><span class="nav-number">1.9.</span> <span class="nav-text">为什么要有 time_wait 状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.10.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.11.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.12.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SO-LINGER"><span class="nav-number">1.8.</span> <span class="nav-text">SO_LINGER</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NIO下设置-SO-LINGER-的错误案例"><span class="nav-number">1.8.1.</span> <span class="nav-text">NIO下设置 SO_LINGER 的错误案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么要有-time-wait-状态"><span class="nav-number">1.9.</span> <span class="nav-text">为什么要有 time_wait 状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.10.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一条连接的开销"><span class="nav-number">1.11.</span> <span class="nav-text">一条连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><span class="nav-number">1.12.</span> <span class="nav-text">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.13.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.14.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

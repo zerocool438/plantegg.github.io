@@ -291,6 +291,197 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/25/如何徒手撕Bug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/08/25/如何徒手撕Bug/" itemprop="url">如何徒手撕Bug</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-25T16:30:03+08:00">
+                2018-08-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
+                    <span itemprop="name">troubleshooting</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何徒手撕Bug"><a href="#如何徒手撕Bug" class="headerlink" title="如何徒手撕Bug"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
+<p>所以不到万不得已不要碰复杂的源代码</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
+<p><img src="/images/oss/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
+<p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
+<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="/images/oss/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
+<pre><code>$sudo fuser /run/xtables.lock 
+/run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
+</code></pre><p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
+<h2 id="跟踪具体拿到锁的进程"><a href="#跟踪具体拿到锁的进程" class="headerlink" title="跟踪具体拿到锁的进程"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
+iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
+</code></pre><p>通过strace这个拿到锁的进程可以看到：</p>
+<p><img src="/images/oss/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
+<p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
+<p>看看物理机上的dns服务器配置：</p>
+<pre><code>$cat /etc/resolv.conf   
+options timeout:2 attempts:2   
+nameserver 10.0.0.1  
+nameserver 10.0.0.2
+nameserver 10.0.0.3
+</code></pre><p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
+<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="/images/oss/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
+<p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
+<h2 id="strace工作原理"><a href="#strace工作原理" class="headerlink" title="strace工作原理"></a>strace工作原理</h2><blockquote>
+<p>strace -T -tt -ff -p pid -o strace.out</p>
+<p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
+</blockquote>
+<p><img src="/images/oss/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
+<p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
+<p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
+<p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
+<p>两个术语：</p>
+<ol>
+<li>tracer：跟踪（其他程序的）程序</li>
+<li>tracee：被跟踪程序</li>
+</ol>
+<p>tracer 跟踪 tracee 的过程：</p>
+<p>首先，<strong>attach 到 tracee 进程</strong>：调用 <code>ptrace</code>，带 <code>PTRACE_ATTACH</code> 及 tracee 进程 ID 作为参数。</p>
+<p>之后当 <strong>tracee 运行到系统调用函数时就会被内核暂停</strong>；对 tracer 来说，就像 tracee 收到了 <code>SIGTRAP</code> 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。</p>
+<p>然后，<strong>恢复 tracee 执行</strong>：再次调用 <code>ptrace</code>，带 <code>PTRACE_SYSCALL</code> 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。</p>
+<p>以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。</p>
+<h3 id="strace-常用用法"><a href="#strace-常用用法" class="headerlink" title="strace 常用用法"></a>strace 常用用法</h3><p>1) sudo strace -tt -e poll,select,connect,recvfrom,sendto nc www.baidu.com 80 //网络连接不上，卡在哪里</p>
+<p>2) 如何确认一个程序为什么卡住和停止在什么地方?</p>
+<p>有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。</p>
+<p>$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX</p>
+<p>这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?</p>
+<p>$ readlink /proc/22067/fd/3 /tmp/foobar.lock</p>
+<p>aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?</p>
+<p>$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock</p>
+<p>原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。</p>
+<p> strace -cp  // strace  可以按操作汇总时间</p>
+<h2 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h2><p>docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。</p>
+<p>这应该是docker daemon实现上的小bug，也就是改iptables这里没加锁，如果修改dns的时候同时收到了dns查询，要是让查询等锁的话就不至于出现这种恶性循环</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>其实这个问题还是挺容易出现的，daemon重启，上面有很多容器，容器里面的任务启动的时候都要做dns解析，这个时候daemon还在修改dns，冲进来很多dns查询的话会导致修改进程变慢</p>
+<p>这也跟物理机的 /etc/resolv.conf 配置有关</p>
+<p>暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。</p>
+<p>解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/how-does-strace-work-zh/" target="_blank" rel="external">strace 是如何工作的（2016）</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/25/方舟域名和服务/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2388,6 +2579,11 @@ net.ipv4.route.min_pmtu = 552
 </code></pre><p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="external">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
 <p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="external">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
 <p><img src="/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 </p>
+<p><img src="/images/951413iMgBlog/image-20221125133218008.png" alt="image-20221125133218008"></p>
+<p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
+<p>这个ICMP包在链路上有可能会被丢掉，比如：</p>
+<p>Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。<br>简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
 <li>通过这个案例对mtu/mss等有了进一步的了解</li>
@@ -2615,223 +2811,6 @@ net.ipv4.route.min_pmtu = 552
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables使用/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/25/iptables使用/" itemprop="url">iptables使用</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-25T17:30:03+08:00">
-                2018-03-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="iptables使用"><a href="#iptables使用" class="headerlink" title="iptables使用"></a>iptables使用</h1><h2 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h2><p><img src="/images/951413iMgBlog/image-20211116101345648.png" alt="image-20220608093532338"></p>
-<p><a href="https://stuffphilwrites.com/wp-content/uploads/2014/09/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" target="_blank" rel="external">包流</a></p>
-<p><img src="/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" alt="img"></p>
-<h2 id="iptables监控reset的连接信息"><a href="#iptables监控reset的连接信息" class="headerlink" title="iptables监控reset的连接信息"></a>iptables监控reset的连接信息</h2><p>如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息</p>
-<h3 id="iptables规则"><a href="#iptables规则" class="headerlink" title="iptables规则"></a>iptables规则</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</span></div><div class="line">*filter</div><div class="line">:INPUT ACCEPT [557:88127]</div><div class="line">:FORWARD ACCEPT [0:0]</div><div class="line">:OUTPUT ACCEPT [527:171711]</div><div class="line"><span class="meta">#</span><span class="bash"> 不监听3406上的reset，日志前面添加 [drds] </span></div><div class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix "[drds] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"><span class="meta">#</span><span class="bash"> -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --<span class="built_in">log</span>-prefix <span class="string">"[drds] "</span> --<span class="built_in">log</span>-level7 --<span class="built_in">log</span>-tcp-sequence --<span class="built_in">log</span>-tcp-options --<span class="built_in">log</span>-ip-options</span></div><div class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix "[drds] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">COMMIT</div><div class="line"><span class="meta">#</span><span class="bash"> Completed on Wed Apr  1 11:39:31 2020</span></div></pre></td></tr></table></figure>
-<p>将如上配置保存在 drds_filter.conf中，设置开机启动:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">//注意，tee 命令的 &quot;-a&quot; 选项的作用等同于 &quot;&gt;&gt;&quot; 命令，如果去除该选项，那么 tee 命令的作用就等同于 &quot;&gt;&quot; 命令。</div><div class="line">//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入</div><div class="line">echo &quot;sudo iptables-restore &lt; drds_filter.conf&quot; | sudo tee -a /etc/rc.d/rc.local</div></pre></td></tr></table></figure>
-<h3 id="单独记录到日志文件中"><a href="#单独记录到日志文件中" class="headerlink" title="单独记录到日志文件中"></a>单独记录到日志文件中</h3><p>默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</div><div class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/drds-tcp.log</div></pre></td></tr></table></figure>
-<p>将 [drds] 开头的日志存到对应的文件</p>
-<p>将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf</div><div class="line">sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf</div><div class="line">sudo systemctl restart rsyslog</div></pre></td></tr></table></figure>
-<h3 id="防止日志打满磁盘"><a href="#防止日志打满磁盘" class="headerlink" title="防止日志打满磁盘"></a>防止日志打满磁盘</h3><p>配置 logrotate, 保留最近30天的</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">cat /etc/logrotate.d/drds</span></div><div class="line">/home/admin/logs/drds-tcp.log</div><div class="line">&#123;</div><div class="line">daily</div><div class="line">rotate 30</div><div class="line">copytruncate</div><div class="line">compress</div><div class="line">dateext</div><div class="line"><span class="meta">#</span><span class="bash">size 1k</span></div><div class="line">prerotate</div><div class="line">/usr/bin/chattr -a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">postrotate</div><div class="line">/usr/bin/chattr +a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">&#125;</div><div class="line"></div><div class="line">执行：</div><div class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</div><div class="line">debug：</div><div class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</div><div class="line">查看日志：</div><div class="line">cat /var/lib/logrotate/logrotate.status</div></pre></td></tr></table></figure>
-<p>logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：<a href="https://chasemp.github.io/2013/07/24/su-directive-logrotate/" target="_blank" rel="external">https://chasemp.github.io/2013/07/24/su-directive-logrotate/</a> 报错信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)</div><div class="line">empty log files are rotated, old logs are removed</div><div class="line">considering log /var/log/myapp/default.log</div><div class="line"></div><div class="line">error: skipping &quot;/var/log/myapp/default.log&quot; because parent directory has insecure permissions</div><div class="line">(It&apos;s world writable or writable by group which is not &quot;root&quot;) Set &quot;su&quot; directive in </div><div class="line">config file to tell logrotate which user/group should be used for rotation</div></pre></td></tr></table></figure>
-<h3 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">$tail -10 logs/drds-tcp.log</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9366 SEQ=0 ACK=1747027778 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9368 SEQ=0 ACK=3840170438 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9370 SEQ=0 ACK=3892381139 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0</div></pre></td></tr></table></figure>
-<h2 id="tracing-point-监控"><a href="#tracing-point-监控" class="headerlink" title="tracing_point 监控"></a>tracing_point 监控</h2><p>对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> grep tcp:tcp /sys/kernel/debug/tracing/available_events</span></div><div class="line">tcp:tcp_probe</div><div class="line">tcp:tcp_retransmit_synack</div><div class="line">tcp:tcp_rcv_space_adjust</div><div class="line">tcp:tcp_destroy_sock</div><div class="line">tcp:tcp_receive_reset</div><div class="line">tcp:tcp_send_reset</div><div class="line">tcp:tcp_retransmit_skb</div><div class="line"></div><div class="line">//开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="built_in">echo</span> 1 &gt; /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/<span class="built_in">enable</span></span></div><div class="line"></div><div class="line">//如下是开启重传以及reset的记录，本机ip 10.0.186.140</div><div class="line"><span class="meta">#</span><span class="bash"> cat trace_pipe</span></div><div class="line">//重传</div><div class="line">          &lt;idle&gt;-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          </div><div class="line"> Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a</div><div class="line"> C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574</div><div class="line"> </div><div class="line">// 被reset</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd</div><div class="line">// 主动reset  </div><div class="line">     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193</div><div class="line">  </div><div class="line"> // 3306对端中断 </div><div class="line">              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">          &lt;idle&gt;-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE</div><div class="line">         </div><div class="line">//8182 主动关闭         </div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1</div><div class="line">          &lt;idle&gt;-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2</div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE</div><div class="line"></div><div class="line">//3306 被动关闭</div><div class="line">          &lt;idle&gt;-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT</div><div class="line"> Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK</div><div class="line"> Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE</div></pre></td></tr></table></figure>
-<h2 id="iptables-打通网络"><a href="#iptables-打通网络" class="headerlink" title="iptables 打通网络"></a>iptables 打通网络</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)</div><div class="line">iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16</div></pre></td></tr></table></figure>
-<h2 id="ipset-组合iptables使用"><a href="#ipset-组合iptables使用" class="headerlink" title="ipset 组合iptables使用"></a>ipset 组合iptables使用</h2><p>ipset是iptables的扩展,它允许创建匹配地址集合的规则。普通的iptables链只能单IP匹配, 进行规则匹配时，是从规则列表中从头到尾一条一条进行匹配，这像是在链表中搜索指定节点费力。ipset 提供了把这个 O(n) 的操作变成 O(1) 的方法：就是把要处理的 IP 放进一个集合，对这个集合设置一条 iptables 规则。像 iptable 一样，IP sets 是 Linux 内核提供，ipset 这个命令是对它进行操作的一个工具。<br>另外ipset的一个优势是集合可以动态的修改，即使ipset的iptables规则目前已经启动，新加的入ipset的ip也生效。</p>
-<p><a href="https://www.cnblogs.com/faberbeta/p/ipset.html" target="_blank" rel="external">ipset</a>可以以set的形式管理大批IP以及IP段，set可以有多个，通过 ipset修改set后可以立即生效。不用再次修改iptables规则。k8s也会用ipset来管理ip集合</p>
-<blockquote>
-<p>ipset is an extension to iptables that allows you to create firewall rules that match entire “sets” of addresses at once. Unlike normal iptables chains, which are stored and traversed linearly, IP sets are stored in indexed data structures, making lookups very efficient, even when dealing with large sets.</p>
-</blockquote>
-<p>接下来用一个ip+port的白名单案例来展示他们的用法，ipset负责白名单，iptables负责拦截规则：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">  240  [2021-11-30 19:57:10] ipset list drds_whitelist_ips |grep "^127.0."</div><div class="line">  241  [2021-11-30 19:57:27] ipset del drds_whitelist_ips 127.0.0.1 //从set删除ip</div><div class="line">  248  [2021-11-30 19:58:50] ipset list drds_whitelist_ips |grep "^11.1.2"</div><div class="line">  249  [2021-11-30 19:59:05] ipset del drds_whitelist_ips 11.1.2.30</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">timeout 259200是集合内新增的IP有三天的寿命</span></div><div class="line">ipset create myset hash:net timeout 259200 </div><div class="line">  </div><div class="line">ipset list drds_whitelist_ips             //列出set中的所有ip、ip段</div><div class="line">ipset add drds_whitelist_ips 100.1.2.0/24 //从set中增加ip段</div><div class="line"></div><div class="line">iptables -I INPUT 1 -p tcp  -j drds_whitelist //创建新规则链drds_whitelist，所有tcp流入的包都跳转到 drds_whitelist规则</div><div class="line">//有了以上drds_whitelist_ips这个名单, 接下来可以在iptables规则中使用这个set了</div><div class="line">//在第一行增加规则：访问端口1234的tcp请求走规则 drds_whitelist</div><div class="line">iptables -I INPUT 1 -p tcp --dport 1234 -j drds_whitelist </div><div class="line"></div><div class="line">//规则drds_whitelist 添加如下三条</div><div class="line">//第一条白名单中的来源ip访问1234就ACCEPT，不再走后面的. 关键的白名单列表就取自ipset中的drds_whitelist_ips</div><div class="line">iptables -A drds_whitelist -m set --match-set drds_whitelist_ips src -p tcp --dport 1234 -j ACCEPT </div><div class="line"></div><div class="line">//同规则1，记录日志，走到这里说明规则1没生效，那么就是黑名单要拦截的了</div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">//拦截          </div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<p>经过如上操作后，可以得到iptables规则如下</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">iptables -L -n --line-numbers</span></div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">target     prot opt source               destination</div><div class="line">drds_whitelist  tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234</div><div class="line"></div><div class="line">Chain drds_whitelist (1 references)</div><div class="line">target     prot opt source               destination</div><div class="line">1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0           match-set drds_whitelist_ips src tcp dpt:80</div><div class="line">2    LOG        tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 LOG flags 7 level 7 prefix `[drds_reject] ` --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options '</div><div class="line">3    REJECT     tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<p>从以上Chain drds_whitelist中删除第三条规则</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">iptables -D drds_whitelist 3</div></pre></td></tr></table></figure>
-<h3 id="block-ip-案例"><a href="#block-ip-案例" class="headerlink" title="block ip 案例"></a>block ip 案例</h3><p>模拟断网测试的时候可以通过iptables固定屏蔽某几个ip来实现。</p>
-<p>创建ipset，存放好需要block的ip列表</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ipset create block_ips hash:net timeout 259200</div><div class="line">ipset add block_ips 10.176.2.245</div></pre></td></tr></table></figure>
-<p>添加iptables过滤规则，规则中不需要列出一堆ip，只需要指定上一步创建好的ipset，以后屏蔽、放开某些ip不需要修改iptables规则了，只需要往ipset添加、删除目标ip</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">iptables -N drds_rule //创建新规则链</div><div class="line"></div><div class="line">iptables -I INPUT 1 -m set --match-set block_ips src  -p tcp  -j drds_rule  //命中就跳转到drds_rule</div><div class="line">//这条可有可无，记录日志，方便调试</div><div class="line">iptables -I drds_rule -m set --match-set block_ips src -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"></div><div class="line">iptables -A drds_rule -m set --match-set block_ips src -p tcp  -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<h2 id="iptables记录日志"><a href="#iptables记录日志" class="headerlink" title="iptables记录日志"></a>iptables记录日志</h2><p>记录每个新连接创建的时间，日志在/var/log/kern或者/var/log/dmesg中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">iptables -I INPUT -m state --state NEW -j LOG --log-prefix &quot;Connection In: &quot;</div><div class="line">iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix &quot;Connection Out: &quot;</div></pre></td></tr></table></figure>
-<p>在宿主机上执行，然后在dmesg中能看到包的传递流程。只有raw有TRACE能力，nat、filter、mangle都没有。这个方式对性能影响非常大，时延高（增加1秒左右）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">iptables -t raw -A OUTPUT -p icmp -j TRACE</div><div class="line">iptables -t raw -A PREROUTING -p icmp -j TRACE</div></pre></td></tr></table></figure>
-<h2 id="端口转发"><a href="#端口转发" class="headerlink" title="端口转发"></a><a href="https://www.cnblogs.com/dongzhiquan/p/11427461.html" target="_blank" rel="external">端口转发</a></h2><h3 id="iptables"><a href="#iptables" class="headerlink" title="iptables"></a>iptables</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">iptables -t nat -A PREROUTING -d 10.176.7.5 -p tcp --dport 8507 -j DNAT --to-destination 10.176.7.6:3307</div><div class="line">iptables -t nat -D PREROUTING  -p tcp --dport 18080 -j DNAT --to-destination 10.176.7.245:8080</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将访问8022端口的进出流量转发到22端口</span></div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8022 -j REDIRECT --to-ports 22 </div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将本机的端口转发到其他机器</span></div><div class="line">iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80</div><div class="line">iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">清空nat表的所有链</span></div><div class="line">iptables -t nat -F PREROUTING</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">禁止访问某个端口</span></div><div class="line">iptables -A OUTPUT -p tcp --dport 31165 -j DROP</div></pre></td></tr></table></figure>
-<p>iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5</p>
-<p><img src="/images/951413iMgBlog/640-7027461." alt="Image"></p>
-<h3 id="ncat端口转发"><a href="#ncat端口转发" class="headerlink" title="ncat端口转发"></a>ncat端口转发</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口</div><div class="line">ncat --sh-exec &quot;ncat 192.168.172.131 80&quot; -l 9876  --keep-open</div></pre></td></tr></table></figure>
-<p>scat</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">在本地监听12345端口，并将请求转发至192.168.172.131的22端口。</div><div class="line">socat TCP4-LISTEN:12345,reuseaddr,fork TCP4:192.168.172.131:22</div></pre></td></tr></table></figure>
-<h3 id="iptables-屏蔽IP"><a href="#iptables-屏蔽IP" class="headerlink" title="iptables 屏蔽IP"></a>iptables 屏蔽IP</h3><p>一分钟内新建22端口连接超过 4 次，不分密码对错, 直接 block.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --set --name SSH --rsource</div><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 --name SSH --rsource -j DROP</div><div class="line"></div><div class="line">或者 block 掉暴力破解 ssh 的 IP</div><div class="line">grep &quot;Failed&quot; /var/log/auth.log | \</div><div class="line">     awk &apos;&#123;print $(NF-3)&#125;&apos; | \</div><div class="line">     sort | uniq -c | sort -n | \</div><div class="line">     awk &apos;&#123;if ($1&gt;100) print $2&#125;&apos; | \</div><div class="line">     xargs -I &#123;&#125; iptables -A INPUT -s &#123;&#125; -j DROP</div></pre></td></tr></table></figure>
-<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/index.html" target="_blank" rel="external">Per-IP rate limiting with iptables</a></p>
-<h2 id="iptables-常用参数"><a href="#iptables-常用参数" class="headerlink" title="iptables 常用参数"></a>iptables 常用参数</h2><blockquote>
-<p><strong>-I</strong> : Insert rule at given rule number</p>
-<p><strong>-t</strong> : Specifies the packet matching table such as nat, filter, security, mangle, and raw.</p>
-<p><strong>-L</strong> : List info for specific chain (such as INPUT/FORWARD/OUTPUT) of given packet matching table</p>
-<p><strong>–line-numbers</strong> : See firewall rules with line numbers</p>
-<p><strong>-n</strong> : Do not resolve names using dns i.e. only show numeric output for IP address and port numbers.</p>
-<p><strong>-v</strong> : Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks</p>
-</blockquote>
-<h2 id="NetFilter-Hooks"><a href="#NetFilter-Hooks" class="headerlink" title="NetFilter Hooks"></a>NetFilter Hooks</h2><p>下面几个 hook 是内核协议栈中已经定义好的：</p>
-<ul>
-<li><code>NF_IP_PRE_ROUTING</code>: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前</li>
-<li><code>NF_IP_LOCAL_IN</code>: 接收到的包经过路由判断，如果目的是本机，将触发此 hook</li>
-<li><code>NF_IP_FORWARD</code>: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook</li>
-<li><code>NF_IP_LOCAL_OUT</code>: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook</li>
-<li><code>NF_IP_POST_ROUTING</code>: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook</li>
-</ul>
-<h2 id="IPTables-表和链（Tables-and-Chains）"><a href="#IPTables-表和链（Tables-and-Chains）" class="headerlink" title="IPTables 表和链（Tables and Chains）"></a>IPTables 表和链（Tables and Chains）</h2><p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
-<ul>
-<li><code>PREROUTING</code>: 由 <code>NF_IP_PRE_ROUTING</code> hook 触发</li>
-<li><code>INPUT</code>: 由 <code>NF_IP_LOCAL_IN</code> hook 触发</li>
-<li><code>FORWARD</code>: 由 <code>NF_IP_FORWARD</code> hook 触发</li>
-<li><code>OUTPUT</code>: 由 <code>NF_IP_LOCAL_OUT</code> hook 触发</li>
-<li><code>POSTROUTING</code>: 由 <code>NF_IP_POST_ROUTING</code> hook 触发</li>
-</ul>
-<p>如果没有匹配到任何规则那么执行默认规则。下面括号中的policy</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#iptables -L | grep policy</div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">Chain FORWARD (policy ACCEPT)</div><div class="line">Chain OUTPUT (policy ACCEPT)</div></pre></td></tr></table></figure>
-<p>If you would rather deny all connections and manually specify which ones you want to allow to connect, you should change the default policy of your chains to drop. Doing this would probably only be useful for servers that contain sensitive information and only ever have the same IP addresses connect to them.</p>
-<blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">&gt; iptables --policy INPUT DROP`</div><div class="line">&gt; `iptables --policy OUTPUT DROP`</div><div class="line">&gt; `iptables --policy FORWARD DROP</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<h2 id="iptables规则对性能的影响"><a href="#iptables规则对性能的影响" class="headerlink" title="iptables规则对性能的影响"></a>iptables规则对性能的影响</h2><p>蓝色是iptables规则数量，不过如果规则内容差不多，只是ip不一样，完全可以用ipset将他们合并到一条或者几条规则，从而提升性能</p>
-<p><img src="/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/" target="_blank" rel="external">深入理解 iptables 和 netfilter 架构</a></p>
-<p><a href="http://arthurchiao.art/blog/nat-zh/" target="_blank" rel="external">NAT - 网络地址转换（2016）</a></p>
-<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/" target="_blank" rel="external">通过iptables 来控制每个ip的流量</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -2881,7 +2860,7 @@ net.ipv4.route.min_pmtu = 552
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">147</span>
+                <span class="site-state-item-count">148</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

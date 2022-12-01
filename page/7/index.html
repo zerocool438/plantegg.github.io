@@ -291,6 +291,320 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/25/SSD存储原理/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/25/SSD存储原理/" itemprop="url">存储原理</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-25T17:30:03+08:00">
+                2020-01-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="存储原理"><a href="#存储原理" class="headerlink" title="存储原理"></a>存储原理</h1><p>本文记录各种存储、接口等原理性东西</p>
+<p><img src="/images/951413iMgBlog/d81b49e46e4c5de80a554a453d92e08f.png" alt="img"></p>
+<p><img src="/images/oss/52eca12b2b73a72861fc777919457f5b.png" alt="img"></p>
+<h2 id="磁盘信息"><a href="#磁盘信息" class="headerlink" title="磁盘信息"></a>磁盘信息</h2><p>Here are some common ones:</p>
+<ul>
+<li><code>hdX</code> — ATA hard disk, pre-libata. You’ll only see this with old distros (probably based on Linux 2.4.x or older)</li>
+<li><code>sdX</code> — “SCSI” hard disk. Also includes SATA and SAS. And IDE disks using libata (on any recent distro).</li>
+<li><code>hdXY</code>, <code>sdXY</code> — Partition on the hard disk <code>hdX</code> or <code>sdX</code>.</li>
+<li><code>loopX</code> — Loopback device, used for mounting disk images, etc.</li>
+<li><code>loopXpY</code> — Partitions on the loopback device <code>loopX</code>; used when mounting an image of a complete hard drive, etc.</li>
+<li><code>scdX</code>, <code>srX</code> — “SCSI” CD, using same weird definition of “SCSI”. Also includes DVD, Blu-ray, etc.</li>
+<li><code>mdX</code> — Linux MDraid</li>
+<li><code>dm-X</code> — Device Mapper. Use <code>-N</code> to see what these are, or <code>ls -l /dev/mapper</code>. Device Mapper underlies LVM2 and dm-crypt. If you’re using either LVM or encrypted volumes, you’ll see <code>dm-X</code> devices.</li>
+</ul>
+<p>回顾串行磁盘技术的发展历史，从光纤通道，到SATA，再到SAS，几种技术各有所长。光纤通道最早出现的串行化存储技术，可以满足高性能、高可靠和高扩展性的存储需要，但是价格居高不下；SATA硬盘成本倒是降下来了，但主要是用于近线存储和非关键性应用，毕竟在性能等方面差强人意；SAS应该算是个全才，可以支持SAS和SATA磁盘，很方便地满足不同性价比的存储需求，是具有高性能、高可靠和高扩展性的解决方案。</p>
+<h2 id="SSD中，SATA、m2、PCIE和NVME各有什么意义"><a href="#SSD中，SATA、m2、PCIE和NVME各有什么意义" class="headerlink" title="SSD中，SATA、m2、PCIE和NVME各有什么意义"></a>SSD中，SATA、m2、PCIE和NVME各有什么意义</h2><h3 id="高速信号协议"><a href="#高速信号协议" class="headerlink" title="高速信号协议"></a>高速信号协议</h3><p> SAS，SATA，PCIe 这三个是同一个层面上的，模拟串行高速接口。</p>
+<ul>
+<li>SAS 对扩容比较友好，也支持双控双活。接上SAS RAID 卡，一般在阵列上用的比较多。</li>
+<li>SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb/s，上限 768MB/s左右，现在已经慢慢被pcie取代。</li>
+<li>PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb/s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb/s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB/s 左右。</li>
+</ul>
+<h3 id="传输层协议"><a href="#传输层协议" class="headerlink" title="传输层协议"></a>传输层协议</h3><p>SCSI，ATA，NVMe 都属于这一层。主要是定义命令集，数字逻辑层。</p>
+<ul>
+<li>SCSI 命令集 历史悠久，应用也很广泛。U盘，SAS 盘，还有手机上 UFS 之类很多设备都走的这个命令集。</li>
+<li>ATA 则只是跑在SATA 协议上</li>
+<li>NVMe 协议是有特意为 NAND 进行优化。相比于上面两者，效率更高。主要是跑在 PCIe 上的。当然，也有NVMe-MI，NVMe-of之类的。是个很好的传输层协议。</li>
+</ul>
+<h4 id="NVMe（Non-Volatile-Memory-Express）"><a href="#NVMe（Non-Volatile-Memory-Express）" class="headerlink" title="NVMe（Non-Volatile Memory Express）"></a>NVMe（Non-Volatile Memory Express）</h4><p>NVMe其实与AHCI一样都是逻辑设备接口标准（是接口标准，并不是接口），NVMe全称Non-Volatile Memory Express，非易失性存储器标准，是使用PCI-E通道的SSD一种规范，NVMe的设计之初就有充分利用到PCI-E SSD的低延时以及并行性，还有当代处理器、平台与应用的并行性。SSD的并行性可以充分被主机的硬件与软件充分利用，相比与现在的AHCI标准，NVMe标准可以带来多方面的性能提升。</p>
+<p>NVMe标准是面向PCI-E SSD的，使用原生PCI-E通道与CPU直连可以免去SATA与SAS接口的外置控制器（PCH）与CPU通信所带来的延时。而在软件层方面，NVMe标准的延时只有AHCI的一半不到，NVMe精简了调用方式，执行命令时不需要读取寄存器；而AHCI每条命令则需要读取4次寄存器，一共会消耗8000次CPU循环，从而造成大概2.5微秒的延迟。</p>
+<p>NVMe标准和传统的SATA/SAS相比，一个重大的差别是引入了多队列机制。</p>
+<p>主机与SSD进行数据交互采用“生产者-消费者”模型进行数据交互。在原有AHCI规范中，只定义了一个交互队列，主机与HDD之间的数据交互只能通过一个队列通信，多核处理器也只能通过一个队列与HDD进行数据交互。在传统磁盘存储时代，单队列在一个IO调度器，可以很好的保证提交请求的IO顺序最优化。</p>
+<p>而NAND存储介质具有很高的性能，AHCI原有的规范不再适用，NVMe规范替代了原有的AHCI规范，在软件层面的处理命令也进行了重新定义，不再采用SCSI／ATA命令规范集。相比以前AHCI、SAS等协议规范，NVMe规范是一种非常简化，面向新型存储介质的协议规范。该规范将存储外设拉到了处理器局部总线上，性能大为提升。并且<strong>主机和SSD处理器之间采用多队列的设计，适应了多核的发展趋势，每个处理器核与SSD之间可以采用独立的硬件Queue Pair进行数据交互。</strong></p>
+<p><img src="/images/951413iMgBlog/7ac6b1847a9bc6e029f3cb51716ef413.png" alt="img"></p>
+<p>如上图从软件的角度来看，每个CPU Core都可以创建一对Queue Pair和SSD进行数据交互。Queue Pair由Submission Queue与Completion Queue构成，通过Submission queue发送数据；通过Completion queue接受完成事件。SSD硬件和主机驱动软件控制queue的Head与Tail指针完成双方的数据交互。</p>
+<p>nvme多队列</p>
+<p><img src="/images/951413iMgBlog/ef86af3155d7dd2e6f78ec4f896179db.png" alt="img"></p>
+<p><img src="/images/oss/8cb9e6f80895141d875df66c3d0069f6.png" alt="img"></p>
+<h3 id="物理接口"><a href="#物理接口" class="headerlink" title="物理接口"></a>物理接口</h3><p>M.2 , U.2 , AIC, NGFF 这些属于物理接口</p>
+<p>像 M.2 可以是 SATA SSD 也可以是 NVMe（PCIe） SSD。金手指上有一个 SATA/PCIe 的选择信号，来区分两者。很多笔记本的M.2 接口也是同时支持两种类型的盘的。</p>
+<ul>
+<li>M.2 , 主要用在 笔记本上，优点是体积小，缺点是散热不好。</li>
+<li>U.2,主要用在 数据中心或者一些企业级用户，对热插拔需求高的地方。优点热插拔，散热也不错。一般主要是pcie ssd(也有sas ssd)，受限于接口，最多只能是 pcie 4lane</li>
+<li>AIC，企业，行业用户用的比较多。通常会支持pcie 4lane/8lane，带宽上限更高</li>
+</ul>
+<h2 id="SSD-的性能特性和机制"><a href="#SSD-的性能特性和机制" class="headerlink" title="SSD 的性能特性和机制"></a>SSD 的性能特性和机制</h2><p>SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。</p>
+<p><strong>单元（Cell）、页面（Page）、块（Block）</strong>。</p>
+<p>当今的主流 SSD 是基于 NAND 的，它将数字位存储在单元中。每个 SSD 单元可以存储一位或多位。对单元的每次擦除都会降低单元的寿命，所以单元只能承受一定数量的擦除。单元存储的位数越多，制造成本就越低，SSD 的容量也就越大，但是耐久性（擦除次数）也会降低。</p>
+<p>一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。</p>
+<p>多个页面组合成块。一个块(Block)的典型大小为 512KB 或 1MB，也就是大约 128 或 256 (Page–16KB)页。<strong>块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。</strong></p>
+<p><img src="/images/951413iMgBlog/image-20210915090731401.png" alt="image-20210915090731401"></p>
+<p><strong>擦除速度相对很慢，通常为几毫秒</strong>。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。</p>
+<p>SSD的基本结构：</p>
+<p><img src="/images/951413iMgBlog/image-20210915090459823.png" alt="image-20210915090459823"></p>
+<p>比如Intel P4510 SSD控制器内部集成了两个Cotex A15 ARM core，这两个CPU core各自处理50%物理地址空间的读写命令（不同CPU负责不同的Die，以提高并发度）。在处理IO命令的过程中，为了充分发挥两个cpu的并行处理效率，每个cpu core单次处理的最大数据块是128kB。所以P4510对于128k对齐（4k，8k，16k，32k，64k，128k）或者128k整数倍（256k，512k，1024k）的数据块的处理效率最高。因为这些数据块都能够在SSD内部被组装或者拆分为完整的128k数据块。但是，对于非128k对齐的数据块（68k，132k，260k，516k，1028k），由于每个提交给SSD的写命令都有一个非128k对齐的“尾巴”需要跨CPU来处理，这样便会导致SSD处理单个命令的效率下降，写带宽随之也下降。</p>
+<p><img src="/images/951413iMgBlog/8882214c8d1dd6c52cd4b54fbb7a109a.jpg" alt="img" style="zoom:50%;"><img src="/images/951413iMgBlog/bb8e3c40ede0432021d7d56d1387aa08.jpg" alt="img"></p>
+<p>SSD内部使用写缓存。写缓存主要用来降低写延迟。当写请求发送给SSD时，写数据会被先保存在写缓存，此时SSD会直接发送确认消息通知主机端写请求已完成，实现最低的写延迟。SSD固件在后台会异步的定期把写缓存中的数据通过写操作命令刷回给NAND颗粒。为了满足写操作的持久化语义，SSD内有大容量电容保证写缓存中数据的安全。当紧急断电情况发生时，固件会及时把写缓存中的数据写回NAND颗粒. 也就是紧急断电后还能通过大电容供电来维持最后的落盘。</p>
+<p>SSD内嵌内存容量的问题也限制了大容量NVMe SSD的发展，为了解决内存问题，目前一种可行的方法是增大sector size。标准NVMe SSD的sector size为4KB，为了进一步增大NVMe SSD的容量，有些厂商已经开始采用16KB的sector size。16KB Sector size的普及应用，会加速大容量NVMe SSD的推广。</p>
+<p><a href="https://www.bilibili.com/read/cv4139832" target="_blank" rel="external">以海康威视E200P为例</a>，PCB上的硬件PLP掉电保护电路从D200Pro的10个钽电容+6个电感，简化为6个钽电容+6个电感。钽电容来自Panasonic，单颗47uF，6个钽电容并联可以为SSD提供几十毫秒的放电时间，让SSD把处理中的数据写入NAND中并更新映射表。这样的硬件PLP电路对比普通的家用产品要强悍很多。 </p>
+<p><img src="/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp" alt="img"></p>
+<h3 id="SSD存储持久化原理"><a href="#SSD存储持久化原理" class="headerlink" title="SSD存储持久化原理"></a><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="external">SSD存储持久化原理</a></h3><p>记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。</p>
+<p>但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。</p>
+<p>只有一个电容，我们怎么能够表示更多的比特呢？别忘了，这里我们还有一个电压计。4 个比特一共可以从 0000-1111 表示 16 个不同的数。那么，如果我们能往电容里面充电的时候，充上 15 个不同的电压，并且我们电压计能够区分出这 15 个不同的电压。加上电容被放空代表的 0，就能够代表从 0000-1111 这样 4 个比特了。</p>
+<p>不过，要想表示 15 个不同的电压，充电和读取的时候，对于精度的要求就会更高。这会导致充电和读取的时候都更慢，所以 QLC 的 SSD 的读写速度，要比 SLC 的慢上好几倍。</p>
+<p>SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。</p>
+<p>SSD寿命：以Intel 335为例再来算一下，BT用户可以用600TB × 1024 / 843 = <strong>728天</strong>，普通用户可以用600TB/2 = <strong>300年</strong>！情况十分乐观</p>
+<h4 id="两种逻辑门"><a href="#两种逻辑门" class="headerlink" title="两种逻辑门"></a>两种逻辑门</h4><p><strong>NAND</strong>(NOT-AND)  gate </p>
+<p><strong>NOR</strong>(NOT-OR)  gate </p>
+<p>如上两种门实现的介质<strong>都是非易失存储介质</strong>，<strong>在写入前都需要擦除</strong>。实际上NOR Flash的一个bit可以从1变成0，而要从0变1就要擦除整块。NAND flash都需要擦除。</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>NAND Flash</th>
+<th>NOR Flash</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>芯片容量</td>
+<td>&lt;32GBit</td>
+<td>&lt;1GBit</td>
+</tr>
+<tr>
+<td>访问方式</td>
+<td>块读写（顺序读写）</td>
+<td>随机读写</td>
+</tr>
+<tr>
+<td>接口方式</td>
+<td>任意I/O口</td>
+<td>特定完整存储器接口</td>
+</tr>
+<tr>
+<td>读写性能</td>
+<td>读取快（顺序读） 写入快 擦除快（可按块擦除）</td>
+<td>读取快（RAM方式） 写入慢 檫除很慢</td>
+</tr>
+<tr>
+<td>使用寿命</td>
+<td>百万次</td>
+<td>十万次</td>
+</tr>
+<tr>
+<td>价格</td>
+<td>低廉</td>
+<td>高昂</td>
+</tr>
+</tbody>
+</table>
+<p>NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。</p>
+<p><a href="https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf" target="_blank" rel="external">高端SSD会选取MLC</a>（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）</p>
+<p><img src="/images/951413iMgBlog/image-20210603161822079.png" alt="image-20210603161822079"></p>
+<p><img src="/images/951413iMgBlog/image-20220105201724752.png" alt="image-20220105201724752"></p>
+<p><img src="/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg" alt="slc-mlc-tlc-buckets"></p>
+<p>umlc</p>
+<p><img src="/images/951413iMgBlog/image-20220105201749003.png" alt="image-20220105201749003"></p>
+<p>NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB</p>
+<p>对于TLC NAND （每个NAND cell存储3 bits的信息），下面列出了每种操作的典型耗时的范围：</p>
+<p>​      读操作（Tread）    ：      50-100us，</p>
+<p>​      写操作（Tprog）    ：     500us-5ms，</p>
+<p>​      擦除操作（Terase） ：      2-10ms。</p>
+<h4 id="为什么断电后SSD不丢数据"><a href="#为什么断电后SSD不丢数据" class="headerlink" title="为什么断电后SSD不丢数据"></a>为什么断电后SSD不丢数据</h4><p>SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。比如标准要求SSD：温度在30度的情况下，数据要能保持52周。</p>
+<h3 id="写入放大（Write-Amplification-or-WA"><a href="#写入放大（Write-Amplification-or-WA" class="headerlink" title="写入放大（Write Amplification, or WA)"></a>写入放大（Write Amplification, or WA)</h3><p>这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 / 擦除（P/E）周期，所以写入放大效用会缩短 SSD 的寿命。</p>
+<p>SSD 的读取和写入的基本单位，不是一个比特（bit）或者一个字节（byte），而是一个页（Page）。SSD 的擦除单位就更夸张了，我们不仅不能按照比特或者字节来擦除，连按照页来擦除都不行，我们必须按照块来擦除。</p>
+<p>SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次左右，而 TLC 和 QLC 就只在几千次了。这也是为什么，你去购买 SSD 硬盘，会看到同样的容量的价格差别很大，因为它们的芯片颗粒和寿命完全不一样。</p>
+<p>从本质上讲，NAND Flash是一种不可靠介质，非常容易出现Bit翻转问题。SSD通过控制器和固件程序将这种不可靠的NAND Flash变成了可靠的数据存储介质。</p>
+<p>为了在这种不可靠介质上构建可靠存储，SSD内部做了大量工作。在硬件层面，需要通过ECC单元解决经常出现的比特翻转问题。每次数据存储的时候，硬件单元需要为存储的数据计算ECC校验码；在数据读取的时候，硬件单元会根据校验码恢复被破坏的bit数据。ECC硬件单元集成在SSD控制器内部，代表了SSD控制器的能力。在MLC存储时代，BCH编解码技术可以解决问题，4KB数据中存在100bit翻转时可以纠正错误；在TLC存储时代，bit错误率大为提升，需要采用更高纠错能力的LDPC编解码技术，在4KB出现550bit翻转时，LDPC硬解码仍然可以恢复数据。对比LDPC硬解码、BCH以及LDPC软解码之间的能力，可以看出LDPC软解码具有更强的纠错能力，通常使用在硬解码失效的情况下。LDPC软解码的不足之处在于增加了IO的延迟。</p>
+<p>在软件层面，SSD内部设计了FTL（Flash Translation Layer），该软件层的设计思想和Log-Structured File System设计思想类似。采用log追加写的方式记录数据，采用LBA至PBA的地址映射表记录数据组织方式。Log-structured系统最大的一个问题就是垃圾回收(GC)。因此，虽然NAND Flash本身具有很高的IO性能，但受限于GC的影响，SSD层面的性能会大受影响，并且存在十分严重的IO QoS问题，这也是目前标准NVMe SSD一个很重要的问题。</p>
+<h3 id="耗损平衡-Wear-Leveling"><a href="#耗损平衡-Wear-Leveling" class="headerlink" title="耗损平衡 (Wear Leveling)"></a>耗损平衡 (Wear Leveling)</h3><p>对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P/E 周期的典型数目是十万次；对于 MLC 块，P/E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。</p>
+<h2 id="non-volatile-memory-NVM"><a href="#non-volatile-memory-NVM" class="headerlink" title="non-volatile memory (NVM)"></a><a href="https://nvmexpress.org/open-source-nvme-management-utility-nvme-command-line-interface-nvme-cli/?continueFlag=6093989111564a68c297d3f4bb8831b0" target="_blank" rel="external">non-volatile memory (NVM)</a></h2><p>NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。</p>
+<p><strong>1、NVM特性</strong></p>
+<p><strong>数据访问延迟</strong>：NVM的读延迟比磁盘小很多。由于NVM仍处于开发阶段，来源不同延迟不同。STT-RAM的延迟1-20ns。尽管如此，他的延迟也已经非常接近DRAM了。</p>
+<p>PC_RAM 和R-RAM的写延迟比DRAM高。但是写延迟不是很重要，因为可以通过buffer来缓解。</p>
+<p><strong>密度</strong>：NVM的密度比DRAM高，可以作为主存的替代品，尤其是在嵌入式系统中。例如，相对于DRAM，PC-RAM提供2到4倍的容量，便于扩展。</p>
+<p><strong>耐久性</strong>：即每个内存单元写的最大次数。最具竞争性的是PC-RAM和STT-RAM，提供接近DRAM的耐久性。更精确的说，NVM的耐久性是1015而DRAM是1016。另外，NVM比闪存技术的耐久性更大。</p>
+<p><strong>能量消耗</strong>：NVM不需要像DRAM一样周期性刷写以维护内存中数据，所以消耗的能量更少。PC-RAM比DRAM消耗能量显著的少，其他比较接近。</p>
+<p>此外，还有字节寻址、持久性。Interl和Micron已经发起了3D XPoint技术，同时Interl开发了新的指令以支持持久内存的使用。</p>
+<h2 id="磁盘类型查看"><a href="#磁盘类型查看" class="headerlink" title="磁盘类型查看"></a>磁盘类型查看</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">$cat /sys/block/vda/queue/rotational</div><div class="line">1  //1表示旋转，非ssd，0表示ssd</div><div class="line">or</div><div class="line">lsblk -d -o name,rota,size,label,uuid</div><div class="line"></div><div class="line">SATA SSD测试数据</div><div class="line"># cat /sys/block/sda/queue/rotational </div><div class="line">0</div><div class="line"># lsblk -d -o name,rota</div><div class="line">NAME     ROTA</div><div class="line">sda         0</div><div class="line">sfdv0n1     0</div><div class="line"></div><div class="line">ESSD磁盘测试用一块虚拟的阿里云网络盘，不能算完整意义的SSD（承诺IOPS 4200），数据仅供参考，磁盘概况：</div><div class="line">$df -lh</div><div class="line">Filesystem      Size  Used Avail Use% Mounted on</div><div class="line">/dev/vda1        99G   30G   65G  32% /</div><div class="line"></div><div class="line">$cat /sys/block/vda/queue/rotational</div><div class="line">1</div></pre></td></tr></table></figure>
+<h2 id="fio-结果解读"><a href="#fio-结果解读" class="headerlink" title="fio 结果解读"></a>fio 结果解读</h2><p>slat，异步场景下才有</p>
+<blockquote>
+<p>其中slat指的是发起IO的时间，在异步IO模式下，发起IO以后，IO会异步完成。例如调用一个异步的write，虽然write返回成功了，但是IO还未完成，slat约等于发起write的耗时；</p>
+<p>slat (usec): min=4, max=6154, avg=48.82, stdev=56.38： The first latency metric you’ll see is the ‘slat’ or submission latency. It is pretty much what it sounds like, meaning “how long did it take to submit this IO to the kernel for processing?”</p>
+</blockquote>
+<p>clat</p>
+<blockquote>
+<p>clat指的是完成时间，从发起IO后到完成IO的时间，在同步IO模式下，clat是指整个写动作完成时间</p>
+</blockquote>
+<p>lat</p>
+<blockquote>
+<p>lat是总延迟时间，指的是IO单元创建到完成的总时间，通常这项数据关注较多。同步场景几乎等于clat，异步场景等于clat+slat<br>这项数据需要关注的是max，看看有没有极端的高延迟IO；另外还需要关注stdev，这项数据越大说明，IO响应时间波动越大，反之越小，波动越小</p>
+</blockquote>
+<p>clat percentiles (usec)：处于某个百分位的io操作时延</p>
+<p>cpu          : usr=9.11%, sys=57.07%, ctx=762410, majf=0, minf=1769  //用户和系统的CPU占用时间百分比，线程切换次数，major以及minor页面错误的数量。</p>
+<p>SSD的direct和buffered似乎很奇怪，应该是direct=0性能更好，实际不是这样，这里还需要找资料求证下</p>
+<blockquote>
+<ul>
+<li><p><code>direct``=bool</code></p>
+<p>If value is true, use non-buffered I/O. This is usually O_DIRECT. Note that OpenBSD and ZFS on Solaris don’t support direct I/O. On Windows the synchronous ioengines don’t support direct I/O. Default: false.</p>
+</li>
+<li><p><code>buffered``=bool</code></p>
+<p>If value is true, use buffered I/O. This is the opposite of the <a href="https://fio.readthedocs.io/en/latest/fio_man.html#cmdoption-arg-direct" target="_blank" rel="external"><code>direct</code></a> option. Defaults to true.</p>
+</li>
+</ul>
+</blockquote>
+<h2 id="iostat-结果解读"><a href="#iostat-结果解读" class="headerlink" title="iostat 结果解读"></a><a href="linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html">iostat 结果解读</a></h2><p>Dm-0就是lvm</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</div><div class="line">           0.32    0.00    3.34    0.13    0.00   96.21</div><div class="line"></div><div class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</div><div class="line">sda               0.00    11.40   66.00    7.20  1227.20    74.40    35.56     0.03    0.43    0.47    0.08   0.12   0.88</div><div class="line">nvme0n1           0.00  8612.00    0.00 51749.60     0.00 241463.20     9.33     4.51    0.09    0.00    0.09   0.02  78.56</div><div class="line">dm-0              0.00     0.00    0.00 60361.80     0.00 241463.20     8.00   152.52    2.53    0.00    2.53   0.01  78.26</div><div class="line"></div><div class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</div><div class="line">           0.36    0.00    3.46    0.17    0.00   96.00</div><div class="line"></div><div class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</div><div class="line">sda               0.00     8.80    9.20    5.20  1047.20    67.20   154.78     0.01    0.36    0.46    0.19   0.33   0.48</div><div class="line">nvme0n1           0.00 11354.20    0.00 50876.80     0.00 248944.00     9.79     5.25    0.10    0.00    0.10   0.02  80.06</div><div class="line">dm-0              0.00     0.00    0.00 62231.00     0.00 248944.80     8.00   199.49    3.21    0.00    3.21   0.01  78.86</div></pre></td></tr></table></figure>
+<p>avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表示有大量IO在处理或等待，但是这还不足以说明后端的存储系统达到了处理极限。例如后端存储的并发能力是4096，客户端并发发送了256个IO下去，那么队列长度就是256。即使长时间队列长度是256，也不能说明什么，仅仅表明队列长度是256，有256个IO在处理或者排队。</p>
+<p>那么怎么判断IO是在调度队列排队等待，还是在设备上处理呢？iostat有两项数据可以给出一个大致的判断。svctime，这项数据的指的是IO在设备处理中耗费的时间。另外一项数据await，指的是IO从排队到完成的时间，包括了svctime和排队等待的时间。那么通过对比这两项数据，如果两项数据差不多，则说明IO基本没有排队等待，耗费的时间都是设备处理。如果await远大于svctime，则说明有大量的IO在排队，并没有发送给设备处理。</p>
+<h2 id="rq-affinity"><a href="#rq-affinity" class="headerlink" title="rq_affinity"></a>rq_affinity</h2><p>参考<a href="https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll" target="_blank" rel="external">aliyun测试文档</a> , rq_affinity增加2的commit： git show 5757a6d76c</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">function RunFio</div><div class="line">&#123;</div><div class="line"> numjobs=$1   # 实例中的测试线程数，例如示例中的10</div><div class="line"> iodepth=$2   # 同时发出I/O数的上限，例如示例中的64</div><div class="line"> bs=$3        # 单次I/O的块文件大小，例如示例中的4k</div><div class="line"> rw=$4        # 测试时的读写策略，例如示例中的randwrite</div><div class="line"> filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device</div><div class="line"> nr_cpus=`cat /proc/cpuinfo |grep &quot;processor&quot; |wc -l`</div><div class="line"> if [ $nr_cpus -lt $numjobs ];then</div><div class="line">     echo “Numjobs is more than cpu cores, exit!”</div><div class="line">     exit -1</div><div class="line"> fi</div><div class="line"> let nu=$numjobs+1</div><div class="line"> cpulist=&quot;&quot;</div><div class="line"> for ((i=1;i&lt;10;i++))</div><div class="line"> do</div><div class="line">     list=`cat /sys/block/your_device/mq/*/cpu_list | awk &apos;&#123;if(i&lt;=NF) print $i;&#125;&apos; i=&quot;$i&quot; | tr -d &apos;,&apos; | tr &apos;\n&apos; &apos;,&apos;`</div><div class="line">     if [ -z $list ];then</div><div class="line">         break</div><div class="line">     fi</div><div class="line">     cpulist=$&#123;cpulist&#125;$&#123;list&#125;</div><div class="line"> done</div><div class="line"> spincpu=`echo $cpulist | cut -d &apos;,&apos; -f 2-$&#123;nu&#125;`</div><div class="line"> echo $spincpu</div><div class="line"> fio --ioengine=libaio --runtime=30s --numjobs=$&#123;numjobs&#125; --iodepth=$&#123;iodepth&#125; --bs=$&#123;bs&#125; --rw=$&#123;rw&#125; --filename=$&#123;filename&#125; --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split</div><div class="line">&#125;</div><div class="line">echo 2 &gt; /sys/block/your_device/queue/rq_affinity</div><div class="line">sleep 5</div><div class="line">RunFio 10 64 4k randwrite filename</div></pre></td></tr></table></figure>
+<p>对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)</p>
+<p><img src="/images/951413iMgBlog/image-20210607113709945.png" alt="image-20210607113709945"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://cizixs.com/2017/01/03/how-slow-is-disk-and-network" target="_blank" rel="external">http://cizixs.com/2017/01/03/how-slow-is-disk-and-network</a></p>
+<p><a href="https://tobert.github.io/post/2014-04-17-fio-output-explained.html" target="_blank" rel="external">https://tobert.github.io/post/2014-04-17-fio-output-explained.html</a> </p>
+<p><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/40497397</a></p>
+<p><a href="https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&amp;flag_data_from=home_algorithm_article" target="_blank" rel="external">块存储NVMe云盘原型实践</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483999&amp;idx=1&amp;sn=238d3d1a8cf24443db0da4aa00c9fb7e&amp;chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="external">机械硬盘随机IO慢的超乎你的想象</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247484023&amp;idx=1&amp;sn=1946b4c286ed72da023b402cc30908b6&amp;chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="external">搭载固态硬盘的服务器究竟比搭机械硬盘快多少？</a></p>
+<p><a href="http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml" target="_blank" rel="external">SSD基本工作原理</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="external">SSD原理解读</a></p>
+<p><a href="https://blog.gslin.org/archives/2022/02/02/10524/backblaze-%E7%9A%84-2021-%E5%B9%B4%E7%A1%AC%E7%A2%9F%E6%AD%BB%E4%BA%A1%E5%A0%B1%E5%91%8A/" target="_blank" rel="external">Backblaze 的 2021 年硬盘死亡報告</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/25/ssd san和sas 磁盘性能比较/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2365,411 +2679,6 @@ test.x86_64.rpm
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/02/Linux 问题总结/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/02/Linux 问题总结/" itemprop="url">Linux 问题总结</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-02T17:30:03+08:00">
-                2020-01-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-问题总结"><a href="#Linux-问题总结" class="headerlink" title="Linux 问题总结"></a>Linux 问题总结</h1><h2 id="crond文件权限的坑"><a href="#crond文件权限的坑" class="headerlink" title="crond文件权限的坑"></a>crond文件权限的坑</h2><p>crond第一次加载的时候（刚启动）会去检查文件属性，不是644的话以后都不会执行了，即使后面chmod改成了644. </p>
-<p>手工随便修改一下该文件的内容就能触发自动执行了，或者重启crond, 或者 sudo service crond reload， 或者 /etc/cron.d/下有任何修改都会触发crond reload配置(包含 touch )。</p>
-<p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
-<p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
-<h2 id="cgroup目录报No-space-left-on-device"><a href="#cgroup目录报No-space-left-on-device" class="headerlink" title="cgroup目录报No space left on device"></a><a href="https://rotadev.com/cgroup-no-space-left-on-device-server-fault/" target="_blank" rel="external">cgroup目录报No space left on device</a></h2><p>可能是因为某个规则下的 cpuset.cpus 文件是空导致的</p>
-<h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="external">https://access.redhat.com/solutions/30316</a></p>
-<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
-<p>如上图去掉 admin nproc限制就可以了</p>
-<p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">[root@i22h08323 /home/admin]</div><div class="line">#ulimit -u</div><div class="line">unlimited</div></pre></td></tr></table></figure>
-<h2 id="容器中ulimit限制了sudo的执行"><a href="#容器中ulimit限制了sudo的执行" class="headerlink" title="容器中ulimit限制了sudo的执行"></a>容器中ulimit限制了sudo的执行</h2><p>容器启动的时候默认nofile为65535（可以通过 docker run –ulimit nofile=655360 来设置），如果容器中的 /etc/security/limits.conf 中设置的nofile大于 65535就会报错，因为容器的1号进程就是65535了，比如在容器中用root用户执行sudo ls报错：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sudo ls</div><div class="line">sudo: pam_open_session: Permission denied</div><div class="line">sudo: policy plugin failed session initialization</div></pre></td></tr></table></figure>
-<p>可以修改容器中的 ulimit 不要超过默认的65535或者修改容器的启动参数来解决。</p>
-<p>子进程都会继承父进程的一些环境变量，比如 limits.conf, sudo/su/crond/passwd等都会触发重新加载limits, </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景</div></pre></td></tr></table></figure>
-<h2 id="systemd-limits"><a href="#systemd-limits" class="headerlink" title="systemd limits"></a>systemd limits</h2><p>/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。</p>
-<p>因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。</p>
-<p>对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf 和/etc/systemd/user.conf.d/.conf。</p>
-<h3 id="关于ulimit的一些知识点"><a href="#关于ulimit的一些知识点" class="headerlink" title="关于ulimit的一些知识点"></a>关于ulimit的一些知识点</h3><p>参考 <a href="https://feichashao.com/ulimit_demo/" target="_blank" rel="external">Ulimit</a> <a href="http://blog.yufeng.info/archives/2568" target="_blank" rel="external">http://blog.yufeng.info/archives/2568</a></p>
-<ul>
-<li>limit的设定值是 per-process 的</li>
-<li>在 Linux 中，每个普通进程可以调用 getrlimit() 来查看自己的 limits，也可以调用 setrlimit() 来改变自身的 soft limits</li>
-<li>要改变 hard limit, 则需要进程有 CAP_SYS_RESOURCE 权限</li>
-<li>进程 fork() 出来的子进程，会继承父进程的 limits 设定</li>
-<li><code>ulimit</code> 是 shell 的内置命令。在执行<code>ulimit</code>命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定</li>
-<li>shell 的初始 limits 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值</li>
-</ul>
-<p>ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：</p>
-<ol>
-<li>用户进行登录，触发 pam_limits;</li>
-<li>pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；</li>
-<li>用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;</li>
-<li>当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了</li>
-</ol>
-<p>判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数<br>结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。<br>结论2：fs.file-max: 整个系统上可打开的最大文件数，但不限制 root 用户</p>
-<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
-<p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/crond </div><div class="line">#</div><div class="line"># The PAM configuration file for the cron daemon</div><div class="line">#</div><div class="line">#</div><div class="line"># No PAM authentication called, auth modules not needed</div><div class="line">account    required   pam_access.so</div><div class="line">account    include    system-auth</div><div class="line">session    required   pam_loginuid.so //required 改成 sufficient</div><div class="line">session    include    system-auth</div><div class="line">auth       include    system-auth</div></pre></td></tr></table></figure>
-<p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
-<ul>
-<li><code>account</code> 处理账户限制。对于有效的用户，允许他做什么？</li>
-<li><code>auth</code> 处理用户识别 — 例如，通过输入用户名和密码。</li>
-<li><code>password</code> 只处理与密码相关的问题，比如设置新密码。</li>
-<li><code>session</code> 处理连接管理，包括日志记录。</li>
-</ul>
-<p>在 /etc/pam.d 目录中为将使用 PAM 的每个应用程序创建一个配置文件，文件名与应用程序名相同。例如，<code>login</code> 命令的配置文件是 /etc/pam.d/login。</p>
-<p>必须定义将应用哪些模块，创建一个动作 “堆”。PAM 运行堆中的所有模块，根据它们的结果允许或拒绝用户的请求。还必须定义检查是否是必需的。最后，<em>other</em> 文件为没有特殊规则的所有应用程序提供默认规则。</p>
-<ul>
-<li><code>optional</code> 模块可以成功，也可以失败；PAM 根据模块是否最终成功返回 <code>success</code> 或 <code>failure</code>。</li>
-<li><code>required</code> 模块必须成功。如果失败，PAM 返回 <code>failure</code>，但是会在运行堆中的其他模块之后返回。</li>
-<li><code>requisite</code> 模块也必须成功。但是，如果失败，PAM 立即返回 <code>failure</code>，不再运行其他模块。</li>
-<li><code>sufficient</code> 模块在成功时导致 PAM 立即返回 <code>success</code>，不再运行其他模块。</li>
-</ul>
-<p>当pam安装之后有两大部分：在/lib64/security目录下的各种pam模块以及/etc/pam.d和/etc/pam.d目录下的针对各种服务和应用已经定义好的pam配置文件。当某一个有认证需求的应用程序需要验证的时候，一般在应用程序中就会定义负责对其认证的PAM配置文件。以vsftpd为例，在它的配置文件/etc/vsftpd/vsftpd.conf中就有这样一行定义：</p>
-<blockquote>
-<p>pam_service_name=vsftpd</p>
-</blockquote>
-<p>表示登录FTP服务器的时候进行认证是根据/etc/pam.d/vsftpd文件定义的内容进行。</p>
-<h3 id="PAM-认证过程"><a href="#PAM-认证过程" class="headerlink" title="PAM 认证过程"></a>PAM 认证过程</h3><p>当程序需要认证的时候已经找到相关的pam配置文件，认证过程是如何进行的？下面我们将通过解读/etc/pam.d/system-auth文件予以说明。</p>
-<p>首先要声明一点的是：system-auth是一个非常重要的pam配置文件，主要负责用户登录系统的认证工作。而且该文件不仅仅只是负责用户登录系统认证，其它的程序和服务通过include接口也可以调用到它，从而节省了很多重新自定义配置的工作。所以应该说该文件是系统安全的总开关和核心的pam配置文件。</p>
-<p>下面是/etc/pam.d/system-auth文件的全部内容：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/system-auth</div><div class="line">#%PAM-1.0</div><div class="line"># This file is auto-generated.</div><div class="line"># User changes will be destroyed the next time authconfig is run.</div><div class="line">auth        required      pam_env.so</div><div class="line">auth        required      pam_faildelay.so delay=2000000</div><div class="line">auth        sufficient    pam_unix.so nullok try_first_pass</div><div class="line">auth        requisite     pam_succeed_if.so uid &gt;= 1000 quiet_success</div><div class="line">auth        required      pam_deny.so</div><div class="line"></div><div class="line">account     required      pam_unix.so</div><div class="line">account     sufficient    pam_localuser.so</div><div class="line">account     sufficient    pam_succeed_if.so uid &lt; 1000 quiet</div><div class="line">account     required      pam_permit.so</div><div class="line"></div><div class="line">password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=</div><div class="line">password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok</div><div class="line">password    required      pam_deny.so</div><div class="line"></div><div class="line">session     optional      pam_keyinit.so revoke</div><div class="line">session     required      pam_limits.so</div><div class="line">-session     optional      pam_systemd.so</div><div class="line">session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid</div><div class="line">session     required      pam_unix.so</div></pre></td></tr></table></figure>
-<h4 id="第一部分"><a href="#第一部分" class="headerlink" title="第一部分"></a>第一部分</h4><p>当用户登录的时候，首先会通过auth类接口对用户身份进行识别和密码认证。所以在该过程中验证会经过几个带auth的配置项。</p>
-<p>其中的第一步是通过pam_env.so模块来定义用户登录之后的环境变量， pam_env.so允许设置和更改用户登录时候的环境变量，默认情况下，若没有特别指定配置文件，将依据/etc/security/pam_env.conf进行用户登录之后环境变量的设置。</p>
-<p>然后通过pam_unix.so模块来提示用户输入密码，并将用户密码与/etc/shadow中记录的密码信息进行对比，如果密码比对结果正确则允许用户登录，而且<strong>该配置项的使用的是“sufficient”控制位，即表示只要该配置项的验证通过，用户即可完全通过认证而不用再去走下面的认证项</strong>。不过在特殊情况下，用户允许使用空密码登录系统，例如当将某个用户在/etc/shadow中的密码字段删除之后，该用户可以只输入用户名直接登录系统。</p>
-<p>下面的配置项中，通过pam_succeed_if.so对用户的登录条件做一些限制，表示允许uid大于500的用户在通过密码验证的情况下登录，在Linux系统中，一般系统用户的uid都在500之内，所以该项即表示允许使用useradd命令以及默认选项建立的普通用户直接由本地控制台登录系统。</p>
-<p>最后通过pam_deny.so模块对所有不满足上述任意条件的登录请求直接拒绝，pam_deny.so是一个特殊的模块，该模块返回值永远为否，类似于大多数安全机制的配置准则，在所有认证规则走完之后，对不匹配任何规则的请求直接拒绝。</p>
-<h4 id="第二部分"><a href="#第二部分" class="headerlink" title="第二部分"></a>第二部分</h4><p>三个配置项主要表示通过account账户类接口来识别账户的合法性以及登录权限。</p>
-<p>第一行仍然使用pam_unix.so模块来声明用户需要通过密码认证。第二行承认了系统中uid小于500的系统用户的合法性。之后对所有类型的用户登录请求都开放控制台。</p>
-<h4 id="第三部分"><a href="#第三部分" class="headerlink" title="第三部分"></a>第三部分</h4><p>会通过password口令类接口来确认用户使用的密码或者口令的合法性。第一行配置项表示需要的情况下将调用pam_cracklib来验证用户密码复杂度。如果用户输入密码不满足复杂度要求或者密码错，最多将在三次这种错误之后直接返回密码错误的提示，否则期间任何一次正确的密码验证都允许登录。需要指出的是，pam_cracklib.so是一个常用的控制密码复杂度的pam模块，关于其用法举例我们会在之后详细介绍。之后带pam_unix.so和pam_deny.so的两行配置项的意思与之前类似。都表示需要通过密码认证并对不符合上述任何配置项要求的登录请求直接予以拒绝。不过用户如果执行的操作是单纯的登录，则这部分配置是不起作用的。</p>
-<h4 id="第四部分"><a href="#第四部分" class="headerlink" title="第四部分"></a>第四部分</h4><p>主要将通过session会话类接口为用户初始化会话连接。其中几个比较重要的地方包括，使用pam_keyinit.so表示当用户登录的时候为其建立相应的密钥环，并在用户登出的时候予以撤销。不过该行配置的控制位使用的是optional，表示这并非必要条件。之后通过pam_limits.so限制用户登录时的会话连接资源，相关pam_limit.so配置文件是/etc/security/limits.conf，默认情况下对每个登录用户都没有限制。关于该模块的配置方法在后面也会详细介绍。</p>
-<h3 id="常用的PAM模块介绍"><a href="#常用的PAM模块介绍" class="headerlink" title="常用的PAM模块介绍"></a>常用的PAM模块介绍</h3><table>
-<thead>
-<tr>
-<th>PAM模块</th>
-<th>结合管理类型</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>pam_unix.so</td>
-<td>auth</td>
-<td>提示用户输入密码,并与/etc/shadow文件相比对.匹配返回0</td>
-</tr>
-<tr>
-<td>pam_unix.so</td>
-<td>account</td>
-<td>检查用户的账号信息(包括是否过期等).帐号可用时,返回0.</td>
-</tr>
-<tr>
-<td>pam_unix.so</td>
-<td>password</td>
-<td>修改用户的密码. 将用户输入的密码,作为用户的新密码更新shadow文件</td>
-</tr>
-<tr>
-<td>pam_shells.so</td>
-<td>auth、account</td>
-<td>如果用户想登录系统，那么它的shell必须是在/etc/shells文件中之一的shell</td>
-</tr>
-<tr>
-<td>pam_deny.so</td>
-<td>account、auth、password、session</td>
-<td>该模块可用于拒绝访问</td>
-</tr>
-<tr>
-<td>pam_permit.so</td>
-<td>account、auth、password、session</td>
-<td>模块任何时候都返回成功.</td>
-</tr>
-<tr>
-<td>pam_securetty.so</td>
-<td>auth</td>
-<td>如果用户要以root登录时,则登录的tty必须在/etc/securetty之中.</td>
-</tr>
-<tr>
-<td>pam_listfile.so</td>
-<td>account、auth、password、session</td>
-<td>访问应用程的控制开关</td>
-</tr>
-<tr>
-<td>pam_cracklib.so</td>
-<td>password</td>
-<td>这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.</td>
-</tr>
-<tr>
-<td>pam_limits.so</td>
-<td>session</td>
-<td>定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定</td>
-</tr>
-</tbody>
-</table>
-<h2 id="debug-crond"><a href="#debug-crond" class="headerlink" title="debug crond"></a>debug crond</h2><p>先停掉 crond service，然后开启debug参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">systemctl stop crond</div><div class="line">crond -x proc //不想真正执行的话：test</div></pre></td></tr></table></figure>
-<p>或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">Debug sudo /var/log/sudo_debug all@warn</div><div class="line">Debug sudoers.so /var/log/sudoers_debug all@debug</div></pre></td></tr></table></figure>
-<h2 id="crond-ERROR-getpwnam-failed"><a href="#crond-ERROR-getpwnam-failed" class="headerlink" title="crond ERROR (getpwnam() failed)"></a>crond ERROR (getpwnam() failed)</h2><p><a href="https://www.ibm.com/support/pages/cron-job-fails-error-message-getpwnam-failed-no-such-file-or-directory" target="_blank" rel="external">报错信息</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">crond[246590]: (/usr/bin/ssh) ERROR (getpwnam() failed)</div></pre></td></tr></table></figure>
-<p>要特别注意crond格式是 时间  <strong>用户</strong>  命令</p>
-<p>有时候我们可以省略用户，但是在 <strong>/etc/cron.d/</strong> 中省略用户后报错如上</p>
-<h2 id="进程和线程"><a href="#进程和线程" class="headerlink" title="进程和线程"></a>进程和线程</h2><p>把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。</p>
-<h2 id="deleted-文件"><a href="#deleted-文件" class="headerlink" title="deleted 文件"></a>deleted 文件</h2><p><code>lsof +L1</code> 或者<code>lsof | grep delete</code> 发现有被删除的文件，且占用大量磁盘空间</p>
-<h2 id="No-route-to-host"><a href="#No-route-to-host" class="headerlink" title="No route to host"></a>No route to host</h2><p>如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题</p>
-<p>可以停掉防火墙验证,或者添加端口到防火墙:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#firewall-cmd --permanent --add-port=8090/tcp</div><div class="line">success</div><div class="line">#firewall-cmd --reload</div></pre></td></tr></table></figure>
-<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
-<h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
-<p>getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这个ip，否则就需要通过getHostByName获取所有网卡选择一个</p>
-<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
-<p>因为 /etc/localtime 是deleted状态</p>
-<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="external">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
-<p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
-<p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="external">而 ls -s 中的 -s就是只看实际大小</a></p>
-<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
-<p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="external">图片来源</a></p>
-<p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="external">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
-<p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>
-<h2 id="增加dmesg-buffer"><a href="#增加dmesg-buffer" class="headerlink" title="增加dmesg buffer"></a>增加dmesg buffer</h2><p>If dmesg does not show any information about NUMA, then increase the Ring Buffer size:<br>Boot with ‘log_buf_len=16M’ (or some other big value). Refer the following kbase article <a href="https://access.redhat.com/solutions/47276" target="_blank" rel="external">How do I increase the kernel log ring buffer size?</a> for steps on how to increase the ring buffer</p>
-<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="external">Yum commands error “pycurl.so: undefined symbol”</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"># yum check update</div><div class="line">There was a problem importing one of the Python modules</div><div class="line">required to run yum. The error leading to this problem was:</div><div class="line"></div><div class="line">/usr/lib64/python2.6/site-packages/pycurl.so: undefined symbol: CRYPTO_set_locking_callback</div><div class="line"></div><div class="line">Please install a package which provides this module, or</div><div class="line">verify that the module is installed correctly.</div><div class="line"></div><div class="line">It&apos;s possible that the above module doesn&apos;t match the</div><div class="line">current version of Python, which is:</div><div class="line">2.6.6 (r266:84292, Sep  4 2013, 07:46:00)</div><div class="line">[GCC 4.4.7 20120313 (Red Hat 4.4.7-3)]</div><div class="line"></div><div class="line">If you cannot solve this problem yourself, please go to</div><div class="line">the yum faq at:</div><div class="line">http://yum.baseurl.org/wiki/Faq</div></pre></td></tr></table></figure>
-<ul>
-<li>Check and fix the related library paths or remove 3rd party libraries, usually <code>libcurl</code> or <code>libssh2</code>. On a x86_64 system, the standard paths for those libraries are <code>/usr/lib64/libcurl.so.4</code> and <code>/usr/lib64/libssh2.so.1</code></li>
-</ul>
-<h2 id="软中断、系统调用和上下文切换"><a href="#软中断、系统调用和上下文切换" class="headerlink" title="软中断、系统调用和上下文切换"></a>软中断、系统调用和上下文切换</h2><p>“你可以把内核看做是不断对请求进行响应的服务器，这些请求可能来自在CPU上执行的进程，也可能来自发出中断的外部设备。老板的请求相当于中断，而顾客的请求相当于用户态进程发出的系统调用”。</p>
-<p>软中断和系统调用一样，都是CPU停止掉当前用户态上下文，保存工作现场，然后陷入到内核态继续工作。二者的唯一区别是系统调用是切换到同进程的内核态上下文，而软中断是则是切换到了另外一个内核进程ksoftirqd上。</p>
-<blockquote>
-<p>系统调用开销是200ns起步</p>
-<p>从实验数据来看，一次软中断CPU开销大约3.4us左右</p>
-<p>实验结果显示进程上下文切换平均耗时 3.5us，lmbench工具显示的进程上下文切换耗时从2.7us到5.48之间</p>
-<p>大约每次线程切换开销大约是3.8us左右。<strong>从上下文切换的耗时上来看，Linux线程（轻量级进程）其实和进程差别不太大</strong>。</p>
-</blockquote>
-<p>软中断和进程上下文切换比较起来，进程上下文切换是从用户进程A切换到了用户进程B。而软中断切换是从用户进程A切换到了内核线程ksoftirqd上。而ksoftirqd作为一个内核控制路径，其处理程序比一个用户进程要轻量，所以上下文切换开销相对比进程切换要少一些（实际数据基本差不多）。</p>
-<p>系统调用只是在进程内将用户态切换到内核态，然后再切回来，而上下文切换可是直接从进程A切换到了进程B。显然这个上下文切换需要完成的工作量更大。</p>
-<h3 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483827&amp;idx=3&amp;sn=8b897c8d6d3038ea79bd156a0e88db10&amp;scene=21#wechat_redirect" target="_blank" rel="external">软中断开销计算</a></h3><ul>
-<li><strong>查看软中断总耗时</strong>， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%–1秒[1000ms]中的1.2%）</li>
-<li><strong>查看软中断次数</strong>，再用vmstat命令可以看到软中断的次数（in列 56000）</li>
-<li><strong>计算每次软中断的耗时</strong>，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右</li>
-</ul>
-<h2 id="Linux-启动进入紧急模式"><a href="#Linux-启动进入紧急模式" class="headerlink" title="Linux 启动进入紧急模式"></a>Linux 启动进入紧急模式</h2><p>可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载，麒麟下容易出现弄丢磁盘的标签和uuid</p>
-<p>否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的</p>
-<h2 id="进程状态"><a href="#进程状态" class="headerlink" title="进程状态"></a>进程状态</h2><p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">  Here are the different values that the s, stat and state output specifiers(header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
-<h3 id="D状态的进程"><a href="#D状态的进程" class="headerlink" title="D状态的进程"></a><a href="https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html" target="_blank" rel="external">D状态的进程</a></h3><p>D： Disk sleep（task_uninterruptible)–比如，磁盘满，导致进程D，无法kill</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">echo 1 &gt;  /proc/sys/kernel/hung_task_panic  </div><div class="line"></div><div class="line">----- 处于D状态的超时时间，默认是120s</div><div class="line">$ cat /proc/sys/kernel/hung_task_timeout_secs</div><div class="line"></div><div class="line">----- 发现hung task之后是否触发panic操作</div><div class="line">$ cat /proc/sys/kernel/hung_task_panic</div><div class="line"></div><div class="line">----- 每次检查的进程数</div><div class="line">$ cat /proc/sys/kernel/hung_task_check_count</div><div class="line"></div><div class="line">----- 为了防止日志被刷爆，设置最多的打印次数</div><div class="line">$ cat /proc/sys/kernel/hung_task_warnings</div></pre></td></tr></table></figure>
-<p>这个参数可以用来处理 D 状态进程 </p>
-<p>内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。</p>
-<p>如果配置了 <code>hung_task_panic</code> ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。</p>
-<p>其基本原理也很简单，系统启动时会创建一个内核线程 <code>khungtaskd</code>，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。</p>
-<h3 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h3><p>kill -CONT pid 来恢复</p>
-<p>jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能<strong>导致detach的动作不会被执行</strong>，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。</p>
-<h2 id="路由"><a href="#路由" class="headerlink" title="路由"></a>路由</h2><p>『你所规划的路由必须要是你的网卡 (如 eth0) 或 IP 可以直接沟通 (broadcast) 的情况』才行</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCDELRT: No such process // 从bond0没法广播到 11.164.191.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 100.81.183.247 netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable //从bond0.700 没法广播到 100.81.183.247，实际目前从bond0.700没法广播到任何地方</div><div class="line"></div><div class="line">$sudo route add** **11.164.191.247** **dev** **bond0.700</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 100.81.183.247** netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable  //从bond0.700 没法广播到 100.81.183.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCADDRT: Network is unreachable//从bond0没法广播到 11.164.191.247但是从bond0.700可以</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 11.164.191.247** netmask 255.255.255.0 bond0.700</div></pre></td></tr></table></figure>
-<p><a href="https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable" target="_blank" rel="external">https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable</a></p>
-<h2 id="linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”"><a href="#linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”" class="headerlink" title="linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”"></a>linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”</h2><p>在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/timer_list | grep .resolution</div></pre></td></tr></table></figure>
-<p>可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）</p>
-<h2 id="后台执行"><a href="#后台执行" class="headerlink" title="后台执行"></a>后台执行</h2><p>将任务放到后台，断开ssh后还能运行：</p>
-<ol>
-<li>“ctrl-Z”将当前任务挂起；</li>
-<li>“disown -h”让该任务忽略 SIGHUP 信号（不会因为掉线而终止执行）；</li>
-<li>“bg”让该任务在后台恢复运行。</li>
-</ol>
-<h2 id="Linux-进程调度"><a href="#Linux-进程调度" class="headerlink" title="Linux 进程调度"></a>Linux 进程调度</h2><p>Linux的进程调度有一个不太为人熟知的特性，叫做<strong>wakeup affinity</strong>，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。</p>
-<p>这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。<a href="https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA" target="_blank" rel="external">https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA</a></p>
-<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="external">tty</a></h2><p>tty（teletype–最早的一种终端设备，远程打字机） stty 设置tty的相关参数</p>
-<p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
-<p>/dev/pty（Pseudo Terminal） 伪终端</p>
-<p>/dev/tty 控制终端</p>
-<p>远古时代tty是物理形态的存在</p>
-<p><img src="/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
-<p>PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义</p>
-<p><img src="/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
-<p>实际像如下图的工作协作:</p>
-<p><img src="/images/951413iMgBlog/case3.png" alt="Diagram"></p>
-<h2 id="rsync"><a href="#rsync" class="headerlink" title="rsync"></a><a href="https://wangdoc.com/ssh/rsync.html" target="_blank" rel="external">rsync</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">将本地yum备份到150上的/data/yum/ 下</div><div class="line">rsync -arv ./yum/ root@11.167.60.150:/data/yum/</div><div class="line"></div><div class="line">走ssh的8022端口把目录备份到本地</div><div class="line">rsync -e &apos;ssh -p 8022&apos; -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./</div></pre></td></tr></table></figure>
-<p><code>-a</code>、<code>--archive</code>参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。</p>
-<p><code>--delete</code>参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。</p>
-<p><code>-i</code>参数表示输出源目录与目标目录之间文件差异的详细情况。</p>
-<p><code>--link-dest</code>参数指定增量备份的基准目录。</p>
-<p><code>-n</code>参数或<code>--dry-run</code>参数模拟将要执行的操作，而并不真的执行。配合<code>-v</code>参数使用，可以看到哪些内容会被同步过去。</p>
-<p><code>--partial</code>参数允许恢复中断的传输。不使用该参数时，<code>rsync</code>会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与<code>--append</code>或<code>--append-verify</code>配合使用。</p>
-<p><code>--progress</code>参数表示显示进展。</p>
-<p><code>-r</code>参数表示递归，即包含子目录。</p>
-<p><code>-v</code>参数表示输出细节。<code>-vv</code>表示输出更详细的信息，<code>-vvv</code>表示输出最详细的信息。</p>
-<h2 id="Shebang"><a href="#Shebang" class="headerlink" title="Shebang"></a>Shebang</h2><p>Shebang 的东西 <code>#!/bin/bash</code></p>
-<p>对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。</p>
-<h3 id="ELF（Executable-and-Linkable-Format）"><a href="#ELF（Executable-and-Linkable-Format）" class="headerlink" title="ELF（Executable and Linkable Format）"></a>ELF（Executable and Linkable Format）</h3><p>对应windows下的exe</p>
-<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">$cat change_kernel_parameter.sh </div><div class="line">#cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#grep &apos;&apos; /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">#transparent_hugepage=always</div><div class="line">#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line">#追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i &apos;s/\(GRUB_CMDLINE_LINUX=&quot;.*\)&quot;/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always&quot;/&apos; /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i &apos;s/^#SystemMaxUse=$/SystemMaxUse=500M/g&apos; /etc/systemd/journald.conf</div><div class="line">#重启系统</div><div class="line">#sudo reboot</div><div class="line"></div><div class="line">## 选择不同的kernel启动</div><div class="line">#sudo grep &quot;menuentry &quot; /boot/grub2/grub.cfg | grep -n menu</div><div class="line">##grub认的index从0开始数的</div><div class="line">#sudo grub2-reboot 0; sudo reboot</div><div class="line"></div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
-<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
-<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">umount /dev/sdn1</div><div class="line">sudo mkfs.vfat /dev/sdn1</div><div class="line">dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</div></pre></td></tr></table></figure>
-<h2 id="性能"><a href="#性能" class="headerlink" title="性能"></a>性能</h2><p>为保证服务性能应选用 performance 模式，将 CPU 频率固定工作在其支持的最高运行频率上，不进行动态调节，操作命令为 <code>cpupower frequency-set --governor performance</code>。</p>
-<h3 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h3><ul>
-<li>dmesg | tail</li>
-<li>vmstat 1</li>
-<li>mpstat -P ALL 1</li>
-<li>pidstat 1</li>
-<li>iostat -xz 1</li>
-<li>free -m</li>
-<li>sar -n DEV 1</li>
-<li>sar -n TCP,ETCP 1</li>
-</ul>
-<h4 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">//检查sda磁盘中哪个应用程序占用的io比较高</div><div class="line">pidstat -d  1</div><div class="line"></div><div class="line">//分析应用程序中哪一个线程占用的io比较高</div><div class="line">pidstat -dt -p 73739 1  执行两三秒即可,得到74770线程io高</div><div class="line"></div><div class="line">//分析74770这个线程在干什么</div><div class="line">perf trace -t 74770 -o /tmp/tmp_aa.pstrace</div><div class="line">cat /tmp/tmp_aa.pstrace</div><div class="line">  2850.656 ( 1.915 ms): futex(uaddr: 0x653ae9c4, op: WAIT|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.572 ( 0.001 ms): futex(uaddr: 0x653ae990, op: WAKE|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.601 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.690 ( 0.040 ms): write(fd: 159, buf: 0xd7a30020, count: 65536)                         = 65536</div><div class="line">  2852.796 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.798 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2852.939 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div><div class="line">  2852.950 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.977 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.029 ( 0.035 ms): write(fd: 64, buf: 0xcd51e020, count: 65536)                          = 65536</div><div class="line">  2853.164 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.167 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2853.302 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div></pre></td></tr></table></figure>
-<h3 id="内存——虚拟内存参数"><a href="#内存——虚拟内存参数" class="headerlink" title="内存——虚拟内存参数"></a>内存——虚拟内存参数</h3><ul>
-<li><code>dirty_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统将开始使用 pdflush 操作将脏的 page cache 写入磁盘。默认值为 20％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，降低其值有利于提高内存回收时的效率。</li>
-<li><code>dirty_background_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统开始在后台将脏的 page cache 写入磁盘。默认值为 10％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，设置较低的值有利于提高内存回收时的效率。</li>
-</ul>
-<h3 id="I-O-调度器"><a href="#I-O-调度器" class="headerlink" title="I/O 调度器"></a>I/O 调度器</h3><p>I/O 调度程序确定 I/O 操作何时在存储设备上运行以及持续多长时间。也称为 I/O 升降机。对于 SSD 设备，宜设置为 noop。</p>
-<figure class="highlight sh"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="built_in">echo</span> noop &gt; /sys/block/<span class="variable">$&#123;SSD_DEV_NAME&#125;</span>/queue/scheduler</div></pre></td></tr></table></figure>
-<h3 id="磁盘挂载参数"><a href="#磁盘挂载参数" class="headerlink" title="磁盘挂载参数"></a>磁盘挂载参数</h3><p><code>noatime</code> 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新。</p>
-<h2 id="Unix-Linux关系"><a href="#Unix-Linux关系" class="headerlink" title="Unix Linux关系"></a>Unix Linux关系</h2><p><img src="/images/951413iMgBlog/image-20211210085124387.png" alt="image-20211210085124387"></p>
-<p><img src="/images/951413iMgBlog/G2Xri.png" alt="img"></p>
-<h3 id="linux-发行版关系"><a href="#linux-发行版关系" class="headerlink" title="linux 发行版关系"></a><a href="https://blog.51cto.com/wangyafei/1881605" target="_blank" rel="external">linux 发行版关系</a></h3><p><img src="/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg" alt="细数各家linux之间的区别_软件应用_什么值得买"></p>
-<p>Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。</p>
-<p>不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)</p>
-<p>69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网</p>
-<p>Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提供的WEB服务被大家大规模采用</p>
-<p>rpm:  centos/fedora/suse</p>
-<p>deb:  debian/ubuntu/uos(早期基于ubuntu定制，后来基于debian定制，再到最近开始直接基于kernel定制)</p>
-<p>ARPANET：<strong>高等研究計劃署網路</strong>（英語：Advanced Research Projects Agency Network），通称<strong>阿帕网</strong>（英語：ARPANET）是美國<a href="https://zh.m.wikipedia.org/wiki/國防高等研究計劃署" target="_blank" rel="external">國防高等研究計劃署</a>开发的世界上第一个运营的<a href="https://zh.m.wikipedia.org/wiki/封包交換" target="_blank" rel="external">封包交换</a>网络，是全球<a href="https://zh.m.wikipedia.org/wiki/互联网" target="_blank" rel="external">互联网</a>的鼻祖。</p>
-<p>TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。</p>
-<p>在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。</p>
-<h3 id="Deepin-UOS"><a href="#Deepin-UOS" class="headerlink" title="Deepin UOS"></a>Deepin UOS</h3><p><strong><em>\</em>Deepin 与统信 UOS 类似于红帽的 Fedora 与 RHEL 的上下游关系，Deepin 依然保持着原来的社区运营模式，而统信 UOS 则是基于社区版 Deepin 构建的商业发行版，为 Deepin 挖掘更多的商业机会和更大的商业价值，进而反哺社区，形成良性循环**</strong>。</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="external">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
-<p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="external">https://www.jianshu.com/p/ac3e7009a764</a></p>
-<p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
-<p>B 站清华大学操作系统视频地址：<a href="https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697</a></p>
-<p><a href="https://linux.cn/article-10465-1.html" target="_blank" rel="external">Linux 工具：点的含义</a> <a href="https://www.linux.com/training-tutorials/linux-tools-meaning-dot/" target="_blank" rel="external">英文版</a></p>
-<p><a href="http://coolnull.com/4432.html" target="_blank" rel="external">linux cp实现强制覆盖</a></p>
-<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="external">https://wangdoc.com/bash/startup.html</a></p>
-<p><a href="https://cjting.me/2020/12/10/tiny-x64-helloworld/" target="_blank" rel="external">编写一个最小的 64 位 Hello World</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -2819,7 +2728,7 @@ test.x86_64.rpm
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">147</span>
+                <span class="site-state-item-count">148</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
