@@ -291,6 +291,617 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/21/就是要你懂TCP--性能优化大全/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
+<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，把这个图形放大看看</p>
+<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p>换个角度，看看窗口尺寸图形：</p>
+<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
+<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
+<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
+</code></pre><p>来看一下tcp包发送流程：</p>
+<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="external">https://www.atatech.org/articles/9032）</a></p>
+<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code>#!/usr/bin/stap
+# Simple probe to detect when a process is waiting for more socket send
+# buffer memory. Usually means the process is doing writes larger than the
+# socket send buffer size or there is a slow receiver at the other side.
+# Increasing the socket&apos;s send buffer size might help decrease application
+# latencies, but it might also make it worse, so buyer beware.
+#
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">这篇文章</a></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
+<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
+<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
+net.core.wmem_max = 1048576
+net.core.wmem_default = 124928
+net.ipv4.tcp_wmem = 4096        16384   4194304
+net.ipv4.udp_wmem_min = 4096
+</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<pre><code>net.ipv4.tcp_moderate_rcvbuf
+</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
+<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
+<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">问题 Case</a></strong></p>
+<p>发送和接收Buffer对性能的完整影响参考<a href="/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">这篇</a></p>
+<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
+<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
+<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
+<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
+<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
+<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
+</ul>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
+<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
+<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
+<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
+</ul>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<ul>
+<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
+<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
+<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
+<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
+<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
+<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
+</ul>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
+<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
+<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
+<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
+</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
+
+ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
+ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
+ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
+</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
+<pre><code>清除 tcp_metrics 
+sudo ip tcp_metrics flush all 
+
+关闭 tcp_metrics 功能
+net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><blockquote>
+<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
+</blockquote>
+<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
+<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
+<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
+<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
+<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
+<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
+<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
+<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
+<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
+<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
+<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">tcp metrics 在长肥网络下引发性能问题</a></p>
+<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
+<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
+<hr>
+<p>就是要你懂TCP相关文章：</p>
+<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
+<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">MSS和MTU导致的悲剧</a> </p>
+<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">双11通过网络优化提升10倍性能</a></p>
+<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">就是要你懂TCP的握手和挥手</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="external">https://access.redhat.com/solutions/407743</a></p>
+<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="external">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
+<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="external">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
+<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="external">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
+<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="external">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
+<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">https://www.atatech.org/articles/109721</a></p>
+<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">https://www.atatech.org/articles/27189</a> </p>
+<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="external">https://www.atatech.org/articles/45084</a></p>
+<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">https://www.atatech.org/articles/9032</a></p>
+<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">tcp_rmem case</a></p>
+<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
+                2019-06-20
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/LVS/" itemprop="url" rel="index">
+                    <span itemprop="name">LVS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
+<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
+</blockquote>
+<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
+<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
+<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
+<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
+vip：Virtual IP，LVS实例IP
+rip：Real IP，后端RS地址
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+sip： source ip
+dip： destination
+</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
+<li>DR模型 – (Director Routing-直接路由)</li>
+<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
+<li>fullNAT – (full NAT)</li>
+<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
+<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
+</ul>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
+<ol>
+<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
+<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
+<li>然后丢给Director，Director将这个包丢给选中的RS</li>
+<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
+<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
+<li>经过交换机直接回复给client了(不再走LVS)</li>
+</ol>
+<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
+<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
+<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
+<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
+<li>RS需要配置vip同时特殊处理arp；</li>
+<li>配置比较复杂；</li>
+<li>不支持端口映射。</li>
+</ul>
+<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
+<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
+<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
+<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
+<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
+<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
+<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
+<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
+<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>配置简单</li>
+<li>支持端口映射(看名字就知道)</li>
+<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>LVS和所有RS必须在同一个vlan</li>
+<li>进出流量都要走LVS转发</li>
+<li>LVS容易成为瓶颈</li>
+<li>一般而言需要将VIP配置成RS的网关</li>
+</ul>
+<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
+<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
+<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS看不到cip(NAT模式下可以看到)</li>
+<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
+</ul>
+<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
+<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
+<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
+<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
+<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
+<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
+<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
+<p>优点：</p>
+<ul>
+<li>不要求LVS和RS在同一个vlan</li>
+<li>出去的流量不需要走LVS，性能好</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
+</ul>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(cip，vip)</li>
+<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
+<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
+<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
+<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
+</ol>
+<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
+<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
+<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<p>最后说一下不太常用的 TUN模型</p>
+<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
+<ol>
+<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
+<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
+<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
+<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>集群节点可以跨vlan</li>
+<li>跟DR一样，响应报文直接发给client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS上必须安装运行IPIP模块</li>
+<li>多增加了一个IP头</li>
+<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
+</ul>
+<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
+<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
+<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
+<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
+<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
+<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
+<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
+<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
+<p>所以推出NGLB来解决这个问题</p>
+<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
+<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
+<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
+<li>toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/<code>uname -r</code>/kernel/net/toa/toa.ko）。</li>
+<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
+<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
+<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
+</ol>
+<p>!！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:</p>
+<blockquote>
+<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。</p>
+<p>当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。</p>
+<p>如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。</p>
+</blockquote>
+<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
+<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
+<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
+<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
+<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="external">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="external">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
+<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="external">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
+<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
+<p>2.结合性能测试数据，调整session的prefecth</p>
+<p>3.消除false sharing。</p>
+<p>目前LVS 40G机型，单机4块 40G网卡。</p>
+<p>平均包长1k的情况下能跑满4个网口(160G)</p>
+<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
+<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
+<p>lvs的优化方案为大小桶算法：</p>
+<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
+<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
+<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
+<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
+<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
+<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="external">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
+<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="external">https://yizhi.ren/2019/05/03/lvs/</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/09/一文搞懂域名解析相关问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -637,7 +1248,7 @@ Get https://k8s.gcr.io/v1/_ping: dial tcp 108.177.125.82:443: i/o timeout
 </code></pre><p><a href="https://www.atatech.org/articles/102153" target="_blank" rel="external">如果是git这样的应用内部可以配置socks5和http代理服务器，请参考另外一篇文章</a>，但是有些应用就不能配置了，当然最终通过ssh大法还是可以解决这个问题：</p>
 <pre><code>sudo ssh -L 443:108.177.125.82:443 root@1.1.1.1 //在本地监听443，转发给远程108.177.125.82的443端口
 </code></pre><p>然后再在 /etc/hosts 中将域名 k8s.gcr.io 指向 127.0.0.1， 那么本来要访问 k8s.gcr.io:443的，变成了访问本地 127.0.0.1:443 而 127.0.0.1:443 又通过ssh重定向到了 108.177.125.82:443 这样就实现了http代理或者说这种特殊情况下的科学上网。这个方案不需要装任何东西，但是每个访问目标都要这样处理，好在这种情况不多</p>
-<h2 id="内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？"><a href="#内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？" class="headerlink" title="内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？"></a>内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash"> cat ~/.ssh/config </span></div><div class="line"><span class="meta">#</span><span class="bash">reuse the same connection --关键配置</span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath ~/tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持</span></div><div class="line"><span class="meta">#</span><span class="bash">不支持的话直接把这行删了，不影响功能</span></div><div class="line"><span class="meta">#</span><span class="bash">keep one connection <span class="keyword">in</span> 72hour</span></div><div class="line"><span class="meta">#</span><span class="bash">ControlPersist 72h</span></div><div class="line"><span class="meta">#</span><span class="bash">复用连接的配置到这里，后面的配置与复用无关</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">其它也很有用的配置</span></div><div class="line">GSSAPIAuthentication=no</div><div class="line">StrictHostKeyChecking=no</div><div class="line">TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div></pre></td></tr></table></figure>
+<h2 id="内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？"><a href="#内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？" class="headerlink" title="内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？"></a>内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash"> cat ~/.ssh/config </span></div><div class="line"><span class="meta">#</span><span class="bash">reuse the same connection --关键配置</span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath ~/tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持</span></div><div class="line"><span class="meta">#</span><span class="bash">不支持的话直接把这行删了，不影响功能</span></div><div class="line"><span class="meta">#</span><span class="bash">keep one connection <span class="keyword">in</span> 72hour</span></div><div class="line"><span class="meta">#</span><span class="bash">ControlPersist 72h</span></div><div class="line"><span class="meta">#</span><span class="bash">复用连接的配置到这里，后面的配置与复用无关</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">其它也很有用的配置</span></div><div class="line">GSSAPIAuthentication=no</div><div class="line"><span class="meta">#</span><span class="bash">这个配置在公网因为安全原因请谨慎关闭</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line">TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div></pre></td></tr></table></figure>
 <p>在你的ssh配置文件增加上述参数，意味着72小时内登录同一台跳板机只有第一次需要输入密码，以后都是重用之前的连接，所以也就不再需要输入密码了。</p>
 <p>加了如上参数后的登录过程就有这样的东东(默认没有，这是debug信息)：   </p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">debug1: setting up multiplex master socket</div><div class="line">debug3: muxserver_listen: temporary control path   /home/ren/tmp/ssh_mux_10.16.*.*_22_corp.86g3C34vy36tvCtn</div><div class="line">debug2: fd 3 setting O_NONBLOCK</div><div class="line">debug3: fd 3 is O_NONBLOCK</div><div class="line">debug3: fd 3 is O_NONBLOCK</div><div class="line">debug1: channel 0: new [/home/ren/tmp/ssh_mux_10.16.*.*_22_corp]</div><div class="line">debug3: muxserver_listen: mux listener channel 0 fd 3</div><div class="line">debug1: control_persist_detach: backgrounding master process</div><div class="line">debug2: control_persist_detach: background process is 15154</div><div class="line">debug2: fd 3 setting O_NONBLOCK</div><div class="line">debug1: forking to background</div><div class="line">debug1: Entering interactive session.</div><div class="line">debug2: set_control_persist_exit_time: schedule exit in 259200 seconds</div><div class="line">debug1: multiplexing control connection</div></pre></td></tr></table></figure>
@@ -678,8 +1289,6 @@ debug1: Control socket &quot;/home/ren/tmp/ssh_mux_10.16.1.*_22_corp&quot; does 
 debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.16.1.* 22
 </code></pre><p>本来我的笔记本跟 10.16.1.<em> 是不通的(ping 不通），但是ssh可以直接连上，实际ssh登录过程中自动走跳板机139.</em>.<em>.</em> 就连上了</p>
 <p>-vvv 参数是debug，把ssh登录过程的日志全部打印出来。 </p>
-<h2 id="ProxyJump"><a href="#ProxyJump" class="headerlink" title="ProxyJump"></a>ProxyJump</h2><p>需要 <code>OpenSSH 7.3</code> 以上版本才可以使用 <code>ProxyJump</code>, 相对 ProxyCommand 更简洁方便些</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">#ssh 116 就可以通过 jumpserver:50023 连上 root@1.116.2.1:22</div><div class="line">Host 116</div><div class="line">    HostName 1.116.2.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump admin@jumpserver:50023</div><div class="line"></div><div class="line">#ssh 1.112.任意ip 都会默认走 jumpserver 跳转过去</div><div class="line">Host 1.112.*.*</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump root@jumpserver</div></pre></td></tr></table></figure>
 <h2 id="将隔离环境中的web端口映射到本地（本地代理）"><a href="#将隔离环境中的web端口映射到本地（本地代理）" class="headerlink" title="将隔离环境中的web端口映射到本地（本地代理）"></a>将隔离环境中的web端口映射到本地（本地代理）</h2><p>远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.1.1.123:8083， ssh账号是：user</p>
@@ -726,7 +1335,8 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <hr>
 <p><strong>这里只是帮大家入门了解ssh，掌握好这些配置文件和-vvv后有好多好玩的可以去挖掘，同时也请在留言中说出你的黑技能</strong></p>
 <h2 id="ssh-config-参考配置"><a href="#ssh-config-参考配置" class="headerlink" title="~/.ssh/config 参考配置"></a>~/.ssh/config 参考配置</h2><p>下面是我个人常用的ssh config配置</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat ~/.ssh/config</span></div><div class="line"><span class="meta">#</span><span class="bash">GSSAPIAuthentication=no</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line"><span class="meta">#</span><span class="bash">TCPKeepAlive=yes</span></div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">reuse the same connection</span></span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath /tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">keep one connection in 72hour</span></span></div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line">Host 192.168.1.*</div><div class="line">ProxyCommand ssh user@us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">Host 192.168.2.*</div><div class="line">ProxyCommand ssh user@cn.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ProxyCommand /bin/nc -x localhost:12346 %h %p</span></span></div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat ~/.ssh/config</span></div><div class="line"><span class="meta">#</span><span class="bash">GSSAPIAuthentication=no</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line"><span class="meta">#</span><span class="bash">TCPKeepAlive=yes</span></div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">reuse the same connection</span></span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath /tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">keep one connection in 72hour</span></span></div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line">Host 192.168.1.*</div><div class="line">ProxyCommand ssh user@us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">Host 192.168.2.*</div><div class="line">ProxyCommand ssh user@cn.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ProxyCommand /bin/nc -x localhost:12346 %h %p</span></span></div><div class="line"></div><div class="line">Host 172</div><div class="line">    HostName 10.172.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump root@1.2.3.4:12345</div><div class="line"></div><div class="line">Host 176</div><div class="line">    HostName 10.176.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump admin@1.2.3.4:12346</div><div class="line">    </div><div class="line">Host 10.5.*.*, 10.*.*.*</div><div class="line">    port 22</div><div class="line">			user root</div><div class="line">			ProxyJump plantegg@1.2.3.4:12347</div></pre></td></tr></table></figure>
+<p>ProxyJump完全可以取代 ProxyCommand，比如ProxyJump 不再依赖nc、也更灵活一些</p>
 <h2 id="etc-ssh-ssh-config-参考配置"><a href="#etc-ssh-ssh-config-参考配置" class="headerlink" title="/etc/ssh/ssh_config 参考配置"></a>/etc/ssh/ssh_config 参考配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div></pre></td><td class="code"><pre><div class="line">Host *</div><div class="line">Protocol 2</div><div class="line">ServerAliveInterval 30</div><div class="line">User admin</div><div class="line"></div><div class="line">host 10.10.55.*</div><div class="line">ProxyCommand ssh -l admin admin.jump  exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"># uos is a hostname</div><div class="line">Host 10.10.1.13* 192.168.2.133 uos</div><div class="line">ProxyCommand ssh -l root -p 54900 1.1.1.1 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line">#debug for git proxy</div><div class="line">Host github.com</div><div class="line">#    LogLevel DEBUG3</div><div class="line">#    ProxyCommand ssh  -l root gfw.jump exec /usr/bin/nc %h %p</div><div class="line">#    ProxyCommand ssh -oProxyCommand=&apos;ssh -l admin gfw.jump:22&apos; -l root gfw.jump2 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"></div><div class="line">ForwardAgent yes</div><div class="line">ForwardX11 yes</div><div class="line">ForwardX11Trusted yes</div><div class="line"></div><div class="line">    SendEnv LANG LC_*</div><div class="line">    HashKnownHosts yes</div><div class="line">    GSSAPIAuthentication no</div><div class="line">    GSSAPIDelegateCredentials no</div><div class="line">    Compression yes</div></pre></td></tr></table></figure>
 <h2 id="其他知识点"><a href="#其他知识点" class="headerlink" title="其他知识点"></a>其他知识点</h2><p>参数的优先级是：命令行配置选项 &gt; ~/.ssh/config &gt; /etc/ssh/ssh_config</p>
 <p>在SSH的<strong>身份验证阶段，SSH只支持服务端保留公钥，客户端保留私钥的方式，</strong>所以方式只有两种：客户端生成密钥对，将公钥分发给服务端；服务端生成密钥对，将私钥分发给客户端。只不过出于安全性和便利性，一般都是客户端生成密钥对并分发公钥（阿里云服务器秘钥对–服务器将一对密钥中的公钥放在 authorized_keys, 私钥给client登陆用）</p>
@@ -807,6 +1417,8 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>如上配置指的是，如果执行ssh remote-host 命中host规则，那么先执行命令 ssh -l root -p 52146 1.2.3.4 exec /usr/bin/nc 同时把remote-host和端口(默认22)传给nc</p>
 <p>ProxyCommand和ProxyJump很类似，ProxyJump使用：</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">//ssh到centos8机器上，走的是gf这台跳板机，本地一般和centos8不通</div><div class="line">ssh -J gf:22 centos8</div></pre></td></tr></table></figure>
+<h3 id="ProxyJump"><a href="#ProxyJump" class="headerlink" title="ProxyJump"></a>ProxyJump</h3><p>需要 <code>OpenSSH 7.3</code> 以上版本才可以使用 <code>ProxyJump</code>, 相对 ProxyCommand 更简洁方便些</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">#ssh 116 就可以通过 jumpserver:50023 连上 root@1.116.2.1:22</div><div class="line">Host 116</div><div class="line">    HostName 1.116.2.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump admin@jumpserver:50023</div><div class="line"></div><div class="line">#ssh 1.112.任意ip 都会默认走 jumpserver 跳转过去</div><div class="line">Host 1.112.*.*</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump root@jumpserver</div></pre></td></tr></table></figure>
 <h3 id="加密算法"><a href="#加密算法" class="headerlink" title="加密算法"></a><a href="http://www.openssh.com/legacy.html" target="_blank" rel="external">加密算法</a></h3><p>列出本地所支持默认的加密算法</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">#ssh -Q key                                                            </div><div class="line">ssh-ed25519</div><div class="line">ssh-ed25519-cert-v01@openssh.com</div><div class="line">ssh-rsa</div><div class="line">ssh-dss</div><div class="line">ecdsa-sha2-nistp256</div><div class="line">ecdsa-sha2-nistp384</div><div class="line">ecdsa-sha2-nistp521</div><div class="line">ssh-rsa-cert-v01@openssh.com</div><div class="line">ssh-dss-cert-v01@openssh.com</div><div class="line">ecdsa-sha2-nistp256-cert-v01@openssh.com</div><div class="line">ecdsa-sha2-nistp384-cert-v01@openssh.com</div><div class="line">ecdsa-sha2-nistp521-cert-v01@openssh.com</div><div class="line"></div><div class="line">ssh -Q cipher       # List supported ciphers</div><div class="line">ssh -Q mac          # List supported MACs</div><div class="line">ssh -Q key          # List supported public key types</div><div class="line">ssh -Q kex          # List supported key exchange algorithms</div></pre></td></tr></table></figure>
 <p>比如连服务器报如下错误：</p>
@@ -826,14 +1438,15 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </ul>
 <h2 id="无所不能的-SSH-三大转发模式"><a href="#无所不能的-SSH-三大转发模式" class="headerlink" title="无所不能的 SSH 三大转发模式"></a>无所不能的 SSH 三大转发模式</h2><p>了解完前面的一些小知识，再来看看无所不能的三大杀招。上面的各种代理基本都是由这三种转发模式实现的。</p>
 <p>SSH能够做动态转发、本地转发、远程转发。先简要概述下他们的特点和使用场景</p>
-<p><strong>三个转发模式的比较：</strong></p>
+<p><strong><a href="https://www.skywind.me/blog/archives/2546" target="_blank" rel="external">三个转发模式的比较</a>：</strong></p>
 <ul>
-<li>动态转发完全可以代替本地转发，只是动态转发是<code>socks5协议</code>，本地转发是tcp协议</li>
-<li>本地转发完全是把动态转发特例化到访问某个固定目标的转发</li>
+<li>动态转发完全可以代替本地转发，只是动态转发是<code>socks5协议</code>，当科学上网用，本地转发是tcp协议</li>
+<li>本地转发完全是把动态转发特例化到访问某个固定目标的转发，类似  iptable 的 port forwarding</li>
 <li>远程转发是启动转端口的机器同时连上两端的两个机器，把本来不连通的两端拼接起来，中间显得多了个节点。</li>
 <li>三个转发模式可以串联使用</li>
 </ul>
 <p>动态转发常用来科学上网，本地转发用来打洞，这两种转发启动的端口都是在本地；远程转发也是打洞的一种，只不过启用的端口在远程机器上。</p>
+<p><img src="/images/951413iMgBlog/ssh-tunnels.png" alt="img"></p>
 <h3 id="动态转发-D-SOCKS5-协议"><a href="#动态转发-D-SOCKS5-协议" class="headerlink" title="动态转发 (-D)   SOCKS5 协议"></a>动态转发 (-D)   SOCKS5 协议</h3><p>动态转发指的是，本机与 SSH 服务器之间创建了一个加密连接，然后本机内部针对某个端口的通信，都通过这个加密连接转发。它的一个使用场景就是，访问所有外部网站，都通过 SSH 转发。</p>
 <p>动态转发需要把本地端口绑定到 SSH 服务器。<strong>至于 SSH 服务器要去访问哪一个网站，完全是动态的，取决于原始通信，所以叫做动态转发</strong>。</p>
 <p>动态的意思就是：需要访问的目标、端口还不确定。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。</p>
@@ -883,14 +1496,17 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">nohup ssh -qTfnN -D *:13658 root@127.0.0.1 -p 30081 vmstat 10  &gt;/dev/null 2&gt;&amp;1</div></pre></td></tr></table></figure>
 <p>表示在30081机器上(30.1.2.3)启动了一个socks5动态代理服务</p>
 <h2 id="调试转发、代理是否能联通"><a href="#调试转发、代理是否能联通" class="headerlink" title="调试转发、代理是否能联通"></a>调试转发、代理是否能联通</h2><h3 id="curl"><a href="#curl" class="headerlink" title="curl"></a><a href="https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk" target="_blank" rel="external">curl</a></h3><blockquote>
-<p>curl -I –socks5-hostname 127.0.0.1:13659 twitter.com</p>
+<p>curl -I –socks5-hostname localhost:13659 twitter.com</p>
 <p>curl -x socks5://localhost:13659 twitter.com</p>
 </blockquote>
-<p>Suppose you have a socks5 proxy running on localhost:8001. </p>
+<p>Suppose you have a socks5 proxy running on localhost:13659 . </p>
 <p><a href="https://blog.emacsos.com/use-socks5-proxy-in-curl.html" target="_blank" rel="external">In curl &gt;= 7.21.7, you can use</a></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">curl -x socks5h://localhost:8001 http://www.google.com/</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">curl -x socks5h://localhost:13659 http://www.google.com/</div></pre></td></tr></table></figure>
+<p>In a proxy string, socks5h:// and socks4a:// mean that the hostname is<br>resolved by the SOCKS server. socks5:// and socks4:// mean that the<br>hostname is resolved locally. socks4a:// means to use SOCKS4a, which is<br>an extension of SOCKS4. Let’s make urllib3 honor it.</p>
 <p>In curl &gt;= 7.18.0, you can use</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">curl --socks5-hostname localhost:8001 http://www.google.com/</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">curl --socks5-hostname localhost:13659 http://www.google.com/</div></pre></td></tr></table></figure>
+<p>–proxy 参数含义如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">The --socks5 option is basically considered obsolete since curl 7.21.7. This is because starting in that release, you can now specify the proxy protocol directly in the string that you specify the proxy host name and port number with already. The server you specify with --proxy. If you use a socks5:// scheme, curl will go with SOCKS5 with local name resolve but if you instead use socks5h:// it will pick SOCKS5 with proxy-resolved host name.</div></pre></td></tr></table></figure>
 <h3 id="wget"><a href="#wget" class="headerlink" title="wget"></a>wget</h3><p><strong>指定命令行参数</strong>,通过命令行指定HTTP代理服务器的方式如下：</p>
 <blockquote>
 <p>wget -Y on -e “http_proxy=<a href="http://**[HTTP_HOST]**:**[HTTP_PORT]**" target="_blank" rel="external">http://**[HTTP_HOST]**:**[HTTP_PORT]**</a>“ <a href="http://facebook.com/其中：[HTTP_HOST]和[HTTP_PORT]是http" target="_blank" rel="external">http://facebook.com/其中：[HTTP_HOST]和[HTTP_PORT]是http</a> proxy的ADDRESS和PORT。</p>
@@ -2734,330 +3350,6 @@ void test_stub1(void)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/定制Linux_Kernel/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/24/定制Linux_Kernel/" itemprop="url">定制Linux Kernel</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
-                2019-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><p>Linux 里面有一个工具，叫 Grub2，全称 Grand Unified Bootloader Version 2。顾名思义，就是搞系统启动的。</p>
-<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span>cat change_kernel_parameter.sh </div><div class="line"><span class="meta">#</span>cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>grep '' /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"><span class="meta"></span></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line"><span class="meta">#</span>transparent_hugepage=always</div><div class="line"><span class="meta">#</span>noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line"><span class="meta">#</span>追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span>重启系统</div><div class="line"><span class="meta">#</span>sudo reboot</div><div class="line"><span class="meta"></span></div><div class="line">## 选择不同的kernel启动</div><div class="line"><span class="meta">#</span>sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu</div><div class="line"><span class="meta">#</span>#grub认的index从0开始数的</div><div class="line"><span class="meta">#</span>sudo grub2-reboot 0; sudo reboot</div><div class="line">or</div><div class="line"><span class="meta">#</span>grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot</div></pre></td></tr></table></figure>
-<p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-working_with_the_grub_2_boot_loader" target="_blank" rel="external">GRUB 2 reads its configuration</a> from the <code>/boot/grub2/grub.cfg</code> file on traditional BIOS-based machines and from the <code>/boot/efi/EFI/redhat/grub.cfg</code> file on UEFI machines. This file contains menu information.</p>
-<p>The GRUB 2 configuration file, <code>grub.cfg</code>, is generated during installation, or by invoking the <strong>/usr/sbin/grub2-mkconfig</strong> utility, and is automatically updated by <code>grubby</code> each time a new kernel is installed. When regenerated manually using <strong>grub2-mkconfig</strong>, the file is generated according to the template files located in <code>/etc/grub.d/</code>, and custom settings in the <code>/etc/default/grub</code> file. Edits of <code>grub.cfg</code> will be lost any time <strong>grub2-mkconfig</strong> is used to regenerate the file, so care must be taken to reflect any manual changes in <code>/etc/default/grub</code> as well.</p>
-<h2 id="查看kernel编译参数"><a href="#查看kernel编译参数" class="headerlink" title="查看kernel编译参数"></a>查看kernel编译参数</h2><p>一般在 /boot/config-** 文件内放置所有内核编译参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">//启用 tcp_rt 模块</div><div class="line">cat /boot/config-4.19.91-24.8.an8.x86_64 |grep TCP_RT</div><div class="line">CONFIG_TCP_RT=y</div><div class="line"></div><div class="line">//启用 RPS</div><div class="line">cat /boot/config-4.19.91-24.8.an8.x86_64 |grep RPS</div><div class="line">CONFIG_RPS=y</div></pre></td></tr></table></figure>
-<h2 id="修改是否启用透明大页"><a href="#修改是否启用透明大页" class="headerlink" title="修改是否启用透明大页"></a>修改是否启用透明大页</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
-<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO、rufus 烧制，MacOS 上就比较简单了，直接用 dd 就可以做好：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
-<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">umount /dev/sdn1</div><div class="line">sudo mkfs.vfat /dev/sdn1</div><div class="line">dd if=/data/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</div></pre></td></tr></table></figure>
-<h2 id="iommu-passthrough"><a href="#iommu-passthrough" class="headerlink" title="iommu passthrough"></a><a href="https://bbs.huaweicloud.com/blogs/291576" target="_blank" rel="external">iommu passthrough</a></h2><h3 id="IOMMU-硬件单元"><a href="#IOMMU-硬件单元" class="headerlink" title="IOMMU 硬件单元"></a>IOMMU 硬件单元</h3><p>DMA Remapping Feature 的工作是通过 CPU 硬件平台的 IOMMU（I/O MMU，Input/Output Memory Management Unit，I/O 内存管理硬件单元）来完成的。IOMMU 的出现，实现了地址空间上的隔离，使设备只能访问规定的内存区域。</p>
-<p><img src="/images/951413iMgBlog/image-20220718111233654.png" alt="image-20220718111233654"></p>
-<p>参考资料：<a href="https://lenovopress.lenovo.com/lp1467.pdf" target="_blank" rel="external">https://lenovopress.lenovo.com/lp1467.pdf</a></p>
-<p><img src="/images/951413iMgBlog/image-20220729162624318.png" alt="image-20220729162624318"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">/*</div><div class="line"> * This variable becomes 1 if iommu=pt is passed on the kernel command line.</div><div class="line"> * If this variable is 1, IOMMU implementations do no DMA translation for</div><div class="line"> * devices and allow every device to access to whole physical memory. This is</div><div class="line"> * useful if a user wants to use an IOMMU only for KVM device assignment to</div><div class="line"> * guests and not for driver dma translation.</div><div class="line"> */</div></pre></td></tr></table></figure>
-<p>说明配置了iommu=pt 的话函数iommu_no_mapping返回1，那么驱动就直接return paddr，并不会真正调用到domain_pfn_mapping，直接用了物理地址少了一次映射性能当然会高一些。如果是跑KVM建议 passthrough=0，物理机场景 passthrough=1</p>
-<p>iommu=pt并不会影响kvm/dpdk/spdk的性能，这三者本质上都是用户态驱动，iommu=pt只会影响内核驱动，能让内核驱动设备性能更高。</p>
-<h2 id="定制内存"><a href="#定制内存" class="headerlink" title="定制内存"></a>定制内存</h2><p>物理内存700多G，要求OS只能用512G：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">24条32G的内存条，总内存768G</div><div class="line"># dmidecode -t memory |grep &quot;Size: 32 GB&quot;</div><div class="line">  Size: 32 GB</div><div class="line">…………</div><div class="line">  Size: 32 GB</div><div class="line">  Size: 32 GB</div><div class="line">root@uos15:/etc# dmidecode -t memory |grep &quot;Size: 32 GB&quot; | wc -l</div><div class="line">24</div><div class="line"></div><div class="line"># cat /boot/grub/grub.cfg  |grep 512</div><div class="line">  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</div><div class="line">    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE</div></pre></td></tr></table></figure>
-<h3 id="高级版-按numa限制内存"><a href="#高级版-按numa限制内存" class="headerlink" title="高级版 按numa限制内存"></a>高级版 <a href="https://www.kernel.org/doc/html/v4.14/admin-guide/kernel-parameters.html" target="_blank" rel="external">按numa限制内存</a></h3><p>每个numa 128G内存，总共1024G（32条*32G），8个numa node，需要将每个numa node内存限制在64G</p>
-<p>在grub中cmdline中加入如下配置，每个node只用64G内存：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">memmap=64G\$64G memmap=64G\$192G memmap=64G\$320G memmap=64G\$448G memmap=64G\$576G memmap=64G\$704G memmap=64G\$832G memmap=64G\$960G</div></pre></td></tr></table></figure>
-<p>或者：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">#cat /etc/default/grub</div><div class="line">GRUB_TIMEOUT=5</div><div class="line">GRUB_DISTRIBUTOR=&quot;$(sed &apos;s, release .*$,,g&apos; /etc/system-release)&quot;</div><div class="line">GRUB_DEFAULT=saved</div><div class="line">GRUB_DISABLE_SUBMENU=true</div><div class="line">GRUB_TERMINAL_OUTPUT=&quot;console&quot;</div><div class="line">GRUB_CMDLINE_LINUX=&quot;crashkernel=1024M,high resume=/dev/mapper/klas-swap rd.lvm.lv=klas/root rd.lvm.lv=klas/swap video=efifb:on rhgb quiet quiet noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off tsx=on tsx_async_abort=off mitigations=off iommu.passthrough=1 memmap=64G\\\$64G memmap=64G\\\$192G memmap=64G\\\$320G memmap=64G\\\$448G memmap=64G\\\$576G memmap=64G\\\$704G memmap=64G\\\$832G memmap=64G\\\$960G&quot;</div><div class="line">GRUB_DISABLE_RECOVERY=&quot;true&quot;</div><div class="line"></div><div class="line">然后执行生成最终grub启动参数</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div></pre></td></tr></table></figure>
-<p>比如在一个4node的机器上，总共768G内存（32G*24），每个node使用64G内存</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">linux16 /vmlinuz-0-rescue-e91413f0be2c4c239b4aa0451489ae01 root=/dev/mapper/centos-root ro crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet memmap=128G\$64G memmap=128G\$256G memmap=128G\$448G memmap=128G\$640G</div></pre></td></tr></table></figure>
-<p>128G表示相对地址，$64G是绝对地址，128G\$64G 的意思是屏蔽64G到（64+128）G的地址对应的内存</p>
-<h2 id="检查"><a href="#检查" class="headerlink" title="检查"></a>检查</h2><p>检查正在运行的系统使用的grub参数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/cmdline</div></pre></td></tr></table></figure>
-<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div></pre></td><td class="code"><pre><div class="line">#dmidecode -t memory</div><div class="line"># dmidecode 3.2</div><div class="line">Getting SMBIOS data from sysfs.</div><div class="line">SMBIOS 3.2.1 present.</div><div class="line"># SMBIOS implementations newer than version 3.2.0 are not</div><div class="line"># fully supported by this version of dmidecode.</div><div class="line"></div><div class="line">Handle 0x0033, DMI type 16, 23 bytes </div><div class="line">Physical Memory Array</div><div class="line">	Location: System Board Or Motherboard</div><div class="line">	Use: System Memory</div><div class="line">	Error Correction Type: Multi-bit ECC</div><div class="line">	Maximum Capacity: 2 TB  //最大支持2T</div><div class="line">	Error Information Handle: 0x0032</div><div class="line">	Number Of Devices: 32   //32个插槽</div><div class="line">	</div><div class="line">	Handle 0x0041, DMI type 17, 84 bytes</div><div class="line">Memory Device</div><div class="line">	Array Handle: 0x0033</div><div class="line">	Error Information Handle: 0x0040</div><div class="line">	Total Width: 72 bits</div><div class="line">	Data Width: 64 bits</div><div class="line">	Size: 32 GB</div><div class="line">	Form Factor: DIMM</div><div class="line">	Set: None</div><div class="line">	Locator: CPU0_DIMMA0</div><div class="line">	Bank Locator: P0 CHANNEL A</div><div class="line">	Type: DDR4</div><div class="line">	Type Detail: Synchronous Registered (Buffered)</div><div class="line">	Speed: 2933 MT/s                    //内存最大频率</div><div class="line">	Manufacturer: SK Hynix</div><div class="line">	Serial Number: 220F9EC0</div><div class="line">	Asset Tag: Not Specified</div><div class="line">	Part Number: HMAA4GR7AJR8N-WM</div><div class="line">	Rank: 2</div><div class="line">	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如内存条数插太多会给内存降频</div><div class="line">	Minimum Voltage: 1.2 V</div><div class="line">	Maximum Voltage: 1.2 V</div><div class="line">	Configured Voltage: 1.2 V</div><div class="line">	Memory Technology: DRAM</div><div class="line">	Memory Operating Mode Capability: Volatile memory</div><div class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</div><div class="line">	Non-Volatile Size: None</div><div class="line">	Volatile Size: 32 GB</div><div class="line">	</div><div class="line">	#lshw</div><div class="line">	*-bank:19  </div><div class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) //内存最大频率</div><div class="line">             product: HMAA4GR7AJR8N-WM</div><div class="line">             vendor: SK Hynix</div><div class="line">             physical id: 13</div><div class="line">             serial: 220F9F63</div><div class="line">             slot: CPU1_DIMMB0</div><div class="line">             size: 32GiB  //实际所插内存大小</div><div class="line">             width: 64 bits</div><div class="line">             clock: 2933MHz (0.3ns)</div></pre></td></tr></table></figure>
-<h3 id="内存速度对延迟的影响"><a href="#内存速度对延迟的影响" class="headerlink" title="内存速度对延迟的影响"></a>内存速度对延迟的影响</h3><p>左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大</p>
-<p><img src="/images/951413iMgBlog/image-20220123094155595.png" alt="image-20220123094155595"></p>
-<p><img src="/images/951413iMgBlog/image-20220123094928794.png" alt="image-20220123094928794"></p>
-<p><img src="/images/951413iMgBlog/image-20220123100052242.png" alt="image-20220123100052242"></p>
-<p>对比一下V62，intel8269 机型</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div></pre></td><td class="code"><pre><div class="line">./Linux/mlc</div><div class="line">Intel(R) Memory Latency Checker - v3.9</div><div class="line">Measuring idle latencies (in ns)...</div><div class="line">    Numa node</div><div class="line">Numa node      0       1</div><div class="line">       0    77.9   143.2</div><div class="line">       1   144.4    78.4</div><div class="line"></div><div class="line">Measuring Peak Injection Memory Bandwidths for the system</div><div class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using traffic with the following read-write ratios</div><div class="line">ALL Reads        :  225097.1</div><div class="line">3:1 Reads-Writes :  212457.8</div><div class="line">2:1 Reads-Writes :  210628.1</div><div class="line">1:1 Reads-Writes :  199315.4</div><div class="line">Stream-triad like:  190341.4</div><div class="line"></div><div class="line">Measuring Memory Bandwidths between nodes within system</div><div class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using Read-only traffic type</div><div class="line">    Numa node</div><div class="line">Numa node      0       1</div><div class="line">       0  113139.4  50923.4</div><div class="line">       1  50916.6 113249.2</div><div class="line"></div><div class="line">Measuring Loaded Latencies for the system</div><div class="line">Using all the threads from each core if Hyper-threading is enabled</div><div class="line">Using Read-only traffic type</div><div class="line">Inject  Latency Bandwidth</div><div class="line">Delay (ns)  MB/sec</div><div class="line">==========================</div><div class="line"> 00000  261.50   225452.5</div><div class="line"> 00002  263.79   225291.6</div><div class="line"> 00008  269.02   225184.1</div><div class="line"> 00015  261.96   225757.6</div><div class="line"> 00050  260.56   226013.2</div><div class="line"> 00100  264.27   225660.1</div><div class="line"> 00200  130.61   195882.4</div><div class="line"> 00300  102.65   133820.1</div><div class="line"> 00400   95.04   101353.2</div><div class="line"> 00500   91.56    81585.9</div><div class="line"> 00700   87.94    58819.1</div><div class="line"> 01000   85.54    41551.3</div><div class="line"> 01300   84.70    32213.6</div><div class="line"> 01700   83.14    24872.5</div><div class="line"> 02500   81.74    17194.3</div><div class="line"> 03500   81.14    12524.2</div><div class="line"> 05000   80.74     9013.2</div><div class="line"> 09000   80.09     5370.0</div><div class="line"> 20000   78.92     2867.2</div><div class="line"></div><div class="line">Measuring cache-to-cache transfer latency (in ns)...</div><div class="line">Local Socket L2-&gt;L2 HIT  latency  51.6</div><div class="line">Local Socket L2-&gt;L2 HITM latency  51.7</div><div class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in writer socket)</div><div class="line">      Reader Numa Node</div><div class="line">Writer Numa Node     0       1</div><div class="line">            0      -   111.3</div><div class="line">            1  111.1       -</div><div class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in reader socket)</div><div class="line">      Reader Numa Node</div><div class="line">Writer Numa Node     0       1</div><div class="line">            0      -   175.8</div><div class="line">            1  176.7       -</div><div class="line"></div><div class="line">[root@numaopen.cloud.et93 /home/xijun.rxj]</div><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                104</div><div class="line">On-line CPU(s) list:   0-103</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    26</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          2</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 85</div><div class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">Stepping:              7</div><div class="line">CPU MHz:               3199.902</div><div class="line">CPU max MHz:           3800.0000</div><div class="line">CPU min MHz:           1200.0000</div><div class="line">BogoMIPS:              4998.89</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              1024K</div><div class="line">L3 cache:              36608K</div><div class="line">NUMA node0 CPU(s):     0-25,52-77</div><div class="line">NUMA node1 CPU(s):     26-51,78-103</div><div class="line"></div><div class="line">#dmidecode -t memory</div><div class="line">Handle 0x003C, DMI type 17, 40 bytes</div><div class="line">Memory Device</div><div class="line">  Array Handle: 0x0026</div><div class="line">  Error Information Handle: Not Provided</div><div class="line">  Total Width: 72 bits</div><div class="line">  Data Width: 64 bits</div><div class="line">  Size: 32 GB</div><div class="line">  Form Factor: DIMM</div><div class="line">  Set: None</div><div class="line">  Locator: CPU1_DIMM_E1</div><div class="line">  Bank Locator: NODE 2</div><div class="line">  Type: DDR4</div><div class="line">  Type Detail: Synchronous</div><div class="line">  Speed: 2666 MHz</div><div class="line">  Manufacturer: Samsung</div><div class="line">  Serial Number: 14998029</div><div class="line">  Asset Tag: CPU1_DIMM_E1_AssetTag</div><div class="line">  Part Number: M393A4K40BB2-CTD</div><div class="line">  Rank: 2</div><div class="line">  Configured Clock Speed: 2666 MHz</div><div class="line">  Minimum Voltage:  1.2 V</div><div class="line">  Maximum Voltage:  1.2 V</div><div class="line">  Configured Voltage:  1.2 V</div></pre></td></tr></table></figure>
-<h2 id="BIOS定制"><a href="#BIOS定制" class="headerlink" title="BIOS定制"></a>BIOS定制</h2><h3 id="ipmitool"><a href="#ipmitool" class="headerlink" title="ipmitool"></a>ipmitool</h3><p>直接在linux内设置主板bios，然后重启就可以生效：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">//Hygon C86 7260 24-core Processor 设置numa node（hygon 7280 就不行了）</div><div class="line">ipmitool raw 0x3e 0x5c 0x00 0x01 0x81 </div><div class="line">ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</div><div class="line"></div><div class="line">//查询是否生效, 注意是 0x5d</div><div class="line">#ipmitool raw 0x3e 0x5d 0x00 0x01</div><div class="line"> 01 81</div></pre></td></tr></table></figure>
-<p><a href="https://blog.csdn.net/zygblock/article/details/53367664" target="_blank" rel="external">ipmitool使用</a></p>
-<p>基本语法：ipmitool raw 0x3e 0x5c index 0x01 value</p>
-<p>raw 0x3e 0x5c 固定不需要改， </p>
-<p>Index表示需要修改的配置项， 接下来的 0x01 固定不需要改</p>
-<p>value 表示值，0x81表示enable; 0x80表示disable</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/13/中间件的自己的DNS服务在alios7上域名解析失败/" itemprop="url">中间件的vipclient服务在centos7上域名解析失败</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-13T10:30:03+08:00">
-                2019-01-13
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="中间件的vipclient服务在centos7上域名解析失败"><a href="#中间件的vipclient服务在centos7上域名解析失败" class="headerlink" title="中间件的vipclient服务在centos7上域名解析失败"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
-<p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
-</blockquote>
-<h2 id="抓包分析"><a href="#抓包分析" class="headerlink" title="抓包分析"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
-<p><img src="/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png" alt="image.png"></p>
-<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
-<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="external">这里</a>： </p>
-<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
-<h2 id="通过-dig-命令来查看dns解析过程"><a href="#通过-dig-命令来查看dns解析过程" class="headerlink" title="通过 dig 命令来查看dns解析过程"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com </p>
-<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
-<p><img src="/images/951413iMgBlog/dig.png" alt="img"></p>
-<h2 id="分析vipclient域名解析返回的包内容"><a href="#分析vipclient域名解析返回的包内容" class="headerlink" title="分析vipclient域名解析返回的包内容"></a>分析vipclient域名解析返回的包内容</h2><p><img src="/images/oss/0882e4815fb1acfa80f813db4bb7265b.png" alt="image.png"></p>
-<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns<br>通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP<br>但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -3107,7 +3399,7 @@ void test_stub1(void)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">148</span>
+                <span class="site-state-item-count">150</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3181,7 +3473,7 @@ void test_stub1(void)
 <div class="copyright" >
   
   &copy; 
-  <span itemprop="copyrightYear">2022</span>
+  <span itemprop="copyrightYear">2023</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>

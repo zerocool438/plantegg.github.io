@@ -291,6 +291,163 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/04/获取一直FullGC下的java进程HeapDump的小技巧/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/04/获取一直FullGC下的java进程HeapDump的小技巧/" itemprop="url">获取一直FullGC下的java进程HeapDump的小技巧</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-04T17:30:03+08:00">
+                2020-01-04
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java/" itemprop="url" rel="index">
+                    <span itemprop="name">Java</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="获取一直FullGC下的java进程HeapDump的小技巧"><a href="#获取一直FullGC下的java进程HeapDump的小技巧" class="headerlink" title="获取一直FullGC下的java进程HeapDump的小技巧"></a>获取一直FullGC下的java进程HeapDump的小技巧</h1><p>就是小技巧，操作步骤需要查询，随手记录</p>
+<ul>
+<li>找到java进程，gdb attach上去， 例如 <code>gdb -p 12345</code></li>
+<li>找到这个<code>HeapDumpBeforeFullGC</code>的地址（这个flag如果为true，会在FullGC之前做HeapDump，默认是false）</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) p &amp;HeapDumpBeforeFullGC</div><div class="line">$2 = (&lt;data variable, no debug info&gt; *) 0x7f7d50fc660f &lt;HeapDumpBeforeFullGC&gt;</div></pre></td></tr></table></figure>
+<ul>
+<li>Copy 地址：0x7f7d50fc660f</li>
+<li>然后把他设置为true，这样下次FGC之前就会生成一份dump文件</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) set *0x7f7d50fc660f = 1</div><div class="line">(gdb) quit</div></pre></td></tr></table></figure>
+<ul>
+<li>最后，等一会，等下次FullGC触发，你就有HeapDump了！<br>(如果没有指定heapdump的名字，默认是 java_pidxxx.hprof)</li>
+</ul>
+<p>(PS. <code>jstat -gcutil pid</code> 可以查看gc的概况)</p>
+<p>(操作完成后记得gdb上去再设置回去，不然可能一直fullgc，导致把磁盘打满).</p>
+<h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>在jvm还有响应的时候可以： jinfo -flag +HeapDumpBeforeFullGC pid 设置HeapDumpBeforeFullGC 为true（- 为false，+-都不要为只打印值）</p>
+<p>kill -3 产生coredump  存放在 kernel.core_pattern=/root/core （/etc/sysctl.conf)</p>
+<p>得到core文件后，采用 gdb -c 执行文件 core文件 进入调试模式，对于java，有以下2个技巧：</p>
+<p>进入gdb调试模式后，输入如下命令： info threads，观察异常的线程，定位到异常的线程后，则可以输入如下命令：thread 线程编号，则会打印出当前java代码的工作流程。</p>
+<p> 而对于这个core，亦可以用jstack jmap打印出堆信息，线程信息，具体命令：</p>
+<p>  jmap -heap 执行文件 core文件   jstack -F -l 执行文件 core文件</p>
+<p><strong>容器中的进程的话需要到宿主机操作，并且将容器中的 jdk文件夹复制到宿主机对应的位置。</strong></p>
+<p>  <strong>ps auxff |grep 容器id -A10 找到JVM在宿主机上的进程id</strong></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/02/Linux 问题总结/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2219,6 +2376,265 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
+                2019-12-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
+<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
+<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
+<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
+<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
+</code></pre><h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
+<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
+<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
+<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
+<p>性能压测原则：</p>
+<blockquote>
+<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
+<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
+<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
+<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
+<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
+<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
+<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
+<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
+<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<blockquote>
+<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
+</blockquote>
+<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
+<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
+<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
+<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
+<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
+<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
+<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
+<blockquote>
+<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
+</blockquote>
+<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
+<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
+<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
+<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
+<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
+<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
+<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************//**
+Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+
+        UT_LOW_PRIORITY_CPU();
+
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //调用 CPU Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+
+        return(j);
+}
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
+<ul>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
+</ul>
+<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
+<blockquote>
+<p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
+<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
+</blockquote>
+<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
+<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
+<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
+<blockquote>
+<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+</blockquote>
+<p>也就是<strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。</strong>这可是14倍的变化呀。</p>
+<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
+<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
+<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="external">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
+<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
+<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/09/epoll的LT和ET/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2853,615 +3269,6 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/05/该死的virtualbox/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/11/05/该死的virtualbox/" itemprop="url">该死的错误</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-05T12:30:03+08:00">
-                2019-11-05
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="该死的错误"><a href="#该死的错误" class="headerlink" title="该死的错误"></a>该死的错误</h1><p>virtualbox+ubuntu用了快10年了，各种莫名其妙的问题，一直没有换掉，也怪自己 virtualbox+ubuntu组合也许确实奇葩吧，每次碰到问题都没法google到真正的答案了。</p>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>用的过程中突然发现挂载的数据盘找不到了（主要存放工作文件）， 看历史记录发现自己执行了：</p>
-<pre><code>sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512
-</code></pre><p>/dev/sdb1 对应的正是我的大磁盘，哭死去，怪自己不认识 /dev/sdb1！！ 从来不知道自己挂载的磁盘的真正名字，df -lh 也没仔细看过，导致了这次故障</p>
-<p>出问题的history:</p>
-<pre><code>29214  01/11/19 10:29:05 vi /tmp/tmp.txt
-29215  01/11/19 10:29:18 cat /tmp/tmp.txt |grep &quot;^172.16&quot;
-29216  01/11/19 10:29:27 cat /tmp/tmp.txt |grep &quot;^172.16&quot; &gt;cainiao.txt
-29217  01/11/19 10:29:31 wc -l cainiao.txt
-29218  01/11/19 10:33:13 cat cainiao.txt 
-29219  01/11/19 13:36:55 sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512 //故障发生
-29220  01/11/19 13:37:08 cd ..
-29221  01/11/19 13:37:46 cd / //尝试解决
-29222  01/11/19 19:13:45 ls -lh
-29223  01/11/19 19:13:49 cd ali 
-29224  03/11/19 10:24:56 dmesg
-29225  03/11/19 10:27:28 dmesg |grep -i sda
-29226  03/11/19 10:27:59 dmesg |grep -i sata
-29227  04/11/19 10:19:46 dmesg
-29228  04/11/19 10:20:20 dmesg |grep -i sda
-29229  04/11/19 10:25:21 dmesg 
-29230  04/11/19 10:25:25 dmesg 
-29231  04/11/19 10:25:34 dmesg |grep -i sda
-</code></pre><h2 id="尝试"><a href="#尝试" class="headerlink" title="尝试"></a>尝试</h2><p>各种重启还是无效，重新删掉数据盘再次挂载启动后依然看不见</p>
-<h2 id="mount"><a href="#mount" class="headerlink" title="mount"></a>mount</h2><p>virtualbox的启动参数里明确能看到这快盘，和挂载配置</p>
-<p>启动后通过fdisk可以看见这块大硬盘</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>尝试手工mount （这时看到的才是root cause）</p>
-<pre><code>write-protected, mounting read-only 和 bad superblock 错误
-</code></pre><p>尝试 fsck(危险动作）</p>
-<pre><code>sudo fsck -y /dev/sdb1
-</code></pre><p>然后再次mount成功了</p>
-<pre><code>sudo mount  /dev/sdb1 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-</code></pre><p>lsblk(修复后）</p>
-<pre><code>$sudo lsblk
-NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
-sda      8:0    0   20G  0 disk 
-├─sda1   8:1    0   16G  0 part /
-├─sda2   8:2    0    1K  0 part 
-└─sda5   8:5    0    4G  0 part [SWAP]
-sdb      8:16   0   50G  0 disk 
-├─sdb1   8:17   0   46G  0 part /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-├─sdb2   8:18   0    1K  0 part 
-└─sdb5   8:21   0    4G  0 part 
-sr0     11:0    1 73.6M  0 rom  /media/ren/VBox_GAs_6.0.10
-</code></pre><p>进到mount后的目录中，查看磁盘大小正常，但是文件看不见了</p>
-<pre><code>du 发现文件都在lost+found目录下，但是文件夹名字都改成了 inode名字
-</code></pre><p>根据文件夹大小找出之前的文件夹（比较大的），将其复制出来，一切正常了</p>
-<h2 id="修复记录"><a href="#修复记录" class="headerlink" title="修复记录"></a>修复记录</h2><p>其中sda是系统盘，sdb是修复后的大磁盘， sdc 是修复前的大磁盘（备份过的）</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>可以看到没有修复的磁盘 uuid不太正常，类型也识别为 dos(正常应该是ext4）</p>
-<pre><code>[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc
-/dev/sdc: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc1
-/dev/sdc1: PARTUUID=&quot;000e88f6-01&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb
-/dev/sdb: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb1
-/dev/sdb1: UUID=&quot;a64abcac-657d-42ee-8e7b-575eac99bce3&quot; TYPE=&quot;ext4&quot; PARTUUID=&quot;000e88f6-01&quot;
-</code></pre><p>尝试mount失败</p>
-<pre><code>[ren@vb 18:14 /home/ren]
-$sudo mkdir /media/ren/hd
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sd
-sda   sda1  sda2  sda5  sdb   sdb1  sdb2  sdb5  sdc   sdc1  sdc2  sdc5  
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sdc1 /media/ren/hd
-mount: /dev/sdc1 is write-protected, mounting read-only
-mount: wrong fs type, bad option, bad superblock on /dev/sdc1,
-       missing codepage or helper program, or other error
-
-       In some cases useful info is found in syslog - try
-       dmesg | tail or so.
-</code></pre><p>dmesg中比较正常和不正常的磁盘日志，是看不出来差别的（还没有触发mount动作）</p>
-<pre><code>[ren@vb 18:16 /home/ren]
-$dmesg |grep sdc
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Attached SCSI disk
-
-[ren@vb 18:17 /home/ren]
-$dmesg |grep sdb
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdb: sdb1 sdb2 &lt; sdb5 &gt;
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Attached SCSI disk
-[一 11月  4 18:07:02 2019] EXT4-fs (sdb1): mounted filesystem without journal. Opts: (null)
-</code></pre><p>复盘捞到的 syslog 日志</p>
-<pre><code>Nov  4 18:06:57 vb systemd[1]: Device dev-disk-by\x2duuid-5241a10b\x2d5dde\x2d4051\x2d8d8b\x2d05718dd56445.device appeared twice with different sysfs paths /sys/devices/pci0000:00/0000:00:0d.0/ata4/host3/target3:0:0/3:0:0:0/block/sdb/sdb5 and /sys/devices/pci0000:00/0000:00:0d.0/ata5/host4/target4:0:0/4:0:0:0/block/sdc/sdc5
-Nov  4 18:06:57 vb kernel: [    6.754716] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-Nov  4 18:06:57 vb kernel: [    6.754744] sd 4:0:0:0: [sdc] Write Protect is off
-Nov  4 18:06:57 vb kernel: [    6.754747] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-Nov  4 18:06:57 vb kernel: [    6.754757] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-Nov  4 18:06:57 vb kernel: [    6.767797]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
-</code></pre><h2 id="磁盘自检失败，进入emergency-mode"><a href="#磁盘自检失败，进入emergency-mode" class="headerlink" title="磁盘自检失败，进入emergency mode"></a>磁盘自检失败，进入emergency mode</h2><p>修复参考方案：<a href="https://www.jianshu.com/p/7433e0bb38e9" target="_blank" rel="external">https://www.jianshu.com/p/7433e0bb38e9</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">welcome to emergency mode. ......  journalctl -xb...</div><div class="line">Press enter for maintenance</div><div class="line">(or type Control-D to continue):</div></pre></td></tr></table></figure>
-<p>解决方法有两个：</p>
-<p><strong>第一种：跳过检测受损分区</strong></p>
-<p>１、按照提示　执行　journalctl -xb</p>
-<p>　　在日志记录中向下翻页找到损坏的分区是哪个，一般是红色的字体，也可以输入/ fsck fail，按N/n来快速查找（我的是/dev/sda11，这个分区我挂载的是/home）</p>
-<p>２、vi /etc/fstab </p>
-<p>编辑fstab这个文件，注释掉对应的mount行。或将损坏的分区后面的数字从２改为０（０代表启动时不检查该分区）</p>
-<p>３、执行reboot 　重启</p>
-<p><strong>第二种方法：修复受损的分区</strong></p>
-<p>１、执行命令 umount /dev/sdb1 （对应自己出错的设备）卸载设备;</p>
-<p>２、执行命令 fsck -y /dev/sdb1 执行fsck校验并修复文件;</p>
-<p>3、重新mount就可以使用了</p>
-<p>两种方法我都解决了我的问题，不过我还是使用了第二种，第一种总感觉治标不治本！</p>
-<h2 id="奇葩问题"><a href="#奇葩问题" class="headerlink" title="奇葩问题"></a>奇葩问题</h2><p>virtualbox 太多命名其妙的问题了，争取早日换掉</p>
-<h3 id="磁盘uuid重复后，生成新的uuid"><a href="#磁盘uuid重复后，生成新的uuid" class="headerlink" title="磁盘uuid重复后，生成新的uuid"></a>磁盘uuid重复后，生成新的uuid</h3><p>[/drives/c/Program Files/Oracle/VirtualBox]<br>$./VBoxManage.exe internalcommands sethduuid “D:\vb\ubuntu-disk.vmdk”</p>
-<h3 id="Windows系统突然dns不工作了"><a href="#Windows系统突然dns不工作了" class="headerlink" title="Windows系统突然dns不工作了"></a>Windows系统突然dns不工作了</h3><p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
-<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
-</code></pre><h3 id="ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings"><a href="#ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings" class="headerlink" title="ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings"></a>ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings</h3><p><a href="http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button" target="_blank" rel="external">http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button</a></p>
-<h3 id="ubuntu无法关闭锁屏，无法修改配置："><a href="#ubuntu无法关闭锁屏，无法修改配置：" class="headerlink" title="ubuntu无法关闭锁屏，无法修改配置："></a>ubuntu无法关闭锁屏，无法修改配置：</h3><p>sudo mv ~/.config/dconf ~/.config/dconf.bak //删掉dconf就好了<br><a href="https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings" target="_blank" rel="external">https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings</a></p>
-<h2 id="感受"><a href="#感受" class="headerlink" title="感受"></a>感受</h2><p>自己不懂 /dev/sdb 导致了这次问题</p>
-<p>这种错误居然从virtualbox或者ubuntu的系统日志中找不到相关信息，这个应该是没有触发挂载。自己对mount、fsck不够熟悉也是主要原因，运气好在fsck 居然没丢任何数据</p>
-<h2 id="历史老问题"><a href="#历史老问题" class="headerlink" title="历史老问题"></a>历史老问题</h2><p>这种额外挂载的磁盘在ubuntu下启动后不会出现，需要在ubuntu文件系统中人肉访问一次，就触发了挂载动作，然后在bash中才可以正常使用，这个问题我折腾了N年都没解决，实际这次发现是自己对挂载、fstab不够了解。</p>
-<p>在 /etc/fstab 中增加boot时挂载这个问题终于解决掉了</p>
-<pre><code>UUID=a64abcac-657d-42ee-8e7b-575eac99bce3 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3  ext4 defaults 1 1
-</code></pre>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/10/31/epoll和惊群/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/10/31/epoll和惊群/" itemprop="url">epoll和惊群</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-10-31T12:30:03+08:00">
-                2019-10-31
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
-<h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
-<p>惊群的本质在于多个线程处理同一个事件。</p>
-<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
-<p>linux 内核通过睡眠队列来组织所有等待某个事件的 task，而 wakeup 机制则可以异步唤醒整个睡眠队列上的 task，wakeup 逻辑在唤醒睡眠队列时，会遍历该队列链表上的每一个节点，调用每一个节点的 callback，从而唤醒睡眠队列上的每个 task，为什么要欢行所有的task，关键在于内核不知道这个消息是一个task处理就够了还是从逻辑上这些wakeup的所有task都要处理，所以只能全部唤醒。这样，在一个 connect 到达这个 lisent socket 的时候，内核会唤醒所有睡眠在 accept 队列上的 task。N 个 task 进程(线程)同时从 accept 返回，但是，只有一个 task 返回这个 connect 的 fd，其他 task 都返回-1(EAGAIN)。这是典型的 accept”惊群”现象。</p>
-<p>如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。</p>
-<p>连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）</p>
-<p>关键点：多个进程监听相同事件（或者说一个epoll有多个进程来处理）</p>
-<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
-<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read/write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
-<h2 id="无IO复用时Accept"><a href="#无IO复用时Accept" class="headerlink" title="无IO复用时Accept"></a>无IO复用时Accept</h2><blockquote>
-<p>无IO复用（就只能一个进程监听listen 端口）的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
-</blockquote>
-<p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"> <span class="comment">/* nr_exclusive的值默认设为1 */</span></div><div class="line"> <span class="meta">#<span class="meta-keyword">define</span> wake_up_interruptible_sync_poll(x, m)              \</span></div><div class="line">    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, 1, (void *) (m))</div><div class="line"></div><div class="line">tcp_v4_rcv</div><div class="line">tcp_v4_do_rcv</div><div class="line">tcp_child_process</div><div class="line">sock_def_readable</div><div class="line">wake_up_interruptible_sync_poll</div><div class="line">__wake_up_common</div><div class="line"> <span class="comment">/* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */</span></div><div class="line">list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)</div><div class="line">    <span class="comment">/* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */</span></div><div class="line">    <span class="keyword">if</span> (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;</div><div class="line">       !--nr_exclusive)</div><div class="line">       <span class="keyword">break</span>;</div></pre></td></tr></table></figure>
-<p>sock中定义了几个I/O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
-<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
-<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
-<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
-<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//主进程中：</span></div><div class="line">ngx_init_cycle</div><div class="line">ngx_open_listening_sockets</div><div class="line">    socket</div><div class="line">    bind</div><div class="line">    listen</div><div class="line">    epoll_create</div><div class="line">    epoll_ctl</div><div class="line"></div><div class="line"><span class="comment">//子进程中：</span></div><div class="line">ngx_event_process_init</div><div class="line">ngx_prcocess_events_and_timers</div><div class="line">ngx_epoll_process_events</div><div class="line">    epoll_wait</div><div class="line">    rev-&gt;handler(rev) <span class="comment">// 对于listening socket，handler是ngx_event_accept</span></div></pre></td></tr></table></figure>
-<p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
-<pre><code>epoll_wait
-ep_poll
-    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
-    init_waitqueue_entry(&amp;wait, current) 
-    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
-    ...
-    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
-</code></pre><p>回调触发逻辑：</p>
-<pre><code>tcp_v4_rcv
-tcp_v4_do_rcv
-tcp_child_process
-sock_def_readable /* sock I/O 有数据可读事件 */
-wake_up_interruptible_sync_poll
-__wake_up_common
-    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
-    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
-        !--nr_exclusive)
-        break;
-</code></pre><p>那么这种情况下内核如何来解决惊群呢？ </p>
-<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
-<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
-<p>linux man文档中一段文字描述其作用：</p>
-<blockquote>
-<p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
-</blockquote>
-<p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
-<ul>
-<li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
-<li>每一个线程拥有自己的服务器套接字</li>
-<li>在服务器套接字上没有了锁的竞争</li>
-<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
-<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
-</ul>
-<p>其核心的实现主要有三点：</p>
-<ul>
-<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
-<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
-<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
-</ul>
-<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<ul>
-<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
-<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
-<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
-</ul>
-<p>以nginx为例，一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。</p>
-<ul>
-<li>每个 Worker 都会有一个属于自己的 epoll 对象</li>
-<li>每个 Worker 会关注所有的 listen 状态上的新连接事件（可以通过accept_mutex或者reuseport来解决惊群）</li>
-<li>对于用户连接，只有一个 Worker 会处理，其它 Worker 不会持有该用户连接的 socket（不会惊群）</li>
-</ul>
-<p><img src="/images/951413iMgBlog/640-9645142.png" alt="Image"></p>
-<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
-<p><img src="/images/951413iMgBlog/640-9645236." alt=""></p>
-<p>因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。</p>
-<p><img src="/images/951413iMgBlog/2021-12-31-12-44-05.png" alt="img"></p>
-<p>图片来自：<a href="https://wenfh2020.com/2021/11/22/question-thundering-herd/" target="_blank" rel="external">https://wenfh2020.com/2021/11/22/question-thundering-herd/</a></p>
-<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept</p>
-<p><img src="/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
-<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
-<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="external">因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接（或者这个worker上的其它请求），但是这个时候worker一直在压缩如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
-<blockquote>
-<p>上面Nginx Hang死的原因是：Nginx 使用了边缘触发模式，因此Nginx 在套接字有可读性事件的情况下，必须把所有数据都读掉才行，在gzip buffer &lt; connection rcvbuf 同时后端比较快时候，一次性读不完连接上所有数据，就会出现读数据-&gt;压缩-&gt;新数据到达-&gt;继续读数据-&gt; 继续压缩… 的循环，由于压缩需要时间，此时套接字上又来了新的数据，只要数据来的速度比压缩的快，就会出现数据一直读不完的情况，CPU 就一直切不出去。</p>
-<p>解决：OSS gzip_buffers 配置为 64*8k = 512K，给后端进程增加了设置sndbuf/rcvbuf 指令之后通过配置Tengine 与后 oss_server 之间的连接的rcvbuf 到512k 以内，这样就能解决这个问题了，实测这个修改几乎不影响后端整体吞吐，同时也不会出现Nginx worker Hang 的情况。</p>
-</blockquote>
-<p>如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
-<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
-<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
-<p>用图形展示大概如下：</p>
-<p><img src="/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
-<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲, 这会导致 RT 抖动加大：</p>
-<p>Here is the same test run against the SO_REUSEPORT multi-queue NGINX setup (c):</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</div><div class="line">        | cut -d &quot; &quot; -f 1</div><div class="line">        | ./mmhistogram -t &quot;Duration in ms (multiple queues)&quot;</div><div class="line">min:1.49 avg:31.37 med=24.67 max:144.55 dev:25.27 count:100000</div><div class="line">Duration in ms (multiple queues):</div><div class="line"> value |-------------------------------------------------- count</div><div class="line">     0 |                                                   0</div><div class="line">     1 |                                                 * 1023</div><div class="line">     2 |                                         ********* 5321</div><div class="line">     4 |                                 ***************** 9986</div><div class="line">     8 |                  ******************************** 18443</div><div class="line">    16 |    ********************************************** 25852</div><div class="line">    32 |************************************************** 27949</div><div class="line">    64 |                              ******************** 11368</div><div class="line">   128 |                                                   58</div></pre></td></tr></table></figure>
-<p>相对地一个accept queue多个 worker的模式 running against a single-queue NGINX:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</div><div class="line">        | cut -d &quot; &quot; -f 1</div><div class="line">        | ./mmhistogram -t &quot;Duration in ms (single queue)&quot;</div><div class="line">min:3.61 avg:30.39 med=30.28 max:72.65 dev:1.58 count:100000</div><div class="line">Duration in ms (single queue):</div><div class="line"> value |-------------------------------------------------- count</div><div class="line">     0 |                                                   0</div><div class="line">     1 |                                                   0</div><div class="line">     2 |                                                   1</div><div class="line">     4 |                                                   16</div><div class="line">     8 |                                                   67</div><div class="line">    16 |************************************************** 91760</div><div class="line">    32 |                                              **** 8155</div><div class="line">    64 |                                                   1</div></pre></td></tr></table></figure>
-<p>可以看到一个accept queue多个 worker的模式下 RT 极其稳定</p>
-<h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="external">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="external">comment</a></p>
-<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
-<h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
-<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">epoll_ctl</div><div class="line">ep_insert</div><div class="line">ep_ptable_queue_proc</div><div class="line">    <span class="comment">/* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */</span></div><div class="line">     * 注意，和标准accept的等待任务不同，这里并没有给等待任务设置WQ_FLAG_EXCLUSIVE。</div><div class="line">     */</div><div class="line">    init_waitqueue_func_entry(&amp;pwq-&gt;wait, ep_poll_callback);</div><div class="line">    <span class="comment">/* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */</span></div><div class="line">    <span class="keyword">if</span> (epi-&gt;event.events &amp; EPOLLEXCLUSIVE)</div><div class="line">        <span class="comment">/* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */</span></div><div class="line">        add_wait_queue_exclusive(whead, &amp;pwq-&gt;wait);</div><div class="line">    <span class="keyword">else</span></div><div class="line">        <span class="comment">/* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */</span></div><div class="line">        add_wait_queue(whead, &amp;pwq-&gt;wait);</div></pre></td></tr></table></figure>
-<p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.<br>调用栈如下：</p>
-<pre><code>//  tcp_v4_do_rcv()
-//  --&gt;tcp_child_process()
-//  ---&gt;sock_def_readable()
-//  ----&gt;wake_up_interruptible_sync_poll()
-//  -----&gt;__wake_up_sync_key()
-</code></pre><p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
-<p><img src="/images/951413iMgBlog/worker2.png" alt=""></p>
-<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
-<p><img src="/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png" alt="image.png"></p>
-<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
-<h4 id="多个worker共享一个-accept-queue-带来的问题"><a href="#多个worker共享一个-accept-queue-带来的问题" class="headerlink" title="多个worker共享一个 accept queue 带来的问题"></a><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="external">多个worker共享一个 accept queue 带来的问题</a></h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
-<p><img src="/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png" alt="image.png"></p>
-<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
-<p>图中LIFO场景出现是在多个worker共享一个accept queue的epoll场景下，如果用 SO_REUSEPORT 搞成每个worker一个accept queue就不存在这个问题了</p>
-<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
-<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
-<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
-<p><img src="/images/951413iMgBlog/sharedqueue.png" alt=""></p>
-<h3 id="比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT"><a href="#比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT" class="headerlink" title="比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
-<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/lyztyycode/article/details/78648798" target="_blank" rel="external">Linux惊群效应详解（最详细的了吧）</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/80837278" target="_blank" rel="external">再谈Linux epoll惊群问题的原因和解决方案</a></p>
-<p><a href="https://www.atatech.org/articles/117111" target="_blank" rel="external">epoll lifo引发的nginx “负载不均”</a> </p>
-<p><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="external">Why does one NGINX worker take all the load?</a></p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="external">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a> </p>
-<p><a href="https://www.atatech.org/articles/174248" target="_blank" rel="external">Gzip 导致 Nginx worker Hang 问题解法</a></p>
-<p><a href="https://www.atatech.org/articles/112471" target="_blank" rel="external">Socket多进程分发原理</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/107227145" target="_blank" rel="external">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
-<p><a href="https://my.oschina.net/alchemystar/blog/3008840" target="_blank" rel="external">https://my.oschina.net/alchemystar/blog/3008840</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -3511,7 +3318,7 @@ __wake_up_common
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">148</span>
+                <span class="site-state-item-count">150</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3585,7 +3392,7 @@ __wake_up_common
 <div class="copyright" >
   
   &copy; 
-  <span itemprop="copyrightYear">2022</span>
+  <span itemprop="copyrightYear">2023</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>

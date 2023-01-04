@@ -112,7 +112,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/74b0a393a6334421957a032f1f141a9c.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/perf_block_event.png">
-<meta property="og:updated_time" content="2022-12-01T06:52:55.073Z">
+<meta property="og:updated_time" content="2023-01-04T14:33:22.279Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="SystemStap、BCC、bpftrace">
 <meta name="twitter:description" content="SystemStap、BCC、bpftraceLinux 4.4+ 支持 eBPF。基于 eBPF 可以将任何内核函数调用转换成可带任何 数据的用户空间事件。bcc 作为一个更上层的工具使这个过程更加方便。内核探测 代码用 C 写，数据处理代码用 Python。 从 Linux 3.15 开始，BPF 被扩展成了 eBPF，extended BPF 的缩写。它从 2 个 32bit 寄存器扩展到了">
@@ -428,7 +428,8 @@ probe end
 <p>如果小版本不对导致装不上的话，加上–nodeps 参数<br>rpm -ivh kernel-debuginfo-2.6.32-220.23.2.ali878.el6.x86_64.rpm –nodeps</p>
 <pre><code>#验证安装是否成功
 sudo stap -v -e &apos;probe begin{printf(&quot;Hello, World&quot;); exit();}&apos;
-</code></pre><h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/<br>stap 部分源代码：  /usr/share/systemtap/tapset/linux/</p>
+</code></pre><p>检查OS是否支持 eBPF，你可以用这两个命令查看 <code>ls /sys/fs/bpf</code> 和 <code>lsmod | grep bpf</code></p>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/<br>stap 部分源代码：  /usr/share/systemtap/tapset/linux/</p>
 <ul>
 <li>sudo ./socktop -N 20  //每个进程的流量，取最多的20个</li>
 <li>sudo stap netfilter_summary.stp -c “sleep 1” //每对IP之间的流量信息</li>
@@ -457,8 +458,26 @@ probe syscall.write.return {
           printf(&quot;write delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
     }
 }
-</code></pre><p>​<br>​    probe syscall.fsync.return {<br>​       if (pid() == target() &amp;&amp; !quit ) {<br>​            mdelay( DELAY );<br>​            printf(“fsync delay detail: tid: %d func:%s  sleep: %d \n”,tid(),probefunc(),DELAY);<br>​        }<br>​<br>​    }<br>​<br>​    # 任务持续时间<br>​    probe timer.s(20) {<br>​        if (!found) {<br>​            warn(“No backtraces found. Quitting now…\n”)<br>​            exit()<br>​        } else {<br>​            warn(“Time’s up. Quitting now…(it may take a while)\n”)<br>​            quit = 1<br>​        }<br>​    }</p>
-<p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
+
+ probe syscall.fsync.return {
+​       if (pid() == target() &amp;&amp; !quit ) {
+​            mdelay( DELAY );
+​            printf(&quot;fsync delay detail: tid: %d func:%s  sleep: %d \n&quot;,tid(),probefunc(),DELAY);
+​        }
+​     
+​    }
+​     
+​    # 任务持续时间
+​    probe timer.s(20) {
+​        if (!found) {
+​            warn(&quot;No backtraces found. Quitting now...\n&quot;)
+​            exit()
+​        } else {
+​            warn(&quot;Time&apos;s up. Quitting now...(it may take a while)\n&quot;)
+​            quit = 1
+​        }
+​    }
+</code></pre><p>7U的系统自动封装了mtime函数 /usr/share/systemtap/tapset/linux/guru-delay.stp<br>如果是6U的系统，需要在上面的脚本中自己加上mdelay的函数</p>
 <pre><code>%{
 #undef STP_OVERLOAD
 #include &lt;linux/delay.h&gt;
@@ -468,7 +487,7 @@ function mdelay(ms:long) %{
   mdelay(THIS-&gt;ms);
 %}
 </code></pre><p><a href="http://blog.csdn.net/justlinux2010/article/details/11171291" target="_blank" rel="external">使用Systemtap生成Flame Graph(火焰图) </a></p>
-<h2 id="案例3-追踪丢包"><a href="#案例3-追踪丢包" class="headerlink" title="案例3 追踪丢包"></a>案例3 追踪丢包</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">probe kernel.trace(&quot;kfree_skb&quot;)</div><div class="line">&#123;</div><div class="line"></div><div class="line">         printf(&quot;sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n&quot;,$skb-&gt;sk,$skb,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;rst,ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;seq),ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack_seq), symname($location));</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h2 id="案例3-追踪丢包"><a href="#案例3-追踪丢包" class="headerlink" title="案例3 追踪丢包"></a>案例3 追踪丢包</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">probe kernel.trace(&quot;kfree_skb&quot;)</div><div class="line">&#123;</div><div class="line">         printf(&quot;sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n&quot;,$skb-&gt;sk,$skb,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;rst,ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;seq),ntohl(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack_seq), symname($location));</div><div class="line">&#125;</div></pre></td></tr></table></figure>
 <p><img src="/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png" alt="img"></p>
 <p>以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">probe kernel.statement(&quot;tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*&quot;)</div><div class="line">&#123;</div><div class="line">                  printf(&quot;source:%d,dest:%d,skb:%x,sk:%x,syn:%x,ack:%x,%x-%x,%s\n&quot;,ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source),ntohs(@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest),$skb,$skb-&gt;sk,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;syn,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;ack,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;source,@cast($skb-&gt;data, &quot;struct tcphdr&quot;)-&gt;dest,pp())</div><div class="line">&#125;</div></pre></td></tr></table></figure>
@@ -929,7 +948,7 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">148</span>
+                <span class="site-state-item-count">150</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -1019,7 +1038,7 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
 <div class="copyright" >
   
   &copy; 
-  <span itemprop="copyrightYear">2022</span>
+  <span itemprop="copyrightYear">2023</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
