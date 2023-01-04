@@ -118,7 +118,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/2ad45a252392a06fa64d7475848e5601.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/be30ab94eddc37f1d90c53204a0ed215.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/89c7a0228c45f79b688710206ba9d414.png">
-<meta property="og:updated_time" content="2022-11-04T09:12:39.341Z">
+<meta property="og:updated_time" content="2023-01-04T15:16:22.058Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="一次海光物理机资源竞争压测的记录">
 <meta name="twitter:description" content="一次海光物理机资源竞争压测的记录问题描述问题描述如下  sysbench 压200个服务节点(每个4c16G，总共800core), 发现qps不能线性增加（200节点比100节点好1.2倍而已)。 如果压单个服务节点节点QPS 2.4万，CPU跑到390%（每个服务节点独占4个核），如果压200个服务节点（分布在16台64核的海光物理机上）平均每个服务节点节点QPS才1.2万。但是每个服务节点的">
@@ -495,7 +495,7 @@
 <p>从1到10个thread的时候完美呈现线性，到20个thread就只比10个thread增加50%了，30thread比20增加40%，过了32个thread后增加10个core性能加不到10%了。</p>
 <p>在32thread前，随着并发的增加 IPC也有所减少，这也是导致thread翻倍性能不能翻倍的一个主要原因。</p>
 <p>基本也和openssl 场景一致，海光的HT基本可以忽略，做的不是很好。超过32个thread后（物理core数）性能增加及其微弱</p>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p><a href="https://topic.atatech.org/articles/178985" target="_blank" rel="external">海光的一个core只有一个fpu</a>，所以超线程算浮点完全没用.</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>海光的一个core只有一个fpu，所以超线程算浮点完全没用.</p>
 <blockquote>
 <p>FP处理所有矢量操作。简单的整数向量运算（例如shift，add）都可以在一个周期内完成，是AMD以前架构延迟的一半。<strong>基本浮点数学运算具有三个周期的延迟</strong>，其中包括乘法（用于双精度需要一个额外周期）。<strong>融合乘加是五个周期。</strong></p>
 <p>FP具有用于128位加载操作的单个管道。实际上，整个FP端都针对128位操作进行了优化。 Zen支持所有最新指令，例如SSE和AVX1/2。 256位AVX的设计方式是可以将它们作为两个独立的128位操作来执行。 Zen通过将这些指令作为两个操作。也就是说，<strong>Zen将256位操作分为两个µOP</strong>。同样，存储也是在128位块上完成的，从而使256位加载的有效吞吐量为每两个周期一个存储。这些管道之间的平衡相当好，因此大多数操作将安排至少两个管道，以保持每个周期至少一个这样的指令的吞吐量。暗示着，<strong>256位操作将占用两倍的资源来完成操作（即2x寄存器，调度程序和端口）。这是AMD采取的一种折衷方案，有助于节省芯片空间和功耗。</strong>相比之下，英特尔的竞争产品Skylake确实具有专用的256位电路。还应注意的是，英特尔的现代服务器级型号进一步扩展了此功能，以纳入支持AVX-512的专用512位电路，而性能最高的型号则具有二个专用的AVX-512单元。</p>
@@ -525,10 +525,8 @@
 <p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
 <p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://dino.ciuffetti.info/2011/07/howto-java-huge-pages-linux/" target="_blank" rel="external">How to use Huge Pages with Java and Linux</a>这个资料中提到了Java使用HugePage的时候启动进程的用户权限问题，在我的docker容器中用的admin启动的进程，测试验证是不需要按资料中的设置。</p>
-<p><a href="https://www.atatech.org/articles/157681" target="_blank" rel="external">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
 <p><a href="https://bbs.huaweicloud.com/blogs/146367" target="_blank" rel="external">华为TaiShan服务器ARMNginx应用调优案例 大量绑核、中断、Numa等相关调优信息</a></p>
-<p><a href="https://topic.atatech.org/articles/178985" target="_blank" rel="external">主流处理器内部单核微架构细节1——AMD ZEN(即海光)微架构</a></p>
-<p><a href="https://topic.atatech.org/articles/178986" target="_blank" rel="external">主流处理器内部单核微架构细节2——Skylake微架构</a></p>
 
       
     </div>
