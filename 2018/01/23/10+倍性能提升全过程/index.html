@@ -119,7 +119,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/afacc681a9550cd087838c2383be54c8.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/38bb043c85c7b50007609484c7bf5698.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/2be2799d1eef982d77e5c0a5c896a0e9.png">
-<meta property="og:updated_time" content="2022-05-22T10:36:18.893Z">
+<meta property="og:updated_time" content="2023-01-05T14:25:36.620Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="10+倍性能提升全过程">
 <meta name="twitter:description" content="10+倍性能提升全过程–优酷账号绑定淘宝账号的TPS从500到5400的优化历程背景说明 2016年的双11在淘宝上买买买的时候，天猫和优酷土豆一起做了联合促销，在天猫双11当天购物满XXX元就赠送优酷会员，这个过程需要用户在优酷侧绑定淘宝账号(登录优酷、提供淘宝账号，优酷调用淘宝API实现两个账号绑定）和赠送会员并让会员权益生效(看收费影片、免广告等等） 这里涉及到优酷的两个部门：Passpor">
@@ -471,7 +471,7 @@
 <h2 id="到这里结束了吗？-从3000到5400TPS"><a href="#到这里结束了吗？-从3000到5400TPS" class="headerlink" title="到这里结束了吗？ 从3000到5400TPS"></a>到这里结束了吗？ 从3000到5400TPS</h2><p>优化到3000TPS的整个过程没有修改业务代码，只是通过修改系统配置、结构非常有效地把TPS提升了6倍，对于优化来说这个过程是最轻松，性价比也是非常高的。实际到这个时候也临近双11封网了，最终通过计算(机器数量*单机TPS）完全可以抗住双11的压力，所以最终双11运行的版本就是这样的。 但是有工匠精神的工程师是不会轻易放过这么好的优化场景和环境的(基线、机器、代码、工具都具备配套好了）</p>
 <p><strong>优化完环境问题后，3000TPS能把CPU US跑上去，于是再对业务代码进行优化也是可行的了</strong>。</p>
 <h3 id="进一步挖掘代码中的优化空间"><a href="#进一步挖掘代码中的优化空间" class="headerlink" title="进一步挖掘代码中的优化空间"></a>进一步挖掘代码中的优化空间</h3><p>双11前的这段封网其实是比较无聊的，于是和Passport的开发同学们一起挖掘代码中的可以优化的部分。这个过程中使用到的主要工具是这三个：火焰图、perf、perf-map-java。相关链接：<a href="http://www.brendangregg.com/perf.html" target="_blank" rel="external">http://www.brendangregg.com/perf.html</a> ; <a href="https://github.com/jrudolph/perf-map-agent" target="_blank" rel="external">https://github.com/jrudolph/perf-map-agent</a></p>
-<h3 id="通过Perf发现的一个SpringMVC-的性能问题"><a href="#通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="通过Perf发现的一个SpringMVC 的性能问题"></a>通过Perf发现的一个SpringMVC 的性能问题</h3><p>这个问题具体参考我之前发表的优化文章<a href="http://www.atatech.org/articles/65232" title="spring mvc issue" target="_blank" rel="external">http://www.atatech.org/articles/65232</a> 。 主要是通过火焰图发现spring mapping path消耗了过多CPU的性能问题，CPU热点都在methodMapping相关部分，于是修改代码去掉spring中的methodMapping解析后性能提升了40%，TPS能从3000提升到4200.</p>
+<h3 id="通过Perf发现的一个SpringMVC-的性能问题"><a href="#通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="通过Perf发现的一个SpringMVC 的性能问题"></a>通过Perf发现的一个SpringMVC 的性能问题</h3><p>这个问题具体参考我之前发表的优化文章。 主要是通过火焰图发现spring mapping path消耗了过多CPU的性能问题，CPU热点都在methodMapping相关部分，于是修改代码去掉spring中的methodMapping解析后性能提升了40%，TPS能从3000提升到4200.</p>
 <h3 id="著名的fillInStackTrace导致的性能问题"><a href="#著名的fillInStackTrace导致的性能问题" class="headerlink" title="著名的fillInStackTrace导致的性能问题"></a>著名的fillInStackTrace导致的性能问题</h3><p>代码中的第二个问题是我们程序中很多异常(fillInStackTrace），实际业务上没有这么多错误，应该是一些不重要的异常，不会影响结果，但是异常频率很高，对这种我们可以找到触发的地方，catch住，然后不要抛出去(也就是别触发fillInStackTrace)，打印一行error日志就行，这块也能省出10%的CPU，对应到TPS也有几百的提升。</p>
 <p><img src="/images/oss/36ef4b16c3c400abf6eb7e6b0fbb2f58.png" alt="screenshot.png"></p>
 <p>部分触发fillInStackTrace的场景和具体代码行(点击看高清大图）：<br><img src="/images/oss/7eb2cbb4afc2c7d7007c35304c95342a.png" alt="screenshot.png"></p>
