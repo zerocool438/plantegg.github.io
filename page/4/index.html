@@ -2866,6 +2866,182 @@ test.x86_64.rpm
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/04/Java技巧合集/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/04/Java技巧合集/" itemprop="url">Java 技巧合集</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-04T17:30:03+08:00">
+                2020-01-04
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java/" itemprop="url" rel="index">
+                    <span itemprop="name">Java</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Java-技巧合集"><a href="#Java-技巧合集" class="headerlink" title="Java 技巧合集"></a>Java 技巧合集</h1><h2 id="获取一直FullGC下的java进程HeapDump的小技巧"><a href="#获取一直FullGC下的java进程HeapDump的小技巧" class="headerlink" title="获取一直FullGC下的java进程HeapDump的小技巧"></a>获取一直FullGC下的java进程HeapDump的小技巧</h2><p>就是小技巧，操作步骤需要查询，随手记录</p>
+<ul>
+<li>找到java进程，gdb attach上去， 例如 <code>gdb -p 12345</code></li>
+<li>找到这个<code>HeapDumpBeforeFullGC</code>的地址（这个flag如果为true，会在FullGC之前做HeapDump，默认是false）</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) p &amp;HeapDumpBeforeFullGC</div><div class="line">$2 = (&lt;data variable, no debug info&gt; *) 0x7f7d50fc660f &lt;HeapDumpBeforeFullGC&gt;</div></pre></td></tr></table></figure>
+<ul>
+<li>Copy 地址：0x7f7d50fc660f</li>
+<li>然后把他设置为true，这样下次FGC之前就会生成一份dump文件</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) set *0x7f7d50fc660f = 1</div><div class="line">(gdb) quit</div></pre></td></tr></table></figure>
+<ul>
+<li>最后，等一会，等下次FullGC触发，你就有HeapDump了！<br>(如果没有指定heapdump的名字，默认是 java_pidxxx.hprof)</li>
+</ul>
+<p>(PS. <code>jstat -gcutil pid</code> 可以查看gc的概况)</p>
+<p>(操作完成后记得gdb上去再设置回去，不然可能一直fullgc，导致把磁盘打满).</p>
+<h3 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h3><p>在jvm还有响应的时候可以： jinfo -flag +HeapDumpBeforeFullGC pid 设置HeapDumpBeforeFullGC 为true（- 为false，+-都不要为只打印值）</p>
+<p>kill -3 产生coredump  存放在 kernel.core_pattern=/root/core （/etc/sysctl.conf , 先 ulimit -c unlimited；或者 gcore id 获取coredump)</p>
+<p>得到core文件后，采用 gdb -c 执行文件 core文件 进入调试模式，对于java，有以下2个技巧：</p>
+<p>进入gdb调试模式后，输入如下命令： info threads，观察异常的线程，定位到异常的线程后，则可以输入如下命令：thread 线程编号，则会打印出当前java代码的工作流程。</p>
+<p> 而对于这个core，亦可以用jstack jmap打印出堆信息，线程信息，具体命令：</p>
+<p>  jmap -heap 执行文件 core文件   jstack -F -l 执行文件 core文件</p>
+<p><strong>容器中的进程的话需要到宿主机操作，并且将容器中的 jdk文件夹复制到宿主机对应的位置。</strong></p>
+<p>  <strong>ps auxff |grep 容器id -A10 找到JVM在宿主机上的进程id</strong></p>
+<h2 id="coredump"><a href="#coredump" class="headerlink" title="coredump"></a>coredump</h2><blockquote>
+<p>Coredump叫做核心转储，它是进程运行时在突然崩溃的那一刻的一个内存快照。操作系统在程序发生异常而异常在进程内部又没有被捕获的情况下，会把进程此刻内存、寄存器状态、运行堆栈等信息转储保存在一个文件里。</p>
+</blockquote>
+<p>kill -3 产生coredump  存放在 kernel.core_pattern=/root/core （/etc/sysctl.conf , 先 ulimit -c unlimited；）</p>
+<p>或者 gcore id 获取coredump</p>
+<p><a href="https://www.baeldung.com/linux/managing-core-dumps" target="_blank" rel="external">coredump 所在位置</a>：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/kernel/core_pattern</div><div class="line">/home/admin/</div></pre></td></tr></table></figure>
+<h3 id="coredump-分析"><a href="#coredump-分析" class="headerlink" title="coredump 分析"></a><a href="https://zhuanlan.zhihu.com/p/46605905" target="_blank" rel="external">coredump 分析</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div></pre></td><td class="code"><pre><div class="line">//打开 coredump</div><div class="line">$gdb /opt/taobao/java/bin/java core.24086</div><div class="line">[New LWP 27184]</div><div class="line">[New LWP 27186]</div><div class="line">[New LWP 24086]</div><div class="line">[Thread debugging using libthread_db enabled]</div><div class="line">Using host libthread_db library &quot;/lib64/libthread_db.so.1&quot;.</div><div class="line">Core was generated by `/opt/tt/java_coroutine/bin/java&apos;.</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">Missing separate debuginfos, use: debuginfo-install jdk-8.9.14-20200203164153.alios7.x86_64</div><div class="line">(gdb) info threads  //查看所有thread</div><div class="line">  Id   Target Id         Frame</div><div class="line">  583  Thread 0x7f2fa56177c0 (LWP 24086) 0x00007f2fa4fab017 in pthread_join () from /lib64/libpthread.so.0</div><div class="line">  582  Thread 0x7f2f695f3700 (LWP 27186) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  581  Thread 0x7f2f6cbfb700 (LWP 27184) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  580  Thread 0x7f2f691ef700 (LWP 27176) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  579  Thread 0x7f2f698f6700 (LWP 27174) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  </div><div class="line"></div><div class="line">(gdb) thread apply all bt  //查看所有线程堆栈</div><div class="line">Thread 583 (Thread 0x7f2fa56177c0 (LWP 24086)):</div><div class="line">#0  0x00007f2fa4fab017 in pthread_join () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa4b85085 in ContinueInNewThread0 (continuation=continuation@entry=0x7f2fa4b7fd70 &lt;JavaMain&gt;, stack_size=1048576, args=args@entry=0x7ffe529432d0)</div><div class="line">    at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/solaris/bin/java_md_solinux.c:1044</div><div class="line">#2  0x00007f2fa4b81877 in ContinueInNewThread (ifn=ifn@entry=0x7ffe529433d0, threadStackSize=&lt;optimized out&gt;, argc=&lt;optimized out&gt;, argv=0x7f2fa3c163a8, mode=mode@entry=1,</div><div class="line">    what=what@entry=0x7ffe5294be17 &quot;com.taobao.tddl.server.TddlLauncher&quot;, ret=0) at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/share/bin/java.c:2033</div><div class="line">#3  0x00007f2fa4b8513b in JVMInit (ifn=ifn@entry=0x7ffe529433d0, threadStackSize=&lt;optimized out&gt;, argc=&lt;optimized out&gt;, argv=&lt;optimized out&gt;, mode=mode@entry=1,</div><div class="line">    what=what@entry=0x7ffe5294be17 &quot;com.taobao.tddl.server.TddlLauncher&quot;, ret=ret@entry=0) at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/solaris/bin/java_md_solinux.c:1091</div><div class="line">#4  0x00007f2fa4b8254d in JLI_Launch (argc=0, argv=0x7f2fa3c163a8, jargc=&lt;optimized out&gt;, jargv=&lt;optimized out&gt;, appclassc=1, appclassv=0x0, fullversion=0x400885 &quot;1.8.0_232-b604&quot;,</div><div class="line">    dotversion=0x400881 &quot;1.8&quot;, pname=0x40087c &quot;java&quot;, lname=0x40087c &quot;java&quot;, javaargs=0 &apos;\000&apos;, cpwildcard=1 &apos;\001&apos;, javaw=0 &apos;\000&apos;, ergo=0)</div><div class="line">    at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/share/bin/java.c:304</div><div class="line">#5  0x0000000000400635 in main ()</div><div class="line"></div><div class="line">Thread 582 (Thread 0x7f2f695f3700 (LWP 27186)):</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa342d863 in Parker::park(bool, long) () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#2  0x00007f2fa35ba3c3 in Unsafe_Park () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#3  0x00007f2f9343b44a in ?? ()</div><div class="line">#4  0x000000008082e778 in ?? ()</div><div class="line">#5  0x0000000000000003 in ?? ()</div><div class="line">#6  0x00007f2f88e32758 in ?? ()</div><div class="line">#7  0x00007f2f6f532800 in ?? ()</div><div class="line"></div><div class="line">(gdb) thread apply 582 bt //查看582这个线程堆栈，LWP 27186(0x6a32)对应jstack 线程10进程id</div><div class="line"></div><div class="line">Thread 582 (Thread 0x7f2f695f3700 (LWP 27186)):</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa342d863 in Parker::park(bool, long) () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#2  0x00007f2fa35ba3c3 in Unsafe_Park () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#3  0x00007f2f9343b44a in ?? ()</div><div class="line">#35 0x00000000f26fc738 in ?? ()</div><div class="line">#36 0x00007f2fa51cec5b in arena_run_split_remove (arena=0x7f2f6ab09c34, chunk=0x80, run_ind=0, flag_dirty=0, flag_decommitted=&lt;optimized out&gt;, need_pages=0) at src/arena.c:398</div><div class="line">#37 0x00007f2f695f2980 in ?? ()</div><div class="line">#38 0x0000000000000001 in ?? ()</div><div class="line">#39 0x00007f2f88e32758 in ?? ()</div><div class="line">#40 0x00007f2f695f2920 in ?? ()</div><div class="line">#41 0x00007f2fa32f46b8 in CallInfo::set_common(KlassHandle, KlassHandle, methodHandle, methodHandle, CallInfo::CallKind, int, Thread*) ()</div><div class="line">   from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#42 0x00007f2f7d800000 in ?? ()</div></pre></td></tr></table></figure>
+<p>以上堆栈涉及到Java代码部分都是看不到函数，需要进一步把Java 符号替换进去</p>
+<h3 id="coredump-转-jmap-hprof"><a href="#coredump-转-jmap-hprof" class="headerlink" title="coredump 转 jmap hprof"></a>coredump 转 jmap hprof</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">jmap -dump:format=b,file=24086.hprof /opt/taobao/java/bin/java core.24086</div></pre></td></tr></table></figure>
+<p>以上命令输入是 core.24086 这个 coredump，输出是一个 jmap 的dump 24086.hprof</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">$jmap -J-d64 /opt/taobao/java/bin/java core.24086</div><div class="line"></div><div class="line">Attaching to core core.24086 from executable /opt/taobao/java/bin/java, please wait...</div><div class="line">Debugger attached successfully.</div><div class="line">Server compiler detected.</div><div class="line">JVM version is 25.232-b604</div><div class="line">0x0000000000400000      8K      /opt/taobao/java/bin/java</div><div class="line">0x00007f2fa51be000      6679K   /opt/taobao/install/ajdk-8_9_14-b604/bin/../lib/amd64/libjemalloc.so.2</div><div class="line">0x00007f2fa4fa2000      138K    /lib64/libpthread.so.0</div><div class="line">0x00007f2fa4d8c000      88K     /lib64/libz.so.1</div><div class="line">0x00007f2fa4b7d000      280K    /opt/taobao/install/ajdk-8_9_14-b604/bin/../lib/amd64/jli/libjli.so</div><div class="line">0x00007f2fa4979000      18K     /lib64/libdl.so.2</div><div class="line">0x00007f2fa45ab000      2105K   /lib64/libc.so.6</div><div class="line">0x00007f2fa43a3000      42K     /lib64/librt.so.1</div><div class="line">0x00007f2fa40a1000      1110K   /lib64/libm.so.6</div><div class="line">0x00007f2fa5406000      159K    /lib64/ld-linux-x86-64.so.2</div><div class="line">0x00007f2fa2af1000      17898K  /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">0x00007f2fa25f1000      64K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libverify.so</div><div class="line">0x00007f2fa23c2000      228K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libjava.so</div><div class="line">0x00007f2fa21af000      60K     /lib64/libnss_files.so.2</div><div class="line">0x00007f2fa1fa5000      47K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libzip.so</div><div class="line">0x00007f2f80ded000      96K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libnio.so</div><div class="line">0x00007f2f80bd4000      119K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libnet.so</div><div class="line">0x00007f2f7e1f6000      50K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libmanagement.so</div><div class="line">0x00007f2f75dc8000      209K    /home/admin/drds-server/lib/native/libsigar-amd64-linux.so</div><div class="line">0x00007f2f6d8ad000      293K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libsunec.so</div><div class="line">0x00007f2f6d697000      86K     /lib64/libgcc_s.so.1</div><div class="line">0x00007f2f6bdf9000      30K     /lib64/libnss_dns.so.2</div><div class="line">0x00007f2f6bbdf000      107K    /lib64/libresolv.so.2</div></pre></td></tr></table></figure>
+<h2 id="coredump-生成-java-stack"><a href="#coredump-生成-java-stack" class="headerlink" title="coredump 生成 java stack"></a><a href="https://www.javacodegeeks.com/2013/02/analysing-a-java-core-dump.html" target="_blank" rel="external">coredump 生成 java stack</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">jstack -J-d64 /opt/taobao/java/bin/java core.24086 </div><div class="line"></div><div class="line">Attaching to core core.24086 from executable /opt/taobao/java/bin/java, please wait...</div><div class="line">Debugger attached successfully.</div><div class="line">Server compiler detected.</div><div class="line">JVM version is 25.232-b604</div><div class="line">Deadlock Detection:</div><div class="line"></div><div class="line">No deadlocks found.</div><div class="line"></div><div class="line">Thread 27186: (state = BLOCKED)</div><div class="line"> - sun.misc.Unsafe.park0(boolean, long) @bci=0 (Compiled frame; information may be imprecise)</div><div class="line"> - sun.misc.Unsafe.park(boolean, long) @bci=63, line=1038 (Compiled frame)</div><div class="line"> - java.util.concurrent.locks.LockSupport.park(java.lang.Object) @bci=14, line=176 (Compiled frame)</div><div class="line"> - java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await() @bci=42, line=2047 (Compiled frame)</div><div class="line"> - java.util.concurrent.LinkedBlockingQueue.take() @bci=29, line=446 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor.getTask() @bci=149, line=1074 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor.runWorker(java.util.concurrent.ThreadPoolExecutor$Worker) @bci=26, line=1134 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor$Worker.run() @bci=5, line=624 (Compiled frame)</div><div class="line"> - java.lang.Thread.run() @bci=11, line=858 (Compiled frame)</div></pre></td></tr></table></figure>
+<h2 id="gdb-coredump-with-java-symbol"><a href="#gdb-coredump-with-java-symbol" class="headerlink" title="gdb coredump with java symbol"></a><a href="https://mail.openjdk.org/pipermail/hotspot-dev/2016-May/023255.html" target="_blank" rel="external">gdb coredump with java symbol</a></h2><p>需要安装JVM debug info包，同时要求gdb版本在7.10以上</p>
+<p>设置：</p>
+<p>home 目录下创建 .gdbinit 然后放入如下内容，libjvm.so-gdb.py 就是 dbg.py 脚本，gdb启动的时候会自动加载这个脚本 </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat ~/.gdbinit</div><div class="line">add-auto-load-safe-path /opt/install/jdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so-gdb.py</div></pre></td></tr></table></figure>
+<p>使用：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">gdb -iex &quot;set auto-load safe-path /&quot; /opt/install/java/bin/java ./core.24086</div></pre></td></tr></table></figure>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/02/Linux 问题总结/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5495,198 +5671,6 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/24/到底是谁reset了你的连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/11/24/到底是谁reset了你的连接/" itemprop="url">到底是谁reset了你的连接</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-24T17:30:03+08:00">
-                2019-11-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="到底是谁reset了你的连接"><a href="#到底是谁reset了你的连接" class="headerlink" title="到底是谁reset了你的连接"></a>到底是谁reset了你的连接</h1><p>通过一个案例展示TCP连接是如何被reset的，以及identification、ttl都可以帮我们干点啥。</p>
-<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>用户经常连不上服务，经过抓包发现是链路上连接被reset了，需要定位到是哪个设备发起的reset</p>
-<p>比如：</p>
-<ol>
-<li>用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错）</li>
-<li>某家居客户通过专线访问云上drds，总是被reset( 内网ip地址重复–都是192.168.*， 导致连接被reset)</li>
-</ol>
-<blockquote>
-<p><strong>进程被kill、异常退出时，针对它打开的连接，内核就会发送 RST 报文来关闭</strong>。RST 的全称是 Reset 复位的意思，它可以不走四次挥手强制关闭连接，但当报文延迟或者重复传输时，这种方式会导致数据错乱，所以这是不得已而为之的关闭连接方案。当然还有其它场景也会触发reset</p>
-</blockquote>
-<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>在 Navicat 机器上抓包如下：</p>
-<p><img src="/images/oss/83b07725d92b9e4d3eb4a504cf83cc09.png" alt="image.png"></p>
-<p>从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。</p>
-<p><img src="/images/oss/53b5dc8e0a90ed9ad641caf38399141b.png" alt="image.png"></p>
-<h2 id="DRDS-Server上抓包"><a href="#DRDS-Server上抓包" class="headerlink" title="DRDS Server上抓包"></a>DRDS Server上抓包</h2><p>特别说明下，MySQL上抓到的不是跟Navicat上抓到的同一次报错，所以报错的端口等会不一样</p>
-<p><img src="/images/oss/70287488290b38cd4753d9fce0bee945.png" alt="image.png"></p>
-<p>从这个图中可以清楚看到reset是从 Navicat 客户端发过来的，并且 Use Database被拦截了，没有发到MySQL上。</p>
-<p>从这里基本可以判断是客户的防火墙之类的中间设备监控到了关键字之类的触发了防火墙向两边发送了reset，导致了 Navicat 报错。</p>
-<h3 id="如果连接已经断开"><a href="#如果连接已经断开" class="headerlink" title="如果连接已经断开"></a>如果连接已经断开</h3><p>如果连接已经断开后还收到Client的请求包，因为连接在Server上是不存在的，这个时候Server收到这个包后也会发一个reset回去，这个reset的特点是identification是0.</p>
-<h2 id="到底是谁动了这个连接呢？"><a href="#到底是谁动了这个连接呢？" class="headerlink" title="到底是谁动了这个连接呢？"></a>到底是谁动了这个连接呢？</h2><h3 id="得帮客户解决问题"><a href="#得帮客户解决问题" class="headerlink" title="得帮客户解决问题"></a>得帮客户解决问题</h3><p>虽然原因很清楚，但是客户说连本地 MySQL就没这个问题，连你的云上MySQL就这样，你让我们怎么用？你们得帮我们找到是哪个设备。</p>
-<p>这不废话么，连本地没经过这么多防火墙、网关当然没事了。但是客户第一，不能这么说，得找到问题所在。</p>
-<h2 id="Identification-和-TTL"><a href="#Identification-和-TTL" class="headerlink" title="Identification 和 TTL"></a>Identification 和 TTL</h2><h3 id="线索一-Identification"><a href="#线索一-Identification" class="headerlink" title="线索一 Identification"></a>线索一 Identification</h3><p>还记得第一个截图中的两个相同的identification 13052吧，让我们来看看基础知识：</p>
-<p><img src="/images/oss/eed9ba1f9ba492ed8954ae7f39e72803.png" alt="image.png"></p>
-<p>（摘自 TCP卷一），简单来说这个 identification 用来标识一个连接中的每个包，这个序号按包的个数依次递增，通信双方是两个不同的序列。<strong>主要是用于ip packet的reassemble</strong>。</p>
-<p>所以如果这个reset是DRDS发出来的话，因为DRDS发出的前一个包的 identification 是23403，所以这个必须是23404，实际上居然是13502（而且还和Navicat发出的 Use Database包是同一个 identification），这是非常不对的。</p>
-<p>所以可以大胆猜测，这里有个中间设备收到 Use Database后触发了不放行的逻辑，于是冒充 Navicat给 DRDS Server发了reset包，src ip/src port/seq等都直接用Navicat的，identification也用Navicat的，所以 DRDS Server收到的 Reset看起来很正常（啥都是对的，没留下一点冒充的痕迹）。</p>
-<p>但是这个中间设备还要冒充DRDS Server给 Navicat 也发个reset，有点难为中间设备了，这个时候中间设备手里只有 Navicat 发出来的包， src ip/src port/seq 都比较好反过来，但是 identification 就不好糊弄了，手里只有 Navicat的，因为 Navicat和MySQL Server是两个序列的 identification，这下中间设备搞不出来MySQL Server的identification，怎么办？ 只能糊弄了，就随手用 Navicat 自己的 identification填回去了（所以看到这么个奇怪的 identification）</p>
-<p><strong>identification不对不影响实际连接被reset，也就是验证包的时候不会判断identification的正确性。</strong></p>
-<h3 id="TTL"><a href="#TTL" class="headerlink" title="TTL"></a>TTL</h3><p>identification基本撇清了DRDS的嫌疑，还得进一步找到是哪个机器，我们先来看一个基础知识 TTL(Time-to-Live):</p>
-<p><img src="/images/oss/ed8c624b704b0c94da2ca76a37b39916.png" alt="image.png"></p>
-<p>然后我们再看看 Navicat收到的这个reset包的ttl是63，而正常的MySQL Server回过来的包是47，而发出的第一个包初始ttl是64，所以这里可以很清楚地看到在Navicat 下一跳发出的这个reset</p>
-<p><img src="/images/oss/b288a740f9f10007485e37fd339051f8.png" alt="image.png"></p>
-<p>既然是下一跳干的直接拿这个包的src mac地址，然后到内网中找这个内网设备就可以了，最终找到是一个锐捷的防火墙。</p>
-<p>如果不是下一跳可以通过 traceroute/mtr 来找到这个设备的ip</p>
-<h2 id="某家居的reset"><a href="#某家居的reset" class="headerlink" title="某家居的reset"></a>某家居的reset</h2><p><img src="/images/oss/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png" alt="undefined"> </p>
-<p>从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。</p>
-<h2 id="常亮ISV-vpn环境reset"><a href="#常亮ISV-vpn环境reset" class="headerlink" title="常亮ISV vpn环境reset"></a>常亮ISV vpn环境reset</h2><p>client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select <em> from table1 ; 就一定reset，但是select </em> from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询结果的大小比较相关。</p>
-<p>于是在server和client上同时抓到了一次完整的reset</p>
-<p>如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）</p>
-<p><img src="/images/oss/89f584899a5e5e00ba5c2b16707ed24a.png" alt="image.png"></p>
-<p>下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset</p>
-<p><img src="/images/oss/ec1f04befe56823668b4d1f831bd3ea4.png" alt=""></p>
-<p>最终排查后client端</p>
-<blockquote>
-<p>公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在运行正常了</p>
-</blockquote>
-<h3 id="扩展一下"><a href="#扩展一下" class="headerlink" title="扩展一下"></a>扩展一下</h3><p>假如这里不是下一跳，而是隔了几跳发过来的reset，那么这个src mac地址就不是发reset设备的mac了，那该怎么办呢？</p>
-<p>可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip</p>
-<h2 id="SLB-reset"><a href="#SLB-reset" class="headerlink" title="SLB reset"></a>SLB reset</h2><p>如果连接闲置15分钟(900秒)后，SLB会给两端发送reset，设置的ttl为102（102年，下图经过3跳后到达RS 节点所以看到的是99），identification 为31415（π）</p>
-<p><img src="/images/951413iMgBlog/image-20220722161729776.png" alt="image-20220722161729776"></p>
-<h2 id="被忽略的reset"><a href="#被忽略的reset" class="headerlink" title="被忽略的reset"></a><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">被忽略的reset</a></h2><p>不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。</p>
-<p><img src="/images/951413iMgBlog/640-20220224102640374.png" alt="Image"></p>
-<p>但是对于SLB来说，收到reset就会clean 连接的session（SLB没做合法性验证），一般等session失效后（10秒）</p>
-<h2 id="SLB主动reset的话"><a href="#SLB主动reset的话" class="headerlink" title="SLB主动reset的话"></a>SLB主动reset的话</h2><p>ttl是102, identification是31415，探活reset不是这样的。</p>
-<p>如下图就是SLB发出来的reset packet</p>
-<p><img src="/images/oss/9de70216-188c-4ca4-898f-0fa88e853c18.png" alt="img"></p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>基础知识很重要，但是知道ttl、identification到会用ttl、identification是两个不同的层次。只是看书的话未必会有很深的印象，实际也不一定会灵活使用。</p>
-<p>平时不要看那么多书，会用才是关键。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">TCP中并不是所有的RST都有效</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5736,7 +5720,7 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">150</span>
+                <span class="site-state-item-count">151</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
