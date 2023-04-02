@@ -107,10 +107,13 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721100421130.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721100446521.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220721093116395.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-8259033.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20221112211814567.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9840722.jpeg">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20220413134252639">
-<meta property="og:updated_time" content="2023-02-14T07:31:42.509Z">
+<meta property="og:updated_time" content="2023-04-02T12:25:10.801Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底一台服务器上最多能创建多少个TCP连接">
 <meta name="twitter:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range中随机取一个可用的 12# cat /proc/sys/net/ipv4/ip_l">
@@ -407,7 +410,7 @@
 <p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
 <p><strong>那么为什么大家有这样的误解呢？</strong>我总结了下，大概是以下两个原因让大家误解了：</p>
 <ul>
-<li>如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次（如果有个连接用了80连别人，这里80还是不能被listen……想想）。</li>
+<li>如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。</li>
 <li>另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。</li>
 </ul>
 <p>我们在创建连接前，经常会先调bind，bind后可以调listen当做服务端监听，也可以直接调connect当做client来连服务端。</p>
@@ -515,6 +518,17 @@
 <p>TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.</p>
 </blockquote>
 <p><img src="/images/951413iMgBlog/image-20220721093116395.png" alt="alt text"></p>
+<h2 id="由Nginx-SY-CPU高负载引发内核探索之旅"><a href="#由Nginx-SY-CPU高负载引发内核探索之旅" class="headerlink" title="由Nginx SY CPU高负载引发内核探索之旅"></a><a href="https://mp.weixin.qq.com/s/njpdTW5TndO4-H7nbEpXAA" target="_blank" rel="external">由Nginx SY CPU高负载引发内核探索之旅</a></h2><p>这个案例来自腾讯7层网关团队，网关用的Nginx，请求转发给后面的被代理机器(RS:real server)，发现 sys CPU异常高，CPU都用在搜索可用端口.</p>
+<p><img src="/images/951413iMgBlog/640-8259033.png" alt="Image"></p>
+<p><img src="/images/951413iMgBlog/640-20221112211814567.png" alt="Image"></p>
+<p> local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）</p>
+<p>核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪 如果你对</p>
+<p>我的看法，这个分奇偶数的实现就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！</p>
+<h2 id="从STGW流量下降探秘内核收包机制"><a href="#从STGW流量下降探秘内核收包机制" class="headerlink" title="从STGW流量下降探秘内核收包机制"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&amp;mid=2649745268&amp;idx=1&amp;sn=f72f164847060d7b19cba272a38485e5&amp;scene=21#wechat_redirect" target="_blank" rel="external">从STGW流量下降探秘内核收包机制</a></h2><p>listen port search消耗CPU异常高</p>
+<p><img src="/images/951413iMgBlog/640-9840722.jpeg" alt="图片"></p>
+<p>在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。</p>
+<p>然而在内核支持了reuseport并且被广泛使用后，情况就不一样了，<strong>在多进程架构里，listen port对应的socket数量，是会被几十倍的放大的。</strong>以应用层监听了5000个端口，reuseport 使用了50个cpu核心为例，5000*50/32约等于7812，意味着每次握手包到来时，光是查找listen socket，就需要遍历7800多次。随着机器硬件性能越来越强，应用层使用的cpu数量增多，这个问题还会继续加剧。</p>
+<p><strong>正因为上述原因，并且我们现网机器开启了reuseport，在端口数量较多的机器里，inet_lookup_listener的哈希桶大小太小，遍历过程消耗了cpu，导致出现了函数热点。</strong></p>
 <h2 id="短连接的开销"><a href="#短连接的开销" class="headerlink" title="短连接的开销"></a>短连接的开销</h2><p>用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3/4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万</p>
 <p><img src="/images/951413iMgBlog/image-20220627154822263.png" alt="image-20220627154822263"></p>
 <p>再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万</p>
@@ -538,7 +552,7 @@
 <li>发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0</li>
 <li>其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象</li>
 </ul>
-<h2 id="可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><a href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例" class="headerlink" title="可用 local port 不够导致对端time_wait 连接重用进而卡顿案例"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="external">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</a></h2><p>A进程选择某个端口，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象</p>
+<h2 id="可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><a href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例" class="headerlink" title="可用 local port 不够导致对端time_wait 连接重用进而卡顿案例"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="external">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</a></h2><p>A进程选择某个端口，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象</p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
 <li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
 <li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
@@ -685,7 +699,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">151</span>
+                <span class="site-state-item-count">152</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -749,7 +763,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SO-LINGER"><span class="nav-number">1.8.</span> <span class="nav-text">SO_LINGER</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NIO下设置-SO-LINGER-的错误案例"><span class="nav-number">1.8.1.</span> <span class="nav-text">NIO下设置 SO_LINGER 的错误案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么要有-time-wait-状态"><span class="nav-number">1.9.</span> <span class="nav-text">为什么要有 time_wait 状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.10.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一条连接的开销"><span class="nav-number">1.11.</span> <span class="nav-text">一条连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><span class="nav-number">1.12.</span> <span class="nav-text">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.13.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.14.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#到底一台服务器上最多能创建多少个TCP连接"><span class="nav-number">1.</span> <span class="nav-text">到底一台服务器上最多能创建多少个TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.1.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#到底一台机器上最多能创建多少个TCP连接"><span class="nav-number">1.2.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEADDR"><span class="nav-number">1.3.</span> <span class="nav-text">TCP SO_REUSEADDR</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-SO-REUSEPORT"><span class="nav-number">1.4.</span> <span class="nav-text">TCP SO_REUSEPORT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#The-Ephemeral-Port-Range"><span class="nav-number">1.5.</span> <span class="nav-text">The Ephemeral Port Range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#linux-如何选择Ephemeral-Port"><span class="nav-number">1.6.</span> <span class="nav-text">linux 如何选择Ephemeral Port</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10-0-327-ali2017-alios7-x86-64"><span class="nav-number">1.6.1.</span> <span class="nav-text">3.10.0-327.ali2017.alios7.x86_64</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-19-91-19-1-al7-x86-64"><span class="nav-number">1.6.2.</span> <span class="nav-text">4.19.91-19.1.al7.x86_64</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tcp-max-tw-buckets"><span class="nav-number">1.7.</span> <span class="nav-text">tcp_max_tw_buckets</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SO-LINGER"><span class="nav-number">1.8.</span> <span class="nav-text">SO_LINGER</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NIO下设置-SO-LINGER-的错误案例"><span class="nav-number">1.8.1.</span> <span class="nav-text">NIO下设置 SO_LINGER 的错误案例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么要有-time-wait-状态"><span class="nav-number">1.9.</span> <span class="nav-text">为什么要有 time_wait 状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#由Nginx-SY-CPU高负载引发内核探索之旅"><span class="nav-number">1.10.</span> <span class="nav-text">由Nginx SY CPU高负载引发内核探索之旅</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#从STGW流量下降探秘内核收包机制"><span class="nav-number">1.11.</span> <span class="nav-text">从STGW流量下降探秘内核收包机制</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#短连接的开销"><span class="nav-number">1.12.</span> <span class="nav-text">短连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#一条连接的开销"><span class="nav-number">1.13.</span> <span class="nav-text">一条连接的开销</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#可用-local-port-不够导致对端time-wait-连接重用进而卡顿案例"><span class="nav-number">1.14.</span> <span class="nav-text">可用 local port 不够导致对端time_wait 连接重用进而卡顿案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.15.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.16.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>
