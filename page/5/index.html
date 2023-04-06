@@ -1459,7 +1459,7 @@ __wake_up_common
 <blockquote>
 <p>socket.setSendBufferSize(16*1024) //16K send buffer </p>
 </blockquote>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">这篇文章</a></p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]</p>
 <p>比如下图，wmem大小是8，发出1-8后，buffer不能释放，等到收到ack1-4后，释放1-4，buffer也就是释放了一半，这一半可以填充新的发送数据进来了。 上面的问题在于ack花了很久，导致buffer一直不能释放。</p>
 <p><img src="/images/oss/3d9e77f8c9b0cab1484c870d2c0d2473.png" alt="image.png"></p>
 <p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立即腾出来发新的货物，而是要等对方确认收到了(ack)才能腾出来发新的货物。 传输速度取决于发送仓库（sendbuffer）、接收仓库（recvbuffer）、路宽（带宽）的大小，如果发送仓库（sendbuffer）足够大了之后接下来的瓶颈就会是高速公路了（带宽、拥塞窗口）。而实际上这个案例中带宽够、接收仓库也够，但是发送仓库太小了，导致发送过程断断续续，所以非常慢。</strong></p>
@@ -1688,7 +1688,6 @@ net.ipv4.tcp_mem = 88560        118080  177120
 <p>为什么kernel要double 接收和发送buffer可以<a href="https://man7.org/linux/man-pages/man7/socket.7.html" target="_blank" rel="external">参考man7中的socket帮助信息</a></p>
 <p><img src="/images/oss/4e2b2e12c754f01a2f99f9f47dd5fd8e.png" alt="image.png"></p>
 <h2 id="tcp包发送流程"><a href="#tcp包发送流程" class="headerlink" title="tcp包发送流程"></a>tcp包发送流程</h2><p><img src="/images/oss/d385a7dad76ec4031dfb6c096bca434b.png" alt="image.png"></p>
-<p>（图片<a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">来自</a>）</p>
 <h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
 sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
 </code></pre><h2 id="内核观测tcp-mem是否不足"><a href="#内核观测tcp-mem是否不足" class="headerlink" title="内核观测tcp_mem是否不足"></a>内核观测tcp_mem是否不足</h2><p>因 tcp_mem 达到限制而无法发包或者产生抖动的问题，我们也是可以观测到的。为了方便地观测这类问题，Linux 内核里面预置了静态观测点：sock_exceed_buf_limit（需要 4.16+ 的内核版本）。</p>
@@ -1749,19 +1748,13 @@ probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
 <p><strong>总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF</strong></p>
 <p>关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满</p>
 <h1 id="相关和参考文章"><a href="#相关和参考文章" class="headerlink" title="相关和参考文章"></a>相关和参考文章</h1><p><a href="https://blog.csdn.net/dog250/article/details/113020804" target="_blank" rel="external">用stap从内核角度来分析buffer、rt和速度</a></p>
-<p><a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">经典的 nagle 和 dalay ack对性能的影响 就是要你懂 TCP– 最经典的TCP性能问题</a></p>
-<p><a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
-<p><a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">MSS和MTU导致的悲剧</a></p>
-<p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">双11通过网络优化提升10倍性能</a></p>
-<p><a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">就是要你懂TCP的握手和挥手</a></p>
-<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
 <p>[The story of one latency spike][<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">https://blog.cloudflare.com/the-story-of-one-latency-spike/</a>] : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点</p>
 <blockquote>
 <p>Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is <code>tcp_collapse</code> and it will merge adjacent TCP packets into one larger <code>sk_buff</code>. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.</p>
 </blockquote>
 <p>原因：将 tcp_rmem 最大值设置得太大，在内存压力场景下触发了GC（tcp_collapse），将 tcp_rmem 调小后（32M-&gt;2M）不再有偶发性 rt 很高的延时</p>
 <p>从 net_rx_action 追到 tcp_collapse 的逻辑没太理解（可能是对内核足够了解） </p>
-<p><a href="https://access.redhat.com/discussions/782343" target="_blank" rel="external">What is rcv_space in the ‘ss –info’ output, and why it’s value is larger than net.core.rmem_max</a></p>
+<p>[What is rcv_space in the ‘ss –info’ output, and why it’s value is larger than net.core.rmem_max][28]</p>
 
           
         
