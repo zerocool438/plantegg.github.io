@@ -116,7 +116,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/ed46d35161ea28352acd4289a3e9ddad.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221026153750159.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221026153813774.png">
-<meta property="og:updated_time" content="2023-01-04T14:33:16.257Z">
+<meta property="og:updated_time" content="2023-04-14T03:34:21.735Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">
 <meta name="twitter:description" content="Intel PAUSE指令变化如何影响MySQL的性能导读x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。 文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程；">
@@ -462,8 +462,8 @@
 <p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
 <p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
 <p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
-<pre><code>/***************************MySQL代码****************************//**
-Runs an idle loop on CPU. The argument gives the desired delay
+<pre><code>/***************************MySQL代码****************************/
+/**Runs an idle loop on CPU. The argument gives the desired delay
 in microseconds on 100 MHz Pentium + Visual C++.
 @return dummy value */
 UNIV_INTERN
@@ -471,9 +471,7 @@ ulint
 ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
 {
         ulint   i, j;
-
         UT_LOW_PRIORITY_CPU();
-
         j = 0;
 
         for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
@@ -482,10 +480,9 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
         }
 
         UT_RESUME_PRIORITY_CPU();
-
         return(j);
 }
-</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
 <h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
 <ul>
 <li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>

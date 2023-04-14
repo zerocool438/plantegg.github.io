@@ -1860,6 +1860,13 @@ So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get
 <h3 id="设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本"><a href="#设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本" class="headerlink" title="设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本"></a>设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本</h3><p>下图是设置了 SO_RCVBUF 为8192的实际情况：</p>
 <p><img src="/images/oss/d0e12e8bad8764385549f9b391c62ab0.png" alt="image.png"></p>
 <p>从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值</p>
+<h2 id="实验：分别改小server-wmem-client-rmem-来对比对速度的影响"><a href="#实验：分别改小server-wmem-client-rmem-来对比对速度的影响" class="headerlink" title="实验：分别改小server wmem/client rmem 来对比对速度的影响"></a>实验：分别改小server wmem/client rmem 来对比对速度的影响</h2><blockquote>
+<p>server 设置 wmem=4096, client curl get server的文件，速度60mbps, 两边的rtt都很好 </p>
+<p>client 设置 rmem=4096，client curl get server的文件，速度6mbps, 为什么速度差别这么大？</p>
+</blockquote>
+<p>为什么server 设置 wmem=4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延</p>
+<p><img src="/images/951413iMgBlog/image-20230414092751721.png" alt="image-20230414092751721"></p>
+<p><img src="/images/951413iMgBlog/1460000039103606.png" alt="img"></p>
 <h1 id="从kernel来看buffer相关信息"><a href="#从kernel来看buffer相关信息" class="headerlink" title="从kernel来看buffer相关信息"></a>从kernel来看buffer相关信息</h1><h2 id="kernel相关参数"><a href="#kernel相关参数" class="headerlink" title="kernel相关参数"></a>kernel相关参数</h2><pre><code>sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
 net.core.rmem_default = 212992
 net.core.rmem_max = 212992
@@ -4426,7 +4433,7 @@ sudo ip tcp_metrics delete 100.118.58.7
 <p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
 <h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
 <p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
-<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">tcp metrics 在长肥网络下引发性能问题</a></p>
+<p>以上经验来自 yu同学的 《tcp metrics 在长肥网络下引发性能问题》</p>
 <h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
 <h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
 <hr>
@@ -4440,11 +4447,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 <p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="external">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
 <p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="external">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
 <p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="external">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
-<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">https://www.atatech.org/articles/109721</a></p>
-<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
-<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">https://www.atatech.org/articles/27189</a> </p>
-<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="external">https://www.atatech.org/articles/45084</a></p>
-<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">https://www.atatech.org/articles/9032</a></p>
 <p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">tcp_rmem case</a></p>
 <p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
 
@@ -6115,7 +6117,7 @@ ethtool -G eth0 rx 8192 tx 8192
 <h3 id="txqueuelen"><a href="#txqueuelen" class="headerlink" title="txqueuelen"></a>txqueuelen</h3><p>ifconfig 看到的 txqueuelen 跟Ring Buffer是两个东西，IP协议下面就是 txqueuelen，txqueuelen下面才到Ring Buffer. </p>
 <p>常用的tc qdisc、netfilter就是在txqueuelen这一环节。 qdisc 的队列长度是我们用 ifconfig 来看到的 txqueuelen</p>
 <p>发送队列就是指的这个txqueuelen，和网卡关联着。 而每个Core接收队列由内核参数： net.core.netdev_max_backlog来设置    </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">//当前值通过ifconfig可以查看到，修改：</div><div class="line">		ifconfig eth0 txqueuelen 2000</div><div class="line">		//监控</div><div class="line">		ip -s link</div></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">//当前值通过ifconfig可以查看到，修改：</div><div class="line">		ifconfig eth0 txqueuelen 2000</div><div class="line">		//监控</div><div class="line">		ip -s link</div><div class="line">		ip -s link show enp2s0f0</div></pre></td></tr></table></figure>
 <p>如果txqueuelen 太小导致数据包被丢弃的情况，这类问题可以通过下面这个命令来观察：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$ ip -s -s link ls dev eth0</div><div class="line">2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000</div><div class="line">    link/ether 00:16:3e:12:9b:c0 brd ff:ff:ff:ff:ff:ff</div><div class="line">    RX: bytes  packets  errors  dropped overrun mcast</div><div class="line">    13189414480980 22529315912 0       0       0       0</div><div class="line">    RX errors: length   crc     frame   fifo    missed</div><div class="line">               0        0       0       0       0</div><div class="line">    TX: bytes  packets  errors  dropped carrier collsns</div><div class="line">    15487121408466 12925733540 0       0       0       0</div><div class="line">    TX errors: aborted  fifo   window heartbeat transns</div><div class="line">               0        0       0       0       2</div></pre></td></tr></table></figure>
 <p>如果观察到 dropped 这一项不为 0，那就有可能是 txqueuelen 太小导致的。当遇到这种情况时，你就需要增大该值了，比如增加 eth0 这个网络接口的 txqueuelen：</p>
