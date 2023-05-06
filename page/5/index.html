@@ -291,6 +291,268 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
+                2019-12-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
+<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
+<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
+<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
+<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
+</code></pre><h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
+<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
+<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
+<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
+<p>性能压测原则：</p>
+<blockquote>
+<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
+<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
+<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
+<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
+<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
+<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
+<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
+<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
+<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<blockquote>
+<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
+</blockquote>
+<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
+<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
+<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
+<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
+<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
+<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
+<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
+<blockquote>
+<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
+</blockquote>
+<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
+<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
+<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
+<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
+<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
+<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
+<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************/
+/**Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+        UT_LOW_PRIORITY_CPU();
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //调用 CPU Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+        return(j);
+}
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
+<ul>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
+</ul>
+<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
+<blockquote>
+<p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
+<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
+</blockquote>
+<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
+<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
+<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
+<blockquote>
+<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+</blockquote>
+<p>也就是<strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。</strong>这可是14倍的变化呀。</p>
+<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
+<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
+<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
+<h2 id="我想追加几个问题帮大家理解"><a href="#我想追加几个问题帮大家理解" class="headerlink" title="我想追加几个问题帮大家理解"></a>我想追加几个问题帮大家理解</h2><h3 id="为什么要有自旋锁-内核里面的spinlock"><a href="#为什么要有自旋锁-内核里面的spinlock" class="headerlink" title="为什么要有自旋锁(内核里面的spinlock)?"></a>为什么要有自旋锁(内核里面的spinlock)?</h3><p>等锁的时候可以释放CPU进入等待，这叫悲观锁，代价是释放CPU必然导致上下文切换，一次上下文切换至少需要几千个时钟周期，也就是CPU需要几千个时钟周期来完成上下文切换的工作(几千个时钟周期没有产出–真浪费)</p>
+<p>或者等锁的时候不释放CPU，赌很快能等到锁，这叫乐观锁，Linux OS用的是spinlock（类似大家看到的CAS），也就是CPU不释放一直不停地检查能否拿到锁，一个时钟周期检查一次太快了(想想你去银行柜台办业务，每秒钟问一次柜员轮到你了没有！)，所以CPU工程师就在想能不能提供一条指令一直占着CPU很久，这条指令就是pause，每一个spinlock就会调用pause休息几十、几百个时钟周期后再去看看能否抢到所(柜台给你提供了沙发茶水，你坐一会再去问柜员)</p>
+<h3 id="执行Pause指令的时候CPU真的休息了吗？"><a href="#执行Pause指令的时候CPU真的休息了吗？" class="headerlink" title="执行Pause指令的时候CPU真的休息了吗？"></a>执行Pause指令的时候CPU真的休息了吗？</h3><p>如果没有事情做的话，CPU是会停下来(省电)，如果开了超线程，如果一个核执行了Pause，那么对这个核的另一个超线程来说，白捡了100%的CPU，别人休息（Pause、stall）的时候正好给我用(这是超线程的本质)！</p>
+<p>这也是为什么有些场景2个超线程能发挥2倍能力，有些场景2个超线程只能跑出1倍能力。</p>
+<p>相对比上下文切换浪费的几千个时钟周期，Pause(spinlock)真是一点都没浪费。但如果你一直spinlock 几万、几十万个时钟周期都没等到锁还不释放也不对，这会导致其他线程调度不到CPU而饿死。一般自旋一段时间后都会放弃CPU转为上下文切换，所以MySQL 加了参数 innodb_spin_wait_delay 来控制spinlock的长短。</p>
+<h3 id="并发高导致自旋锁效率低？"><a href="#并发高导致自旋锁效率低？" class="headerlink" title="并发高导致自旋锁效率低？"></a>并发高导致自旋锁效率低？</h3><p>如果并发高，都抢同一个锁，这里的效率会随着并发的增加而降低，不展开了，记住这个结论，类似太多人在柜台问轮到自己没有，留给柜员办业务的时间反而少了！</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="external">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
+<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
+<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/09/epoll的LT和ET/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4411,15 +4673,15 @@ ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.
 ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
 ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
 ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
-</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
-100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.1.2.3
+100.1.2.3 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
 </code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
 <pre><code>清除 tcp_metrics 
 sudo ip tcp_metrics flush all 
 
 关闭 tcp_metrics 功能
 net.ipv4.tcp_no_metrics_save = 1
-sudo ip tcp_metrics delete 100.118.58.7
+sudo ip tcp_metrics delete 100.1.2.3
 </code></pre><blockquote>
 <p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
 </blockquote>
@@ -5211,7 +5473,7 @@ debug1: Control socket &quot;/home/ren/tmp/ssh_mux_10.16.1.*_22_corp&quot; does 
 debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.16.1.* 22
 </code></pre><p>本来我的笔记本跟 10.16.1.<em> 是不通的(ping 不通），但是ssh可以直接连上，实际ssh登录过程中自动走跳板机139.</em>.<em>.</em> 就连上了</p>
 <p>-vvv 参数是debug，把ssh登录过程的日志全部打印出来。 </p>
-<h2 id="将隔离环境中的web端口映射到本地（本地代理）"><a href="#将隔离环境中的web端口映射到本地（本地代理）" class="headerlink" title="将隔离环境中的web端口映射到本地（本地代理）"></a>将隔离环境中的web端口映射到本地（本地代理）</h2><p>远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？</p>
+<h2 id="将隔离环境中的web端口映射到本地（本地代理）"><a href="#将隔离环境中的web端口映射到本地（本地代理）" class="headerlink" title="将隔离环境中的web端口映射到本地（本地代理）"></a>将隔离环境中的web端口映射到本地（本地代理）</h2><p>远程机器部署了WEB Server（端口 8083），需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.1.1.123:8083， ssh账号是：user</p>
 <p>先配置好本地直接 ssh user@10.1.1.123 （参考前面的 ProxyCommand配置过程，最好是免密也配置好），然后在你的笔记本上执行：</p>
@@ -5219,7 +5481,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 </code></pre><p>或者：(root@100.1.2.3 -p 54900 是可达10.1.1.123的代理服务器)</p>
 <pre><code>ssh -CNfL 0.0.0.0:8089:10.1.1.123:8083 root@100.1.2.3 -p 54900
 </code></pre><p>这表示在本地启动一个8088的端口，将这个8088端口映射到10.1.1.123的8083端口上，用的ssh账号是user</p>
-<p>然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：</p>
+<p>然后在笔记本上的浏览器中输入： 127.0.0.1:8088 就看到了如下界面：</p>
 <p><img src="/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png" alt="image.png"></p>
 <p>反过来，<strong>也可以让隔离环境机器通过代理上网，比如安装yum</strong></p>
 <h2 id="为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录"><a href="#为什么有时候ssh-比较慢，比如总是需要30秒钟后才能正常登录" class="headerlink" title="为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录"></a>为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录</h2><p>先了解如下知识点，在 ~/.ssh/config 配置文件中：</p>
@@ -6377,191 +6639,6 @@ cat /proc/net/sockstat
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/16/网络通不通是个大问题--半夜鸡叫/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/05/16/网络通不通是个大问题--半夜鸡叫/" itemprop="url">网络通不通是个大问题–半夜鸡叫</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-16T17:30:03+08:00">
-                2019-05-16
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络通不通是个大问题–半夜鸡叫"><a href="#网络通不通是个大问题–半夜鸡叫" class="headerlink" title="网络通不通是个大问题–半夜鸡叫"></a>网络通不通是个大问题–半夜鸡叫</h1><h2 id="半夜鸡叫"><a href="#半夜鸡叫" class="headerlink" title="半夜鸡叫"></a>半夜鸡叫</h2><p>凌晨啊，还有同学在为网络为什么不通的问题搏斗着：</p>
-<p><img src="/images/951413iMgBlog/1557909424085-04a7111c-fee8-440f-ba22-411dd70cbba0.png" alt="undefined"> </p>
-<p>问题描述大概如下：</p>
-<p>slb后面配了一台realserver(就叫172吧), 在172上通过curl <a href="http://127.0.0.1:80/" target="_blank" rel="external">http://127.0.0.1:80/</a> 是正常的(说明服务自身是正常的)<br>如果从开发同学的笔记本直接curl slb-ip 就卡住了，进一步发现如果从北京的办公网curl slb-ip就行，但是从杭州的curl slb-ip就不行。</p>
-<p>从杭州curl的时候在172上抓包如下：<br><img src="/images/951413iMgBlog/1557909749498-452acc94-f04b-48bf-803f-f1acb21dd4b2.png" alt="undefined"> </p>
-<p>明显可以看到tcp握手包正确到达了172，但是172一直没有回复。也就是如果是杭州访问服务的话，服务端收到握手请求后直接扔掉没有任何回复（回想下哪些场景会扔包）</p>
-<h2 id="问题排查"><a href="#问题排查" class="headerlink" title="问题排查"></a>问题排查</h2><h3 id="先排除了iptables的问题"><a href="#先排除了iptables的问题" class="headerlink" title="先排除了iptables的问题"></a>先排除了iptables的问题</h3><pre><code>略过
-</code></pre><h3 id="route-的嫌疑"><a href="#route-的嫌疑" class="headerlink" title="route 的嫌疑"></a>route 的嫌疑</h3><p>因为北京可以杭州不行，明显是某些IP可以，于是检查route 表，解决问题的<a href="https://www.atatech.org/articles/80573" target="_blank" rel="external">必杀技(基础知识)都在这里</a></p>
-<p>发现杭州的ip和北京的ip确实命中了不同的路由规则，简单说就是172绑在eth0上，机器还有另外一块网卡eth1. 而回复杭州ip的时候要走eth1. 至于为什么没有从eth1回复等会再说</p>
-<p>知道原因就好说了，修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
-<p>所以到这里，问题描述如下：<br>    <img src="/images/951413iMgBlog/1557910281403-59a60a80-5edf-472d-827c-b2c8d6db903f.png" alt="undefined"> </p>
-<p>机器有两块网卡，请求走eth0 进来(绿线)，然后走 eth1回复(路由决定的，红线)，但是实际没走eth1回复，像是丢包了。</p>
-<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
-<h3 id="为什么5U的机器可以"><a href="#为什么5U的机器可以" class="headerlink" title="为什么5U的机器可以"></a>为什么5U的机器可以</h3><p>开发同学接着反馈，出问题的172是7U2的系统，但是还有一些5U7的机器完全正常，5U7的机器上也是两块网卡，route规则也是一样的。</p>
-<p>这确实诡异，看着像是7U的内核行为跟5U不一致，咨询了内核同学，让检查一下 rp_filter 参数。果然看到7U2的系统默认 rp_filter 开着，而5U7是关着的，于是反复开关这个参数稳定重现了问题    </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sysctl -w net.ipv4.conf.eth0.rp_filter=0</div></pre></td></tr></table></figure>
-<h3 id="rp-filter-原理和监控"><a href="#rp-filter-原理和监控" class="headerlink" title="rp_filter 原理和监控"></a>rp_filter 原理和监控</h3><p>rp_filter参数用于控制系统是否开启对数据包源地址的校验, 收到包后根据source ip到route表中检查是否否和最佳路由，否的话扔掉这个包【可以防止DDoS，攻击等】</p>
-<blockquote>
-<p>​    0：不开启源地址校验。<br>​    1：开启严格的反向路径校验。对每个进来的数据包，校验其反向路径是否是最佳路径。如果反向路径不是最佳路径，则直接丢弃该数据包。<br>​    2：开启松散的反向路径校验。对每个进来的数据包，校验其源地址是否可达，即反向路径是否能通（通过任意网口），如果反向路径不通，则直接丢弃该数据包。</p>
-</blockquote>
-<p>那么对于这种丢包，可以打开日志：/proc/sys/net/ipv4/conf/eth0/log_martians 来监控到：</p>
-<p><img src="/images/951413iMgBlog/1557910737844-1ee231f0-1ddd-4dee-ac07-3b23f9659878.png" alt="undefined"></p>
-<p>rp_filter: IP Reverse Path Filter, 在ip层收包的时候检查一下反向路径是不是最优路由，代码位置：</p>
-<pre><code>ip_rcv-&gt;NF_HOOK-&gt;ip_rcv_finish-&gt;ip_rcv_finish_core
-</code></pre><p>也就是rp_filter在收包的流程中检查每个进来的包，是不是符合rp_filter规则，而不是回复的时候来做判断，这也就是为什么抓包只能看到进来的syn就没有然后了</p>
-<h3 id="开启rp-filter参数的作用"><a href="#开启rp-filter参数的作用" class="headerlink" title="开启rp_filter参数的作用"></a>开启rp_filter参数的作用</h3><ul>
-<li>减少DDoS攻击: 校验数据包的反向路径，如果反向路径不合适，则直接丢弃数据包，避免过多的无效连接消耗系统资源。</li>
-<li>防止IP Spoofing: 校验数据包的反向路径，如果客户端伪造的源IP地址对应的反向路径不在路由表中，或者反向路径不是最佳路径，则直接丢弃数据包，不会向伪造IP的客户端回复响应。</li>
-</ul>
-<h3 id="通过netstat-s来观察IPReversePathFilter"><a href="#通过netstat-s来观察IPReversePathFilter" class="headerlink" title="通过netstat -s来观察IPReversePathFilter"></a>通过netstat -s来观察IPReversePathFilter</h3><pre><code>$netstat -s | grep -i filter
-    IPReversePathFilter: 35428
-$netstat -s | grep -i filter
-    IPReversePathFilter: 35435
-</code></pre><p>能明显看到这个数字在增加，如果没开rp_filter 就看不到这个指标或者数值不变</p>
-<p><img src="/images/951413iMgBlog/1557975265195-ef0ed7c0-61be-452b-a27e-6d395b4aaff3.png" alt="undefined"> </p>
-<p>问题出现的时候，尝试过用 watch -d -n 3 ‘netstat -s’ 来观察过哪些指标在变化，只是变化的指标太多，留意不过来，或者只是想着跟drop、route有关的参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   InNoRoutes: 31</div></pre></td></tr></table></figure>
-<p>当时观察到这几个指标，都没有变化，实际他们看着像但是都跟rp_filter没关系，最后我打算收藏如下命令保平安：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 times the listen queue of a socket overflowed</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   IPReversePathFilter: 35435</div><div class="line">   InNoRoutes: 31</div><div class="line"></div><div class="line">$nstat -z -t 1 | egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">IpOutNoRoutes                   0                  0.0</div><div class="line">TcpRetransSegs                  20                 0.0</div><div class="line">Ip6InNoRoutes                   0                  0.0</div><div class="line">Ip6OutNoRoutes                  0                  0.0</div><div class="line">Icmp6InRouterSolicits           0                  0.0</div><div class="line">Icmp6InRouterAdvertisements     0                  0.0</div><div class="line">Icmp6OutRouterSolicits          0                  0.0</div><div class="line">Icmp6OutRouterAdvertisements    0                  0.0</div><div class="line">TcpExtLockDroppedIcmps          0                  0.0</div><div class="line">TcpExtArpFilter                 0                  0.0</div><div class="line">TcpExtListenOverflows           0                  0.0</div><div class="line">TcpExtListenDrops               0                  0.0</div><div class="line">TcpExtTCPPrequeueDropped        0                  0.0</div><div class="line">TcpExtTCPLostRetransmit         0                  0.0</div><div class="line">TcpExtTCPFastRetrans            0                  0.0</div><div class="line">TcpExtTCPForwardRetrans         0                  0.0</div><div class="line">TcpExtTCPSlowStartRetrans       0                  0.0</div><div class="line">TcpExtTCPBacklogDrop            0                  0.0</div><div class="line">TcpExtTCPMinTTLDrop             0                  0.0</div><div class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</div><div class="line">TcpExtIPReversePathFilter       2                  0.0</div><div class="line">TcpExtTCPTimeWaitOverflow       0                  0.0</div><div class="line">TcpExtTCPReqQFullDrop           0                  0.0</div><div class="line">TcpExtTCPRetransFail            0                  0.0</div><div class="line">TcpExtTCPOFODrop                0                  0.0</div><div class="line">TcpExtTCPFastOpenListenOverflow 0                  0.0</div><div class="line">TcpExtTCPSynRetrans             10                 0.0</div><div class="line">IpExtInNoRoutes                 0                  0.0</div></pre></td></tr></table></figure>
-<h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
-</ul>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>本质原因就是服务器开启了 rp_filter 为1，严格校验进出包是否走同一块网卡，而如果请求从杭州机房发过来的话，回复包的路由走的是另外一块网卡，触发了内核的rp_filter扔包逻辑。</p>
-<p>改server的路由可以让杭州的包也走同一块网卡，就不扔掉了。当然将 rp_filter 改成0 关掉这个校验逻辑也可以完全避免这个扔包。</p>
-<p>从问题的解决思路来说，基本都可以认定是握手的时候服务器扔包了。只有知道 rp_filter 参数的内核老司机可以直接得出是这里的原因。如果对于一个新手的话还是得掌握如何推理分析得到原因。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6611,7 +6688,7 @@ $netstat -s | grep -i filter
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">153</span>
+                <span class="site-state-item-count">154</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6633,7 +6710,7 @@ $netstat -s | grep -i filter
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">244</span>
+                <span class="site-state-item-count">245</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

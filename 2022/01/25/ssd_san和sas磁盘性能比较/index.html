@@ -117,7 +117,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210607113709945.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png">
-<meta property="og:updated_time" content="2023-02-22T06:02:17.689Z">
+<meta property="og:updated_time" content="2023-05-06T13:09:47.536Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="ssd&#x2F;san&#x2F;sas&#x2F;磁盘&#x2F;光纤性能比较">
 <meta name="twitter:description" content="ssd/san/sas/磁盘/光纤/RAID性能比较本文汇总HDD、SSD、SAN、LVM、软RAID等一些性能数据 性能比较正好有机会用到一个san存储设备，跑了一把性能数据，记录一下  所使用的测试命令： 1fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.te">
@@ -540,7 +540,11 @@
 </tr>
 </tbody>
 </table>
-<h4 id="ESSD-PL3测试"><a href="#ESSD-PL3测试" class="headerlink" title="ESSD PL3测试"></a>ESSD PL3测试</h4><p>测试命令</p>
+<h4 id="ESSD-PL3-测试"><a href="#ESSD-PL3-测试" class="headerlink" title="ESSD(PL3) 测试"></a>ESSD(PL3) 测试</h4><blockquote>
+<p>阿里云ESSD（Enhanced SSD）云盘结合25 GE网络和RDMA技术，为您提供单盘高达100万的随机读写能力和单路低时延性能。本文介绍了ESSD云盘的性能级别、适用场景及性能上限，提供了选择不同ESSD云盘性能级别时的参考信息。</p>
+</blockquote>
+<p>测试结论：读能力非常差(不到写的10%)，写能力能符合官方标称的IOPS，但是写IOPS抖动极大，会长时间IOPS 跌0，但最终IOPS还是会达到目标IOPS。</p>
+<p>测试命令</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</div></pre></td></tr></table></figure>
 <p>ESSD 是aliyun 购买的 ESSD PL3，LVM是海光物理机下两块本地NVMe SSD做的LVM，测试基于ext4文件系统，阿里云官方提供ESSD的 IOPS 性能数据是裸盘（不含文件系统的）</p>
 <table>
@@ -548,7 +552,8 @@
 <tr>
 <th></th>
 <th>本地LVM</th>
-<th>ESSD</th>
+<th>ESSD PL3</th>
+<th>PL2+倚天</th>
 </tr>
 </thead>
 <tbody>
@@ -556,31 +561,37 @@
 <td>fio -ioengine=libaio -bs=4k -buffered=1 read</td>
 <td>bw=36636KB/s, iops=9159<br>nvme0n1:util=42.31%<br>nvme1n1: util=41.63%</td>
 <td>IOPS=3647, BW=14.2MiB/s<br>util=88.08%</td>
+<td>IOPS=458k, BW=1789MiB/s<br>util=96.69%</td>
 </tr>
 <tr>
-<td>fio -ioengine=libaio -bs=4k -buffered=1 write</td>
+<td>fio -ioengine=libaio -bs=4k -buffered=1 randwrite</td>
 <td>bw=383626KB/s, iops=95906<br>nvme0n1:util=37.16%<br>nvme1n1: util=33.58%</td>
 <td>IOPS=104k, BW=406MiB/s<br>util=39.06%</td>
+<td>IOPS=37.4k, BW=146MiB/s<br>util=94.03%</td>
 </tr>
 <tr>
 <td>fio -ioengine=libaio -bs=4k -buffered=1 randrw rwmixread=70</td>
 <td>write: bw=12765KB/s, iops=3191<br>read : bw=29766KB/s, iops=7441<br>nvme0n1:util=35.18%<br>nvme1n1: util=35.04%</td>
 <td>write:IOPS=1701, BW=6808KiB/s<br>read: IOPS=3962, BW=15.5MiB/s<br> nvme7n1: util=99.35%</td>
+<td>write:IOPS=1826, BW=7306KiB/s<br>read:IOPS=4254, BW=16.6MiB/s<br>util=98.99%</td>
 </tr>
 <tr>
 <td>fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 read</td>
 <td>bw=67938KB/s, iops=16984<br>nvme0n1:util=43.17%<br>nvme1n1: util=39.18%</td>
 <td>IOPS=4687, BW=18.3MiB/s<br>util=99.75%</td>
+<td>read: IOPS=145k, BW=565MiB/s<br>util=98.88%</td>
 </tr>
 <tr>
 <td>fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 write</td>
 <td>bw=160775KB/s, iops=40193<br>nvme0n1:util=28.66%<br>nvme1n1: util=21.67%</td>
 <td>IOPS=7153, BW=27.9MiB/s<br>util=99.85%</td>
+<td>write: IOPS=98.0k, BW=387MiB/s<br>util=99.88%</td>
 </tr>
 <tr>
 <td>fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 randrw rwmixread=70</td>
 <td>write: bw=23087KB/s, iops=5771<br>read : bw=53849KB/s, iops=13462</td>
 <td>write:IOPS=1511, BW=6045KiB/s<br>read: IOPS=3534, BW=13.8MiB/s</td>
+<td>write: IOPS=29.4k, BW=115MiB/s<br>read: IOPS=68.6k, BW=268MiB/s<br>util=99.88%</td>
 </tr>
 </tbody>
 </table>
@@ -949,7 +960,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">153</span>
+                <span class="site-state-item-count">154</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -971,7 +982,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">244</span>
+                <span class="site-state-item-count">245</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -1013,7 +1024,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#ssd-san-sas-磁盘-光纤-RAID性能比较"><span class="nav-number">1.</span> <span class="nav-text">ssd/san/sas/磁盘/光纤/RAID性能比较</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#性能比较"><span class="nav-number">1.1.</span> <span class="nav-text">性能比较</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#NVMe-SSD-和-HDD的性能比较"><span class="nav-number">1.2.</span> <span class="nav-text">NVMe SSD 和 HDD的性能比较</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#磁盘类型查看"><span class="nav-number">1.3.</span> <span class="nav-text">磁盘类型查看</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#fio测试"><span class="nav-number">1.4.</span> <span class="nav-text">fio测试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NVMe-SSD测试数据"><span class="nav-number">1.4.1.</span> <span class="nav-text">NVMe SSD测试数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#SATA-SSD测试数据"><span class="nav-number">1.4.2.</span> <span class="nav-text">SATA SSD测试数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ESSD磁盘测试数据"><span class="nav-number">1.4.3.</span> <span class="nav-text">ESSD磁盘测试数据</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#ESSD-PL3测试"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">ESSD PL3测试</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#HDD性能测试数据"><span class="nav-number">1.4.4.</span> <span class="nav-text">HDD性能测试数据</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#测试数据总结"><span class="nav-number">1.5.</span> <span class="nav-text">测试数据总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#网上测试数据参考"><span class="nav-number">1.5.1.</span> <span class="nav-text">网上测试数据参考</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#对比LVM-、RAID0和-一块NVMe-SSD"><span class="nav-number">1.6.</span> <span class="nav-text">对比LVM 、RAID0和 一块NVMe SSD</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#顺序读写"><span class="nav-number">1.6.1.</span> <span class="nav-text">顺序读写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#随机读写"><span class="nav-number">1.6.2.</span> <span class="nav-text">随机读写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#raid6测试"><span class="nav-number">1.6.3.</span> <span class="nav-text">raid6测试</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#fio-结果解读"><span class="nav-number">1.7.</span> <span class="nav-text">fio 结果解读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#iostat-结果解读"><span class="nav-number">1.8.</span> <span class="nav-text">iostat 结果解读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#不同厂家SSD性能对比"><span class="nav-number">1.9.</span> <span class="nav-text">不同厂家SSD性能对比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#rq-affinity"><span class="nav-number">1.10.</span> <span class="nav-text">rq_affinity</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#磁盘挂载参数"><span class="nav-number">1.11.</span> <span class="nav-text">磁盘挂载参数</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#优化case"><span class="nav-number">1.11.1.</span> <span class="nav-text">优化case</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#LVM性能对比"><span class="nav-number">1.12.</span> <span class="nav-text">LVM性能对比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#数据总结"><span class="nav-number">1.13.</span> <span class="nav-text">数据总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#工具"><span class="nav-number">1.14.</span> <span class="nav-text">工具</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.15.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#ssd-san-sas-磁盘-光纤-RAID性能比较"><span class="nav-number">1.</span> <span class="nav-text">ssd/san/sas/磁盘/光纤/RAID性能比较</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#性能比较"><span class="nav-number">1.1.</span> <span class="nav-text">性能比较</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#NVMe-SSD-和-HDD的性能比较"><span class="nav-number">1.2.</span> <span class="nav-text">NVMe SSD 和 HDD的性能比较</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#磁盘类型查看"><span class="nav-number">1.3.</span> <span class="nav-text">磁盘类型查看</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#fio测试"><span class="nav-number">1.4.</span> <span class="nav-text">fio测试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NVMe-SSD测试数据"><span class="nav-number">1.4.1.</span> <span class="nav-text">NVMe SSD测试数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#SATA-SSD测试数据"><span class="nav-number">1.4.2.</span> <span class="nav-text">SATA SSD测试数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ESSD磁盘测试数据"><span class="nav-number">1.4.3.</span> <span class="nav-text">ESSD磁盘测试数据</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#ESSD-PL3-测试"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">ESSD(PL3) 测试</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#HDD性能测试数据"><span class="nav-number">1.4.4.</span> <span class="nav-text">HDD性能测试数据</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#测试数据总结"><span class="nav-number">1.5.</span> <span class="nav-text">测试数据总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#网上测试数据参考"><span class="nav-number">1.5.1.</span> <span class="nav-text">网上测试数据参考</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#对比LVM-、RAID0和-一块NVMe-SSD"><span class="nav-number">1.6.</span> <span class="nav-text">对比LVM 、RAID0和 一块NVMe SSD</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#顺序读写"><span class="nav-number">1.6.1.</span> <span class="nav-text">顺序读写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#随机读写"><span class="nav-number">1.6.2.</span> <span class="nav-text">随机读写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#raid6测试"><span class="nav-number">1.6.3.</span> <span class="nav-text">raid6测试</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#fio-结果解读"><span class="nav-number">1.7.</span> <span class="nav-text">fio 结果解读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#iostat-结果解读"><span class="nav-number">1.8.</span> <span class="nav-text">iostat 结果解读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#不同厂家SSD性能对比"><span class="nav-number">1.9.</span> <span class="nav-text">不同厂家SSD性能对比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#rq-affinity"><span class="nav-number">1.10.</span> <span class="nav-text">rq_affinity</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#磁盘挂载参数"><span class="nav-number">1.11.</span> <span class="nav-text">磁盘挂载参数</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#优化case"><span class="nav-number">1.11.1.</span> <span class="nav-text">优化case</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#LVM性能对比"><span class="nav-number">1.12.</span> <span class="nav-text">LVM性能对比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#数据总结"><span class="nav-number">1.13.</span> <span class="nav-text">数据总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#工具"><span class="nav-number">1.14.</span> <span class="nav-text">工具</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考资料"><span class="nav-number">1.15.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
             
 
           </div>

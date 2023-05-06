@@ -291,6 +291,191 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/16/网络通不通是个大问题--半夜鸡叫/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/16/网络通不通是个大问题--半夜鸡叫/" itemprop="url">网络通不通是个大问题–半夜鸡叫</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-16T17:30:03+08:00">
+                2019-05-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="网络通不通是个大问题–半夜鸡叫"><a href="#网络通不通是个大问题–半夜鸡叫" class="headerlink" title="网络通不通是个大问题–半夜鸡叫"></a>网络通不通是个大问题–半夜鸡叫</h1><h2 id="半夜鸡叫"><a href="#半夜鸡叫" class="headerlink" title="半夜鸡叫"></a>半夜鸡叫</h2><p>凌晨啊，还有同学在为网络为什么不通的问题搏斗着：</p>
+<p><img src="/images/951413iMgBlog/1557909424085-04a7111c-fee8-440f-ba22-411dd70cbba0.png" alt="undefined"> </p>
+<p>问题描述大概如下：</p>
+<p>slb后面配了一台realserver(就叫172吧), 在172上通过curl <a href="http://127.0.0.1:80/" target="_blank" rel="external">http://127.0.0.1:80/</a> 是正常的(说明服务自身是正常的)<br>如果从开发同学的笔记本直接curl slb-ip 就卡住了，进一步发现如果从北京的办公网curl slb-ip就行，但是从杭州的curl slb-ip就不行。</p>
+<p>从杭州curl的时候在172上抓包如下：<br><img src="/images/951413iMgBlog/1557909749498-452acc94-f04b-48bf-803f-f1acb21dd4b2.png" alt="undefined"> </p>
+<p>明显可以看到tcp握手包正确到达了172，但是172一直没有回复。也就是如果是杭州访问服务的话，服务端收到握手请求后直接扔掉没有任何回复（回想下哪些场景会扔包）</p>
+<h2 id="问题排查"><a href="#问题排查" class="headerlink" title="问题排查"></a>问题排查</h2><h3 id="先排除了iptables的问题"><a href="#先排除了iptables的问题" class="headerlink" title="先排除了iptables的问题"></a>先排除了iptables的问题</h3><pre><code>略过
+</code></pre><h3 id="route-的嫌疑"><a href="#route-的嫌疑" class="headerlink" title="route 的嫌疑"></a>route 的嫌疑</h3><p>因为北京可以杭州不行，明显是某些IP可以，于是检查route 表，解决问题的<a href="https://www.atatech.org/articles/80573" target="_blank" rel="external">必杀技(基础知识)都在这里</a></p>
+<p>发现杭州的ip和北京的ip确实命中了不同的路由规则，简单说就是172绑在eth0上，机器还有另外一块网卡eth1. 而回复杭州ip的时候要走eth1. 至于为什么没有从eth1回复等会再说</p>
+<p>知道原因就好说了，修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
+<p>所以到这里，问题描述如下：<br>    <img src="/images/951413iMgBlog/1557910281403-59a60a80-5edf-472d-827c-b2c8d6db903f.png" alt="undefined"> </p>
+<p>机器有两块网卡，请求走eth0 进来(绿线)，然后走 eth1回复(路由决定的，红线)，但是实际没走eth1回复，像是丢包了。</p>
+<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>修改一下route，让eth0成为默认路由，这样北京、杭州都能走eth0进出了</p>
+<h3 id="为什么5U的机器可以"><a href="#为什么5U的机器可以" class="headerlink" title="为什么5U的机器可以"></a>为什么5U的机器可以</h3><p>开发同学接着反馈，出问题的172是7U2的系统，但是还有一些5U7的机器完全正常，5U7的机器上也是两块网卡，route规则也是一样的。</p>
+<p>这确实诡异，看着像是7U的内核行为跟5U不一致，咨询了内核同学，让检查一下 rp_filter 参数。果然看到7U2的系统默认 rp_filter 开着，而5U7是关着的，于是反复开关这个参数稳定重现了问题    </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sysctl -w net.ipv4.conf.eth0.rp_filter=0</div></pre></td></tr></table></figure>
+<h3 id="rp-filter-原理和监控"><a href="#rp-filter-原理和监控" class="headerlink" title="rp_filter 原理和监控"></a>rp_filter 原理和监控</h3><p>rp_filter参数用于控制系统是否开启对数据包源地址的校验, 收到包后根据source ip到route表中检查是否否和最佳路由，否的话扔掉这个包【可以防止DDoS，攻击等】</p>
+<blockquote>
+<p>​    0：不开启源地址校验。<br>​    1：开启严格的反向路径校验。对每个进来的数据包，校验其反向路径是否是最佳路径。如果反向路径不是最佳路径，则直接丢弃该数据包。<br>​    2：开启松散的反向路径校验。对每个进来的数据包，校验其源地址是否可达，即反向路径是否能通（通过任意网口），如果反向路径不通，则直接丢弃该数据包。</p>
+</blockquote>
+<p>那么对于这种丢包，可以打开日志：/proc/sys/net/ipv4/conf/eth0/log_martians 来监控到：</p>
+<p><img src="/images/951413iMgBlog/1557910737844-1ee231f0-1ddd-4dee-ac07-3b23f9659878.png" alt="undefined"></p>
+<p>rp_filter: IP Reverse Path Filter, 在ip层收包的时候检查一下反向路径是不是最优路由，代码位置：</p>
+<pre><code>ip_rcv-&gt;NF_HOOK-&gt;ip_rcv_finish-&gt;ip_rcv_finish_core
+</code></pre><p>也就是rp_filter在收包的流程中检查每个进来的包，是不是符合rp_filter规则，而不是回复的时候来做判断，这也就是为什么抓包只能看到进来的syn就没有然后了</p>
+<h3 id="开启rp-filter参数的作用"><a href="#开启rp-filter参数的作用" class="headerlink" title="开启rp_filter参数的作用"></a>开启rp_filter参数的作用</h3><ul>
+<li>减少DDoS攻击: 校验数据包的反向路径，如果反向路径不合适，则直接丢弃数据包，避免过多的无效连接消耗系统资源。</li>
+<li>防止IP Spoofing: 校验数据包的反向路径，如果客户端伪造的源IP地址对应的反向路径不在路由表中，或者反向路径不是最佳路径，则直接丢弃数据包，不会向伪造IP的客户端回复响应。</li>
+</ul>
+<h3 id="通过netstat-s来观察IPReversePathFilter"><a href="#通过netstat-s来观察IPReversePathFilter" class="headerlink" title="通过netstat -s来观察IPReversePathFilter"></a>通过netstat -s来观察IPReversePathFilter</h3><pre><code>$netstat -s | grep -i filter
+    IPReversePathFilter: 35428
+$netstat -s | grep -i filter
+    IPReversePathFilter: 35435
+</code></pre><p>能明显看到这个数字在增加，如果没开rp_filter 就看不到这个指标或者数值不变</p>
+<p><img src="/images/951413iMgBlog/1557975265195-ef0ed7c0-61be-452b-a27e-6d395b4aaff3.png" alt="undefined"> </p>
+<p>问题出现的时候，尝试过用 watch -d -n 3 ‘netstat -s’ 来观察过哪些指标在变化，只是变化的指标太多，留意不过来，或者只是想着跟drop、route有关的参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   InNoRoutes: 31</div></pre></td></tr></table></figure>
+<p>当时观察到这几个指标，都没有变化，实际他们看着像但是都跟rp_filter没关系，最后我打算收藏如下命令保平安：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div></pre></td><td class="code"><pre><div class="line">$netstat -s |egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">   12 dropped because of missing route</div><div class="line">   30 times the listen queue of a socket overflowed</div><div class="line">   30 SYNs to LISTEN sockets dropped</div><div class="line">   IPReversePathFilter: 35435</div><div class="line">   InNoRoutes: 31</div><div class="line"></div><div class="line">$nstat -z -t 1 | egrep -i &quot;drop|route|overflow|filter|retran|fails|listen&quot;</div><div class="line">IpOutNoRoutes                   0                  0.0</div><div class="line">TcpRetransSegs                  20                 0.0</div><div class="line">Ip6InNoRoutes                   0                  0.0</div><div class="line">Ip6OutNoRoutes                  0                  0.0</div><div class="line">Icmp6InRouterSolicits           0                  0.0</div><div class="line">Icmp6InRouterAdvertisements     0                  0.0</div><div class="line">Icmp6OutRouterSolicits          0                  0.0</div><div class="line">Icmp6OutRouterAdvertisements    0                  0.0</div><div class="line">TcpExtLockDroppedIcmps          0                  0.0</div><div class="line">TcpExtArpFilter                 0                  0.0</div><div class="line">TcpExtListenOverflows           0                  0.0</div><div class="line">TcpExtListenDrops               0                  0.0</div><div class="line">TcpExtTCPPrequeueDropped        0                  0.0</div><div class="line">TcpExtTCPLostRetransmit         0                  0.0</div><div class="line">TcpExtTCPFastRetrans            0                  0.0</div><div class="line">TcpExtTCPForwardRetrans         0                  0.0</div><div class="line">TcpExtTCPSlowStartRetrans       0                  0.0</div><div class="line">TcpExtTCPBacklogDrop            0                  0.0</div><div class="line">TcpExtTCPMinTTLDrop             0                  0.0</div><div class="line">TcpExtTCPDeferAcceptDrop        0                  0.0</div><div class="line">TcpExtIPReversePathFilter       2                  0.0</div><div class="line">TcpExtTCPTimeWaitOverflow       0                  0.0</div><div class="line">TcpExtTCPReqQFullDrop           0                  0.0</div><div class="line">TcpExtTCPRetransFail            0                  0.0</div><div class="line">TcpExtTCPOFODrop                0                  0.0</div><div class="line">TcpExtTCPFastOpenListenOverflow 0                  0.0</div><div class="line">TcpExtTCPSynRetrans             10                 0.0</div><div class="line">IpExtInNoRoutes                 0                  0.0</div></pre></td></tr></table></figure>
+<h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
+<li>网络不通，诊断：ping ip</li>
+<li>端口不通,  诊断：telnet ip port</li>
+<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
+<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
+<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
+<li>syn flood攻击, 诊断：同上</li>
+<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
+<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>本质原因就是服务器开启了 rp_filter 为1，严格校验进出包是否走同一块网卡，而如果请求从杭州机房发过来的话，回复包的路由走的是另外一块网卡，触发了内核的rp_filter扔包逻辑。</p>
+<p>改server的路由可以让杭州的包也走同一块网卡，就不扔掉了。当然将 rp_filter 改成0 关掉这个校验逻辑也可以完全避免这个扔包。</p>
+<p>从问题的解决思路来说，基本都可以认定是握手的时候服务器扔包了。只有知道 rp_filter 参数的内核老司机可以直接得出是这里的原因。如果对于一个新手的话还是得掌握如何推理分析得到原因。</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/15/就是要你懂网络--一个网络包的旅程/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4621,154 +4806,6 @@ msg_size  =4 KiB (4,096)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/" itemprop="url">双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-07-26T16:30:03+08:00">
-                2018-07-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题"><a href="#双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
-<p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
-</blockquote>
-<p><img src="/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
-<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
-<p>图中CPU的消耗占21%，不太正常。</p>
-<blockquote>
-<p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到<br>@RequestMapping<br>@PathVariable<br>带来使用上的便利</p>
-</blockquote>
-<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
-<p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
-<h3 id="Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）："><a href="#Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）：" class="headerlink" title="Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）："></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) &#123;</div><div class="line">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);</div><div class="line">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);</div><div class="line">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);</div><div class="line">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);</div><div class="line">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);</div><div class="line">176</div><div class="line">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) &#123;</div><div class="line">178			return null;</div><div class="line">179		&#125;</div><div class="line">180</div><div class="line">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);</div><div class="line">182		if (patterns == null) &#123;</div><div class="line">183			return null;</div><div class="line">184		&#125;</div><div class="line">185</div><div class="line">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);</div><div class="line">187		if (custom == null) &#123;</div><div class="line">188			return null;</div><div class="line">189		&#125;</div><div class="line">190</div><div class="line">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());</div><div class="line">192	&#125;</div></pre></td></tr></table></figure>
-<h3 id="doMatch-代码："><a href="#doMatch-代码：" class="headerlink" title="doMatch 代码："></a>doMatch 代码：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div></pre></td><td class="code"><pre><div class="line">96 </div><div class="line">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,</div><div class="line">98 			Map&lt;String, String&gt; uriTemplateVariables) &#123;</div><div class="line">99 </div><div class="line">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) &#123;</div><div class="line">101			return false;</div><div class="line">102		&#125;</div><div class="line">103</div><div class="line">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);</div><div class="line">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);</div><div class="line">106</div><div class="line">107		int pattIdxStart = 0;</div><div class="line">108		int pattIdxEnd = pattDirs.length - 1;</div><div class="line">109		int pathIdxStart = 0;</div><div class="line">110		int pathIdxEnd = pathDirs.length - 1;</div><div class="line">111</div><div class="line">112		// Match all elements up to the first **</div><div class="line">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">114			String patDir = pattDirs[pattIdxStart];</div><div class="line">115			if (&quot;**&quot;.equals(patDir)) &#123;</div><div class="line">116				break;</div><div class="line">117			&#125;</div><div class="line">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) &#123;</div><div class="line">119				return false;</div><div class="line">120			&#125;</div><div class="line">121			pattIdxStart++;</div><div class="line">122			pathIdxStart++;</div><div class="line">123		&#125;</div><div class="line">124</div><div class="line">125		if (pathIdxStart &gt; pathIdxEnd) &#123;</div><div class="line">126			// Path is exhausted, only match if rest of pattern is * or **&apos;s</div><div class="line">127			if (pattIdxStart &gt; pattIdxEnd) &#123;</div><div class="line">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :</div><div class="line">129						!path.endsWith(this.pathSeparator));</div><div class="line">130			&#125;</div><div class="line">131			if (!fullMatch) &#123;</div><div class="line">132				return true;</div><div class="line">133			&#125;</div><div class="line">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&quot;*&quot;) &amp;&amp; path.endsWith(this.pathSeparator)) &#123;</div><div class="line">135				return true;</div><div class="line">136			&#125;</div><div class="line">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">138				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">139					return false;</div><div class="line">140				&#125;</div><div class="line">141			&#125;</div><div class="line">142			return true;</div><div class="line">143		&#125;</div><div class="line">144		else if (pattIdxStart &gt; pattIdxEnd) &#123;</div><div class="line">145			// String not exhausted, but pattern is. Failure.</div><div class="line">146			return false;</div><div class="line">147		&#125;</div><div class="line">148		else if (!fullMatch &amp;&amp; &quot;**&quot;.equals(pattDirs[pattIdxStart])) &#123;</div><div class="line">149			// Path start definitely matches due to &quot;**&quot; part in pattern.</div><div class="line">150			return true;</div><div class="line">151		&#125;</div><div class="line">152</div><div class="line">153		// up to last &apos;**&apos;</div><div class="line">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">155			String patDir = pattDirs[pattIdxEnd];</div><div class="line">156			if (patDir.equals(&quot;**&quot;)) &#123;</div><div class="line">157				break;</div><div class="line">158			&#125;</div><div class="line">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) &#123;</div><div class="line">160				return false;</div><div class="line">161			&#125;</div><div class="line">162			pattIdxEnd--;</div><div class="line">163			pathIdxEnd--;</div><div class="line">164		&#125;</div><div class="line">165		if (pathIdxStart &gt; pathIdxEnd) &#123;</div><div class="line">166			// String is exhausted</div><div class="line">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">168				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">169					return false;</div><div class="line">170				&#125;</div><div class="line">171			&#125;</div><div class="line">172			return true;</div><div class="line">173		&#125;</div><div class="line">174</div><div class="line">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</div><div class="line">176			int patIdxTmp = -1;</div><div class="line">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">178				if (pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">179					patIdxTmp = i;</div><div class="line">180					break;</div><div class="line">181				&#125;</div><div class="line">182			&#125;</div><div class="line">183			if (patIdxTmp == pattIdxStart + 1) &#123;</div><div class="line">184				// &apos;**/**&apos; situation, so skip one</div><div class="line">185				pattIdxStart++;</div><div class="line">186				continue;</div><div class="line">187			&#125;</div><div class="line">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between</div><div class="line">189			// strIdxStart &amp; strIdxEnd</div><div class="line">190			int patLength = (patIdxTmp - pattIdxStart - 1);</div><div class="line">191			int strLength = (pathIdxEnd - pathIdxStart + 1);</div><div class="line">192			int foundIdx = -1;</div><div class="line">193</div><div class="line">194			strLoop:</div><div class="line">195			for (int i = 0; i &lt;= strLength - patLength; i++) &#123;</div><div class="line">196				for (int j = 0; j &lt; patLength; j++) &#123;</div><div class="line">197					String subPat = pattDirs[pattIdxStart + j + 1];</div><div class="line">198					String subStr = pathDirs[pathIdxStart + i + j];</div><div class="line">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) &#123;</div><div class="line">200						continue strLoop;</div><div class="line">201					&#125;</div><div class="line">202				&#125;</div><div class="line">203				foundIdx = pathIdxStart + i;</div><div class="line">204				break;</div><div class="line">205			&#125;</div><div class="line">206</div><div class="line">207			if (foundIdx == -1) &#123;</div><div class="line">208				return false;</div><div class="line">209			&#125;</div><div class="line">210</div><div class="line">211			pattIdxStart = patIdxTmp;</div><div class="line">212			pathIdxStart = foundIdx + patLength;</div><div class="line">213		&#125;</div><div class="line">214</div><div class="line">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</div><div class="line">216			if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</div><div class="line">217				return false;</div><div class="line">218			&#125;</div><div class="line">219		&#125;</div><div class="line">220</div><div class="line">221		return true;</div><div class="line">222	&#125;</div></pre></td></tr></table></figure>
-<p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a href="http://www.cnblogs.com/ucos/articles/5542012.html" target="_blank" rel="external">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
-<p>以及这篇文章中给出的优化前后对比图：<br><img src="/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4818,7 +4855,7 @@ msg_size  =4 KiB (4,096)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">153</span>
+                <span class="site-state-item-count">154</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4840,7 +4877,7 @@ msg_size  =4 KiB (4,096)
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">244</span>
+                <span class="site-state-item-count">245</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
