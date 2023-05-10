@@ -291,6 +291,219 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP传输速度案例分析/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/15/TCP传输速度案例分析/" itemprop="url">TCP传输速度案例分析</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-15T17:30:03+08:00">
+                2021-01-15
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP传输速度案例分析"><a href="#TCP传输速度案例分析" class="headerlink" title="TCP传输速度案例分析"></a>TCP传输速度案例分析</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
+<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
+<p> <a href="/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。</p>
+<h2 id="前后端rtt差异大-vip下载慢的案例"><a href="#前后端rtt差异大-vip下载慢的案例" class="headerlink" title="前后端rtt差异大+vip下载慢的案例"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：<a href="https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng" target="_blank" rel="external">https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng</a> 文章中的trace-cmd工具也不错</p>
+<p>如下三个链路，有一个不正常了</p>
+<p><img src="/images/oss/2422ae219d3b27cfe8c799642662d5b2.png" alt="image.png"></p>
+<p>首先通过 ss -it dst “ip:port” 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
+<h3 id="原因TCPLossProbe："><a href="#原因TCPLossProbe：" class="headerlink" title="原因TCPLossProbe："></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
+<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO=max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
+<p>握手完毕后第七号包很快重传了</p>
+<p><img src="/images/oss/2867daa600363af61f8f971479246858.png" alt="image.png"></p>
+<h3 id="观察："><a href="#观察：" class="headerlink" title="观察："></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
+<h3 id="解决："><a href="#解决：" class="headerlink" title="解决："></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans=2 关掉TLP</p>
+<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
+<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
+<h2 id="长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例"><a href="#长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例" class="headerlink" title="长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
+<blockquote>
+<p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
+</blockquote>
+<p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
+<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save = 1 </p>
+<p>或者清除： sudo ip tcp_metrics flush all</p>
+<h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
+
+192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
+
+清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<h2 id="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"><a href="#长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响" class="headerlink" title="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
+<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
+<p>client ——150ms—–&gt;&gt;&gt;LVS—1ms–&gt;&gt;&gt;美国的统一接入server—–1ms—–&gt;&gt;&gt;nginx</p>
+<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
+<h3 id="Nginx上抓包"><a href="#Nginx上抓包" class="headerlink" title="Nginx上抓包"></a>Nginx上抓包</h3><p><img src="/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png" alt="image.png"></p>
+<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
+<h3 id="client上抓包"><a href="#client上抓包" class="headerlink" title="client上抓包"></a>client上抓包</h3><p><img src="/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png" alt="image.png"></p>
+<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
+<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
+<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
+<h3 id="将buffer改大"><a href="#将buffer改大" class="headerlink" title="将buffer改大"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
+<p><img src="/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png" alt="image.png"></p>
+<p><img src="/images/oss/0a8c68a58da6f169573b57cde0ffba93.png" alt="image.png"></p>
+<p>接着看一下client上的抓包</p>
+<p><img src="/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png" alt="image.png"></p>
+<p>可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
+<p>那么继续分析一下握手包，syn：</p>
+<p><img src="/images/oss/004886698ddbaa1cbc8342a9cd667c76.png" alt="image.png"></p>
+<p>说明client是支持的，再看 syn+ack：</p>
+<p><img src="/images/oss/70155e021390cb1ee07091c306c375f4.png" alt="image.png"></p>
+<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
+<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
+<p>比如这是这个应用的开发人员的反馈：</p>
+<p><img src="/images/oss/a08a204ec7ad4bba7867dacea1668322.png" alt="image.png"></p>
+<p><a href="https://datatracker.ietf.org/doc/html/rfc1072" target="_blank" rel="external">长肥网络</a>就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。<br>在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
+<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑程序员连自己的业务结构都描述不清）：</p>
+<p>client ——150ms—–&gt;&gt;&gt;nginx</p>
+<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
+<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
+<p>nginx buffer 分析参考案例：<a href="https://juejin.cn/post/6875223721615818765" target="_blank" rel="external">https://juejin.cn/post/6875223721615818765</a> nginx上下游收发包速率不一致导致nginx buffer打爆, 关闭nginx proxy_buffering 可解 （作者：挖坑的张师傅）</p>
+<p><img src="/images/951413iMgBlog/433762.png" alt="image.png"></p>
+<h2 id="应用层发包逻辑影响了BDP不能跑满"><a href="#应用层发包逻辑影响了BDP不能跑满" class="headerlink" title="应用层发包逻辑影响了BDP不能跑满"></a>应用层发包逻辑影响了BDP不能跑满</h2><p>来自 dog250: <a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="external">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a> </p>
+<blockquote>
+<p>用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
+<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
+<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
+</blockquote>
+<h2 id="delay-ack拉高实际rt的案例"><a href="#delay-ack拉高实际rt的案例" class="headerlink" title="delay ack拉高实际rt的案例"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
+<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
+<p><img src="/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
+<p>抓包来分析原因：</p>
+<p><img src="/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
+<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
+<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
+<p><img src="/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="external">SSH Performance</a></p>
+<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="external">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/03/mac路由和DSN相关知识/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5012,188 +5225,6 @@
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/01/如何创建一个自己连自己的TCP连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/07/01/如何创建一个自己连自己的TCP连接/" itemprop="url">如何创建一个自己连自己的TCP连接</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-07-01T17:30:03+08:00">
-                2020-07-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何创建一个自己连自己的TCP连接"><a href="#如何创建一个自己连自己的TCP连接" class="headerlink" title="如何创建一个自己连自己的TCP连接"></a>如何创建一个自己连自己的TCP连接</h1><blockquote>
-<p>能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？</p>
-</blockquote>
-<p>执行</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"># nc 192.168.0.79 18082 -p 18082</div></pre></td></tr></table></figure>
-<p>然后就能看到</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 18082</div><div class="line">tcp        0      0 192.168.0.79:18082      192.168.0.79:18082      ESTABLISHED</div></pre></td></tr></table></figure>
-<p>比较神奇，这个连接的srcport等于destport，并且完全可以工作，也能收发数据。这有点颠覆大家的理解，端口能重复使用？</p>
-<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地端口范围由参数控制</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </div><div class="line">10000	65535</div></pre></td></tr></table></figure>
-<p>所以也经常看到一个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
-<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>在内存、文件句柄足够的话可以创建的连接是没有限制的，那么/proc/sys/net/ipv4/ip_local_port_range指定的端口范围到底是什么意思呢？</p>
-<p>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一，比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line"># netstat -ant |grep 18089</div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</div><div class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</div><div class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </div><div class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</div><div class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</div></pre></td></tr></table></figure>
-<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。</p>
-<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
-<p>但是如果程序调用的是bind函数(bind(ip,port=0))这个时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候4元组是唯一的。</p>
-<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
-<h2 id="自己连自己的连接"><a href="#自己连自己的连接" class="headerlink" title="自己连自己的连接"></a>自己连自己的连接</h2><p>我们来看自己连自己发生了什么</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="comment"># strace nc 192.168.0.79 18084 -p 18084</span></div><div class="line">execve(<span class="string">"/usr/bin/nc"</span>, [<span class="string">"nc"</span>, <span class="string">"192.168.0.79"</span>, <span class="string">"18084"</span>, <span class="string">"-p"</span>, <span class="string">"18084"</span>], [/* 31 vars */]) = 0</div><div class="line">brk(NULL)                               = 0x23d4000</div><div class="line">mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f213f394000</div><div class="line">access(<span class="string">"/etc/ld.so.preload"</span>, R_OK)      = -1 ENOENT (No such file or directory)</div><div class="line">open(<span class="string">"/etc/ld.so.cache"</span>, O_RDONLY|O_CLOEXEC) = 3</div><div class="line">fstat(3, &#123;st_mode=S_IFREG|0644, st_size=23295, ...&#125;) = 0</div><div class="line">mmap(NULL, 23295, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f213f38e000</div><div class="line">close(3)                                = 0</div><div class="line">open(<span class="string">"/lib64/libssl.so.10"</span>, O_RDONLY|O_CLOEXEC) = 3</div><div class="line">………………</div><div class="line">munmap(0x7f213f393000, 4096)            = 0</div><div class="line">open(<span class="string">"/usr/share/ncat/ca-bundle.crt"</span>, O_RDONLY) = -1 ENOENT (No such file or directory)</div><div class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</div><div class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</div><div class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</div><div class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</div><div class="line"><span class="built_in">bind</span>(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"0.0.0.0"</span>)&#125;, 16) = 0</div><div class="line">//注意这里<span class="built_in">bind</span>后直接就是connect，没有listen</div><div class="line">connect(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">"192.168.0.79"</span>)&#125;, 16) = -1 EINPROGRESS (Operation now <span class="keyword">in</span> progress)</div><div class="line">select(4, [3], [3], [3], &#123;10, 0&#125;)       = 1 (out [3], left &#123;9, 999998&#125;)</div><div class="line">getsockopt(3, SOL_SOCKET, SO_ERROR, [0], [4]) = 0</div><div class="line">select(4, [0 3], [], [], NULL</div></pre></td></tr></table></figure>
-<p>抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的</p>
-<p><img src="/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png" alt="image.png"></p>
-<p>这个连接算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。</p>
-<p>正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。</p>
-<p>那么这种情况为什么没有当做bug被处理呢？</p>
-<h2 id="TCP-simultanous-open"><a href="#TCP-simultanous-open" class="headerlink" title="TCP simultanous open"></a>TCP simultanous open</h2><p>在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。</p>
-<p><img src="/images/oss/b9a0144a3835759c844f697bc45103fa.png" alt="image.png"></p>
-<p>​                                                                       摘自《tcp/ip卷1》</p>
-<p>可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下内核代码 net/ipv4/tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack(发出syn后), 结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line">	static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,</div><div class="line">                     const struct tcphdr *th)</div><div class="line">	&#123;</div><div class="line">5916         /* PAWS check. */</div><div class="line">5917         if (tp-&gt;rx_opt.ts_recent_stamp &amp;&amp; tp-&gt;rx_opt.saw_tstamp &amp;&amp;</div><div class="line">5918             tcp_paws_reject(&amp;tp-&gt;rx_opt, 0))</div><div class="line">5919                 goto discard_and_undo;</div><div class="line">5920         //在socket发送syn后收到了一个syn(正常应该收到syn+ack),这里是允许的。</div><div class="line">5921         if (th-&gt;syn) &#123;</div><div class="line">5922                 /* We see SYN without ACK. It is attempt of</div><div class="line">5923                  * simultaneous connect with crossed SYNs.</div><div class="line">5924                  * Particularly, it can be connect to self.  //自己连自己</div><div class="line">5925                  */</div><div class="line">5926                 tcp_set_state(sk, TCP_SYN_RECV);</div><div class="line">5927 </div><div class="line">5928                 if (tp-&gt;rx_opt.saw_tstamp) &#123;</div><div class="line">5929                         tp-&gt;rx_opt.tstamp_ok = 1;</div><div class="line">5930                         tcp_store_ts_recent(tp);</div><div class="line">5931                         tp-&gt;tcp_header_len =</div><div class="line">5932                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;</div><div class="line">5933                 &#125; else &#123;</div><div class="line">5934                         tp-&gt;tcp_header_len = sizeof(struct tcphdr);</div><div class="line">5935                 &#125;</div><div class="line">5936 </div><div class="line">5937                 tp-&gt;rcv_nxt = TCP_SKB_CB(skb)-&gt;seq + 1;</div><div class="line">5938                 tp-&gt;copied_seq = tp-&gt;rcv_nxt;</div><div class="line">5939                 tp-&gt;rcv_wup = TCP_SKB_CB(skb)-&gt;seq + 1;</div><div class="line">5940 </div><div class="line">5941                 /* RFC1323: The window in SYN &amp; SYN/ACK segments is</div><div class="line">5942                  * never scaled.</div><div class="line">5943                  */</div></pre></td></tr></table></figure>
-<p>也就是在发送syn进入SYN_SENT状态之后，收到对端发来的syn包后不会RST，而是处理流程如下，调用tcp_set_state(sk, TCP_SYN_RECV)进入SYN_RECV状态，以及调用tcp_send_synack(sk)向对端发送syn+ack。</p>
-<h2 id="自己连自己的原理解释"><a href="#自己连自己的原理解释" class="headerlink" title="自己连自己的原理解释"></a>自己连自己的原理解释</h2><p>第一我们要理解Kernel是支持simultaneous open（同时打开）的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。</p>
-<p>自己连自己又是simultaneous open的一个特例，特别在这个连接只有一个socket参与，发送、接收都是同一个socket，自然也会是发syn后收到了自己的syn（自己发给自己），然后依照simultaneous open连接也能创建成功。</p>
-<p>这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084 socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。</p>
-<p>可以用python来重现这个连接连自己的过程：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">import socket</div><div class="line">import time</div><div class="line"></div><div class="line">connected=False</div><div class="line">while (not connected):</div><div class="line">        try:</div><div class="line">                sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)</div><div class="line">                sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)</div><div class="line">				sock.bind((&apos;&apos;, 18084))               //sock 先bind到18084</div><div class="line">                sock.connect((&apos;127.0.0.1&apos;,18084))    //然后同一个socket连自己</div><div class="line">                connected=True</div><div class="line">        except socket.error,(value,message):</div><div class="line">                print message</div><div class="line"></div><div class="line">        if not connected:</div><div class="line">                print &quot;reconnect&quot;</div><div class="line">               </div><div class="line">print &quot;tcp self connection occurs!&quot;</div><div class="line">print &quot;netstat -an|grep 18084&quot;</div><div class="line">time.sleep(1800)</div></pre></td></tr></table></figure>
-<p>这里connect前如果没有bind那么系统就会从 local port range 分配一个可用port。</p>
-<p>bind成功后会将ip+port放入hash表来判重，这就是我们常看到的 Bind to <em>*</em> failed (IOD #1): Address already in use 异常。所以一台机器上，如果有多个ip，是可以将同一个port bind多次的，但是bind的时候如果不指定ip，也就是bind(‘0’, port) 还是会冲突。</p>
-<p>connect成功后会将四元组放入ehash来判定连接的重复性。如果connect四元组冲突了就会报如下错误</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># nc 192.168.0.82 8080 -p 29798 -s 192.168.0.79</div><div class="line">Ncat: Cannot assign requested address.</div></pre></td></tr></table></figure>
-<h2 id="bind-和-connect、listen"><a href="#bind-和-connect、listen" class="headerlink" title="bind 和 connect、listen"></a>bind 和 connect、listen</h2><p>当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。</p>
-<p>如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</div><div class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</div><div class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</div><div class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</div><div class="line">bind(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(&quot;0.0.0.0&quot;)&#125;, 16) = 0</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/5373ecfe0d4496d106c64d3f370c893c.png" alt="image.png"></p>
-<h3 id="listen"><a href="#listen" class="headerlink" title="listen"></a>listen</h3><p><img src="/images/oss/4d188cab03e919f055bb9dbe3da0188c.png" alt="image-20200702131215819"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://segmentfault.com/a/1190000002396411" target="_blank" rel="external">https://segmentfault.com/a/1190000002396411</a></p>
-<p><a href="https://blog.csdn.net/a364572/article/details/40628171" target="_blank" rel="external">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
-<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="external">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="external">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5243,7 +5274,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">154</span>
+                <span class="site-state-item-count">155</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5254,7 +5285,7 @@
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">22</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -5265,7 +5296,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">245</span>
+                <span class="site-state-item-count">246</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

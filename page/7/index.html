@@ -291,6 +291,715 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/21/vxlan网络性能测试/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/08/21/vxlan网络性能测试/" itemprop="url">vxlan网络性能测试</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-21T16:30:03+08:00">
+                2018-08-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="vxlan网络性能测试"><a href="#vxlan网络性能测试" class="headerlink" title="vxlan网络性能测试"></a>vxlan网络性能测试</h1><hr>
+<h2 id="缘起"><a href="#缘起" class="headerlink" title="缘起"></a>缘起</h2><blockquote>
+<p>Docker集群中需要给每个容器分配一个独立的IP，同时在不同宿主机环境上的容器IP又要能够互相联通，所以需要一个overlay的网络（vlan也可以解决这个问题）</p>
+<p>overlay网络就是把容器之间的网络包重新打包在宿主机的IP包里面，传到目的容器所在的宿主机后，再把这个overlay的网络包还原成容器包交给容器</p>
+<p>这里多了一次封包解包的过程，所以性能上必然有些损耗</p>
+<p>封包解包可以在应用层（比如Flannel的UDP封装），但是需要将每个网络包从内核态复制到应用态进行封包，所以性能非常差</p>
+<p>比较新的Linux内核带了vxlan功能，也就是将网络包直接在内核态完成封包，所以性能要好很多，本文vxlan指的就是这种方式</p>
+</blockquote>
+<h2 id="本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）"><a href="#本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）" class="headerlink" title="本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）"></a>本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）</h2><h2 id="iperf3-下载和安装"><a href="#iperf3-下载和安装" class="headerlink" title="iperf3 下载和安装"></a>iperf3 下载和安装</h2><ul>
+<li>wget <a href="http://downloads.es.net/pub/iperf/iperf-3.9.tar.gz" target="_blank" rel="external">http://downloads.es.net/pub/iperf/iperf-3.9.tar.gz</a> （<a href="https://downloads.es.net/pub/iperf/）" target="_blank" rel="external">https://downloads.es.net/pub/iperf/）</a></li>
+<li>tar zxvf iperf-3.0.6.tar.gz</li>
+<li>cd iperf-3.0.6</li>
+<li>./configure</li>
+<li>make install</li>
+</ul>
+<h2 id="测试环境宿主机的基本配置情况"><a href="#测试环境宿主机的基本配置情况" class="headerlink" title="测试环境宿主机的基本配置情况"></a>测试环境宿主机的基本配置情况</h2><pre><code>conf:
+loc_node   =  e12174.bja
+loc_cpu=  2 Cores: Intel Xeon E5-2430 0 @ 2.20GHz
+loc_os =  Linux 3.10.0-327.ali2010.alios7.x86_64
+loc_qperf  =  0.4.9
+rem_node   =  e26108.bja
+rem_cpu=  2 Cores: Intel Xeon E5-2430 0 @ 2.20GHz
+rem_os =  Linux 3.10.0-327.ali2010.alios7.x86_64
+rem_qperf  =  0.4.9
+</code></pre><h3 id="容器到自身宿主机之间-跟两容器在同一宿主机，速度差不多"><a href="#容器到自身宿主机之间-跟两容器在同一宿主机，速度差不多" class="headerlink" title="容器到自身宿主机之间, 跟两容器在同一宿主机，速度差不多"></a>容器到自身宿主机之间, 跟两容器在同一宿主机，速度差不多</h3><pre><code>$iperf3 -c 192.168.6.6 
+Connecting to host 192.168.6.6, port 5201
+[  4] local 192.168.6.1 port 21112 connected to 192.168.6.6 port 5201
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec  13.9 GBytes  11.9 Gbits/sec1 sender
+[  4]   0.00-10.00  sec  13.9 GBytes  11.9 Gbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec  14.2 GBytes  12.2 Gbits/sec  139 sender
+[  4]   0.00-10.00  sec  14.2 GBytes  12.2 Gbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec  13.9 GBytes  11.9 Gbits/sec   96 sender
+[  4]   0.00-10.00  sec  13.9 GBytes  11.9 Gbits/sec  receiver
+</code></pre><h3 id="从宿主机A到宿主机B上的容器"><a href="#从宿主机A到宿主机B上的容器" class="headerlink" title="从宿主机A到宿主机B上的容器"></a>从宿主机A到宿主机B上的容器</h3><pre><code>$iperf3 -c 192.168.6.6
+Connecting to host 192.168.6.6, port 5201
+[  4] local 192.168.6.1 port 47940 connected to 192.168.6.6 port 5201
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   409 MBytes   343 Mbits/sec0 sender
+[  4]   0.00-10.00  sec   405 MBytes   340 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   389 MBytes   326 Mbits/sec   14 sender
+[  4]   0.00-10.00  sec   386 MBytes   324 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   460 MBytes   386 Mbits/sec7 sender
+[  4]   0.00-10.00  sec   458 MBytes   384 Mbits/sec  receiver
+</code></pre><h3 id="两宿主机之间测试"><a href="#两宿主机之间测试" class="headerlink" title="两宿主机之间测试"></a>两宿主机之间测试</h3><pre><code>$iperf3 -c 10.125.26.108
+Connecting to host 10.125.26.108, port 5201
+[  4] local 10.125.12.174 port 24309 connected to 10.125.26.108 port 5201
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   471 MBytes   395 Mbits/sec0 sender
+[  4]   0.00-10.00  sec   469 MBytes   393 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   428 MBytes   359 Mbits/sec0 sender
+[  4]   0.00-10.00  sec   426 MBytes   357 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   430 MBytes   360 Mbits/sec0 sender
+[  4]   0.00-10.00  sec   427 MBytes   358 Mbits/sec  receiver
+</code></pre><h3 id="两容器之间（跨宿主机）"><a href="#两容器之间（跨宿主机）" class="headerlink" title="两容器之间（跨宿主机）"></a>两容器之间（跨宿主机）</h3><pre><code>$iperf3 -c 192.168.6.6
+Connecting to host 192.168.6.6, port 5201
+[  4] local 192.168.6.5 port 37719 connected to 192.168.6.6 port 5201
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   403 MBytes   338 Mbits/sec   18 sender
+[  4]   0.00-10.00  sec   401 MBytes   336 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   428 MBytes   359 Mbits/sec   15 sender
+[  4]   0.00-10.00  sec   425 MBytes   356 Mbits/sec  receiver
+
+[ ID] Interval   Transfer Bandwidth   Retr
+[  4]   0.00-10.00  sec   508 MBytes   426 Mbits/sec   11 sender
+[  4]   0.00-10.00  sec   506 MBytes   424 Mbits/sec  receiver
+</code></pre><h2 id="netperf-安装依赖-automake-1-14-环境无法升级，放弃"><a href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃" class="headerlink" title="netperf 安装依赖 automake-1.14, 环境无法升级，放弃"></a>netperf 安装依赖 automake-1.14, 环境无法升级，放弃</h2><h2 id="qperf-测试工具"><a href="#qperf-测试工具" class="headerlink" title="qperf 测试工具"></a>qperf 测试工具</h2><ul>
+<li>sudo yum install qperf -y</li>
+</ul>
+<h3 id="两台宿主机之间"><a href="#两台宿主机之间" class="headerlink" title="两台宿主机之间"></a>两台宿主机之间</h3><pre><code>$qperf -t 10  10.125.26.108 tcp_bw tcp_lat
+tcp_bw:
+bw  =  50.5 MB/sec
+tcp_lat:
+latency  =  332 us
+</code></pre><h4 id="包的大小分别为1和128"><a href="#包的大小分别为1和128" class="headerlink" title="包的大小分别为1和128"></a>包的大小分别为1和128</h4><pre><code>$qperf  -oo msg_size:1   10.125.26.108 tcp_bw tcp_lat
+tcp_bw:
+bw  =  1.75 MB/sec
+tcp_lat:
+latency  =  428 us
+
+$qperf  -oo msg_size:128   10.125.26.108 tcp_bw tcp_lat
+tcp_bw:
+bw  =  57.8 MB/sec
+tcp_lat:
+latency  =  504 us
+</code></pre><h4 id="两台宿主机之间，包的大小从一个字节每次翻倍测试"><a href="#两台宿主机之间，包的大小从一个字节每次翻倍测试" class="headerlink" title="两台宿主机之间，包的大小从一个字节每次翻倍测试"></a>两台宿主机之间，包的大小从一个字节每次翻倍测试</h4><pre><code>$qperf  -oo msg_size:1:4K:*2 -vu  10.125.26.108 tcp_bw tcp_lat 
+tcp_bw:
+bw=  1.86 MB/sec
+msg_size  = 1 bytes
+tcp_bw:
+bw=  3.54 MB/sec
+msg_size  = 2 bytes
+tcp_bw:
+bw=  6.43 MB/sec
+msg_size  = 4 bytes
+tcp_bw:
+bw=  14.3 MB/sec
+msg_size  = 8 bytes
+tcp_bw:
+bw=  27.1 MB/sec
+msg_size  =16 bytes
+tcp_bw:
+bw=  42.3 MB/sec
+msg_size  =32 bytes
+tcp_bw:
+bw=  51.8 MB/sec
+msg_size  =64 bytes
+tcp_bw:
+bw=  49.7 MB/sec
+msg_size  =   128 bytes
+tcp_bw:
+bw=  48.2 MB/sec
+msg_size  =   256 bytes
+tcp_bw:
+bw=   58 MB/sec
+msg_size  =  512 bytes
+tcp_bw:
+bw=  54.6 MB/sec
+msg_size  = 1 KiB (1,024)
+tcp_bw:
+bw=  48.7 MB/sec
+msg_size  = 2 KiB (2,048)
+tcp_bw:
+bw=  53.6 MB/sec
+msg_size  = 4 KiB (4,096)
+tcp_lat:
+latency   =  432 us
+msg_size  =1 bytes
+tcp_lat:
+latency   =  480 us
+msg_size  =2 bytes
+tcp_lat:
+latency   =  441 us
+msg_size  =4 bytes
+tcp_lat:
+latency   =  487 us
+msg_size  =8 bytes
+tcp_lat:
+latency   =  404 us
+msg_size  =   16 bytes
+tcp_lat:
+latency   =  335 us
+msg_size  =   32 bytes
+tcp_lat:
+latency   =  338 us
+msg_size  =   64 bytes
+tcp_lat:
+latency   =  401 us
+msg_size  =  128 bytes
+tcp_lat:
+latency   =  496 us
+msg_size  =  256 bytes
+tcp_lat:
+latency   =  684 us
+msg_size  =  512 bytes
+tcp_lat:
+latency   =  534 us
+msg_size  =1 KiB (1,024)
+tcp_lat:
+latency   =  681 us
+msg_size  =2 KiB (2,048)
+tcp_lat:
+latency   =  701 us
+msg_size  =4 KiB (4,096)
+</code></pre><h3 id="两个容器之间（分别在两台宿主机上）"><a href="#两个容器之间（分别在两台宿主机上）" class="headerlink" title="两个容器之间（分别在两台宿主机上）"></a>两个容器之间（分别在两台宿主机上）</h3><pre><code>$qperf -t 10  192.168.6.6 tcp_bw tcp_lat 
+tcp_bw:
+bw  =  44.4 MB/sec
+tcp_lat:
+latency  =  512 us
+</code></pre><h4 id="包的大小分别为1和128-1"><a href="#包的大小分别为1和128-1" class="headerlink" title="包的大小分别为1和128"></a>包的大小分别为1和128</h4><pre><code>$qperf -oo msg_size:1  192.168.6.6 tcp_bw tcp_lat 
+tcp_bw:
+bw  =  1.13 MB/sec
+tcp_lat:
+latency  =  630 us
+
+$qperf -oo msg_size:128  192.168.6.6 tcp_bw tcp_lat 
+tcp_bw:
+bw  =  44.2 MB/sec
+tcp_lat:
+latency  =  526 us
+</code></pre><h4 id="两个容器之间，包的大小从一个字节每次翻倍测试"><a href="#两个容器之间，包的大小从一个字节每次翻倍测试" class="headerlink" title="两个容器之间，包的大小从一个字节每次翻倍测试"></a>两个容器之间，包的大小从一个字节每次翻倍测试</h4><pre><code>$qperf -oo msg_size:1:4K:*2  192.168.6.6 -vu tcp_bw tcp_lat 
+tcp_bw:
+bw=  1.06 MB/sec
+msg_size  = 1 bytes
+tcp_bw:
+bw=  2.29 MB/sec
+msg_size  = 2 bytes
+tcp_bw:
+bw=  3.79 MB/sec
+msg_size  = 4 bytes
+tcp_bw:
+bw=  7.66 MB/sec
+msg_size  = 8 bytes
+tcp_bw:
+bw=  14 MB/sec
+msg_size  =  16 bytes
+tcp_bw:
+bw=  24.4 MB/sec
+msg_size  =32 bytes
+tcp_bw:
+bw=  36 MB/sec
+msg_size  =  64 bytes
+tcp_bw:
+bw=  46.7 MB/sec
+msg_size  =   128 bytes
+tcp_bw:
+bw=   56 MB/sec
+msg_size  =  256 bytes
+tcp_bw:
+bw=  42.2 MB/sec
+msg_size  =   512 bytes
+tcp_bw:
+bw=  57.6 MB/sec
+msg_size  = 1 KiB (1,024)
+tcp_bw:
+bw=  52.3 MB/sec
+msg_size  = 2 KiB (2,048)
+tcp_bw:
+bw=  41.7 MB/sec
+msg_size  = 4 KiB (4,096)
+tcp_lat:
+latency   =  447 us
+msg_size  =1 bytes
+tcp_lat:
+latency   =  417 us
+msg_size  =2 bytes
+tcp_lat:
+latency   =  503 us
+msg_size  =4 bytes
+tcp_lat:
+latency   =  488 us
+msg_size  =8 bytes
+tcp_lat:
+latency   =  452 us
+msg_size  =   16 bytes
+tcp_lat:
+latency   =  537 us
+msg_size  =   32 bytes
+tcp_lat:
+latency   =  712 us
+msg_size  =   64 bytes
+tcp_lat:
+latency   =  521 us
+msg_size  =  128 bytes
+tcp_lat:
+latency   =  450 us
+msg_size  =  256 bytes
+tcp_lat:
+latency   =  442 us
+msg_size  =  512 bytes
+tcp_lat:
+latency   =  630 us
+msg_size  =1 KiB (1,024)
+tcp_lat:
+latency   =  519 us
+msg_size  =2 KiB (2,048)
+tcp_lat:
+latency   =  621 us
+msg_size  =4 KiB (4,096)
+</code></pre><p>​    </p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
+<li>iperf3测试带宽方面vxlan网络基本和宿主机一样，没有什么损失</li>
+<li>qperf测试vxlan的带宽只相当于宿主机的60-80%</li>
+<li>qperf测试一个字节的小包vxlan的带宽只相当于宿主机的60-65%</li>
+<li>由上面的结论猜测：物理带宽更大的情况下vxlan跟宿主机的差别会扩大</li>
+</ul>
+<p><strong>qperf安装更容易； iperf3 可以多连接并发测试，可以控制包的大小、nodelay等等</strong></p>
+<h2 id="网络方案性能"><a href="#网络方案性能" class="headerlink" title="网络方案性能"></a>网络方案性能</h2><table>
+<thead>
+<tr>
+<th></th>
+<th><strong>OS</strong></th>
+<th><strong>Host</strong></th>
+<th><strong>Docker_Host</strong></th>
+<th><strong>Docker_NAT_IPTABLES</strong></th>
+<th><strong>Docker_NAT_PROXY</strong></th>
+<th><strong>Docker_BRIDGE_VLAN</strong></th>
+<th><strong>Docker_OVS_VLAN</strong></th>
+<th><strong>Docker_HAVS_VLAN</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>TPS</strong></td>
+<td>6U</td>
+<td>118727.5</td>
+<td>115962.5</td>
+<td>83281.08</td>
+<td>29104.33</td>
+<td>57327.15</td>
+<td>55606.37</td>
+<td>54686.88</td>
+</tr>
+<tr>
+<td><strong>TPS</strong></td>
+<td>7U</td>
+<td>117501.4</td>
+<td>110010.7</td>
+<td>101131.2</td>
+<td>34795.39</td>
+<td>108857.7</td>
+<td>107554.3</td>
+<td>105021</td>
+</tr>
+<tr>
+<td></td>
+<td>6U</td>
+<td>BASE</td>
+<td>-2.38%</td>
+<td>-42.56%</td>
+<td>-307.94%</td>
+<td>-107.11%</td>
+<td>-113.51%</td>
+<td>-117.10%</td>
+</tr>
+<tr>
+<td></td>
+<td>7U</td>
+<td>BASE</td>
+<td>-6.81%</td>
+<td>-16.19%</td>
+<td>-237.69%</td>
+<td>-7.94%</td>
+<td>-9.25%</td>
+<td>-11.88%</td>
+</tr>
+<tr>
+<td><strong>RT</strong></td>
+<td>6U(ms)</td>
+<td>0.330633</td>
+<td>0.362042</td>
+<td>0.505125</td>
+<td>1.423767</td>
+<td>0.799308</td>
+<td>0.763842</td>
+<td>0.840458</td>
+</tr>
+<tr>
+<td><strong>RT</strong></td>
+<td>7U(ms)</td>
+<td>0.3028</td>
+<td>0.321267</td>
+<td>0.346325</td>
+<td>1.183225</td>
+<td>0.325333</td>
+<td>0.335708</td>
+<td>0.33535</td>
+</tr>
+<tr>
+<td></td>
+<td>6U(us)</td>
+<td>BASE</td>
+<td>31.40833</td>
+<td>174.4917</td>
+<td>1093.133</td>
+<td>468.675</td>
+<td>433.2083</td>
+<td>509.825</td>
+</tr>
+<tr>
+<td></td>
+<td>7U(us)</td>
+<td>BASE</td>
+<td>18.46667</td>
+<td>43.525</td>
+<td>880.425</td>
+<td>22.53333</td>
+<td>32.90833</td>
+<td>32.55</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Host：是指没有隔离的情况下，D13物理机；</li>
+<li>Docker_Host：是指Docker采用Host网络模式;</li>
+<li>Docker_NAT_IPTABLES：是指Docker采用NAT网络模式，通过IPTABLES进行网络转发。</li>
+<li>Docker_NAT_PROXY：是指Docker采用NAT网络模式，通过docker-proxy进行网络转发。</li>
+<li>Docker_BRIDGE：是指Docker采用Bridge网络模式，并且配置静态IP和VLAN701，这里使用VLAN。</li>
+<li>Docker_OVS_VLAN：是指Docker采用VSwitch网络模式，通过OpenVSwitch进行网络通信，使用ACS VLAN Driver。</li>
+<li>Docker_HAVS_VLAN：是指Docker采用VSwitch网络模式，通过HAVS进行网络通信，使用VLAN。</li>
+</ul>
+<h3 id="通过测试，汇总测试结论如下"><a href="#通过测试，汇总测试结论如下" class="headerlink" title="通过测试，汇总测试结论如下"></a>通过测试，汇总测试结论如下</h3><ol>
+<li><p>Docker_Host网络模式在6U和7U环境下，性能比物理机方案上性能降低了2~6%左右，RT增加了18~30us左右。</p>
+</li>
+<li><p>Docker_NAT_IPTABLES网络模式在6U环境下，性能比物理机方案上性能降低了43%左右，RT增加了174us；在7U环境下，性能比物理机方案上性能降低了16%左右，RT增加了44us；此外，可以明显看出，7U环境比6U环境性能上优化了20%，RT上减少了130us左右。</p>
+</li>
+<li><p>Docker_NAT_PROXY网络模式在6U环境下，性能比物理机方案性能降低了300%，RT增加了1ms以上；在7U环境下，性能比物理机方案性能降低了237%，RT增加了880us以上；此外，可以明显看出，7U环境比6U环境性能上优化了20%，RT上减少了200us左右。</p>
+</li>
+<li><p>Docker_BRIDGE_VLAN网络模式在6U环境下，性能比物理机方案性能降低了107%，RT增加了469us；在7U环境下，性能比物理机方案性能降低了8%左右，RT增加了23us左右；此外，可以明显看出，7U环境比6U环境性能上优化了90%，RT上减少了446us。从诊断上来看，6U和7U的性能差异主要在VLAN的处理上的spin_lock，详细可以参考之前的测试验证。</p>
+</li>
+<li><p>Docker_OVS_VLAN网络模式在6U环境下，性能比物理机方案性能降低了114%，RT增加了433us；在7U环境下，性能比物理机方案性能降低了9%左右，RT增加了33us；此外，可以明显看出，7U环境比6U环境性能上优化了93%，RT上减少了400us。从诊断上来看，6U和7U的性能差异主要在VLAN的处理上的spin_lock。并且发现，OVS与Bridge网络模式性能上基本持平，无较大性能上的差异。</p>
+</li>
+<li><p>Docker_HAVS_VLAN网络模式在6U环境下，性能比物理机方案性能降低了117%，RT增加了510us；在7U环境下，性能比物理机方案性能降低了12%左右，RT增加了33us；此外，可以明显看出，7U环境比6U环境性能上优化了92%，RT上减少了477us。从诊断上来看，6U和7U的性能差异主要在VLAN的处理上的spin_lock。并且发现，HAVS与Bridge网络模式性能上基本持平，无较大性能上的差异；HAVS与OVS的性能上差异也较小，无较大性能上的差异。</p>
+</li>
+<li><p>SR-IOV网络模式由于存在OS、Docker、网卡等要求，非通用化方案，将作为进一步的优化方案进行探索。</p>
+</li>
+</ol>
+<h3 id="网络性能结果分析（rama等同方舟vlan网络方案）"><a href="#网络性能结果分析（rama等同方舟vlan网络方案）" class="headerlink" title="网络性能结果分析（rama等同方舟vlan网络方案）"></a>网络性能结果分析（rama等同方舟vlan网络方案）</h3><p>延迟数据汇总：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>host</th>
+<th>rama不开启mac nat</th>
+<th>rama开启mac nat</th>
+<th>calico-bgp</th>
+<th>flannel-vxlan</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>64</td>
+<td>0.041</td>
+<td>0.041</td>
+<td>0.041</td>
+<td>0.042</td>
+<td>0.041</td>
+</tr>
+<tr>
+<td>512</td>
+<td>0.041</td>
+<td>0.041</td>
+<td>0.043</td>
+<td>0.041</td>
+<td>0.043</td>
+</tr>
+<tr>
+<td>1024</td>
+<td>0.045</td>
+<td>0.045</td>
+<td>0.045</td>
+<td>0.046</td>
+<td>0.048</td>
+</tr>
+<tr>
+<td>2048</td>
+<td>0.073</td>
+<td>0.072</td>
+<td>0.072</td>
+<td>0.073</td>
+<td>0.073</td>
+</tr>
+<tr>
+<td>4096</td>
+<td>0.072</td>
+<td>0.070</td>
+<td>0.073</td>
+<td>0.071</td>
+<td>0.079</td>
+</tr>
+<tr>
+<td>16384</td>
+<td>0.148</td>
+<td>0.144</td>
+<td>0.149</td>
+<td>0.242</td>
+<td>0.200</td>
+</tr>
+<tr>
+<td>32678</td>
+<td>0.244</td>
+<td>0.335</td>
+<td>0.242</td>
+<td>0.320</td>
+<td>0.352</td>
+</tr>
+<tr>
+<td>64512</td>
+<td>0.300</td>
+<td>0.481</td>
+<td>0.419</td>
+<td>0.437</td>
+<td>0.541</td>
+</tr>
+</tbody>
+</table>
+<p><img src="/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png" alt="image.png"></p>
+<p>吞吐量数据汇总：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>host</th>
+<th>rama不开启mac nat</th>
+<th>rama开启mac nat</th>
+<th>calico-bgp</th>
+<th>flannel-vxlan</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>64</td>
+<td>386</td>
+<td>381</td>
+<td>381</td>
+<td>377</td>
+<td>359</td>
+</tr>
+<tr>
+<td>512</td>
+<td>2660</td>
+<td>2370</td>
+<td>2530</td>
+<td>2580</td>
+<td>1840</td>
+</tr>
+<tr>
+<td>1024</td>
+<td>5170</td>
+<td>4590</td>
+<td>4880</td>
+<td>4510</td>
+<td>2610</td>
+</tr>
+<tr>
+<td>2048</td>
+<td>7710</td>
+<td>7350</td>
+<td>7040</td>
+<td>7420</td>
+<td>3310</td>
+</tr>
+<tr>
+<td>4096</td>
+<td>9410</td>
+<td>8750</td>
+<td>8220</td>
+<td>8440</td>
+<td>3830</td>
+</tr>
+<tr>
+<td>16384</td>
+<td>9410</td>
+<td>8850</td>
+<td>8460</td>
+<td>8580</td>
+<td>5080</td>
+</tr>
+<tr>
+<td>32678</td>
+<td>9410</td>
+<td>8810</td>
+<td>8580</td>
+<td>8550</td>
+<td>4950</td>
+</tr>
+<tr>
+<td>65507</td>
+<td>9410</td>
+<td>8660</td>
+<td>8410</td>
+<td>8540</td>
+<td>4920</td>
+</tr>
+</tbody>
+</table>
+<p><img src="/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png" alt="image.png"></p>
+<p>从延迟上来看，rama与calico-bgp相差不大，从数据上略低于host性能，略高于flannel-vxlan；从吞吐量上看，区别会明显一些，当报文长度大于4096 KB 时，均观察到各网络插件的吞吐量达到最大值，从最大值上来看可以初步得出以下结论：</p>
+<p><strong>host &gt; rama不开启mac nat &gt;</strong> <strong>rama开启mac nat</strong> ≈ <strong>calico-bgp &gt;</strong> <strong>flannel-vxlan</strong></p>
+<p>rama不开启mac nat时性能最高，开启mac nat功能，性能与calico-bgp基本相同，并且性能大幅度高于flannel-vxlan；虽然rama开启mac nat之后的性能与每个节点上的pod数量直接相关，但由于测试 rama开启mac nat方案 的时候，取的是两个个节点上50个pod中预计性能最差的pod，基本可以反映一般情况</p>
+<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://linoxide.com/monitoring-2/install-iperf-test-network-speed-bandwidth/" target="_blank" rel="external">https://linoxide.com/monitoring-2/install-iperf-test-network-speed-bandwidth/</a></p>
+<p><a href="http://blog.yufeng.info/archives/2234" target="_blank" rel="external">http://blog.yufeng.info/archives/2234</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4383,368 +5092,6 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/06/07/就是要你懂TCP--半连接队列和全连接队列/" itemprop="url">就是要你懂TCP--半连接队列和全连接队列</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-06-07T17:30:03+08:00">
-                2017-06-07
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
-<p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
-<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
-<p>1)  这两个队列是干什么用的；</p>
-<p>2）怎么设置和观察他们的最大值；</p>
-<p>3）怎么查看这两个队列当前使用到了多少；</p>
-<p>4）一旦溢出的后果和现象是什么</p>
-</blockquote>
-<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
-
-1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
-2.出问题的时间点，会同时有很多连接出现这个问题。
-3.selector没有销毁重建，一直用的都是一个。
-4.程序刚启动的时候必会出现一些，之后会间歇性出现。
-</code></pre><h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><h3 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h3><p><img src="/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
-<ul>
-<li>第一步：client 发送 syn 到server 发起握手；</li>
-<li>第二步：server 收到 syn后回复syn+ack给client；</li>
-<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
-</ul>
-<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
-<pre><code>667399 times the listen queue of a socket overflowed
-</code></pre><p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
-<p>接着查看溢出后，OS怎么处理：</p>
-<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
-0
-</code></pre><p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
-<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
-<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
-<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
-<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
-<blockquote>
-<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
-</blockquote>
-<h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
-<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
-<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
-<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
-</code></pre><p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
-<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
-<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
-<pre><code>net.ipv4.tcp_synack_retries = 2
-</code></pre><h2 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
-<p>（<em>通过具体的、感性的东西来强化我们对知识点的理解和吸收</em>）</p>
-<h3 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
-667399 times the listen queue of a socket overflowed
-667399 SYNs to LISTEN sockets ignored
-</code></pre><p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。</p>
-<h3 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h3><pre><code>[root@server ~]# ss -lnt
-Recv-Q Send-Q Local Address:Port  Peer Address:Port 
-0        50               *:3306             *:* 
-</code></pre><p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
-<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
-<p>《Unix Network Programming》中关于backlog的描述</p>
-<blockquote>
-<p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
-<p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it “defines the maximum length the queue of pending connections may grow to.” Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
-</blockquote>
-<p>关于 <a href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4" target="_blank" rel="external">somaxconn 终于在2019年将默认值从128调整到了2048</a>, 这个调整合并到了kernel 5.17中</p>
-<blockquote>
-<p>SOMAXCONN is /proc/sys/net/core/somaxconn default value.</p>
-<p>It has been defined as 128 more than 20 years ago.</p>
-<p>Since it caps the listen() backlog values, the very small value has<br>caused numerous problems over the years, and many people had<br>to raise it on their hosts after beeing hit by problems.</p>
-<p>Google has been using 1024 for at least 15 years, and we increased<br>this to 4096 after TCP listener rework has been completed, more than<br>4 years ago. We got no complain of this change breaking any<br>legacy application.</p>
-<p>Many applications indeed setup a TCP listener with listen(fd, -1);<br>meaning they let the system select the backlog.</p>
-<p>Raising SOMAXCONN lowers chance of the port being unavailable under<br>even small SYNFLOOD attack, and reduces possibilities of side channel<br>vulnerabilities.</p>
-</blockquote>
-<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
-<pre><code>ServerSocket()
-    Creates an unbound server socket.
-ServerSocket(int port)
-    Creates a server socket, bound to the specified port.
-ServerSocket(int port, int backlog)
-    Creates a server socket and binds it to the specified local port number, with the specified backlog.
-ServerSocket(int port, int backlog, InetAddress bindAddr)
-    Create a server with the specified port, listen backlog, and local IP address to bind to.
-</code></pre><p>（来自JDK帮助文档：<a href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）" target="_blank" rel="external">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
-<p><strong>半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 <a href="https://developer.aliyun.com/article/804896" target="_blank" rel="external">不同版本的os会有些差异</a></strong></p>
-<blockquote>
-<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
-</blockquote>
-<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
-<pre><code>$netstat -tn  
-Active Internet connections (w/o servers)
-Proto Recv-Q Send-Q Local Address   Foreign Address State  
-tcp    0  0 server:8182  client-1:15260 SYN_RECV   
-tcp    0 28 server:22    client-1:51708  ESTABLISHED
-tcp    0  0 server:2376  client-1:60269 ESTABLISHED
-</code></pre><p><strong>netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆</strong>  </p>
-<p>所以ss看到的 Send-Q、Recv-Q是目前全连接队列使用情况和最大设置<br>netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话就是发出的bytes并且没有ack的包、和os接收到的bytes还没交给应用</p>
-<p>我们看到的 Recv-Q、Send-Q获取源代码如下（ net/ipv4/tcp_diag.c ）：   </p>
-<pre><code>static void tcp_diag_get_info(struct sock *sk, struct inet_diag_msg *r,
-  void *_info)
-{
-    const struct tcp_sock *tp = tcp_sk(sk);
-    struct tcp_info *info = _info;
-
-    if (sk-&gt;sk_state == TCP_LISTEN) {  //LISTEN状态下的 Recv-Q、Send-Q
-        r-&gt;idiag_rqueue = sk-&gt;sk_ack_backlog;
-        r-&gt;idiag_wqueue = sk-&gt;sk_max_ack_backlog; //Send-Q 最大backlog
-    } else {                           //其它状态下的 Recv-Q、Send-Q
-        r-&gt;idiag_rqueue = max_t(int, tp-&gt;rcv_nxt - tp-&gt;copied_seq, 0);
-        r-&gt;idiag_wqueue = tp-&gt;write_seq - tp-&gt;snd_una;
-    }
-    if (info != NULL)
-        tcp_get_info(sk, info);
-}
-</code></pre><p>比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
-<p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
-<h4 id="netstat看到的listen状态的Recv-Q-Send-Q"><a href="#netstat看到的listen状态的Recv-Q-Send-Q" class="headerlink" title="netstat看到的listen状态的Recv-Q/Send-Q"></a>netstat看到的listen状态的Recv-Q/Send-Q</h4><p>netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全不一样。上面的 netstat 对非listen的描述没问题，但是listen状态似乎Send-Q这个值总是0，这要去看netstat的代码了，实际上Listen状态它不是一个连接，所以肯定统计不到流量，netstat似乎只是针对连接的统计</p>
-<p>从网上找了两个Case，server的8765端口故意不去读取对方发过来的2000字节，所看到的是：</p>
-<pre><code>$ netstat -ano | grep 8765  
-tcp0  0 0.0.0.0:87650.0.0.0:*   LISTEN  off (0.00/0/0)  
-tcp 2000  0 10.100.70.140:8765  10.100.70.139:43634 ESTABLISHED off (0.00/0/0)
-</code></pre><p>第二个Case，8000端口的半连接满了（129），但是这个时候Send-Q还是看到的0</p>
-<pre><code>$ netstat -ntap | grep 8000 
-tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- 
-tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    - 
-tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    - 
-tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -  
-</code></pre><h2 id="案列：如果TCP连接队列溢出，抓包是什么现象呢？"><a href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？" class="headerlink" title="案列：如果TCP连接队列溢出，抓包是什么现象呢？"></a>案列：如果TCP连接队列溢出，抓包是什么现象呢？</h2><p><img src="/images/oss/c0849615ae52531887ce6b0313d7d2d1.png" alt="image.png"></p>
-<p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
-<h3 id="通过ss和netstat所观察到的状态"><a href="#通过ss和netstat所观察到的状态" class="headerlink" title="通过ss和netstat所观察到的状态"></a>通过ss和netstat所观察到的状态</h3><p><img src="/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png" alt="image.png"></p>
-<p><img src="/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png" alt="image.png"></p>
-<p><a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
-<h2 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下 </p>
-<p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
-<pre><code>Fri May  5 13:50:23 CST 2017
-Recv-Q Send-QLocal Address:Port  Peer Address:Port
-11         10         *:3306               *:*
-</code></pre><p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
-<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;=</strong> 。</p>
-<blockquote>
-<p>Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果</p>
-<p>kill -19 pid 即可； kill -18 pid 恢复暂停进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">&gt; #define SIGKILL     9    /* Kill, unblockable (POSIX). */</div><div class="line">&gt; #define SIGCONT     18   /* Continue (POSIX).  */</div><div class="line">&gt; #define SIGSTOP     19   /* Stop, unblockable (POSIX). */</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<p>tsar监控accept队列的溢出</p>
-<blockquote>
-<p>tsar –tcpx -s=lisove -li 1</p>
-</blockquote>
-<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
-<pre><code>#ss -lnt
-Recv-Q Send-Q   Local Address:Port Peer Address:Port
-0       100                 *:8080            *:*
-</code></pre><p>Nginx默认是511</p>
-<pre><code>$sudo ss -lnt
-State  Recv-Q Send-Q Local Address:PortPeer Address:Port
-LISTEN    0     511              *:8085           *:*
-LISTEN    0     511              *:8085           *:*
-</code></pre><p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
-<p><img src="/images/oss/01dc036aca4b445ed86e3e295bf245b8.png" alt="image.png"></p>
-<h2 id="进一步思考-client-fooling-问题"><a href="#进一步思考-client-fooling-问题" class="headerlink" title="进一步思考 client fooling 问题"></a>进一步思考 client fooling 问题</h2><p>如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）</p>
-<p>先来看一个例子：</p>
-<p><img src="/images/oss/9179e08ac24ce3d53e74b92dbd044906.png" alt="image.png"></p>
-<p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
-<p><img src="/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png" alt="image.png"></p>
-<p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：<a href="https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071" target="_blank" rel="external">https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</a> ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
-<p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
-<p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
-<h2 id="过程中发现的一个奇怪问题"><a href="#过程中发现的一个奇怪问题" class="headerlink" title="过程中发现的一个奇怪问题"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
-Fri May  5 15:39:58 CST 2017
-1641685 times the listen queue of a socket overflowed
-1641685 SYNs to LISTEN sockets ignored
-
-[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
-Fri May  5 15:39:59 CST 2017
-1641906 times the listen queue of a socket overflowed
-1641906 SYNs to LISTEN sockets ignored
-</code></pre><p>如上所示：<br>overflowed和ignored居然总是一样多，并且都是同步增加，overflowed表示全连接队列溢出次数，socket ignored表示半连接队列溢出次数，没这么巧吧。</p>
-<p>翻看内核源代码（<a href="http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：" target="_blank" rel="external">http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：</a></p>
-<p><img src="/images/oss/a5616904df3a505572d99d557b534db2.png" alt="image.png"></p>
-<p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
-<p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
-<pre><code>server1
-150 SYNs to LISTEN sockets dropped
-
-server2
-193 SYNs to LISTEN sockets dropped
-
-server3
-16329 times the listen queue of a socket overflowed
-16422 SYNs to LISTEN sockets dropped
-
-server4
-20 times the listen queue of a socket overflowed
-51 SYNs to LISTEN sockets dropped
-
-server5
-984932 times the listen queue of a socket overflowed
-988003 SYNs to LISTEN sockets dropped
-</code></pre><h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：" target="_blank" rel="external">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
-<p><img src="/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png" alt="image.png"></p>
-<p>TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：</p>
-<pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
-//如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
-  if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
-      goto drop;
-</code></pre><h2 id="半连接队列的长度"><a href="#半连接队列的长度" class="headerlink" title="半连接队列的长度"></a>半连接队列的长度</h2><p><strong>半连接队列的长度由三个参数指定：</strong></p>
-<ul>
-<li><strong>调用</strong> <strong>listen</strong> <strong>时，传入的 backlog</strong></li>
-<li><strong>/proc/sys/net/core/somaxconn</strong> <strong>默认值为 128</strong></li>
-<li><em>/proc/sys/net/ipv4/tcp_max_syn_backlog<strong> </strong>默认值为 1024*</em></li>
-</ul>
-<p>假设 listen 传入的 backlog = 128，其他配置采用默认值，来计算下半连接队列的最大长度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">backlog = min(somaxconn, backlog) = min(128, 128) = 128</div><div class="line">nr_table_entries = backlog = 128</div><div class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog) = min(128, 1024) = 128</div><div class="line">nr_table_entries = max(nr_table_entries, 8) = max(128, 8) = 128</div><div class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1) = 256</div><div class="line">max_qlen_log = max(3, log2(nr_table_entries)) = max(3, 8) = 8</div><div class="line">max_queue_length = 2^max_qlen_log = 2^8 = 256</div></pre></td></tr></table></figure>
-<p>可以得到半队列大小是 256，以上计算方法：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">backlog = min(somaxconn, backlog)</div><div class="line">nr_table_entries = backlog</div><div class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog)</div><div class="line">nr_table_entries = max(nr_table_entries, 8)</div><div class="line">// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1</div><div class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)</div><div class="line">max_qlen_log = max(3, log2(nr_table_entries))</div><div class="line">max_queue_length = 2^max_qlen_log</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png" alt=""></p>
-<p>没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是<strong>应用层代码还没有完成 accept() 的连接</strong>）两个概念，用于存放在握手中的连接。</p>
-<p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
-<p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="external">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
-<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
-<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
-<hr>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="external">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
-<p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="external">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
-<p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="external">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
-<p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="external">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
-<p><a href="http://jin-yang.github.io/blog/network-synack-queue.html#" target="_blank" rel="external">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
-<p><a href="http://blog.chinaunix.net/uid-20662820-id-4154399.html" target="_blank" rel="external">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
-<p><a href="https://www.atatech.org/articles/12919" target="_blank" rel="external">https://www.atatech.org/articles/12919</a></p>
-<p><a href="https://blog.cloudflare.com/syn-packet-handling-in-the-wild/" target="_blank" rel="external">https://blog.cloudflare.com/syn-packet-handling-in-the-wild/</a></p>
-<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="external">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="external">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
-<p><a href="https://developer.aliyun.com/article/804896" target="_blank" rel="external">从一次线上问题说起，详解 TCP 半连接队列、全连接队列–详细的实验验证各种溢出</a></p>
-<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="external">案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
-<figure class="highlight"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div></pre></td><td class="code"><pre><div class="line">commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</div><div class="line">Author: Eric Dumazet &lt;edumazet@google.com&gt;</div><div class="line">Date:   Thu Oct 27 00:27:57 2016</div><div class="line"></div><div class="line"> tcp/dccp: drop SYN packets if accept queue is full</div><div class="line"></div><div class="line"> Per listen(fd, backlog) rules, there is really no point accepting a SYN,</div><div class="line"> sending a SYNACK, and dropping the following ACK packet if accept queue</div><div class="line"> is full, because application is not draining accept queue fast enough.</div><div class="line"></div><div class="line"> This behavior is fooling TCP clients that believe they established a</div><div class="line"> flow, while there is nothing at server side. They might then send about</div><div class="line"> 10 MSS (if using IW10) that will be dropped anyway while server is under</div><div class="line"> stress.</div><div class="line"></div><div class="line">   -       /* Accept backlog is full. If we have already queued enough</div><div class="line">   -        * of warm entries in syn queue, drop request. It is better than</div><div class="line">   -        * clogging syn queue with openreqs with exponentially increasing</div><div class="line">   -        * timeout.</div><div class="line">   -        */</div><div class="line">   -       if (sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; 1) &#123;</div><div class="line">   +       if (sk_acceptq_is_full(sk)) &#123;</div><div class="line">                   NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);</div><div class="line">                   goto drop;</div><div class="line">           &#125;</div></pre></td></tr></table></figure>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4794,7 +5141,7 @@ server5
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">154</span>
+                <span class="site-state-item-count">155</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4805,7 +5152,7 @@ server5
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">21</span>
+                <span class="site-state-item-count">22</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -4816,7 +5163,7 @@ server5
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">245</span>
+                <span class="site-state-item-count">246</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
