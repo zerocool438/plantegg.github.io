@@ -95,22 +95,23 @@
 
 
 
-<meta name="description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常. 通过应用 拉取 RDS 数据同步到 odps">
+<meta name="description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常.  Client MySQL JDBC 协议拉">
 <meta name="keywords" content="Linux,TCP,TCPWqueueTooBig,CVE">
 <meta property="og:type" content="article">
 <meta property="og:title" content="一个Linux 内核 bug 导致的 TCP连接卡死">
 <meta property="og:url" content="https://plantegg.github.io/2022/10/10/Linux BUG内核导致的 TCP连接卡死/index.html">
 <meta property="og:site_name" content="plantegg">
-<meta property="og:description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常. 通过应用 拉取 RDS 数据同步到 odps">
+<meta property="og:description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常.  Client MySQL JDBC 协议拉">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230515162204533.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1662602586968-b20b6006-884e-4c33-9938-0277c012579e.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220922092105581.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220922092321039.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1662698955965-276e9936-6ca4-4269-9fbd-ae05176bf1a6.png">
-<meta property="og:updated_time" content="2023-02-14T07:31:29.069Z">
+<meta property="og:updated_time" content="2023-05-16T09:20:05.823Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="一个Linux 内核 bug 导致的 TCP连接卡死">
-<meta name="twitter:description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常. 通过应用 拉取 RDS 数据同步到 odps">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/1662602586968-b20b6006-884e-4c33-9938-0277c012579e.png">
+<meta name="twitter:description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常.  Client MySQL JDBC 协议拉">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230515162204533.png">
 
 
 
@@ -388,7 +389,8 @@
 
       
         <h1 id="Linux-BUG内核导致的-TCP连接卡死"><a href="#Linux-BUG内核导致的-TCP连接卡死" class="headerlink" title="Linux BUG内核导致的 TCP连接卡死"></a>Linux BUG内核导致的 TCP连接卡死</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发新的包(从server抓包可以看到)，直至服务端不再发任何新包，最终连接闲置过久被reset，客户端抛连接异常.</p>
-<p>通过应用 拉取 RDS 数据同步到 odps，频繁出现卡死与超时，报错：Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server.  </p>
+<p><img src="/images/951413iMgBlog/image-20230515162204533.png" alt="image-20230515162204533"></p>
+<p>Client MySQL JDBC 协议拉取 Server 3306端口 数据，频繁出现卡死与超时，Client端Java 报错：Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server.  </p>
 <h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>服务端抓包可以看到：这个 TCP 流， 17:40:40 后 3306 端口不做任何响应，进入卡死状态，在卡死前有一些重传</p>
 <p><img src="/images/951413iMgBlog/1662602586968-b20b6006-884e-4c33-9938-0277c012579e.png" alt="image.png"></p>
 <p>同时通过观察这些连接的实时状态：</p>
