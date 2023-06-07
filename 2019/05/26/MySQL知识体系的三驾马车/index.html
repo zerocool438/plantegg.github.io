@@ -110,7 +110,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211108152328424.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png">
-<meta property="og:updated_time" content="2022-08-24T02:32:47.564Z">
+<meta property="og:updated_time" content="2023-06-07T01:21:12.974Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="MySQL知识体系的三驾马车">
 <meta name="twitter:description" content="MySQL知识体系的三驾马车在我看来要掌握好MySQL的话要理解好这三个东西：  索引（B+树） 日志（WAL） 事务(可见性)  索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了； 而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写； 事务则是数据库的皇冠。 索引索引主要是解决查询性能的问题，数据一般都">
@@ -431,7 +431,12 @@
 <h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
 <h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
 <p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
-<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>select <em> from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<em>*回表</em></em>导致非常慢。</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>什么是回表？</p>
+<p>select id, name from t where id&gt;1 and id<10; 假设表t的id列是一个非主键的普通索引，那么这个查询就需要回表。查询执行的时候根据索引条件="" id="">1 and id&lt;10 找到符合条件的行地址(主键)，因为id索引上肯定有id的值，但是没有name，这里需要返回id,name 所以找到这些记录的地址后还需要回表(按主键)去取到name的值；</10;></p>
+<p>对应地如果select id from t where id&gt;1 and id&lt;10; 就不需要回表了，假设命中5条记录，这5个id的值都在索引上就能取到为啥还额外去回表呢？回表大概率是很慢的，因为你取到的行地址不一定连续，可能需要多次磁盘read</p>
+<p>搞清楚概念后再来看count(*) 要不要回表？既然是统计数据，直接count主键(没有主键会自动添加一个默认隐藏的主键)就好了，多快好省。所以问题的本质是对回表不理解。count(*) 要不要回表不太重要，重要的是理解好什么是回表</p>
+<p>那 select id, name from t where id&gt;1 and id&lt;10; 怎么样才能不回表呢？肯定是建立id name的联合索引就可以了</p>
+<p>select <em> from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<em>*回表</em></em>导致非常慢。</p>
 <p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
 <p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
 <p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
@@ -707,7 +712,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">155</span>
+                <span class="site-state-item-count">156</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -729,7 +734,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">247</span>
+                <span class="site-state-item-count">248</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

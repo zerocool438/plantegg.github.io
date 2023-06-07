@@ -104,7 +104,7 @@
 <meta property="og:description" content="MySQL针对秒杀场景的优化背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。 过程对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/TB1yvFqOpXXX.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png">
-<meta property="og:updated_time" content="2022-11-04T09:12:39.461Z">
+<meta property="og:updated_time" content="2023-06-07T01:21:13.139Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="MySQL针对秒杀场景的优化">
 <meta name="twitter:description" content="MySQL针对秒杀场景的优化背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。 过程对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过">
@@ -397,6 +397,8 @@
 <blockquote>
 <p><strong>热点更新下的死锁检测(</strong>no deadlock list check<strong>)</strong></p>
 <p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
+<p> 原生版本的MySQL对于正常业务链接没有拒绝机制（除了TDDL的链接池或者MySQL的user_connnection不够用），对于同一行记录到innodb层修改的时候，凡是到innodb层的任务都必须拿到innodb_thread_concurrency的槽位才能执行(当然这里也有很多细节，这里就说最主要的代码改动点)，举例来说：开启一个事务，对于id=1的行记录更新，进到innodb层，占着1个innodb_thread_concurrency，等到id=1的事务结束，会释放innodb_thread_concurrency,从而达到innodb_thread_concurrency的平衡；</p>
+<p>再进一步，开启一个事务，对id=1的行记录更新进到innodb层，占着1个innodb_thread_concurrency，事务不提交（假设innodb_thread_concurrency=32)，如果有下一个对id=1记录来更新的话，进到innodb层，又占着1个innodb_thread_concurrency，检测发现是对id=1的更新，排到第1个对id=1的队列的后面，同时释放innodb_thread_concurrency;以此类推这个链表有可能会很长比如1024；执行的时候又需要做死锁检测等一系列工作，都需要用到一个叫做kernel_mutex的mutex（这是一个全局互斥量用来管理锁系统，事务系统，MVCC多版本控制），对于大并发，整个链表非常长的时候，可想而知kernel_metex的竞争多么激烈，从而在链表检测的时间变长。</p>
 </blockquote>
 <h3 id="缩短锁时间"><a href="#缩短锁时间" class="headerlink" title="缩短锁时间"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
 <p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
@@ -549,7 +551,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">155</span>
+                <span class="site-state-item-count">156</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -571,7 +573,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">247</span>
+                <span class="site-state-item-count">248</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

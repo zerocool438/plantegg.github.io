@@ -291,6 +291,250 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/28/journald和rsyslog/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/01/28/journald和rsyslog/" itemprop="url">journald和rsyslogd</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-28T17:30:03+08:00">
+                2021-01-28
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="journald和rsyslogd"><a href="#journald和rsyslogd" class="headerlink" title="journald和rsyslogd"></a>journald和rsyslogd</h1><p>碰到rsyslog-8.24.0-34.1.al7.x86_64 的 rsyslogd 占用内存过高，于是分析了一下原因并学习了一下系统日志、rsyslog、journald之间的关系，流水账记录此文。</p>
+<h2 id="rsyslogd-占用内存过高的分析"><a href="#rsyslogd-占用内存过高的分析" class="headerlink" title="rsyslogd 占用内存过高的分析"></a>rsyslogd 占用内存过高的分析</h2><p>rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-50M之间）</p>
+<p>现象：</p>
+<p><img src="/images/oss/12d137f9416d7935dbe6540c626ca8b4.png" alt="image.png"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div></pre></td><td class="code"><pre><div class="line">KiB Mem :  7971268 total,   131436 free,  7712020 used,   127812 buff/cache</div><div class="line">KiB Swap:        0 total,        0 free,        0 used.    43484 avail Mem</div><div class="line"></div><div class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</div><div class="line">24850 admin     20   0 8743896   5.1g      0 S   2.0 66.9   1413:55 java</div><div class="line"> 1318 root      20   0 2380404   1.6g    536 S   0.0 21.6 199:09.36 rsyslogd</div><div class="line"> </div><div class="line"># systemctl status rsyslog</div><div class="line">● rsyslog.service - System Logging Service</div><div class="line">   Loaded: loaded (/usr/lib/systemd/system/rsyslog.service; enabled; vendor preset: disabled)</div><div class="line">   Active: active (running) since Tue 2020-10-20 16:01:01 CST; 3 months 8 days ago</div><div class="line">     Docs: man:rsyslogd(8)</div><div class="line">           http://www.rsyslog.com/doc/</div><div class="line"> Main PID: 1318 (rsyslogd)</div><div class="line">   CGroup: /system.slice/rsyslog.service</div><div class="line">           └─1318 /usr/sbin/rsyslogd -n</div><div class="line"></div><div class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 10:27:48 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 10:27:49 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 11:45:23 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 11:45:24 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 13:03:00 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 13:03:01 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ] </div><div class="line"></div><div class="line"></div><div class="line"># grep HUPed /var/log/messages</div><div class="line">Jan 24 03:39:15 iZwz95gaul6x9167sqdqz4Z rsyslogd: [origin software=&quot;rsyslogd&quot; swVersion=&quot;8.24.0-34.1.al7&quot; x-pid=&quot;1318&quot; x-info=&quot;http://www.rsyslog.com&quot;] rsyslogd was HUPed</div><div class="line"></div><div class="line"># journalctl --verify</div><div class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-0000000001567546-0005b9e2e02a0a4f.journal</div><div class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-00000000015ae56b-0005b9ea76e922e9.journal</div><div class="line">1be1e0: Data object references invalid entry at 1d03018</div><div class="line">File corruption detected at /var/log/journal/20190829214900434421844640356160/system.journal:1d02d80 (of 33554432 bytes, 90%).</div><div class="line">FAIL: /var/log/journal/20190829214900434421844640356160/system.journal (Bad message)</div></pre></td></tr></table></figure>
+<p><code>journalctl --verify</code>命令检查发现系统日志卷文件损坏</p>
+<h3 id="问题根因"><a href="#问题根因" class="headerlink" title="问题根因"></a>问题根因</h3><p><a href="https://access.redhat.com/solutions/3705051" target="_blank" rel="external">来自redhat官网的描述</a></p>
+<p><img src="/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png" alt="image.png"></p>
+<p>以下是现场收集到的日志：</p>
+<p><img src="/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png" alt="image.png"></p>
+<p>主要是rsyslogd的sd_journal_get_cursor报错，然后导致内存泄露。</p>
+<p>journald 报Bad message, 跟rsyslogd内存泄露完全没关系，实际上升级rsyslogd后也有journald bad message,但是rsyslogd的内存一直稳定在30M以内</p>
+<p><a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="external">这个CSDN的文章中有完全一样的症状</a> 但是作者的结论是：这是systemd的bug，在journald需要压缩的时候就会发生这个问题。实际上我用的是 systemd-219-62.6.al7.9.x86_64 比他描述的已经修复的版本还要要新，也还是有这个问题，所以这个结论是不对的</p>
+<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>1、重启rsyslog <code>systemctl restart rsyslog</code> 可以释放内存</p>
+<p>2、升级rsyslog到rsyslog-8.24.0-38.1.al7.x86_64或更新的版本才能彻底修复这个问题</p>
+<h3 id="一些配置方法"><a href="#一些配置方法" class="headerlink" title="一些配置方法"></a>一些配置方法</h3><p>修改配置/etc/rsyslog.conf，增加如下两行，然后重启<code>systemctl restart rsyslog</code></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$imjournalRatelimitInterval 0</div><div class="line">$imjournalRatelimitBurst 0</div><div class="line">12</div></pre></td></tr></table></figure>
+<p>1、关掉journal压缩配置</p>
+<p>vi /etc/systemd/journald.conf，把#Compress=yes改成Compress=no，之后systemctl restart systemd-journald即可</p>
+<p>2、限制rsyslogd 内存大小</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">cat /etc/systemd/system/multi-user.target.wants/rsyslog.service</div><div class="line"></div><div class="line">在Service配置中添加MemoryAccounting=yes，MemoryMax=80M，MemoryHigh=8M三项如下所示。</div><div class="line">[Service]</div><div class="line">Type=notify</div><div class="line">EnvironmentFile=-/etc/sysconfig/rsyslog</div><div class="line">ExecStart=/usr/sbin/rsyslogd -n $SYSLOGD_OPTIONS</div><div class="line">Restart=on-failure</div><div class="line">UMask=0066</div><div class="line">StandardOutput=null</div><div class="line">Restart=on-failure</div><div class="line">MemoryAccounting=yes</div><div class="line">MemoryMax=80M</div><div class="line">MemoryHigh=8M</div></pre></td></tr></table></figure>
+<h2 id="OOM-kill"><a href="#OOM-kill" class="headerlink" title="OOM kill"></a>OOM kill</h2><p>rsyslogd内存消耗过高后导致了OOM Kill</p>
+<p><img src="/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png" alt="image.png"></p>
+<p><strong>RSS对应物理内存，单位是4K（page大小）</strong>，红框两个进程用了5G+2G，总内存是8G，所以触发OOM killer了</p>
+<p>每次OOM Kill日志前后总带着systemd-journald的重启</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Permanent journal is using 520.0M (max allowed 500.0M, trying to leave 4.0G free of 83.7G available → current limit 520.0M).</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Journal started</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun invoked oom-killer: gfp_mask=0x6200ca(GFP_HIGHUSER_MOVABLE), nodemask=(null), order=0, oom_score_adj=0</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun cpuset=/ mems_allowed=0</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: CPU: 3 PID: 13296 Comm: AliYunDun Tainted: G           OE     4.19.57-15.1.al7.x86_64 #1</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Hardware name: Alibaba Cloud Alibaba Cloud ECS, BIOS 8c24b4c 04/01/2014</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Call Trace:</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_stack+0x5c/0x7b</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_header+0x77/0x29f</div><div class="line">***</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: [  18118]     0 18118    28218      255   245760        0             0 sshd</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Out of memory: Kill process 18665 (java) score 617 or sacrifice child</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Killed process 18665 (java) total-vm:8446992kB, anon-rss:4905856kB, file-rss:0kB, shmem-rss:0kB</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: oom_reaper: reaped process 18665 (java), now anon-rss:0kB, file-rss:0kB, shmem-rss:0kB</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z systemd: systemd-journald.service watchdog timeout (limit 3min)!</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 20:14:38 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-57.1.al7 try http://www.rsyslog.com/e/0 ]</div></pre></td></tr></table></figure>
+<p><img src="/images/oss/45008a8323742fb7f145211a6281afbc.png" alt="image.png"></p>
+<p>OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(limit 3min)，造成timeout的原因是journald定期要把日志刷到磁盘上，然后要么是内存不够，要么是io负载太重，导致刷磁盘这个过程非常慢，于是就timeout了。</p>
+<p>当然systemd-journald 重启也不一定意味着OOM Killer，只是肯定是内存比较紧张了。</p>
+<h2 id="What-is-the-difference-between-syslog-rsyslog-and-syslog-ng"><a href="#What-is-the-difference-between-syslog-rsyslog-and-syslog-ng" class="headerlink" title="What is the difference between syslog, rsyslog and syslog-ng? "></a><a href="https://serverfault.com/questions/692309/what-is-the-difference-between-syslog-rsyslog-and-syslog-ng" target="_blank" rel="external">What is the difference between syslog, rsyslog and syslog-ng? </a></h2><p>Basically, they are all the same, in the way they all permit the logging of data from different types of systems in a central repository.</p>
+<p>But they are three different project, each project trying to improve the previous one with more reliability and functionalities.</p>
+<p>The <code>Syslog</code> project was the very first project. It started in 1980. It is the root project to <code>Syslog</code> protocol. At this time Syslog is a very simple protocol. At the beginning it only supports UDP for transport, so that it does not guarantee the delivery of the messages.</p>
+<p>Next came <code>syslog-ng</code> in 1998. It extends basic <code>syslog</code> protocol with new features like:</p>
+<ul>
+<li>content-based filtering</li>
+<li>Logging directly into a database</li>
+<li>TCP for transport</li>
+<li>TLS encryption</li>
+</ul>
+<p>Next came <code>Rsyslog</code> in 2004. It extends <code>syslog</code> protocol with new features like:</p>
+<ul>
+<li>RELP Protocol support</li>
+<li>Buffered operation support</li>
+</ul>
+<h2 id="rsyslog和journald的基础知识"><a href="#rsyslog和journald的基础知识" class="headerlink" title="rsyslog和journald的基础知识"></a>rsyslog和journald的基础知识</h2><p><code>systemd-journald</code>是用来协助<code>rsyslog</code>记录系统启动服务和服务启动失败的情况等等. <code>systemd-journald</code>使用内存保存记录, 系统重启记录会丢失. 所有还要用<code>rsyslog</code>来记录分类信息, 如上面<code>/etc/rsyslog.d/listen.conf</code>中的<code>syslog</code>分类.</p>
+<p><code>systemd-journald</code>跟随systemd开机就启动，能及时记录所有日志：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line"># systemd-analyze critical-chain systemd-journald.service</div><div class="line">The time after the unit is active or started is printed after the &quot;@&quot; character.</div><div class="line">The time the unit takes to start is printed after the &quot;+&quot; character.</div><div class="line"></div><div class="line">systemd-journald.service +13ms</div><div class="line">└─system.slice</div><div class="line">  └─-.slice</div></pre></td></tr></table></figure>
+<p>systemd-journald 由于是使用于内存的登录文件记录方式，因此重新开机过后，开机前的登录文件信息当然就不会被记载了。 为此，我们还是建议启动 rsyslogd 来协助分类记录！也就是说， systemd-journald 用来管理与查询这次开机后的登录信息，而 rsyslogd 可以用来记录以前及现在的所以数据到磁盘文件中，方便未来进行查询喔！</p>
+<p><strong>Tips</strong> 虽然 systemd-journald 所记录的数据其实是在内存中，但是系统还是利用文件的型态将它记录到 /run/log/ 下面！ 不过我们从前面几章也知道， /run 在 CentOS 7 其实是内存内的数据，所以重新开机过后，这个 /run/log 下面的数据当然就被刷新，旧的当然就不再存在了！</p>
+<blockquote>
+<p>其实鸟哥是这样想的，既然我们还有 rsyslog.service 以及 logrotate 的存在，因此这个 systemd-journald.service 产生的登录文件， 个人建议最好还是放置到 /run/log 的内存当中，以加快存取的速度！而既然 rsyslog.service 可以存放我们的登录文件， 似乎也没有必要再保存一份 journal 登录文件到系统当中就是了。单纯的建议！如何处理，依照您的需求即可喔！</p>
+</blockquote>
+<p><strong><code>system-journal</code>服务监听 <code>/dev/log</code> socket获取日志, 保存在内存中, 并间歇性的写入<code>/var/log/journal</code>目录中.</strong></p>
+<p><code>rsyslog</code>服务启动后监听<code>/run/systemd/journal/socket</code> 获取syslog类型日志, 并写入<code>/var/log/messages</code>文件中. </p>
+<p>获取日志时需要记录日志条目的<code>position</code>到<code>/var/lib/rsyslog/imjournal.state</code>文件中.</p>
+<p>比如haproxy日志配置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"># cat /etc/haproxy/haproxy.cfg</div><div class="line">global</div><div class="line"># log发给journald(journald监听 /dev/log)</div><div class="line">        log /dev/log    local1 warning</div></pre></td></tr></table></figure>
+<p>以下是drds 的iptables日志配置，将tcp reset包记录下来，默认iptable日志输出到/varlog/messages中（dmesg也能看到），然后可以通过rsyslog.d 配置将这部分日志输出到单独的文件中：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"># 配置iptables 日志，增加 [drds] 标识</div><div class="line"># cat /home/admin/drds-worker/install/drds_filter.conf</div><div class="line"># Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</div><div class="line">*filter</div><div class="line">:INPUT ACCEPT [557:88127]</div><div class="line">:FORWARD ACCEPT [0:0]</div><div class="line">:OUTPUT ACCEPT [527:171711]</div><div class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"># -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">COMMIT</div><div class="line"># Completed on Wed Apr  1 11:39:31 2020</div><div class="line"></div><div class="line">#通过rsyslogd将日志写出到指定位置(不配置的话默认输出到 dmesg)</div><div class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</div><div class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/tcp-rt/drds-tcp.log</div></pre></td></tr></table></figure>
+<h3 id="journald-log持久化"><a href="#journald-log持久化" class="headerlink" title="journald log持久化"></a>journald log持久化</h3><p>创建 /var/log/journal 文件夹后默认会持久化，设置持久化后 /run/log 里面就没有日志了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line"># cat /etc/systemd/journald.conf</div><div class="line">#  This file is part of systemd.</div><div class="line">#</div><div class="line">#  systemd is free software; you can redistribute it and/or modify it</div><div class="line">#  under the terms of the GNU Lesser General Public License as published by</div><div class="line">#  the Free Software Foundation; either version 2.1 of the License, or</div><div class="line">#  (at your option) any later version.</div><div class="line">#</div><div class="line"># Entries in this file show the compile time defaults.</div><div class="line"># You can change settings by editing this file.</div><div class="line"># Defaults can be restored by simply deleting this file.</div><div class="line">#</div><div class="line"># See journald.conf(5) for details.</div><div class="line"></div><div class="line">[Journal]</div><div class="line">#Storage=auto  //默认如果有 /var/log/journal 目录就会持久化到这里</div><div class="line">Compress=no</div><div class="line">#Seal=yes</div><div class="line">#SplitMode=uid</div><div class="line">#SyncIntervalSec=5m</div><div class="line">#RateLimitInterval=30s</div><div class="line">#RateLimitBurst=1000</div><div class="line">SystemMaxUse=500M   //最多保留500M日志文件，免得撑爆磁盘</div><div class="line">#SystemKeepFree=</div><div class="line">#SystemMaxFileSize=</div><div class="line">#RuntimeMaxUse=</div><div class="line">#RuntimeKeepFree=</div><div class="line">#RuntimeMaxFileSize=</div><div class="line">#MaxRetentionSec=</div><div class="line">#MaxFileSec=1month</div><div class="line">#ForwardToSyslog=yes</div><div class="line">#ForwardToKMsg=no</div><div class="line">#ForwardToConsole=no</div><div class="line">#ForwardToWall=yes</div><div class="line">#TTYPath=/dev/console</div><div class="line">#MaxLevelStore=debug</div><div class="line">#MaxLevelSyslog=debug</div><div class="line">#MaxLevelKMsg=notice</div><div class="line">#MaxLevelConsole=info</div><div class="line">#MaxLevelWall=emerg</div><div class="line">#LineMax=48K</div></pre></td></tr></table></figure>
+<p>清理日志保留1M：journalctl –vacuum-size=1M </p>
+<p>设置最大保留500M日志： journalctl –vacuum-size=500</p>
+<h3 id="rsyslogd"><a href="#rsyslogd" class="headerlink" title="rsyslogd"></a>rsyslogd</h3><p>以下内容来自鸟哥的书：</p>
+<p>CentOS 7 除了保有既有的 rsyslog.service 之外，其实最上游还使用了 systemd 自己的登录文件日志管理功能喔！他使用的是 systemd-journald.service 这个服务来支持的。基本上，系统由 systemd 所管理，那所有经由 systemd 启动的服务，如果再启动或结束的过程中发生一些问题或者是正常的讯息， 就会将该讯息由 systemd-journald.service 以二进制的方式记录下来，之后再将这个讯息发送给 rsyslog.service 作进一步的记载。</p>
+<p>基本上， rsyslogd 针对各种服务与讯息记录在某些文件的配置文件就是 /etc/rsyslog.conf， 这个文件规定了“（1）什么服务 （2）的什么等级讯息 （3）需要被记录在哪里（设备或文件）” 这三个咚咚，所以设置的语法会是这样：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$cat /etc/rsyslog.conf</div><div class="line">服务名称[.=!]讯息等级        讯息记录的文件名或设备或主机</div><div class="line"># 下面以 mail 这个服务产生的 info 等级为例：</div><div class="line">mail.info            /var/log/maillog_info</div><div class="line"># 这一行说明：mail 服务产生的大于等于 info 等级的讯息，都记录到</div><div class="line"># /var/log/maillog_info 文件中的意思。</div></pre></td></tr></table></figure>
+<p><img src="/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png" alt="syslog 所制订的服务名称与软件调用的方式"></p>
+<p> CentOS 7.x 默认的 rsyslogd 本身就已经具有远程日志服务器的功能了， 只是默认并没有启动该功能而已。你可以通过 man rsyslogd 去查询一下相关的选项就能够知道啦！ 既然是远程日志服务器，那么我们的 Linux 主机当然会启动一个端口来监听了，那个默认的端口就是 UDP 或 TCP 的 port 514 </p>
+<p><img src="/images/oss/40740cd5cfc8896c07c15b959420646f.png" alt="image.png"></p>
+<p>Server配置如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div></pre></td><td class="code"><pre><div class="line">$ cat /etc/rsyslog.conf</div><div class="line"># 找到下面这几行：</div><div class="line"># Provides UDP syslog reception</div><div class="line">#$ModLoad imudp</div><div class="line">#$UDPServerRun 514</div><div class="line"></div><div class="line"># Provides TCP syslog reception</div><div class="line">#$ModLoad imtcp</div><div class="line">#$InputTCPServerRun 514</div><div class="line"># 上面的是 UDP 端口，下面的是 TCP 端口！如果你的网络状态很稳定，就用 UDP 即可。</div><div class="line"># 不过，如果你想要让数据比较稳定传输，那么建议使用 TCP 啰！所以修改下面两行即可！</div><div class="line">$ModLoad imtcp</div><div class="line">$InputTCPServerRun 514</div><div class="line"></div><div class="line"># 2\. 重新启动与观察 rsyslogd 喔！</div><div class="line">[root@study ~]# systemctl restart rsyslog.service</div><div class="line">[root@study ~]# netstat -ltnp &amp;#124; grep syslog</div><div class="line">Proto Recv-Q Send-Q Local Address  Foreign Address   State    PID/Program name</div><div class="line">tcp        0      0 0.0.0.0:514    0.0.0.0:*         LISTEN   2145/rsyslogd</div><div class="line">tcp6       0      0 :::514         :::*              LISTEN   2145/rsyslogd</div><div class="line"># 嘿嘿！你的登录文件主机已经设置妥当啰！很简单吧！</div></pre></td></tr></table></figure>
+<p>client配置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ cat /etc/rsyslog.conf</div><div class="line">*.*       @@192.168.1.100</div><div class="line">#*.*       @192.168.1.100  # 若用 UDP 传输，设置要变这样！</div></pre></td></tr></table></figure>
+<p>常见的几个系统日志有哪些呢？一般而言，有下面几个：</p>
+<ul>
+<li>/var/log/boot.log： 开机的时候系统核心会去侦测与启动硬件，接下来开始各种核心支持的功能启动等。这些流程都会记录在 /var/log/boot.log 里面哩！ 不过这个文件只会存在这次开机启动的信息，前次开机的信息并不会被保留下来！</li>
+<li>/var/log/cron： 还记得<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html" target="_blank" rel="external">第十五章例行性工作调度</a>吧？你的 crontab 调度有没有实际被进行？ 进行过程有没有发生错误？你的 /etc/crontab 是否撰写正确？在这个登录文件内查询看看。</li>
+<li>/var/log/dmesg： 记录系统在开机的时候核心侦测过程所产生的各项信息。由于 CentOS 默认将开机时核心的硬件侦测过程取消显示， 因此额外将数据记录一份在这个文件中；</li>
+<li>/var/log/lastlog： 可以记录系统上面所有的帐号最近一次登陆系统时的相关信息。<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#uselinux_find" target="_blank" rel="external">第十三章讲到的 lastlog</a> 指令就是利用这个文件的记录信息来显示的。</li>
+<li>/var/log/maillog 或 /var/log/mail/*： 记录邮件的往来信息，其实主要是记录 postfix （SMTP 协定提供者） 与 dovecot （POP3 协定提供者） 所产生的讯息啦。 SMTP 是发信所使用的通讯协定， POP3 则是收信使用的通讯协定。 postfix 与 dovecot 则分别是两套达成通讯协定的软件。</li>
+<li>/var/log/messages： 这个文件相当的重要，几乎系统发生的错误讯息 （或者是重要的信息） 都会记录在这个文件中； 如果系统发生莫名的错误时，这个文件是一定要查阅的登录文件之一。</li>
+<li>/var/log/secure： 基本上，只要牵涉到“需要输入帐号密码”的软件，那么当登陆时 （不管登陆正确或错误） 都会被记录在此文件中。 包括系统的 login 程序、图形接口登陆所使用的 gdm 程序、 su, sudo 等程序、还有网络连线的 ssh, telnet 等程序， 登陆信息都会被记载在这里；</li>
+<li>/var/log/wtmp, /var/log/faillog： 这两个文件可以记录正确登陆系统者的帐号信息 （wtmp） 与错误登陆时所使用的帐号信息 （faillog） ！ 我们在<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#last" target="_blank" rel="external">第十章谈到的 last</a> 就是读取 wtmp 来显示的， 这对于追踪一般帐号者的使用行为很有帮助！</li>
+<li>/var/log/httpd/<em>, /var/log/samba/</em>： 不同的网络服务会使用它们自己的登录文件来记载它们自己产生的各项讯息！上述的目录内则是个别服务所制订的登录文件。</li>
+</ul>
+<h2 id="journalctl-常用参数"><a href="#journalctl-常用参数" class="headerlink" title="journalctl 常用参数"></a><a href="https://linuxhint.com/journalctl-tail-and-cheatsheet/" target="_blank" rel="external">journalctl 常用参数</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">-n or –lines= Show the most recent **n** number of log lines</div><div class="line"></div><div class="line">-f or –follow Like a tail operation for viewing live updates</div><div class="line"></div><div class="line">-S, –since=, -U, –until= Search based on a date. “2019-07-04 13:19:17”, “00:00:00”, “yesterday”, “today”, “tomorrow”, “now” are valid formats. For complete time and date specification, see systemd.time(7)</div><div class="line"></div><div class="line">-u service unit</div></pre></td></tr></table></figure>
+<p>清理journald日志</p>
+<blockquote>
+<p> journalctl –vacuum-size=1M &amp;&amp; journalctl –vacuum-size=500</p>
+</blockquote>
+<h2 id="logrotate"><a href="#logrotate" class="headerlink" title="logrotate"></a>logrotate</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">/var/log/cron</div><div class="line">&#123;</div><div class="line">    sharedscripts</div><div class="line">    postrotate</div><div class="line">        /bin/kill -HUP `cat /var/run/syslogd.pid 2&gt; /dev/null` 2&gt; /dev/null || true</div><div class="line">    endscript</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h3 id="kill-HUP"><a href="#kill-HUP" class="headerlink" title="kill -HUP"></a><a href="https://unix.stackexchange.com/questions/440004/why-is-kill-hup-used-in-logrotate-in-rhel-is-it-necessary-in-all-cases" target="_blank" rel="external">kill -HUP</a></h3><p>Generally services keep the log files opened while they are running. This mean that they do not care if the log files are renamed/moved or deleted they will continue to write to the open file handled.</p>
+<p>When logrotate move the files, the services keep writing to the same file.</p>
+<p>Example: syslogd will write to /var/log/cron.log. Then logrotate will rename the file to /var/log/cron.log.1, so syslogd will keep writing to the open file /var/log/cron.log.1.</p>
+<p>Sending the HUP signal to syslogd will force him to close existing file handle and open new file handle to the original path /var/log/cron.log which will create a new file.</p>
+<p>The use of the HUP signal instead of another one is at the discretion of the program. Some services like php-fpm will listen to the USR1 signal to reopen it’s file handle without terminating itself.</p>
+<p>不过还得看应用是否屏蔽了 HUP 信号</p>
+<h2 id="systemd"><a href="#systemd" class="headerlink" title="systemd"></a>systemd</h2><p>sudo systemctl list-unit-files –type=service | grep enabled //列出启动项</p>
+<p> journalctl -b -1 //复审前一次启动， -2 复审倒数第 2 次启动. 重演你的系统启动的所有消息</p>
+<p>sudo systemd-analyze blame   <strong>sudo systemd-analyze critical-chain</strong></p>
+<p>systemd-analyze critical-chain –fuzz 1h</p>
+<p>sudo systemd-analyze blame networkd</p>
+<p>systemd-analyze critical-chain network.target local-fs.target</p>
+<p><img src="/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png" alt="img"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>一模一样的症状，但是根因找错了：<a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="external">rsyslog占用内存高</a> </p>
+<p><a href="https://access.redhat.com/solutions/3705051" target="_blank" rel="external">https://access.redhat.com/solutions/3705051</a></p>
+<p><a href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html" target="_blank" rel="external">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
+<p><a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html" target="_blank" rel="external">鸟哥 journald 介绍</a></p>
+<p><a href="https://linuxhint.com/journalctl-tail-and-cheatsheet/" target="_blank" rel="external">journalctl tail and cheatsheet</a></p>
+<p><a href="https://lp007819.wordpress.com/2015/01/17/systemd-journal-介绍/" target="_blank" rel="external">Journal的由来</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP传输速度案例分析/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2134,6 +2378,8 @@ sudo ip tcp_metrics delete 100.118.58.7
 <blockquote>
 <p><strong>热点更新下的死锁检测(</strong>no deadlock list check<strong>)</strong></p>
 <p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
+<p> 原生版本的MySQL对于正常业务链接没有拒绝机制（除了TDDL的链接池或者MySQL的user_connnection不够用），对于同一行记录到innodb层修改的时候，凡是到innodb层的任务都必须拿到innodb_thread_concurrency的槽位才能执行(当然这里也有很多细节，这里就说最主要的代码改动点)，举例来说：开启一个事务，对于id=1的行记录更新，进到innodb层，占着1个innodb_thread_concurrency，等到id=1的事务结束，会释放innodb_thread_concurrency,从而达到innodb_thread_concurrency的平衡；</p>
+<p>再进一步，开启一个事务，对id=1的行记录更新进到innodb层，占着1个innodb_thread_concurrency，事务不提交（假设innodb_thread_concurrency=32)，如果有下一个对id=1记录来更新的话，进到innodb层，又占着1个innodb_thread_concurrency，检测发现是对id=1的更新，排到第1个对id=1的队列的后面，同时释放innodb_thread_concurrency;以此类推这个链表有可能会很长比如1024；执行的时候又需要做死锁检测等一系列工作，都需要用到一个叫做kernel_mutex的mutex（这是一个全局互斥量用来管理锁系统，事务系统，MVCC多版本控制），对于大并发，整个链表非常长的时候，可想而知kernel_metex的竞争多么激烈，从而在链表检测的时间变长。</p>
 </blockquote>
 <h3 id="缩短锁时间"><a href="#缩短锁时间" class="headerlink" title="缩短锁时间"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
 <p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
@@ -3392,7 +3638,7 @@ sudo ip tcp_metrics delete 100.118.58.7
 <p>前面我们分析的是 32 位操作系统，那对于 64 位机器是不是有点不同呢？在 64 位的机器上，使用了 48 位的虚拟地址，所以它需要使用 4 级页表。它的结构与 32 位的 3 级页表是相似的，<strong>只是多了一级页目录，定位的过程也从 32 位的 4 步变成了 5 步。</strong></p>
 <p><img src="/images/951413iMgBlog/image-20211107182305732.png" alt="image-20211107182305732"></p>
 <p>8086最开始是按不同的作用将内存分为代码段、数据段等，386开始按页开始管理内存（混合有按段管理）。 现代的操作系统都是采用段式管理来做基本的权限管理，而对于内存的分配、回收、调度都是依赖页式管理。</p>
-<h3 id="tlab-miss"><a href="#tlab-miss" class="headerlink" title="tlab miss"></a><a href="https://lwn.net/Articles/379748" target="_blank" rel="external">tlab miss</a></h3><p>tlb：从各级cache里分配的一块专用空间，用来存放页表(虚拟地址和物理地址的对应关系)</p>
+<h3 id="tlab-miss"><a href="#tlab-miss" class="headerlink" title="tlab miss"></a><a href="https://lwn.net/Articles/379748" target="_blank" rel="external">tlab miss</a></h3><p>tlb：从各级cache里分配的一块专用空间，用来存放页表(虚拟地址和物理地址的对应关系)–存放在CPU cache里的索引</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div></pre></td><td class="code"><pre><div class="line">#x86info -c</div><div class="line">Monitor/Mwait: min/max line size 64/64, ecx bit 0 support, enumeration extension</div><div class="line">SVM: revision 1, 32768 ASIDs</div><div class="line">Address Size: 48 bits virtual, 48 bits physical</div><div class="line">The physical package has 96 of 32768 possible cores implemented.</div><div class="line">L1 Data TLB (1G):           Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (1G):    Fully associative. 64 entries.</div><div class="line">L1 Data TLB (2M/4M):        Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (2M/4M): Fully associative. 64 entries.</div><div class="line">L1 Data TLB (4K):           Fully associative. 64 entries.</div><div class="line">L1 Instruction TLB (4K):    Fully associative. 64 entries.</div><div class="line">L1 Data cache:</div><div class="line">	Size: 32Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line">L1 Instruction cache:</div><div class="line">	Size: 32Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line">L2 Data TLB (1G):           Fully associative. 64 entries.</div><div class="line">L2 Instruction TLB (1G):    Disabled. 0 entries.</div><div class="line">L2 Data TLB (2M/4M):        4-way associative. 2048 entries.</div><div class="line">L2 Instruction TLB (2M/4M): 2-way associative. 512 entries.</div><div class="line">L2 Data TLB (4K):           8-way associative. 2048 entries.</div><div class="line">L2 Instruction TLB (4K):    4-way associative. 512 entries.</div><div class="line">L2 cache:</div><div class="line">	Size: 512Kb	8-way associative.</div><div class="line">	lines per tag=1	line size=64 bytes.</div><div class="line"></div><div class="line"> running at an estimated 2.55GHz</div></pre></td></tr></table></figure>
 <p><img src="/images/951413iMgBlog/image-20220928160318893.png" alt="image-20220928160318893"></p>
 <p>TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。TLB和L1一样每个core独享，由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
@@ -4837,409 +5083,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/03/MySQL JDBC StreamResult 和 net_write_timeout/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/07/03/MySQL JDBC StreamResult 和 net_write_timeout/" itemprop="url">MySQL JDBC StreamResult 和 net_write_timeout</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-07-03T17:30:03+08:00">
-                2020-07-03
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/MySQL/" itemprop="url" rel="index">
-                    <span itemprop="name">MySQL</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="MySQL-JDBC-StreamResult-和-net-write-timeout"><a href="#MySQL-JDBC-StreamResult-和-net-write-timeout" class="headerlink" title="MySQL JDBC StreamResult 和 net_write_timeout"></a>MySQL JDBC StreamResult 和 net_write_timeout</h1><h2 id="MySQL-JDBC-拉取数据的三种方式"><a href="#MySQL-JDBC-拉取数据的三种方式" class="headerlink" title="MySQL JDBC 拉取数据的三种方式"></a>MySQL JDBC 拉取数据的三种方式</h2><p>MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：</p>
-<ol>
-<li>简单模式，也就是默认模式，数据都先要从MySQL Server发到client的OS TCP buffer，然后JDBC把 OS buffer读取到JVM内存中，读取到JVM内存的过程中憋着不让client读取，全部读完再通知inputStream.read(). 数据大的话容易导致JVM OOM</li>
-<li><strong>useCursorFetch=true</strong>，配合FetchSize，也就是MySQL Server把查到的数据先缓存到本地磁盘，然后按照FetchSize挨个发给client。这需要占用MySQL很高的IOPS（先写磁盘缓存），其次每次Fetch需要一个RTT，效率不高。</li>
-<li>Stream读取，Stream读取是在执行SQL前设置FetchSize：statement.setFetchSize(Integer.MIN_VALUE)，同时确保游标是只读、向前滚动的（为游标的默认值），MySQL JDBC内置的操作方法是将Statement强制转换为：com.mysql.jdbc.StatementImpl，调用其方法：enableStreamingResults()，这2者达到的效果是一致的，都是启动Stream流方式读取数据。这个时候MySQL不停地发数据，inputStream.read()不停地读取。一般来说发数据更快些，很快client的OS TCP recv buffer就满了，这时MySQL停下来等buffer有空闲就继续发数据。等待过程中如果超过 net_write_timeout MySQL就会报错，中断这次查询。</li>
-</ol>
-<p>从这里的描述来看，数据小的时候第一种方式还能接受，但是数据大了容易OOM，方式三看起来不错，但是要特别注意 net_write_timeout。</p>
-<p>1和3对MySQL Server来说处理上没有啥区别，也感知不到这两种方式的不同。只是对1来说从OS Buffer中的数据复制到JVM内存中速度快，JVM攒多了数据内存就容易爆掉；对3来说JDBC一条条将OS Buffer中的数据复制到JVM(内存复制速度快)同时返回给execute挨个处理（慢），一般来说挨个处理要慢一些，这就导致了从OS Buffer中复制数据较慢，容易导致 TCP Receive Buffer满了，那么MySQL Server感知到的就是TCP 传输窗口为0了，导致暂停传输数据。</p>
-<p>在数据量很小的时候方式三没什么优势，因为总是多一次set net_write_tiemout，也就是多了一次RTT。</p>
-<p><img src="/images/951413iMgBlog/70.png" alt="img"></p>
-<h2 id="MySQL-timeout"><a href="#MySQL-timeout" class="headerlink" title="MySQL timeout"></a><a href="https://www.cubrid.org/blog/3826470" target="_blank" rel="external">MySQL timeout</a></h2><ol>
-<li>Creates a statement by calling <code>Connection.createStatement()</code>.</li>
-<li>Calls <code>Statement.executeQuery()</code>.</li>
-<li>The statement transmits the Query to MySqlServer by using the internal connection.</li>
-<li>The statement creates a new timeout-execution thread for timeout process.</li>
-<li>For version 5.1.x, it changes to assign 1 thread for each connection.</li>
-<li>Registers the timeout execution to the thread.</li>
-<li>Timeout occurs.</li>
-<li>The timeout-execution thread creates a connection that has the same configurations as the statement.</li>
-<li>Transmits the cancel Query (KILL QUERY “connectionId“) by using the connection.</li>
-</ol>
-<p><img src="/images/951413iMgBlog/1f6df479e83fd2c14ecac4ee6be64a29.png" alt="Figure 6: QueryTimeout Execution Process for MySQL JDBC Statement (5.0.8)."></p>
-<h2 id="net-read-timeout"><a href="#net-read-timeout" class="headerlink" title="net_read_timeout"></a>net_read_timeout</h2><table>
-<thead>
-<tr>
-<th style="text-align:left">Command-Line Format</th>
-<th><code>--net-read-timeout=#</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left">System Variable</td>
-<td><code>net_read_timeout</code></td>
-</tr>
-<tr>
-<td style="text-align:left">Scope</td>
-<td>Global, Session</td>
-</tr>
-<tr>
-<td style="text-align:left">Dynamic</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td style="text-align:left">Type</td>
-<td>Integer</td>
-</tr>
-<tr>
-<td style="text-align:left">Default Value</td>
-<td><code>30</code></td>
-</tr>
-<tr>
-<td style="text-align:left">Minimum Value</td>
-<td><code>1</code></td>
-</tr>
-<tr>
-<td style="text-align:left">Maximum Value</td>
-<td><code>31536000</code></td>
-</tr>
-<tr>
-<td style="text-align:left">Unit</td>
-<td>seconds</td>
-</tr>
-</tbody>
-</table>
-<p>The number of seconds to wait for more data from a connection before aborting the read. When the server is reading from the client, <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_read_timeout" target="_blank" rel="external"><code>net_read_timeout</code></a> is the timeout value controlling when to abort.</p>
-<p>如下图，MySQL Server监听3017端口，195228号包 客户端发一个SQL 给 MySQL Server，但是似乎这个时候正好网络异常，30秒钟后（从 SQL 请求的前一个 ack 开始算，Server应该一直都没有收到），Server 端触发 net_read_timeout 超时异常（疑问：这里没有 net_read_timeout 描述的读取了一半的现象）</p>
-<p><img src="/images/951413iMgBlog/image-20230209155545142.png" alt="image-20230209155545142"></p>
-<p>解决方案：建议调大 net_read_timeout 以应对可能出现的网络丢包</p>
-<h2 id="net-write-timeout"><a href="#net-write-timeout" class="headerlink" title="net_write_timeout"></a>net_write_timeout</h2><p>先看下 <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout" target="_blank" rel="external"><code>net_write_timeout</code></a>的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Command-Line Format</td>
-<td><code>--net-write-timeout=#</code></td>
-</tr>
-<tr>
-<td>System Variable</td>
-<td><code>net_write_timeout</code></td>
-</tr>
-<tr>
-<td>Scope</td>
-<td>Global, Session</td>
-</tr>
-<tr>
-<td>Dynamic</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Type</td>
-<td>Integer</td>
-</tr>
-<tr>
-<td>Default Value</td>
-<td><code>60</code></td>
-</tr>
-<tr>
-<td>Minimum Value</td>
-<td><code>1</code></td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>案例</strong>：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，直到MySQL  Server 触发 net_write_timeout 异常</p>
-<p>首先可以尝试在 DRDS jdbcurl 配置 netTimeoutForStreamingResults 参数,设置为 0 可以使其一直等待,或设置一个合理的值(秒).</p>
-</blockquote>
-<p>从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery() 方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">if (doStreaming &amp;&amp; this.connection.getNetTimeoutForStreamingResults() &gt; 0) &#123;  </div><div class="line">            java.sql.Statement stmt = null;  </div><div class="line">            try &#123;  </div><div class="line">                stmt = this.connection.createStatement();                    ((com.mysql.jdbc.StatementImpl)stmt).executeSimpleNonQuery(this.connection, &quot;SET net_write_timeout=&quot;   </div><div class="line">                        + this.connection.getNetTimeoutForStreamingResults());  </div><div class="line">            &#125; finally &#123;  </div><div class="line">                if (stmt != null) &#123;  </div><div class="line">                    stmt.close();  </div><div class="line">                &#125;  </div><div class="line">            &#125;  </div><div class="line">        &#125;</div></pre></td></tr></table></figure>
-<p>而 this.connection.getNetTimeoutForStreamingResults() 默认是600秒，或者在JDBC连接串种通过属性 netTimeoutForStreamingResults 来指定。</p>
-<p>netTimeoutForStreamingResults 默认值：</p>
-<p>What value should the driver automatically set the server setting ‘net_write_timeout’ to when the streaming result sets feature is in use? Value has unit of seconds, the value “0” means the driver will not try and adjust this value.</p>
-<table>
-<thead>
-<tr>
-<th style="text-align:left">Default Value</th>
-<th>600</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left">Since Version</td>
-<td>5.1.0</td>
-</tr>
-</tbody>
-</table>
-<p>一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：</p>
-<p><img src="/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png" alt=""></p>
-<p>或者：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">ErrorMessage:</div><div class="line">Code:[DBUtilErrorCode-07], Description:[读取数据库数据失败. 请检查您的配置的 column/table/where/querySql或者向 DBA 寻求帮助.].  - 执行的SQL为:/*+TDDL(&#123;&apos;extra&apos;:&#123;&apos;MERGE_UNION&apos;:&apos;false&apos;&#125;,&apos;type&apos;:&apos;direct&apos;,&apos;vtab&apos;:&apos;C_CONS&apos;,&apos;dbid&apos;:&apos;EASDB_1514548807024CGYFEASDB_ROQH_0005_RDS&apos;,&apos;realtabs&apos;:[&apos;C_CONS&apos;]&#125;)*/select CONS_ID,CUST_ID,USERFLAG,CONS_NO,CONS_NAME,CUST_QUERY_NO,TMP_PAY_RELA_NO,ORGN_CONS_NO,CONS_SORT_CODE,ELEC_ADDR,TRADE_CODE,ELEC_TYPE_CODE,CONTRACT_CAP,RUN_CAP,SHIFT_NO,LODE_ATTR_CODE,VOLT_CODE,HEC_INDUSTRY_CODE,HOLIDAY,BUILD_DATE,PS_DATE,CANCEL_DATE,DUE_DATE,NOTIFY_MODE,SETTLE_MODE,STATUS_CODE,ORG_NO,RRIO_CODE,CHK_CYCLE,LAST_CHK_DATE,CHECKER_NO,POWEROFF_CODE,TRANSFER_CODE,MR_SECT_NO,NOTE_TYPE_CODE,TMP_FLAG,TMP_DATE,DATA_SRC,USER_EATTR,SHARD_NO,INSERT_TIME from C_CONS  具体错误信息为：Communications link failure</div><div class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 709,806 milliseconds ago.</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:377)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:1036)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3427)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3327)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3814)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:870)</div><div class="line">	at com.mysql.jdbc.MysqlIO.nextRow(MysqlIO.java:1928)</div><div class="line">	at com.mysql.jdbc.RowDataDynamic.nextRecord(RowDataDynamic.java:378)</div><div class="line">	at com.mysql.jdbc.RowDataDynamic.next(RowDataDynamic.java:358)</div><div class="line">	at com.mysql.jdbc.ResultSetImpl.next(ResultSetImpl.java:6337)</div><div class="line">	at com.alibaba.datax.plugin.rdbms.reader.CommonRdbmsReader$Task.startRead(CommonRdbmsReader.java:275)</div><div class="line">	at com.alibaba.datax.plugin.reader.drdsreader.DrdsReader$Task.startRead(DrdsReader.java:148)</div><div class="line">	at com.alibaba.datax.core.taskgroup.runner.ReaderRunner.run(ReaderRunner.java:62)</div><div class="line">	at java.lang.Thread.run(Thread.java:834)</div><div class="line">Caused by: java.io.EOFException: Can not read response from server. Expected to read 258 bytes, read 54 bytes before connection was unexpectedly lost.</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:2914)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3387)</div><div class="line">	... 11 more</div></pre></td></tr></table></figure>
-<h3 id="特别注意"><a href="#特别注意" class="headerlink" title="特别注意"></a>特别注意</h3><p>JDBC驱动报如下错误</p>
-<blockquote>
-<p>Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server.  </p>
-</blockquote>
-<p>不一定是 <code>net_write_timeout</code> 设置过小导致的，JDBC 在 streaming 流模式下只要连接异常就会报如上错误，比如：</p>
-<ul>
-<li>连接被 TCP reset</li>
-<li>连接因为某种原因(比如 QueryTimeOut) 触发 kill Query导致连接中断</li>
-</ul>
-<p><a href="https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/">比如出现内核bug，内核卡死不发包的话，客户端同样报 net_write_timeout 错误</a></p>
-<h2 id="一些其他的-Timeout"><a href="#一些其他的-Timeout" class="headerlink" title="一些其他的 Timeout"></a>一些其他的 Timeout</h2><p>connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间，默认值0，表示不设置超时，单位毫秒，建议30000。 JDBC驱动连接属性</p>
-<p>socketTimeout：JDBC参数，表示客户端发送请求给MySQL数据库后block在read的等待数据的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。要特别注意socketTimeout仅仅是指等待socket数据时间，如果在传输数据那么这个值就没有用了。<a href="https://docs.oracle.com/javase/7/docs/api/java/net/SocketOptions.html#SO_TIMEOUT" target="_blank" rel="external">socketTimeout通过mysql-connector中的NativeProtocol最终设置在socketOptions上</a></p>
-<p><img src="/images/951413iMgBlog/image-20211024171459127.png" alt="image-20211024171459127"></p>
-<blockquote>
-<p>static final int SO_TIMEOUT。 <strong>Set a timeout on blocking Socket operations</strong>:</p>
-<p> ServerSocket.accept();<br> SocketInputStream.read();<br> DatagramSocket.receive();</p>
-<p>The option must be set prior to entering a blocking operation to take effect. If the timeout expires and the operation would continue to block, <strong>java.io.InterruptedIOException</strong> is raised. The Socket is not closed in this case.</p>
-</blockquote>
-<p>Statement Timeout：用来限制statement的执行时长，timeout的值通过调用JDBC的java.sql.Statement.setQueryTimeout(int timeout) API进行设置。不过现在开发者已经很少直接在代码中设置，而多是通过框架来进行设置。</p>
-<p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_max_execution_time" target="_blank" rel="external"><code>max_execution_time</code></a>：The execution timeout for <a href="https://dev.mysql.com/doc/refman/5.7/en/select.html" target="_blank" rel="external"><code>SELECT</code></a> statements, in milliseconds. If the value is 0, timeouts are not enabled.  MySQL 属性，可以set修改，一般用来设置一个查询最长不超过多少秒，避免一个慢查询一直在跑，跟statement timeout对应。</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Command-Line Format</td>
-<td><code>--max-execution-time=#</code></td>
-</tr>
-<tr>
-<td>System Variable</td>
-<td><code>max_execution_time</code></td>
-</tr>
-<tr>
-<td>Scope</td>
-<td>Global, Session</td>
-</tr>
-<tr>
-<td>Dynamic</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Type</td>
-<td>Integer</td>
-</tr>
-<tr>
-<td>Default Value</td>
-<td><code>0</code></td>
-</tr>
-</tbody>
-</table>
-<p><a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="external"><code>wait_timeout</code></a> The number of seconds the server waits for activity on a noninteractive connection before closing it. MySQL 属性，一般设置tcp keepalive后这个值基本不会超时（这句话存疑 202110）。</p>
-<p>On thread startup, the session <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="external"><code>wait_timeout</code></a> value is initialized from the global <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout" target="_blank" rel="external"><code>wait_timeout</code></a> value or from the global <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout" target="_blank" rel="external"><code>interactive_timeout</code></a> value, depending on the type of client (as defined by the <code>CLIENT_INTERACTIVE</code> connect option to <a href="https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html" target="_blank" rel="external"><code>mysql_real_connect()</code></a>). See also <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout" target="_blank" rel="external"><code>interactive_timeout</code></a>.</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Command-Line Format</td>
-<td><code>--wait-timeout=#</code></td>
-</tr>
-<tr>
-<td>System Variable</td>
-<td><code>wait_timeout</code></td>
-</tr>
-<tr>
-<td>Scope</td>
-<td>Global, Session</td>
-</tr>
-<tr>
-<td>Dynamic</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Type</td>
-<td>Integer</td>
-</tr>
-<tr>
-<td>Default Value</td>
-<td><code>28800</code></td>
-</tr>
-<tr>
-<td>Minimum Value</td>
-<td><code>1</code></td>
-</tr>
-<tr>
-<td>Maximum Value (Other)</td>
-<td><code>31536000</code></td>
-</tr>
-<tr>
-<td>Maximum Value (Windows)</td>
-<td><code>2147483</code></td>
-</tr>
-</tbody>
-</table>
-<p>一般来说应该设置： max_execution_time/statement timeout &lt; Tranction Timeout &lt; socketTimeout</p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>设置JDBC参数不合理（不设置的话默认值是：queryTimeout=10s，socketTimeout=10s），会导致在异常情况下，第二条get获得了第一条的结果，拿到了错误的数据，数据库则表现正常</p>
-<p>socketTimeout触发后，连接抛CommunicationsException（严重异常，触发后连接应该断开）, 但JDBC会检查请求是否被cancle了，如果cancle就会抛出MySQLTimeoutException异常，这是一个普通异常，连接会被重新放回连接池重用（导致下一个获取这个连接的线程可能会得到前一个请求的response）。</p>
-<p>queryTimeout（queryTimeoutKillsConnection=True–来强制关闭连接）会触发启动一个新的连接向server发送 kill id的命令，<strong>MySQL5.7增加了max_statement_time/max_execution_time来做到在server上直接检测到这种查询，然后结束掉</strong>。</p>
-<h3 id="jdbc-和-dn间-socket-timeout"><a href="#jdbc-和-dn间-socket-timeout" class="headerlink" title="jdbc 和 dn间 socket_timeout"></a>jdbc 和 dn间 socket_timeout</h3><p>jdbc驱动设置socketTimeout=1459，如果是socketTimeout触发客户端断开后，server端的SQL会继续执行，如果是client被kill则server端的SQL会被终止</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div></pre></td><td class="code"><pre><div class="line"># java -cp /home/admin/drds-server/lib/*:. Test &quot;jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459&quot; &quot;user&quot; &quot;pass&quot; &quot;select sleep(2)&quot; &quot;1&quot;</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line"></div><div class="line">The last packet successfully received from the server was 1,461 milliseconds ago.  The last packet sent successfully to the server was 1,461 milliseconds ago.</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2811)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2806)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2764)</div><div class="line">	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1399)</div><div class="line">	at Test.main(Test.java:29)</div><div class="line">Caused by: java.net.SocketTimeoutException: Read timed out</div><div class="line">	at java.net.SocketInputStream.socketRead0(Native Method)</div><div class="line">	at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)</div><div class="line">	at java.net.SocketInputStream.read(SocketInputStream.java:171)</div><div class="line">	at java.net.SocketInputStream.read(SocketInputStream.java:141)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 8 more</div><div class="line">	</div><div class="line">	或者开协程后的错误堆栈</div><div class="line">	# java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test &quot;jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459&quot; &quot;user&quot; &quot;pass&quot; &quot;select sleep(2)&quot; &quot;1&quot;</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line"></div><div class="line">The last packet successfully received from the server was 1,460 milliseconds ago.  The last packet sent successfully to the server was 1,459 milliseconds ago.</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2811)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2806)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2764)</div><div class="line">	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1399)</div><div class="line">	at Test.main(Test.java:29)</div><div class="line">Caused by: java.net.SocketTimeoutException: time out</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 8 more</div></pre></td></tr></table></figure>
-<p>对应抓包，没有 kill动作</p>
-<p><img src="/images/951413iMgBlog/image-20220601141709318.png" alt="image-20220601141709318" style="zoom:50%;"></p>
-<h3 id="cn-和-dn-间socket-timeout案例"><a href="#cn-和-dn-间socket-timeout案例" class="headerlink" title="cn 和 dn 间socket_timeout案例"></a>cn 和 dn 间socket_timeout案例</h3><p>设置CN到DN的socket_timeout为2秒，然后执行一个sleep</p>
-<p>CN上抓包分析(stream 5是客户端到CN、stream6是CN到DN）如下，首先CN会计时2秒钟后发送quit给DN，然后断开和DN的连接，然后返回一个错误给client，client发送quit断开连接：</p>
-<p><img src="/images/951413iMgBlog/image-20220601122556415.png" alt="image-20220601122556415" style="zoom:50%;"></p>
-<p>CN完整报错堆栈：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div><div class="line">134</div><div class="line">135</div><div class="line">136</div><div class="line">137</div><div class="line">138</div><div class="line">139</div><div class="line">140</div><div class="line">141</div><div class="line">142</div><div class="line">143</div><div class="line">144</div><div class="line">145</div><div class="line">146</div><div class="line">147</div><div class="line">148</div><div class="line">149</div><div class="line">150</div><div class="line">151</div><div class="line">152</div><div class="line">153</div><div class="line">154</div><div class="line">155</div><div class="line">156</div><div class="line">157</div><div class="line">158</div><div class="line">159</div><div class="line">160</div><div class="line">161</div><div class="line">162</div><div class="line">163</div><div class="line">164</div><div class="line">165</div><div class="line">166</div><div class="line">167</div><div class="line">168</div><div class="line">169</div><div class="line">170</div><div class="line">171</div><div class="line">172</div><div class="line">173</div><div class="line">174</div><div class="line">175</div><div class="line">176</div><div class="line">177</div><div class="line">178</div><div class="line">179</div><div class="line">180</div><div class="line">181</div><div class="line">182</div><div class="line">183</div><div class="line">184</div><div class="line">185</div><div class="line">186</div><div class="line">187</div><div class="line">188</div><div class="line">189</div><div class="line">190</div><div class="line">191</div><div class="line">192</div><div class="line">193</div><div class="line">194</div><div class="line">195</div><div class="line">196</div><div class="line">197</div><div class="line">198</div><div class="line">199</div><div class="line">200</div><div class="line">201</div><div class="line">202</div><div class="line">203</div><div class="line">204</div><div class="line">205</div><div class="line">206</div><div class="line">207</div><div class="line">208</div><div class="line">209</div><div class="line">210</div><div class="line">211</div><div class="line">212</div><div class="line">213</div><div class="line">214</div><div class="line">215</div><div class="line">216</div><div class="line">217</div><div class="line">218</div><div class="line">219</div><div class="line">220</div><div class="line">221</div><div class="line">222</div><div class="line">223</div><div class="line">224</div><div class="line">225</div><div class="line">226</div><div class="line">227</div><div class="line">228</div><div class="line">229</div><div class="line">230</div><div class="line">231</div><div class="line">232</div><div class="line">233</div><div class="line">234</div><div class="line">235</div><div class="line">236</div><div class="line">237</div><div class="line">238</div><div class="line">239</div><div class="line">240</div><div class="line">241</div><div class="line">242</div><div class="line">243</div><div class="line">244</div><div class="line">245</div><div class="line">246</div><div class="line">247</div><div class="line">248</div><div class="line">249</div><div class="line">250</div><div class="line">251</div><div class="line">252</div><div class="line">253</div><div class="line">254</div><div class="line">255</div><div class="line">256</div><div class="line">257</div><div class="line">258</div><div class="line">259</div><div class="line">260</div><div class="line">261</div><div class="line">262</div><div class="line">263</div><div class="line">264</div><div class="line">265</div><div class="line">266</div><div class="line">267</div><div class="line">268</div><div class="line">269</div><div class="line">270</div><div class="line">271</div><div class="line">272</div><div class="line">273</div><div class="line">274</div><div class="line">275</div><div class="line">276</div><div class="line">277</div><div class="line">278</div><div class="line">279</div><div class="line">280</div><div class="line">281</div><div class="line">282</div><div class="line">283</div><div class="line">284</div></pre></td><td class="code"><pre><div class="line">2022-06-01 12:10:00.178 [ServerExecutor-bucket-2-19-thread-181] ERROR com.alibaba.druid.pool.DruidPooledStatement - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank] CommunicationsException, druid version 1.1.24, jdbcUrl : jdbc:mysql://172.16.40.215:3008/bank_000000?maintainTimeStats=false&amp;rewriteBatchedStatements=false&amp;failOverReadOnly=false&amp;cacheResultSetMetadata=true&amp;allowMultiQueries=true&amp;clobberStreamingResults=true&amp;autoReconnect=false&amp;usePsMemOptimize=true&amp;useServerPrepStmts=true&amp;netTimeoutForStreamingResults=0&amp;useSSL=false&amp;metadataCacheSize=256&amp;readOnlyPropagatesToServer=false&amp;prepStmtCacheSqlLimit=4096&amp;connectTimeout=5000&amp;socketTimeout=9000000&amp;cachePrepStmts=true&amp;characterEncoding=utf8&amp;prepStmtCacheSize=256, testWhileIdle true, idle millis 11861, minIdle 5, poolingCount 4, timeBetweenEvictionRunsMillis 60000, lastValidIdleMillis 11861, driver com.mysql.jdbc.Driver, exceptionSorter com.alibaba.polardbx.common.jdbc.sorter.MySQLExceptionSorter</div><div class="line">2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] ERROR com.alibaba.druid.pool.DruidDataSource - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank] discard connection</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)</div><div class="line">	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)</div><div class="line">	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)</div><div class="line">	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)</div><div class="line">	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.&lt;init&gt;(MyPhyQueryCursor.java:67)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)</div><div class="line">	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)</div><div class="line">	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)</div><div class="line">	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)</div><div class="line">	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)</div><div class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</div><div class="line">	at java.lang.Thread.run(Thread.java:874)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: java.net.SocketTimeoutException: time out</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div><div class="line">2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] [1461cdf8b2809000]Execute ERROR on GROUP: BANK_000000_GROUP, ATOM: dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000, MERGE_UNION_SIZE:1, SQL: /*DRDS /10.101.32.6/1461cdf8b2809000/0// */SELECT SLEEP(?) AS `sleep(236)`, PARAM: [236], ERROR: Communications link failure, tddl version: 5.4.13-16522656</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)</div><div class="line">	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)</div><div class="line">	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)</div><div class="line">	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)</div><div class="line">	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.&lt;init&gt;(MyPhyQueryCursor.java:67)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)</div><div class="line">	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)</div><div class="line">	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)</div><div class="line">	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)</div><div class="line">	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)</div><div class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</div><div class="line">	at java.lang.Thread.run(Thread.java:874)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: java.net.SocketTimeoutException: time out</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div><div class="line">2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] Reset conn socketTimeout failed, lastSocketTimeout is 9000000, tddl version: 5.4.13-16522656</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: No operations allowed after connection closed.</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.Util.getInstance(Util.java:408)</div><div class="line">	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:918)</div><div class="line">	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:897)</div><div class="line">	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:886)</div><div class="line">	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:860)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.throwConnectionClosedException(ConnectionImpl.java:1326)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.checkClosed(ConnectionImpl.java:1321)</div><div class="line">	at com.mysql.jdbc.ConnectionImpl.setNetworkTimeout(ConnectionImpl.java:5888)</div><div class="line">	at com.alibaba.polardbx.atom.utils.NetworkUtils.setNetworkTimeout(NetworkUtils.java:18)</div><div class="line">	at com.alibaba.polardbx.group.jdbc.TGroupDirectConnection.setNetworkTimeout(TGroupDirectConnection.java:433)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.resetPhyConnSocketTimeout(MyJdbcHandler.java:721)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1173)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)</div><div class="line">	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.&lt;init&gt;(MyPhyQueryCursor.java:67)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)</div><div class="line">	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)</div><div class="line">	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)</div><div class="line">	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)</div><div class="line">	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)</div><div class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</div><div class="line">	at java.lang.Thread.run(Thread.java:874)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.executor.ExecutorHelper - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] PhyQuery(node=&quot;BANK_000000_GROUP&quot;, sql=&quot;SELECT SLEEP(?) AS `sleep(236)`&quot;)</div><div class="line">, tddl version: 5.4.13-16522656</div><div class="line">2022-06-01 12:10:00.180 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] [ERROR-CODE: 3009][1461cdf8b2809000] SQL:  /*+TDDL:node(0)  and SOCKET_TIMEOUT=2000 */ select sleep(236), tddl version: 5.4.13-16522656</div><div class="line">com.alibaba.polardbx.common.exception.TddlRuntimeException: ERR-CODE: [TDDL-4614][ERR_EXECUTE_ON_MYSQL] Error occurs when execute on GROUP &apos;BANK_000000_GROUP&apos; ATOM &apos;dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000&apos;: Communications link failure</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.handleException(MyJdbcHandler.java:1935)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.generalHandlerException(MyJdbcHandler.java:1911)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1168)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)</div><div class="line">	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.&lt;init&gt;(MyPhyQueryCursor.java:67)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)</div><div class="line">	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)</div><div class="line">	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)</div><div class="line">	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)</div><div class="line">	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)</div><div class="line">	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)</div><div class="line">	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)</div><div class="line">	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)</div><div class="line">	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)</div><div class="line">	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)</div><div class="line">	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)</div><div class="line">	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)</div><div class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</div><div class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</div><div class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</div><div class="line">	at java.lang.Thread.run(Thread.java:874)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)</div><div class="line">	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)</div><div class="line">	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)</div><div class="line">	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)</div><div class="line">	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)</div><div class="line">	... 44 common frames omitted</div><div class="line">Caused by: java.net.SocketTimeoutException: time out</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div></pre></td></tr></table></figure>
-<h3 id="kill-案例"><a href="#kill-案例" class="headerlink" title="kill 案例"></a>kill 案例</h3><h4 id="kill-mysql-client"><a href="#kill-mysql-client" class="headerlink" title="kill mysql client"></a>kill mysql client</h4><p>mysql client连cn执行一个很慢的SQL，然后kill掉mysql client</p>
-<p>cn报错：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div></pre></td><td class="code"><pre><div class="line">2022-06-01 11:45:59.063 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.druid.pool.DruidPooledStatement - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank] CommunicationsException, druid version 1.1.24, jdbcUrl : jdbc:mysql://172.16.40.215:3008/bank_000000?maintainTimeStats=false&amp;rewriteBatchedStatements=false&amp;failOverReadOnly=false&amp;cacheResultSetMetadata=true&amp;allowMultiQueries=true&amp;clobberStreamingResults=true&amp;autoReconnect=false&amp;usePsMemOptimize=true&amp;useServerPrepStmts=true&amp;netTimeoutForStreamingResults=0&amp;useSSL=false&amp;metadataCacheSize=256&amp;readOnlyPropagatesToServer=false&amp;prepStmtCacheSqlLimit=4096&amp;connectTimeout=5000&amp;socketTimeout=9000000&amp;cachePrepStmts=true&amp;characterEncoding=utf8&amp;prepStmtCacheSize=256, testWhileIdle true, idle millis 72028, minIdle 5, poolingCount 4, timeBetweenEvictionRunsMillis 60000, lastValidIdleMillis 345734, driver com.mysql.jdbc.Driver, exceptionSorter com.alibaba.polardbx.common.jdbc.sorter.MySQLExceptionSorter</div><div class="line">2022-06-01 11:45:59.064 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.druid.pool.DruidDataSource - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank] discard connection</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	…………</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: java.net.SocketException: Socket is closed</div><div class="line">	at java.net.Socket.getSoTimeout(Socket.java:1291)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div><div class="line">2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] [1461c86bbe809001]Execute ERROR on GROUP: BANK_000000_GROUP, ATOM: dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000, MERGE_UNION_SIZE:1, SQL: /*DRDS /10.101.32.6/1461c86bbe809001/0// */SELECT SLEEP(?) AS `sleep(236)`, PARAM: [236], ERROR: Communications link failure, tddl version: 5.4.13-16522656</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">…………</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: java.net.SocketException: Socket is closed</div><div class="line">	at java.net.Socket.getSoTimeout(Socket.java:1291)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div><div class="line">2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Reset conn socketTimeout failed, lastSocketTimeout is 9000000, tddl version: 5.4.13-16522656</div><div class="line">com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: No operations allowed after connection closed.</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)</div><div class="line">	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">…………</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.executor.ExecutorHelper - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] PhyQuery(node=&quot;BANK_000000_GROUP&quot;, sql=&quot;SELECT SLEEP(?) AS `sleep(236)`&quot;)</div><div class="line">, tddl version: 5.4.13-16522656</div><div class="line">2022-06-01 11:45:59.066 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Interrupted unexpectedly for 1461c86bbe809001, tddl version: 5.4.13-16522656</div><div class="line">java.lang.InterruptedException: null</div><div class="line">	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1310)</div><div class="line">	at com.alibaba.polardbx.common.utils.BooleanMutex$Sync.innerGet(BooleanMutex.java:136)</div><div class="line">	at com.alibaba.polardbx.common.utils.BooleanMutex.get(BooleanMutex.java:53)</div><div class="line">	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool.waitByTraceId(ServerThreadPool.java:445)</div><div class="line">	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1291)</div><div class="line">	……</div><div class="line">	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)</div><div class="line">	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">2022-06-01 11:45:59.066 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] [ERROR-CODE: 3009][1461c86bbe809001] SQL:  /*+TDDL:node(0)  and SOCKET_TIMEOUT=40000 */ select sleep(236), tddl version: 5.4.13-16522656</div><div class="line">com.alibaba.polardbx.common.exception.TddlRuntimeException: ERR-CODE: [TDDL-4614][ERR_EXECUTE_ON_MYSQL] Error occurs when execute on GROUP &apos;BANK_000000_GROUP&apos; ATOM &apos;dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000&apos;: Communications link failure</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.handleException(MyJdbcHandler.java:1935)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.generalHandlerException(MyJdbcHandler.java:1911)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1168)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)</div><div class="line">	…………</div><div class="line">		at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)</div><div class="line">	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)</div><div class="line">Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure</div><div class="line">	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)</div><div class="line">	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</div><div class="line">	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</div><div class="line">	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</div><div class="line">	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</div><div class="line">	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</div><div class="line">	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)</div><div class="line">	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)</div><div class="line">	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)</div><div class="line">	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)</div><div class="line">	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)</div><div class="line">	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)</div><div class="line">	... 44 common frames omitted</div><div class="line">Caused by: java.net.SocketException: Socket is closed</div><div class="line">	at java.net.Socket.getSoTimeout(Socket.java:1291)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)</div><div class="line">	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)</div><div class="line">	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)</div><div class="line">	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)</div><div class="line">	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)</div><div class="line">	... 53 common frames omitted</div><div class="line">2022-06-01 11:45:59.071 [KillExecutor-15-thread-49] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Connection Killed, tddl version: 5.4.13-16522656</div></pre></td></tr></table></figure>
-<p>mysqld报错：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">2022-06-01T11:45:58.915371+08:00 8218735 [Note] Aborted connection 8218735 to db: &apos;bank_000000&apos; user: &apos;rds_polardb_x&apos; host: &apos;172.16.40.214&apos; (Got an error reading communication packets)</div></pre></td></tr></table></figure>
-<p>172.16.40.214是客户端IP</p>
-<p>抓包看到CN收到mysql client发过来的fin，CN回复fin断开连接</p>
-<p>CN会给DN在新的连接上发Kill Query（stream 1596），同时会在原来的连接(stream 583)上发fin，然后原来的连接收到DN的response（被kill），然后CN发reset给DN</p>
-<p><img src="/images/951413iMgBlog/image-20220601120626629.png" alt="image-20220601120626629" style="zoom:50%;"></p>
-<p>下图是sleep 连接的收发包</p>
-<p><img src="/images/951413iMgBlog/image-20220601120417026.png" alt="image-20220601120417026" style="zoom:50%;"></p>
-<h4 id="Kill-jdbc-client"><a href="#Kill-jdbc-client" class="headerlink" title="Kill jdbc client"></a>Kill jdbc client</h4><p>Java jdbc client被kill后没有错误堆栈，kill后触发socket.close(对应client发送fin断开连接），kill后server端SQL也被立即中断</p>
-<p>抓包：</p>
-<p><img src="/images/951413iMgBlog/image-20220601143200253.png" alt="image-20220601143200253" style="zoom:50%;"></p>
-<p>server端报错信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">2022-06-01T14:33:52.204848+08:00 8288839 [Note] Aborted connection 8288839 to db: &apos;bank_000000&apos; user: &apos;user&apos; host: &apos;172.16.40.214&apos; (Got an error reading communication packets)</div></pre></td></tr></table></figure>
-<h3 id="Statement-timeout"><a href="#Statement-timeout" class="headerlink" title="Statement timeout"></a>Statement timeout</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"># java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test &quot;jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=5459&quot; &quot;user&quot; &quot;pass&quot; &quot;select sleep(180)&quot; &quot;1&quot; 3</div><div class="line">com.mysql.jdbc.exceptions.MySQLTimeoutException: Statement cancelled due to timeout or client request</div><div class="line">	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1419)</div><div class="line">	at Test.main(Test.java:31)</div></pre></td></tr></table></figure>
-<p>statement会设置一个timer，到时间还没有返回结果就创建一个新连接发送kill query</p>
-<p>server 端收到kill后终止SQL执行，抓包看到Server端主动提前返回了错误</p>
-<p><img src="/images/951413iMgBlog/image-20220601152401387.png" alt="image-20220601152401387" style="zoom:50%;"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/xieyuooo/article/details/83109971" target="_blank" rel="external">MySQL JDBC StreamResult通信原理浅析</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5289,7 +5132,7 @@ sudo ip tcp_metrics delete 100.118.58.7
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">155</span>
+                <span class="site-state-item-count">156</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5311,7 +5154,7 @@ sudo ip tcp_metrics delete 100.118.58.7
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">247</span>
+                <span class="site-state-item-count">248</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

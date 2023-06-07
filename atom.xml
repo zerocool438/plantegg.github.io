@@ -67,14 +67,204 @@
   </entry>
   
   <entry>
+    <title>MySQL线程池卡顿重现</title>
+    <link href="https://plantegg.github.io/2023/05/26/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E9%A1%BF%E9%87%8D%E7%8E%B0/"/>
+    <id>https://plantegg.github.io/2023/05/26/MySQL线程池卡顿重现/</id>
+    <published>2023-05-26T09:30:03.000Z</published>
+    <updated>2023-06-07T01:21:13.730Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="MySQL线程池卡顿重现"><a href="#MySQL线程池卡顿重现" class="headerlink" title="MySQL线程池卡顿重现"></a>MySQL线程池卡顿重现</h1><h2 id="起因"><a href="#起因" class="headerlink" title="起因"></a>起因</h2><p>为了激励大家多动手少空想，我在推特发起了白嫖我的<a href="http://t.zsxq.com/0cz93XUPj" target="_blank" rel="external">知识星球活动</a>：</p>
+<blockquote>
+<p>白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧</p>
+</blockquote>
+<p>参考现象：<a href="https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/</a></p>
+<hr>
+<p>感谢推友<a href="https://twitter.com/wych42" target="_blank" rel="external">王鱼翅</a>同学，以下是他的教科书级的细致重现，你复制粘贴就能和他一样重现了</p>
+<h2 id="这个案例的重要性"><a href="#这个案例的重要性" class="headerlink" title="这个案例的重要性"></a>这个案例的重要性</h2><p>这个现象对应我们年度四大案例之一，如下图左下角</p>
+<p><img src="/images/951413iMgBlog/image-20230517082106489.png" alt="image-20230517082106489"></p>
+<p>重现后请思考：</p>
+<ol>
+<li>MySQL为什么要将多个线程分成小池子，小池子肯定容易局部资源不足</li>
+<li>Nginx 一个连接固定在一个worker上，那么同样多个Worker也会有不均衡(有的worker很闲，有的很卡)</li>
+<li>动手实验一下将多个小池子改成一个大线程池会怎么样</li>
+<li>Java ConcurrentHashMap为什么能够高性能</li>
+</ol>
+<p>由 @wych42 重现 </p>
+<h2 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h2><p>根据 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="external">USE</a> 分析套路。看到服务端执行快，但是整体RT慢的现象，大概率是中间哪个位置有排队。根据文章里的描述，原因是在thread pool group中出现了排队。</p>
+<p>排队的主要原因是服务端拒绝创建新的thread（worker），导致新进来的SQL需要等待前面的执行完成。那么就需要重点分析thread(worker)的创建过程和约束条件。根据文章和文档的说明，重点在thread_pool_size, thread_pool_oversubscribe, thread_pool_max_threads, thread_pool_stall_limit这几个参数上。</p>
+<p>跟据文档分析和实际执行结果，这几个参数在MySQL不同的发型版中的行为逻辑是不尽相同的。核心差异在对创建新worker的限制条件上，后面复现也会根据两个发型版的特点分别执行。</p>
+<h2 id="mariadb"><a href="#mariadb" class="headerlink" title="mariadb"></a>mariadb</h2><p><a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="external">文档</a></p>
+<ul>
+<li>通常情况下，新worker由listener worker创建</li>
+<li>当timer worker检测到thread group 有stall时，可能会选择创建一个新的worker</li>
+<li>worker的数量上限由thread_pool_max_threads限制</li>
+<li>thread_pool_oversubscribe约束的是被额外创建出来的worker，在执行完任务后，最多能保留active状态的数量<blockquote>
+<p>To clarify, the thread_pool_oversubscribe system variable does not play any part in the creation of new worker threads. The thread_pool_oversubscribe system variable is only used to determine how many worker threads should remain active in a thread group, once a thread group is already oversubscribed due to stalls.</p>
+</blockquote>
+</li>
+</ul>
+<h2 id="percona"><a href="#percona" class="headerlink" title="percona"></a>percona</h2><p><a href="https://docs.percona.com/percona-server/8.0/performance/threadpool.html" target="_blank" rel="external">文档</a></p>
+<p>percona的行为更符合原文章里的说明：</p>
+<ul>
+<li>如果线程执行超过时间 thread_pool_stall_limit 的值，会被任务stalled，会创建一个新的线程执行排队的任务</li>
+<li>thread_pool_oversubscribe 约束了每个thread group的线程数上限。</li>
+</ul>
+<h2 id="尝试复现"><a href="#尝试复现" class="headerlink" title="尝试复现"></a>尝试复现</h2><h3 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h3><p>并发向DB发起请求，观察客户端耗时，这些请求应当符合这些条件：</p>
+<ul>
+<li>可控的并发数量：以对比数据库服务端不同参数值的情况</li>
+<li>有稳定的、相同的服务端执行耗时：以对比客户端在不同场景下的耗时</li>
+<li>对服务端的硬件压力较小：避免因为并发不同时，因IO、CPU资源占用，影响服务端执行耗时</li>
+</ul>
+<p>综合考虑使用 <code>select sleep(2);</code>作为测试SQL。并发控制使用下面的golang代码实现。</p>
+<p>再控制数据库服务端参数，运行同一个并发程序进行对比，mariadb和percona分析执行运行过程：</p>
+<h2 id="复现执行"><a href="#复现执行" class="headerlink" title="复现执行"></a>复现执行</h2><h3 id="mariadb-1"><a href="#mariadb-1" class="headerlink" title="mariadb"></a>mariadb</h3><p>由上面分析可以，mariadb 中造成排队的约束是thread_pool_max_threads。</p>
+<h4 id="执行方案"><a href="#执行方案" class="headerlink" title="执行方案"></a>执行方案</h4><ul>
+<li><p>DB配置</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">| thread_pool_max_threads                 | 6               |</div><div class="line">| thread_pool_oversubscribe               | 1               |</div><div class="line">| thread_pool_size                        | 1               |</div><div class="line">| thread_pool_stall_limit                 | 500             |</div></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(2)</code></p>
+</li>
+<li>执行并发：8</li>
+</ul>
+<p>预期结果： 6个SQL执行的客户端观察耗时为2s；2个SQL为4s</p>
+<p>若调整 thread_pool_max_threads=8，则8个SQL的执行客户端观察耗时都为2s</p>
+<h4 id="执行结果"><a href="#执行结果" class="headerlink" title="执行结果"></a>执行结果</h4><ol>
+<li><p>thread_pool_max_threads=6;concurrency=8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">go run ./main.go</div><div class="line">2023/05/16 13:34:51 starting taskId:task_3</div><div class="line">2023/05/16 13:34:51 starting taskId:task_1</div><div class="line">2023/05/16 13:34:51 starting taskId:task_6</div><div class="line">2023/05/16 13:34:51 starting taskId:task_4</div><div class="line">2023/05/16 13:34:51 starting taskId:task_0</div><div class="line">2023/05/16 13:34:51 starting taskId:task_7</div><div class="line">2023/05/16 13:34:51 starting taskId:task_2</div><div class="line">2023/05/16 13:34:51 starting taskId:task_5</div><div class="line">2023/05/16 13:34:53 taskId:task_0 exec cost : 2.021305666s</div><div class="line">2023/05/16 13:34:53 taskId:task_6 exec cost : 2.021421041s</div><div class="line">2023/05/16 13:34:53 taskId:task_3 exec cost : 2.021258917s</div><div class="line">2023/05/16 13:34:53 taskId:task_2 exec cost : 2.021275458s</div><div class="line">2023/05/16 13:34:53 taskId:task_4 exec cost : 2.021254083s</div><div class="line">2023/05/16 13:34:53 taskId:task_7 exec cost : 2.02146725s</div><div class="line">2023/05/16 13:34:55 taskId:task_5 exec cost : 4.021478584s</div><div class="line">2023/05/16 13:34:55 taskId:task_1 exec cost : 4.02192s</div></pre></td></tr></table></figure>
+</li>
+<li><p>thread_pool_max_threads=8;concurrency=8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">go run ./main.go</div><div class="line">2023/05/16 13:36:17 starting taskId:task_7</div><div class="line">2023/05/16 13:36:17 starting taskId:task_3</div><div class="line">2023/05/16 13:36:17 starting taskId:task_1</div><div class="line">2023/05/16 13:36:17 starting taskId:task_5</div><div class="line">2023/05/16 13:36:17 starting taskId:task_0</div><div class="line">2023/05/16 13:36:17 starting taskId:task_6</div><div class="line">2023/05/16 13:36:17 starting taskId:task_4</div><div class="line">2023/05/16 13:36:17 starting taskId:task_2</div><div class="line">2023/05/16 13:36:19 taskId:task_6 exec cost : 2.045480167s</div><div class="line">2023/05/16 13:36:19 taskId:task_2 exec cost : 2.045405667s</div><div class="line">2023/05/16 13:36:19 taskId:task_7 exec cost : 2.045507334s</div><div class="line">2023/05/16 13:36:19 taskId:task_1 exec cost : 2.04553075s</div><div class="line">2023/05/16 13:36:19 taskId:task_3 exec cost : 2.04554975s</div><div class="line">2023/05/16 13:36:19 taskId:task_0 exec cost : 2.045697375s</div><div class="line">2023/05/16 13:36:19 taskId:task_4 exec cost : 2.046417375s</div><div class="line">2023/05/16 13:36:19 taskId:task_5 exec cost : 2.046453792s</div></pre></td></tr></table></figure>
+</li>
+</ol>
+<p>均符合预期。</p>
+<h3 id="percona-1"><a href="#percona-1" class="headerlink" title="percona"></a>percona</h3><p>由上面分析可以，percona中造成排队的约束是thread_pool_oversubscribe。</p>
+<h4 id="执行方案-1"><a href="#执行方案-1" class="headerlink" title="执行方案"></a>执行方案</h4><ul>
+<li><p>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">| thread_pool_max_threads                 | 1000               |</div><div class="line">| thread_pool_oversubscribe               | 1               |</div><div class="line">| thread_pool_size                        | 1               |</div><div class="line">| thread_pool_stall_limit                 | 500             |</div></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(2)</code></p>
+</li>
+<li>执行并发：8</li>
+</ul>
+<p>预期结果： 客户端观察到的耗时分四个批次输出，每个批次2个SQL，耗时分别为2s,4s,6s,8s.</p>
+<p>若调整 thread_pool_oversubscribe=2，则三个批次输出，分别为3条SQL耗时均为2s，3条SQL耗时均为4s，2条SQL耗时均为6s</p>
+<h4 id="执行结果-1"><a href="#执行结果-1" class="headerlink" title="执行结果"></a>执行结果</h4><ol>
+<li><p>thread_pool_oversubscribe=1,concurrency=8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">go run ./main.go</div><div class="line">2023/05/16 13:39:35 starting taskId:task_2</div><div class="line">2023/05/16 13:39:35 starting taskId:task_4</div><div class="line">2023/05/16 13:39:35 starting taskId:task_3</div><div class="line">2023/05/16 13:39:35 starting taskId:task_5</div><div class="line">2023/05/16 13:39:35 starting taskId:task_6</div><div class="line">2023/05/16 13:39:35 starting taskId:task_0</div><div class="line">2023/05/16 13:39:35 starting taskId:task_1</div><div class="line">2023/05/16 13:39:35 starting taskId:task_7</div><div class="line">2023/05/16 13:39:37 taskId:task_7 exec cost : 2.063547416s</div><div class="line">2023/05/16 13:39:37 taskId:task_0 exec cost : 2.064091541s</div><div class="line">2023/05/16 13:39:39 taskId:task_5 exec cost : 4.06672125s</div><div class="line">2023/05/16 13:39:39 taskId:task_6 exec cost : 4.066822583s</div><div class="line">2023/05/16 13:39:41 taskId:task_3 exec cost : 6.067720292s</div><div class="line">2023/05/16 13:39:41 taskId:task_2 exec cost : 6.069995s</div><div class="line">2023/05/16 13:39:43 taskId:task_4 exec cost : 8.069296042s</div><div class="line">2023/05/16 13:39:43 taskId:task_1 exec cost : 8.071391709s</div></pre></td></tr></table></figure>
+</li>
+<li><p>thread_pool_oversubscribe=2,concurrency=8 </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">go run ./main.go</div><div class="line">2023/05/16 13:41:02 starting taskId:task_7</div><div class="line">2023/05/16 13:41:02 starting taskId:task_1</div><div class="line">2023/05/16 13:41:02 starting taskId:task_3</div><div class="line">2023/05/16 13:41:02 starting taskId:task_2</div><div class="line">2023/05/16 13:41:02 starting taskId:task_5</div><div class="line">2023/05/16 13:41:02 starting taskId:task_6</div><div class="line">2023/05/16 13:41:02 starting taskId:task_4</div><div class="line">2023/05/16 13:41:02 starting taskId:task_0</div><div class="line">2023/05/16 13:41:04 taskId:task_1 exec cost : 2.057093667s</div><div class="line">2023/05/16 13:41:04 taskId:task_3 exec cost : 2.057156334s</div><div class="line">2023/05/16 13:41:04 taskId:task_5 exec cost : 2.057170667s</div><div class="line">2023/05/16 13:41:06 taskId:task_6 exec cost : 4.066917041s</div><div class="line">2023/05/16 13:41:06 taskId:task_7 exec cost : 4.066944125s</div><div class="line">2023/05/16 13:41:06 taskId:task_2 exec cost : 4.066976875s</div><div class="line">2023/05/16 13:41:08 taskId:task_4 exec cost : 6.070653125s</div><div class="line">2023/05/16 13:41:08 taskId:task_0 exec cost : 6.070612083s</div></pre></td></tr></table></figure>
+</li>
+</ol>
+<p>均符合预期。</p>
+<h3 id="real-world-模拟（percona）版本"><a href="#real-world-模拟（percona）版本" class="headerlink" title="real-world 模拟（percona）版本"></a>real-world 模拟（percona）版本</h3><p>现实场景中，很少会有大批量的2s在SQL在生产环境执行（限互联网业务)，上述的分析过程能否在真实场景中验证呢？尝试用一个执行200ms的SQL来模拟下：</p>
+<ul>
+<li><p>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">| thread_pool_max_threads                 | 1000               |</div><div class="line">| thread_pool_oversubscribe               | 1               |</div><div class="line">| thread_pool_size                        | 1               |</div><div class="line">| thread_pool_stall_limit                 | 500             |</div></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(0.2)</code></p>
+</li>
+<li>执行并发：10</li>
+</ul>
+<p>从执行结果中可以看到，只有第一条SQL按照预期的时间执行完成了。<br>从抓包结果中可以看到，所有SQL几乎是同时发出。观察最慢的一条SQL,但是从客户端发包到服务端响应包发出的耗时，与客户端观察到的耗时也能对应上。</p>
+<p>可以验证上述分析过程。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line">2023/05/16 14:47:47 taskId:task_1 exec cost : 239.34925ms</div><div class="line">2023/05/16 14:47:47 taskId:task_9 exec cost : 239.560833ms</div><div class="line">2023/05/16 14:47:47 taskId:task_5 exec cost : 453.795084ms</div><div class="line">2023/05/16 14:47:47 taskId:task_3 exec cost : 458.0005ms</div><div class="line">2023/05/16 14:47:47 taskId:task_6 exec cost : 659.441541ms</div><div class="line">2023/05/16 14:47:47 taskId:task_8 exec cost : 659.660917ms</div><div class="line">2023/05/16 14:47:47 taskId:task_0 exec cost : 862.526375ms</div><div class="line">2023/05/16 14:47:47 taskId:task_7 exec cost : 864.450042ms</div><div class="line">2023/05/16 14:47:48 taskId:task_2 exec cost : 1.063766875s</div><div class="line">2023/05/16 14:47:48 taskId:task_4 exec cost : 1.066266041s</div></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/238557399-c92e2c4e-436f-4f89-ba87-48c49b5393ac.png" alt="send_sql"></p>
+<p><img src="/images/951413iMgBlog/238557635-1209f057-0c3c-4cfd-9072-12bfc112b4c6.png" alt="response_delay"></p>
+<h3 id="复现文章中部分线程池卡的现象"><a href="#复现文章中部分线程池卡的现象" class="headerlink" title="复现文章中部分线程池卡的现象"></a>复现文章中部分线程池卡的现象</h3><p>配置两个线程池，在其中一个线程池上,通过<code>select sleep()</code>较长时间模拟线程池被慢SQL或者大量任务堵塞的情况，具体配置方案如下：</p>
+<ul>
+<li>thread_pool_size=2: 保留两个线程池，验证一个卡顿，一个不卡</li>
+<li>thread_pool_oversubscribe=1: 允许多创建一个线程，每个线程池中可以同时运行1+1=2个线程</li>
+<li>thread_pool_max_threads=2: 每个线程池的线程数量上限，为thread_pool_oversubscribe的配置约束加一个硬限制，每个线程池中最多允许运行2个线程</li>
+</ul>
+<p>操作步骤如下:</p>
+<ul>
+<li>通过mysql client在终端发起链接，通过 <code>show processlist</code>语句获取到链接Id, 该链接会分配到 id%2 的线程池中。</li>
+<li>用偶数id的链接验证卡顿线程池，用奇数id的链接验证不卡的线程池，链接情况如下:</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line">  show processlist;</div><div class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</div><div class="line">| Id  | User            | Host           | db   | Command | Time  | State                  | Info             | Time_ms  | Rows_sent | Rows_examined |</div><div class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</div><div class="line">|   5 | event_scheduler | localhost      | NULL | Daemon  | 23664 | Waiting on empty queue | NULL             | 23663650 |         0 |             0 |</div><div class="line">| 404 | root            | _gateway:51310 | NULL | Sleep   |  7256 |                        | NULL             |  7256057 |         1 |             1 |</div><div class="line">| 405 | root            | _gateway:48860 | NULL | Sleep   |  7295 |                        | NULL             |  7295342 |         1 |             1 |</div><div class="line">| 406 | root            | _gateway:41144 | NULL | Sleep   |  7254 |                        | NULL             |  7254236 |         1 |             1 |</div><div class="line">| 410 | root            | _gateway:46794 | NULL | Sleep   |  7196 |                        | NULL             |  7196042 |         1 |             1 |</div><div class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</div></pre></td></tr></table></figure>
+<ul>
+<li>在 id=404, id=406的链接上，执行 <code>select sleep(30)</code>，再到 id=410 的链接上执行 <code>select 1</code>，预计 <code>select &#39;slow&#39;</code>会直接卡顿约30s再执行完成。</li>
+<li>同时，在id=405的链接上，反复执行 <code>select &#39;fast&#39;</code>,都可以很快执行完成。</li>
+</ul>
+<p>执行结果:</p>
+<ul>
+<li>id=410 上的语句执行约25s返回结果（终端操作手速影响导致了5s误差）,语句执行时数据库实例输出报错日志，提示线程不足:<blockquote>
+<p>2023-05-16T11:27:09.997916Z 406 [ERROR] [MY-000000] [Server] Threadpool could not create additional thread to handle queries, because the number of allowed threads was reached. Increasing ‘thread_pool_max_threads’ parameter can help in this situation.  If ‘admin_port’ parameter is set, you can still connect to the database with superuser account (it must be TCP connection using admin_port as TCP port) and troubleshoot the situation. A likely cause of pool blocks are clients that lock resources for long time. ‘show processlist’ or ‘show engine innodb status’ can give additional hints.</p>
+</blockquote>
+</li>
+<li>id=405链接上的执行都行快。可参考下面抓包截图。</li>
+</ul>
+<p>抓包结果:</p>
+<p>id=410 上的阻塞SQL,可以看到:</p>
+<ol>
+<li>三条语句在3s内接连发出,但是由于线程池阻塞， <code>select &#39;slow&#39;</code>原本应该很快返回结果，被卡住</li>
+<li>在30s时，第一个<code>select sleep(30)</code>语句执行完成，空出的线程立刻执行了 <code>select &#39;slow&#39;</code>并返回结果<br><img src="/images/951413iMgBlog/238638548-c4161d72-b94c-43ef-b698-3acc1002eb43.png" alt="slow query"></li>
+</ol>
+<p>id=405链接上的执行结果可以看到，每条语句执行都很快。<br><img src="/images/951413iMgBlog/238637635-323fca3b-edf1-4ae7-8d68-d9db9811c692.png" alt="fast query"></p>
+<h1 id="参数合理值-已知参数的容量评估"><a href="#参数合理值-已知参数的容量评估" class="headerlink" title="参数合理值/已知参数的容量评估"></a>参数合理值/已知参数的容量评估</h1><p>percona 的默认配置中，thread_pool_size=核心数，thread_pool_oversubscribe=3.假设在一台 16core 的服务器上运行percona，默认配置下最多可以有 16*(1+3)=64个worker同时接受请求。也就是最大可并行处理的SQL数量为 64 个。</p>
+<p>假设同时有65个执行耗时为10ms的SQL到达服务端，理论上，会有一个进入排队。排查网络、解析等阶段，在客户端观察到的64个SQL执行耗时10ms，1个SQL执行耗时约20ms。这也会导致耗时监控中出现毛刺、耗时分布不符合正态分布。</p>
+<p>反之，根据硬件配置、查询的量、耗时等特点，也可以推算合理的参数值。</p>
+<h1 id="附录"><a href="#附录" class="headerlink" title="附录"></a>附录</h1><h2 id="过程回顾"><a href="#过程回顾" class="headerlink" title="过程回顾"></a>过程回顾</h2><h3 id="阶段一-确定原因"><a href="#阶段一-确定原因" class="headerlink" title="阶段一 确定原因"></a>阶段一 确定原因</h3><p>看到文章时，基本确认问题根源在执行线程(worker)不够，导致排队，出于以下几点分析:</p>
+<ul>
+<li>开头提到的 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="external">USE</a> 分析套路，结合排查过类似问题(非SQL)的经验</li>
+<li>看到文章作者调大thread_pool_oversubscribe便解决问题, 结合文章中对该参数作用的文档引用，基本可以确定</li>
+</ul>
+<h3 id="阶段二-走上弯路"><a href="#阶段二-走上弯路" class="headerlink" title="阶段二 走上弯路"></a>阶段二 走上弯路</h3><p>尝试复现时，要先启动一个DB实例，便查询文档该参数如何在配置文件中配置，查了MySQL的文档，似乎只在enterprise版本中才有该配置项，便转头去看mariadb的配置说明(这一步给走弯路埋下了伏笔)。</p>
+<p>用docker在本地启动了mariadb实例(thread_pool_size=2 thread_pool_oversubscribe=1)</p>
+<p>先尝试用 <code>select sleep(30)</code> 模拟阻塞，用 sysbench 模拟正常流量，结果失败：</p>
+<ol>
+<li>正常流量中有慢的，但是整体还符合正态分布，没有出现都卡的情况。</li>
+<li>加大了  <code>select sleep(30)</code> 查询的并发量，现象同上。</li>
+</ol>
+<p>又翻阅了一些文档，看到DB在调度时，对不同类型的SQL调度优先级会有所区别，类似sleep这种啥也不干的SQL，会不会被降低调度优先级，才导致了没有复现呢？(走上了弯路)</p>
+<p>尝试人工制造慢查询:</p>
+<ol>
+<li>用 sysbench 制造百万量级的表</li>
+<li>执行 offset limit 的排序查询，并且不走索引</li>
+</ol>
+<p>复现结果仍不满意：</p>
+<ol>
+<li>整体耗时上升了，出现几笔长尾的耗时特别长的请求</li>
+<li>但是整体仍然符合正态分布</li>
+</ol>
+<p>此时分析了下，整体耗时上升是人工制造的慢查询，占用了过多IO和CPU资源，影响了sysbench SQL执行的效率。</p>
+<h3 id="阶段三-柳岸花明"><a href="#阶段三-柳岸花明" class="headerlink" title="阶段三 柳岸花明"></a>阶段三 柳岸花明</h3><p>回头又仔细看了下 mariadb关于线程池的<a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="external">文档</a>，注意到文档中提到 thread_pool_oversubscribe 不决定同时有多少线程池被创建出来并执行任务，这个行为逻辑与文章中作者引用的并不相同。<br>又去查看了另一个MySQL发行版 percona 的文档，对该配置的行为描述与文章中的相符，基本就确定前面复现失败的原因了。</p>
+<p>确定了前面提到的复现思路：用有稳定服务端执行耗时、并且不消耗大量硬件资源的SQL,用可控的并发进行模拟流量，到具体执行时：</p>
+<ul>
+<li>SQL就用 <code>select sleep(N)</code></li>
+<li>可控的并发就用 golang写个小脚本(事后看直接在终端手动操作也是可以的,不过写个脚本也不费事就是了)</li>
+</ul>
+<h2 id="mariadb-启动命令和配置"><a href="#mariadb-启动命令和配置" class="headerlink" title="mariadb 启动命令和配置"></a>mariadb 启动命令和配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">mkdir mariadb</div><div class="line">cat &gt; mariadb/my.cnf &lt;&lt; EOF</div><div class="line">[mariadb]</div><div class="line">#thread pool</div><div class="line">thread_handling=pool-of-threads</div><div class="line">thread_pool_oversubscribe=1</div><div class="line">thread_pool_size=1</div><div class="line">thread_pool_max_threads=6</div><div class="line">EOF</div><div class="line"></div><div class="line">docker run --name mariadb -v ./mariadb:/etc/mysql/conf.d -e MYSQL_ROOT_PASSWORD=password -p3306:3306 mariadb:10.3</div></pre></td></tr></table></figure>
+<h2 id="percona-启动命令和配置"><a href="#percona-启动命令和配置" class="headerlink" title="percona 启动命令和配置"></a>percona 启动命令和配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">mkdir percona</div><div class="line">cat &gt; percona/my.cnf &lt;&lt; EOF</div><div class="line">[mysqld]</div><div class="line">#thread pool</div><div class="line">thread_handling=pool-of-threads</div><div class="line">thread_pool_oversubscribe=1</div><div class="line">thread_pool_size=1</div><div class="line">thread_pool_max_threads=1000</div><div class="line">default_authentication_plugin=mysql_native_password</div><div class="line">EOF</div><div class="line">docker run --name percona -v ./percona:/etc/my.cnf.d -e MYSQL_ROOT_PASSWORD=123 -p33060:3306 percona:ps-8</div></pre></td></tr></table></figure>
+<p>注：Mac M1启动percona时，需要在 docker run 后面添加 <code>--platform linux/x86_64</code> 参数。(percona 未提供arm架构的image)</p>
+<h2 id="其他人的重现和分析"><a href="#其他人的重现和分析" class="headerlink" title="其他人的重现和分析"></a>其他人的重现和分析</h2><p><a href="https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/" target="_blank" rel="external">https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/</a>  从源代码debug上来分析</p>
+]]></content>
+    
+    <summary type="html">
+    
+      &lt;h1 id=&quot;MySQL线程池卡顿重现&quot;&gt;&lt;a href=&quot;#MySQL线程池卡顿重现&quot; class=&quot;headerlink&quot; title=&quot;MySQL线程池卡顿重现&quot;&gt;&lt;/a&gt;MySQL线程池卡顿重现&lt;/h1&gt;&lt;h2 id=&quot;起因&quot;&gt;&lt;a href=&quot;#起因&quot; class=&quot;
+    
+    </summary>
+    
+      <category term="MySQL" scheme="https://plantegg.github.io/categories/MySQL/"/>
+    
+    
+      <category term="thread pool" scheme="https://plantegg.github.io/tags/thread-pool/"/>
+    
+  </entry>
+  
+  <entry>
     <title>程序员案例星球介绍</title>
     <link href="https://plantegg.github.io/2023/05/10/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/"/>
     <id>https://plantegg.github.io/2023/05/10/程序员案例星球介绍/</id>
     <published>2023-05-10T09:30:03.000Z</published>
-    <updated>2023-05-16T09:20:16.345Z</updated>
+    <updated>2023-06-07T01:21:13.673Z</updated>
     
     <content type="html"><![CDATA[<h1 id="程序员案例星球介绍"><a href="#程序员案例星球介绍" class="headerlink" title="程序员案例星球介绍"></a>程序员案例星球介绍</h1><h2 id="【星球宗旨】"><a href="#【星球宗旨】" class="headerlink" title="【星球宗旨】"></a>【星球宗旨】</h2><p>平时一学就懂，但是实践总是不会，这是因为学习时<strong>缺少实践案例</strong>、场景导致学起来没有体感。我们总是习惯通过课程、教科书想要一次系统性地掌握很多东西，但最终什么都没掌握好。所以星球想通过案例打透一个或几个知识点，让你通过这几个知识点再去生长发芽形成体系</p>
 <p><img src="/images/951413iMgBlog/image-20230510191422496.png" alt="image-20230510191422496"></p>
+<p>以上四个案例中的三个都给出了完整的重现环境、配置、重现步骤、抓包分析、日志结果、现场截图等等资料，保证100%重现问题并带你进行分析，让你感受实际工作一样的场景，真正做到学透一个案例顶3年工作经验</p>
+<p><img src="/images/951413iMgBlog/image-20230607085652520.png" alt="image-20230607085652520"></p>
 <h2 id="【关于案例】"><a href="#【关于案例】" class="headerlink" title="【关于案例】"></a>【关于案例】</h2><p>本星球剖析各种程序员疑难经典案例，搞清楚一个案例基本能横扫一个领域，其次在一个案例后再带3/5个相关小案例可以帮你丰富场景，多角度理解。用做会来解决学不会的问题。 案例典型普适性强，代表基础组件基本原理等知识。分析手段尽量通用，分析过程一定要逻辑合理每个疑问都能回答清晰。 最终实现在新领域用旧知识旧工具解决疑难问题，无招胜有招</p>
 <p><img src="/images/951413iMgBlog/image-20230510191512744.png" alt="image-20230510191512744"></p>
 <h2 id="【关于星主】"><a href="#【关于星主】" class="headerlink" title="【关于星主】"></a>【关于星主】</h2><p>星主20多年的编程实践经历，疑难问题无数，擅长网络，性能，复杂系统的疑难问题分析，BAT背景，目前还在一线撕逼，作者的故事： <a href="https://plantegg.github.io/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B/">https://plantegg.github.io/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B/</a></p>
@@ -86,8 +276,8 @@
 </ul>
 <p>强龙难压地头蛇的故事也引起各路技术大佬纷纷下场教年轻人如何学习：<a href="https://t.co/IBLCRzJem2" target="_blank" rel="external">treeverse.app/view/RDzsOXjO</a></p>
 <p><img src="/images/951413iMgBlog/image-20230510193840999.png" alt="image-20230510193840999" style="zoom: 33%;"></p>
-<h2 id="【加入星球】"><a href="#【加入星球】" class="headerlink" title="【加入星球】"></a>【加入星球】</h2><p>知识星球：<a href="https://t.zsxq.com/0cSFEUh2J" target="_blank" rel="external">https://t.zsxq.com/0cSFEUh2J</a></p>
-<p><img src="/images/951413iMgBlog/image-20230407232314969.png" alt="image-20230407232314969" style="zoom:50%;"></p>
+<h2 id="【加入星球】"><a href="#【加入星球】" class="headerlink" title="【加入星球】"></a>【加入星球】</h2><p>知识星球：<a href="https://t.zsxq.com/0cSFEUh2J" target="_blank" rel="external">https://t.zsxq.com/0cSFEUh2J</a>，在这里有400多成员等着你和你一起分享案例</p>
+<p><img src="/images/951413iMgBlog/image-20230607090024270.png" alt="image-20230607090024270"></p>
 ]]></content>
     
     <summary type="html">
@@ -1565,7 +1755,7 @@
     <link href="https://plantegg.github.io/2022/01/25/ssd_san%E5%92%8Csas%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83/"/>
     <id>https://plantegg.github.io/2022/01/25/ssd_san和sas磁盘性能比较/</id>
     <published>2022-01-25T09:30:03.000Z</published>
-    <updated>2023-05-06T13:09:47.536Z</updated>
+    <updated>2023-06-07T01:21:12.913Z</updated>
     
     <content type="html"><![CDATA[<h1 id="ssd-san-sas-磁盘-光纤-RAID性能比较"><a href="#ssd-san-sas-磁盘-光纤-RAID性能比较" class="headerlink" title="ssd/san/sas/磁盘/光纤/RAID性能比较"></a>ssd/san/sas/磁盘/光纤/RAID性能比较</h1><p>本文汇总HDD、SSD、SAN、LVM、软RAID等一些性能数据</p>
 <h2 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h2><p>正好有机会用到一个san存储设备，跑了一把性能数据，记录一下</p>
@@ -1775,6 +1965,57 @@
 </ul>
 <p>PL3单盘IOPS性能计算公式  min{1800+50*容量, 1000000}</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div><div class="line">134</div><div class="line">135</div><div class="line">136</div><div class="line">137</div><div class="line">138</div><div class="line">139</div><div class="line">140</div><div class="line">141</div><div class="line">142</div><div class="line">143</div><div class="line">144</div><div class="line">145</div><div class="line">146</div><div class="line">147</div><div class="line">148</div><div class="line">149</div><div class="line">150</div><div class="line">151</div><div class="line">152</div><div class="line">153</div><div class="line">154</div><div class="line">155</div><div class="line">156</div><div class="line">157</div><div class="line">158</div><div class="line">159</div><div class="line">160</div><div class="line">161</div><div class="line">162</div><div class="line">163</div><div class="line">164</div><div class="line">165</div><div class="line">166</div><div class="line">167</div><div class="line">168</div><div class="line">169</div><div class="line">170</div><div class="line">171</div><div class="line">172</div><div class="line">173</div><div class="line">174</div><div class="line">175</div><div class="line">176</div><div class="line">177</div><div class="line">178</div><div class="line">179</div><div class="line">180</div><div class="line">181</div><div class="line">182</div><div class="line">183</div><div class="line">184</div><div class="line">185</div><div class="line">186</div><div class="line">187</div><div class="line">188</div><div class="line">189</div><div class="line">190</div><div class="line">191</div><div class="line">192</div><div class="line">193</div><div class="line">194</div><div class="line">195</div><div class="line">196</div><div class="line">197</div><div class="line">198</div><div class="line">199</div><div class="line">200</div><div class="line">201</div><div class="line">202</div><div class="line">203</div><div class="line">204</div><div class="line">205</div><div class="line">206</div><div class="line">207</div><div class="line">208</div><div class="line">209</div><div class="line">210</div><div class="line">211</div><div class="line">212</div><div class="line">213</div><div class="line">214</div><div class="line">215</div><div class="line">216</div><div class="line">217</div><div class="line">218</div><div class="line">219</div><div class="line">220</div><div class="line">221</div><div class="line">222</div><div class="line">223</div><div class="line">224</div></pre></td><td class="code"><pre><div class="line">[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</div><div class="line">EBS 4K randwrite test: (g=0): rw=randwrite, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</div><div class="line">fio-3.7</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [w(1)][100.0%][r=0KiB/s,w=566MiB/s][r=0,w=145k IOPS][eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2416234: Thu Apr  7 17:03:07 2022</div><div class="line">  write: IOPS=96.2k, BW=376MiB/s (394MB/s)(22.0GiB/60000msec)</div><div class="line">    slat (usec): min=2, max=530984, avg= 8.27, stdev=1104.96</div><div class="line">    clat (usec): min=2, max=944103, avg=599.25, stdev=9230.93</div><div class="line">     lat (usec): min=7, max=944111, avg=607.60, stdev=9308.81</div><div class="line">    clat percentiles (usec):</div><div class="line">     |  1.00th=[   392],  5.00th=[   400], 10.00th=[   404], 20.00th=[   408],</div><div class="line">     | 30.00th=[   412], 40.00th=[   416], 50.00th=[   420], 60.00th=[   424],</div><div class="line">     | 70.00th=[   433], 80.00th=[   441], 90.00th=[   457], 95.00th=[   482],</div><div class="line">     | 99.00th=[   627], 99.50th=[   766], 99.90th=[  1795], 99.95th=[  4228],</div><div class="line">     | 99.99th=[488637]</div><div class="line">   bw (  KiB/s): min=  168, max=609232, per=100.00%, avg=422254.17, stdev=257181.75, samples=108</div><div class="line">   iops        : min=   42, max=152308, avg=105563.63, stdev=64295.48, samples=108</div><div class="line">  lat (usec)   : 4=0.01%, 10=0.01%, 50=0.01%, 100=0.01%, 250=0.01%</div><div class="line">  lat (usec)   : 500=96.35%, 750=3.11%, 1000=0.26%</div><div class="line">  lat (msec)   : 2=0.19%, 4=0.03%, 10=0.02%, 250=0.01%, 500=0.03%</div><div class="line">  lat (msec)   : 750=0.01%, 1000=0.01%</div><div class="line">  cpu          : usr=13.56%, sys=60.78%, ctx=1455, majf=0, minf=9743</div><div class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</div><div class="line">     issued rwts: total=0,5771972,0,0 short=0,0,0,0 dropped=0,0,0,0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">  WRITE: bw=376MiB/s (394MB/s), 376MiB/s-376MiB/s (394MB/s-394MB/s), io=22.0GiB (23.6GB), run=60000-60000msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">  vdb: ios=0/1463799, merge=0/7373, ticks=0/2011879, in_queue=2011879, util=27.85%</div><div class="line">  </div><div class="line">[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randread -rwmixread=70 -size=160G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</div><div class="line">EBS 4K randwrite test: (g=0): rw=randread, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</div><div class="line">fio-3.7</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [r(1)][100.0%][r=15.9MiB/s,w=0KiB/s][r=4058,w=0 IOPS][eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2441598: Thu Apr  7 17:05:10 2022</div><div class="line">   read: IOPS=3647, BW=14.2MiB/s (14.9MB/s)(855MiB/60001msec)</div><div class="line">    slat (usec): min=183, max=10119, avg=239.01, stdev=110.20</div><div class="line">    clat (usec): min=2, max=54577, avg=15170.17, stdev=1324.10</div><div class="line">     lat (usec): min=237, max=55110, avg=15409.34, stdev=1338.09</div><div class="line">    clat percentiles (usec):</div><div class="line">     |  1.00th=[13960],  5.00th=[14091], 10.00th=[14222], 20.00th=[14484],</div><div class="line">     | 30.00th=[14615], 40.00th=[14746], 50.00th=[14877], 60.00th=[15139],</div><div class="line">     | 70.00th=[15270], 80.00th=[15533], 90.00th=[16057], 95.00th=[16712],</div><div class="line">     | 99.00th=[20317], 99.50th=[22152], 99.90th=[26346], 99.95th=[30802],</div><div class="line">     | 99.99th=[52691]</div><div class="line">   bw (  KiB/s): min= 6000, max=17272, per=100.00%, avg=16511.28, stdev=1140.64, samples=105</div><div class="line">   iops        : min= 1500, max= 4318, avg=4127.81, stdev=285.16, samples=105</div><div class="line">  lat (usec)   : 4=0.01%, 250=0.01%, 500=0.01%, 750=0.01%, 1000=0.01%</div><div class="line">  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=98.91%, 50=1.05%</div><div class="line">  lat (msec)   : 100=0.02%</div><div class="line">  cpu          : usr=0.18%, sys=17.18%, ctx=219041, majf=0, minf=4215</div><div class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</div><div class="line">     issued rwts: total=218835,0,0,0 short=0,0,0,0 dropped=0,0,0,0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">   READ: bw=14.2MiB/s (14.9MB/s), 14.2MiB/s-14.2MiB/s (14.9MB/s-14.9MB/s), io=855MiB (896MB), run=60001-60001msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">  vdb: ios=218343/7992, merge=0/8876, ticks=50566/3749, in_queue=54315, util=88.08%  </div><div class="line"> </div><div class="line">[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randrw -rwmixread=70 -size=160G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</div><div class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</div><div class="line">fio-3.7</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=15.7MiB/s,w=7031KiB/s][r=4007,w=1757 IOPS][eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2641414: Thu Apr  7 17:21:10 2022</div><div class="line">   read: IOPS=3962, BW=15.5MiB/s (16.2MB/s)(929MiB/60001msec)</div><div class="line">    slat (usec): min=182, max=7194, avg=243.23, stdev=116.87</div><div class="line">    clat (usec): min=2, max=235715, avg=11020.01, stdev=3366.61</div><div class="line">     lat (usec): min=253, max=235991, avg=11263.40, stdev=3375.49</div><div class="line">    clat percentiles (msec):</div><div class="line">     |  1.00th=[    9],  5.00th=[   10], 10.00th=[   10], 20.00th=[   11],</div><div class="line">     | 30.00th=[   11], 40.00th=[   11], 50.00th=[   11], 60.00th=[   12],</div><div class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</div><div class="line">     | 99.00th=[   16], 99.50th=[   18], 99.90th=[   31], 99.95th=[   36],</div><div class="line">     | 99.99th=[  234]</div><div class="line">   bw (  KiB/s): min=10808, max=17016, per=100.00%, avg=15977.89, stdev=895.35, samples=118</div><div class="line">   iops        : min= 2702, max= 4254, avg=3994.47, stdev=223.85, samples=118</div><div class="line">  write: IOPS=1701, BW=6808KiB/s (6971kB/s)(399MiB/60001msec)</div><div class="line">    slat (usec): min=3, max=221631, avg=10.16, stdev=693.59</div><div class="line">    clat (usec): min=486, max=235772, avg=11029.42, stdev=3590.93</div><div class="line">     lat (usec): min=493, max=235780, avg=11039.67, stdev=3659.04</div><div class="line">    clat percentiles (msec):</div><div class="line">     |  1.00th=[    9],  5.00th=[   10], 10.00th=[   10], 20.00th=[   11],</div><div class="line">     | 30.00th=[   11], 40.00th=[   11], 50.00th=[   11], 60.00th=[   12],</div><div class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</div><div class="line">     | 99.00th=[   16], 99.50th=[   18], 99.90th=[   31], 99.95th=[   37],</div><div class="line">     | 99.99th=[  234]</div><div class="line">   bw (  KiB/s): min= 4480, max= 7728, per=100.00%, avg=6862.60, stdev=475.79, samples=118</div><div class="line">   iops        : min= 1120, max= 1932, avg=1715.64, stdev=118.97, samples=118</div><div class="line">  lat (usec)   : 4=0.01%, 500=0.01%, 750=0.01%</div><div class="line">  lat (msec)   : 2=0.01%, 4=0.01%, 10=20.77%, 20=78.89%, 50=0.31%</div><div class="line">  lat (msec)   : 100=0.01%, 250=0.02%</div><div class="line">  cpu          : usr=0.65%, sys=7.20%, ctx=239089, majf=0, minf=8292</div><div class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</div><div class="line">     issued rwts: total=237743,102115,0,0 short=0,0,0,0 dropped=0,0,0,0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">   READ: bw=15.5MiB/s (16.2MB/s), 15.5MiB/s-15.5MiB/s (16.2MB/s-16.2MB/s), io=929MiB (974MB), run=60001-60001msec</div><div class="line">  WRITE: bw=6808KiB/s (6971kB/s), 6808KiB/s-6808KiB/s (6971kB/s-6971kB/s), io=399MiB (418MB), run=60001-60001msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">  vdb: ios=237216/118960, merge=0/8118, ticks=55191/148225, in_queue=203416, util=99.35%</div><div class="line">  </div><div class="line">[essd_pl3]# fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=30</div><div class="line">EBS 4K randwrite test: (g=0): rw=randwrite, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=psync, iodepth=64</div><div class="line">fio-3.7</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [w(1)][100.0%][r=0KiB/s,w=28.3MiB/s][r=0,w=7249 IOPS][eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2470117: Fri Apr  8 15:35:20 2022</div><div class="line">  write: IOPS=7222, BW=28.2MiB/s (29.6MB/s)(846MiB/30001msec)</div><div class="line">    clat (usec): min=115, max=7155, avg=137.29, stdev=68.48</div><div class="line">     lat (usec): min=115, max=7156, avg=137.36, stdev=68.49</div><div class="line">    clat percentiles (usec):</div><div class="line">     |  1.00th=[  121],  5.00th=[  123], 10.00th=[  125], 20.00th=[  126],</div><div class="line">     | 30.00th=[  127], 40.00th=[  129], 50.00th=[  130], 60.00th=[  133],</div><div class="line">     | 70.00th=[  135], 80.00th=[  139], 90.00th=[  149], 95.00th=[  163],</div><div class="line">     | 99.00th=[  255], 99.50th=[  347], 99.90th=[  668], 99.95th=[  947],</div><div class="line">     | 99.99th=[ 3589]</div><div class="line">   bw (  KiB/s): min=23592, max=30104, per=99.95%, avg=28873.29, stdev=1084.49, samples=59</div><div class="line">   iops        : min= 5898, max= 7526, avg=7218.32, stdev=271.12, samples=59</div><div class="line">  lat (usec)   : 250=98.95%, 500=0.81%, 750=0.17%, 1000=0.03%</div><div class="line">  lat (msec)   : 2=0.02%, 4=0.02%, 10=0.01%</div><div class="line">  cpu          : usr=0.72%, sys=5.08%, ctx=216767, majf=0, minf=148</div><div class="line">  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, &gt;=64=0.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     issued rwts: total=0,216677,0,0 short=0,0,0,0 dropped=0,0,0,0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">  WRITE: bw=28.2MiB/s (29.6MB/s), 28.2MiB/s-28.2MiB/s (29.6MB/s-29.6MB/s), io=846MiB (888MB), run=30001-30001msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">  vdb: ios=0/219122, merge=0/3907, ticks=0/29812, in_queue=29812, util=99.52% </div><div class="line">  </div><div class="line">[root@hygon8 14:44 /polarx/lvm]</div><div class="line">#fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=30</div><div class="line">EBS 4K randwrite test: (g=0): rw=randwrite, bs=4K-4K/4K-4K/4K-4K, ioengine=sync, iodepth=64</div><div class="line">fio-2.2.8</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [w(1)] [100.0% done] [0KB/157.2MB/0KB /s] [0/40.3K/0 iops] [eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=3486352: Fri Apr  8 14:45:43 2022</div><div class="line">  write: io=4710.4MB, bw=160775KB/s, iops=40193, runt= 30001msec</div><div class="line">    clat (usec): min=18, max=4164, avg=22.05, stdev= 7.33</div><div class="line">     lat (usec): min=19, max=4165, avg=22.59, stdev= 7.36</div><div class="line">    clat percentiles (usec):</div><div class="line">     |  1.00th=[   20],  5.00th=[   20], 10.00th=[   21], 20.00th=[   21],</div><div class="line">     | 30.00th=[   21], 40.00th=[   21], 50.00th=[   21], 60.00th=[   22],</div><div class="line">     | 70.00th=[   22], 80.00th=[   22], 90.00th=[   23], 95.00th=[   25],</div><div class="line">     | 99.00th=[   36], 99.50th=[   40], 99.90th=[   62], 99.95th=[   99],</div><div class="line">     | 99.99th=[  157]</div><div class="line">    bw (KB  /s): min=147568, max=165400, per=100.00%, avg=160803.12, stdev=2704.22</div><div class="line">    lat (usec) : 20=0.08%, 50=99.70%, 100=0.17%, 250=0.04%, 500=0.01%</div><div class="line">    lat (usec) : 750=0.01%, 1000=0.01%</div><div class="line">    lat (msec) : 2=0.01%, 10=0.01%</div><div class="line">  cpu          : usr=6.95%, sys=31.18%, ctx=1205994, majf=0, minf=1573</div><div class="line">  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, &gt;=64=0.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     issued    : total=r=0/w=1205849/d=0, short=r=0/w=0/d=0, drop=r=0/w=0/d=0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">  WRITE: io=4710.4MB, aggrb=160774KB/s, minb=160774KB/s, maxb=160774KB/s, mint=30001msec, maxt=30001msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">    dm-2: ios=0/1204503, merge=0/0, ticks=0/15340, in_queue=15340, util=50.78%, aggrios=0/603282, aggrmerge=0/463, aggrticks=0/8822, aggrin_queue=0, aggrutil=28.66%</div><div class="line">  nvme0n1: ios=0/683021, merge=0/474, ticks=0/9992, in_queue=0, util=28.66%</div><div class="line">  nvme1n1: ios=0/523543, merge=0/452, ticks=0/7652, in_queue=0, util=21.67%</div><div class="line">  </div><div class="line">[root@x86.170 /polarx/lvm]</div><div class="line">#/usr/sbin/nvme list</div><div class="line">Node             SN                   Model                                    Namespace Usage                      Format           FW Rev</div><div class="line">---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------</div><div class="line">/dev/nvme0n1     BTLJ932205P44P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131</div><div class="line">/dev/nvme1n1     BTLJ932207H04P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131</div><div class="line">/dev/nvme2n1     BTLJ932205AS4P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131</div><div class="line">[root@x86.170 /polarx/lvm]</div><div class="line">#fio  -bs=4k  -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=30</div><div class="line">EBS 4K randwrite test: (g=0): rw=randwrite, bs=4K-4K/4K-4K/4K-4K, ioengine=sync, iodepth=64</div><div class="line">fio-2.2.8</div><div class="line">Starting 1 thread</div><div class="line">Jobs: 1 (f=1): [w(1)] [100.0% done] [0KB/240.2MB/0KB /s] [0/61.5K/0 iops] [eta 00m:00s]</div><div class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=11516: Fri Apr  8 15:44:36 2022</div><div class="line">  write: io=7143.3MB, bw=243813KB/s, iops=60953, runt= 30001msec</div><div class="line">    clat (usec): min=10, max=818, avg=14.96, stdev= 4.14</div><div class="line">     lat (usec): min=10, max=818, avg=15.14, stdev= 4.15</div><div class="line">    clat percentiles (usec):</div><div class="line">     |  1.00th=[   11],  5.00th=[   12], 10.00th=[   12], 20.00th=[   14],</div><div class="line">     | 30.00th=[   15], 40.00th=[   15], 50.00th=[   15], 60.00th=[   15],</div><div class="line">     | 70.00th=[   15], 80.00th=[   16], 90.00th=[   16], 95.00th=[   16],</div><div class="line">     | 99.00th=[   20], 99.50th=[   32], 99.90th=[   78], 99.95th=[   84],</div><div class="line">     | 99.99th=[  105]</div><div class="line">    bw (KB  /s): min=236768, max=246424, per=99.99%, avg=243794.17, stdev=1736.82</div><div class="line">    lat (usec) : 20=98.96%, 50=0.73%, 100=0.29%, 250=0.01%, 500=0.01%</div><div class="line">    lat (usec) : 750=0.01%, 1000=0.01%</div><div class="line">  cpu          : usr=10.65%, sys=42.66%, ctx=1828699, majf=0, minf=7</div><div class="line">  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, &gt;=64=0.0%</div><div class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</div><div class="line">     issued    : total=r=0/w=1828662/d=0, short=r=0/w=0/d=0, drop=r=0/w=0/d=0</div><div class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</div><div class="line"></div><div class="line">Run status group 0 (all jobs):</div><div class="line">  WRITE: io=7143.3MB, aggrb=243813KB/s, minb=243813KB/s, maxb=243813KB/s, mint=30001msec, maxt=30001msec</div><div class="line"></div><div class="line">Disk stats (read/write):</div><div class="line">    dm-0: ios=0/1823575, merge=0/0, ticks=0/13666, in_queue=13667, util=45.56%, aggrios=0/609558, aggrmerge=0/2, aggrticks=0/4280, aggrin_queue=4198, aggrutil=14.47%</div><div class="line">  nvme0n1: ios=0/609144, merge=0/6, ticks=0/4438, in_queue=4353, util=14.47%</div><div class="line">  nvme1n1: ios=0/609470, merge=0/0, ticks=0/4186, in_queue=4109, util=13.65%</div><div class="line">  nvme2n1: ios=0/610060, merge=0/0, ticks=0/4216, in_queue=4134, util=13.74%</div></pre></td></tr></table></figure>
+<h3 id="倚天-PL3-VS-SSD"><a href="#倚天-PL3-VS-SSD" class="headerlink" title="倚天 PL3 VS SSD"></a>倚天 PL3 VS SSD</h3><p>测试环境倚天裸金属，4.18 CentOS fio-3.7</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>参数</th>
+<th>nvme SSD单盘</th>
+<th>PL3+倚天裸金属</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>randread</td>
+<td>fio -bs=4k -buffered=1</td>
+<td>IOPS=17.7K</td>
+<td>IOPS=2533</td>
+</tr>
+<tr>
+<td>randread</td>
+<td>fio -ioengine=libaio -bs=4k -direct=1 -buffered=0</td>
+<td>IOPS=269k</td>
+<td>IOPS=24k</td>
+</tr>
+<tr>
+<td>randwrite</td>
+<td>fio -bs=4k -direct=1 -buffered=0</td>
+<td>IOPS=68.5k</td>
+<td>IOPS=3275</td>
+</tr>
+<tr>
+<td>randwrite</td>
+<td>fio -ioengine=libaio -bs=4k -buffered=1</td>
+<td>IOPS=253k</td>
+<td>IOPS=250k</td>
+</tr>
+<tr>
+<td>randrw</td>
+<td>fio -ioengine=libaio -bs=4k -buffered=1 rwmixread=70</td>
+<td>write:IOPS=8815, read:IOPS=20.5K</td>
+<td>write:IOPS=1059，read:IOPS=2482</td>
+</tr>
+<tr>
+<td>randrw</td>
+<td>fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 rwmixread=70</td>
+<td>write:IOPS=8754, read: IOPS=20.4K</td>
+<td>write: IOPS=940, read: IOPS=2212</td>
+</tr>
+</tbody>
+</table>
+<p>测试命令</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">fio -ioengine=libaio -bs=4k -buffered=1  -thread -rw=randrw -rwmixread=70  -size=16G -filename=./fio.test -name=&quot;essd-pl3&quot; -iodepth=64 -runtime=30</div></pre></td></tr></table></figure>
 <h3 id="HDD性能测试数据"><a href="#HDD性能测试数据" class="headerlink" title="HDD性能测试数据"></a>HDD性能测试数据</h3><p><img src="/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png" alt="img"></p>
 <p>从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，<del>应该是cache、磁盘阵列在起作用。</del></p>
 <p>SATA硬盘，10K转</p>
@@ -2278,7 +2519,7 @@
     <link href="https://plantegg.github.io/2022/01/19/kubernetes_calico%E7%BD%91%E7%BB%9C/"/>
     <id>https://plantegg.github.io/2022/01/19/kubernetes_calico网络/</id>
     <published>2022-01-19T03:30:03.000Z</published>
-    <updated>2022-09-22T01:06:59.269Z</updated>
+    <updated>2023-06-07T01:21:13.220Z</updated>
     
     <content type="html"><![CDATA[<h1 id="kubernetes-calico网络"><a href="#kubernetes-calico网络" class="headerlink" title="kubernetes calico网络"></a>kubernetes calico网络</h1><h2 id="cni-网络"><a href="#cni-网络" class="headerlink" title="cni 网络"></a>cni 网络</h2><blockquote>
 <p> <strong>cni0</strong> is a Linux network bridge device, all <strong>veth</strong> devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in <strong>Kubernetes Network Model</strong> and the hotel analogy above.</p>
@@ -2342,6 +2583,8 @@
 <p>正常后的抓包, 注意这里reques dest ip 和reply的 src ip终于一致了：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">//request</div><div class="line">00:16:3e:02:06:1e &gt; ee:ff:ff:ff:ff:ff, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 57971, offset 0, flags [DF], proto IPIP (4), length 104)</div><div class="line">    192.168.0.111 &gt; 192.168.3.110: (tos 0x0, ttl 64, id 18953, offset 0, flags [DF], proto ICMP (1), length 84)</div><div class="line">    10.122.124.128 &gt; 10.122.17.64: ICMP echo request, id 22001, seq 4, length 64</div><div class="line">    </div><div class="line">//reply    </div><div class="line">ee:ff:ff:ff:ff:ff &gt; 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 2565, offset 0, flags [none], proto IPIP (4), length 104)</div><div class="line">    192.168.3.110 &gt; 192.168.0.111: (tos 0x0, ttl 64, id 26374, offset 0, flags [none], proto ICMP (1), length 84)</div><div class="line">    10.122.17.64 &gt; 10.122.124.128: ICMP echo reply, id 22001, seq 4, length 64</div></pre></td></tr></table></figure>
 <p>总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。</p>
+<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>如下图，172.16.40.116是宿主机ip，192.168.196.0 是tunl0 ip</p>
+<p><img src="/images/951413iMgBlog/image-20230531141428895.png" alt="image-20230531141428895"></p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://morven.life/notes/networking-3-ipip/" target="_blank" rel="external">https://morven.life/notes/networking-3-ipip/</a></p>
 <p><a href="https://www.cnblogs.com/bakari/p/10564347.html" target="_blank" rel="external">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
 <p><a href="https://www.cnblogs.com/goldsunshine/p/10701242.html" target="_blank" rel="external">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
@@ -3261,179 +3504,6 @@
       <category term="wireshark" scheme="https://plantegg.github.io/tags/wireshark/"/>
     
       <category term="tshark" scheme="https://plantegg.github.io/tags/tshark/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>Apple M1 Pro 和 Intel I9-12900K到底谁强</title>
-    <link href="https://plantegg.github.io/2022/01/01/Apple_M1_Pro%E5%92%8CIntel_I9-12900K%E8%B0%81%E5%BC%BA/"/>
-    <id>https://plantegg.github.io/2022/01/01/Apple_M1_Pro和Intel_I9-12900K谁强/</id>
-    <published>2022-01-01T04:30:03.000Z</published>
-    <updated>2022-05-22T10:36:18.633Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="Apple-M1-Pro-和-Intel-I9-12900K到底谁强"><a href="#Apple-M1-Pro-和-Intel-I9-12900K到底谁强" class="headerlink" title="Apple M1 Pro 和 Intel I9-12900K到底谁强"></a>Apple M1 Pro 和 Intel I9-12900K到底谁强</h1><p>主要比较 M1 Pro和 I9-12900K，从芯片的参数来分析他们的差异。不和M1Max、M1Ultra比是因为从成本看没有可比性，M1Max、M1Ultra应该比I9贵多了，比起来意义不大，M1Max、M1Ultra的场景不一样。结论在最后</p>
-<p>网上很多拿I9-12900K和M1 Max比实际没有意义，CPU core方面M1 Max和M1 Pro是一样的（跑分结果一样），干嘛不挑个便宜的去比较！</p>
-<h2 id="The-M1-Pro"><a href="#The-M1-Pro" class="headerlink" title="The M1 Pro"></a><strong>The M1 Pro</strong></h2><p>The M1 Pro takes this higher, with:</p>
-<ul>
-<li>33.7 billion transistors on a 240mm squared die.</li>
-<li>8 performance cores, 24MB L2 Cache，每个core 3MB，cache跟不要钱一样的堆</li>
-<li>2 efficiency cores with 4MB L2 cache，每个core 2MB</li>
-<li>16 GPU Cores.</li>
-<li>32GB DDR5 memory at 200GB/s.</li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20220402101632476-8873839.png" alt="image-20220402101632476"></p>
-<p><strong>从性能来看不推荐买M1</strong>，内存还是DDR4，M1Pro以上就都是DDR5了（文后有惊喜告诉你怎么用M1的价格买到M1 Pro） </p>
-<p><img src="/images/951413iMgBlog/image-20220402104020407-8873873.png" alt="image-20220402104020407"></p>
-<p>上图中PCPU就是高性能核，共8个，PCPU左边的是低频节能的2个ECPU，机器不忙的时候可以用ECPU，节能。一旦有复杂任务就可以用PCPU。至于M1 Max在狂堆 GPU, 然后M1 Ultra学习AMD把两块M1 Max封装在一起，有没有用就看你的应用场景了，比如搞程序编译、跑跑Idea用M1 Pro就够了，没必要多花几倍的钱用在GPU上，搞视频编辑、图片处理可以考虑Max、Ultra。</p>
-<h3 id="The-M1-Max"><a href="#The-M1-Max" class="headerlink" title="The M1 Max"></a><strong>The M1 Max</strong></h3><p>The M1 Max provides:（相对M1 Pro主要是多堆了 16个GPU，CPU方面是一样的，大多数跑分是M1 Pro和Max几乎一样，多花钱买那16个GPU不一定值得）</p>
-<ul>
-<li>57 billion transistors on a 420mm squared die.</li>
-<li>8 performance cores, 24MB L2 Cache.</li>
-<li>2 efficiency cores with 4MB L2 cache.</li>
-<li>32 GPU Cores.</li>
-<li>64GB DDR5 memory at 400GB/s.</li>
-</ul>
-<h3 id="And-the-new-M1-Ultra"><a href="#And-the-new-M1-Ultra" class="headerlink" title="And the new M1 Ultra"></a><strong>And the new M1 Ultra</strong></h3><p>The M1 Ultra brings you:（下面的数据完全是M1 Max的2倍，实际就是封装两块M1 Max）</p>
-<ul>
-<li>114 billion transistors on a 840mm squared die.</li>
-<li>16 performance cores, 48MB L2 Cache.</li>
-<li>4 efficiency cores with 4MB L2 cache.</li>
-<li>64 GPU Cores.</li>
-<li>Up to 128GB DDR5 memory at 800GB/s.</li>
-</ul>
-<h3 id="M1-Pro主板拆解"><a href="#M1-Pro主板拆解" class="headerlink" title="M1 Pro主板拆解"></a>M1 Pro主板拆解</h3><p><img src="/images/951413iMgBlog/image-20220506142049220.png" alt="image-20220506142049220"></p>
-<p>上图中，红框是 M1 Pro 芯片，黄框是三星 8GB 内存（共两块），绿框是铠侠的 128GB 闪存（共两块）。</p>
-<h2 id="Inel-I9-12900K"><a href="#Inel-I9-12900K" class="headerlink" title="Inel I9-12900K"></a>Inel I9-12900K</h2><p>对比下 i9-12900K，i9也有GPU只是没有说多少个，它的GPU频率在0.3到1.55GHz之间</p>
-<p><img src="/images/951413iMgBlog/400px-alder_lake_die_2.png" alt="alder lake die 2.png"></p>
-<table>
-<thead>
-<tr>
-<th>ISA</th>
-<th>x86-64 (x86)</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Microarchitecture</td>
-<td><a href="https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake" target="_blank" rel="external">Alder Lake</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove" target="_blank" rel="external">Golden Cove</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/gracemont" target="_blank" rel="external">Gracemont</a></td>
-</tr>
-<tr>
-<td>Process</td>
-<td><a href="https://en.wikichip.org/w/index.php?title=Intel_7_process&amp;action=edit&amp;redlink=1" target="_blank" rel="external">Intel 7</a></td>
-</tr>
-<tr>
-<td>Die</td>
-<td>215.25 mm²” 20.5 mm × 10.5 mm</td>
-</tr>
-<tr>
-<td>MCP</td>
-<td>No (1 dies)</td>
-</tr>
-<tr>
-<td>Cores</td>
-<td>16</td>
-</tr>
-<tr>
-<td>Threads</td>
-<td>24</td>
-</tr>
-<tr>
-<td><a href="https://en.wikichip.org/wiki/Property:l1$_size" target="_blank" rel="external">l1$ size</a></td>
-<td>0.75 MiB (768 KiB, 786,432 B, 7.324219e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.75-20MiB" target="_blank" rel="external">+</a> and 0.625 MiB (640 KiB, 655,360 B, 6.103516e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.625-20MiB" target="_blank" rel="external">+</a></td>
-</tr>
-<tr>
-<td><a href="https://en.wikichip.org/wiki/Property:l1d$_size" target="_blank" rel="external">l1d$ size</a></td>
-<td>0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.25-20MiB" target="_blank" rel="external">+</a> and 0.375 MiB (384 KiB, 393,216 B, 3.662109e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.375-20MiB" target="_blank" rel="external">+</a></td>
-</tr>
-<tr>
-<td><a href="https://en.wikichip.org/wiki/Property:l1i$_size" target="_blank" rel="external">l1i$ size</a></td>
-<td>0.5 MiB (512 KiB, 524,288 B, 4.882812e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.5-20MiB" target="_blank" rel="external">+</a> and 0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.25-20MiB" target="_blank" rel="external">+</a></td>
-</tr>
-<tr>
-<td><a href="https://en.wikichip.org/wiki/Property:l2$_size" target="_blank" rel="external">l2$ size</a></td>
-<td>4 MiB (4,096 KiB, 4,194,304 B, 0.00391 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/4-20MiB" target="_blank" rel="external">+</a> and 10 MiB (10,240 KiB, 10,485,760 B, 0.00977 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/10-20MiB" target="_blank" rel="external">+</a> 共14Mb</td>
-</tr>
-<tr>
-<td><a href="https://en.wikichip.org/wiki/Property:l3$_size" target="_blank" rel="external">l3$ size</a></td>
-<td>6 MiB (6,144 KiB, 6,291,456 B, 0.00586 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/6-20MiB" target="_blank" rel="external">+</a> and 24 MiB (24,576 KiB, 25,165,824 B, 0.0234 GiB) <a href="https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/24-20MiB" target="_blank" rel="external">+</a> 共30Mb</td>
-</tr>
-<tr>
-<td>TDP</td>
-<td>125 W</td>
-</tr>
-</tbody>
-</table>
-<p>从下面的芯片分布图来看，绿色部分是8个高性能物理core，每个2 thread，绿色其右边的蓝色E Cores是8个低频节能core，没开超线程，所以24个threads就是2*8PCPU+8ECPU。真正打起仗来从蓝色部分的面积占比来看基本可以忽略，重点得靠绿色的PCPU。</p>
-<p><img src="/images/951413iMgBlog/arch2_small.jpg" alt="img"></p>
-<h2 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h2><p>从上面分析来看 I9-12900K和M1 Pro的比较最终回到了各自8个PCPU的较量。Intel/X86的超线程在大部分场景下可以提升单核计算能力的1.5倍左右，所以这里就是Intel的12core打M1 Pro的，另外Intel主频也比M1 Pro要高，如果比较单core的计算能力Intel能睿频到5GHz以上，所以不考虑视频、图片、矩阵等简单计算场景，Intel的性能应该还是要强很多的。但是如果作为笔记本来说一定要考虑功耗，125W VS 45W，我的建议是买Apple（M1的软件兼容性也是个问题）。如果是当服务器工作站使用还是建议买I9. 价钱就不好比较了M1 Pro不单独卖没法估计价格。</p>
-<p>I9弱在内存还是DDR4，而M1 Pro是DDR5了，另外就是M1 Pro的L2要大。当然I9也有DDR5的内存的。</p>
-<p>笔记本领域M1整体来看应该优势明显，尤其是经过几年的生态发展能够把软件生态补上的话。</p>
-<h2 id="购买建议"><a href="#购买建议" class="headerlink" title="购买建议"></a>购买建议</h2><p>如果想买苹果，推荐买这款：</p>
-<p><img src="/images/951413iMgBlog/image-20220402103153047-8874337.png" alt="image-20220402103153047"></p>
-<p>这种<a href="https://ata.alibaba-inc.com/articles/211563" target="_blank" rel="external">非标8核的M1（就是10核关闭了2核），便宜了2500，特别值</a>。苹果从来没有发布过8核的M1 Pro芯片，但是这款售卖的CPU号称是M1 Pro，比正常的M1 Pro少了两个CPU core和两个GPU。这点差异是不会重新设计一个新的芯片多搞一条生产线的，一般是正常的M1 Pro生产线下来检测发现坏了个别的core，扔了太浪费，于是关掉坏core当低配的M1 Pro在卖，价钱便宜了快一半了，实际性能其实差得不多。</p>
-<p>如果是买Intel i9的话，从性价比上来看如果能买到i5-12600K也是非常不错的，实际就是i9关掉(坏掉)了2个PCPU和4个ECPU，价钱是i9的一半不到，PCPU少了但是Base主频反而高了，因为总核少了，发热就能控制，所以单核能跑到的频率更高一些。</p>
-<p><img src="/images/951413iMgBlog/image_19.jpg" alt="image 19"></p>
-<p>其实I9、I7、I5都是同一条生产线、同样的工艺下制造出来的，差别在于帮I9分摊成本，比如你看看<a href="https://en.wikichip.org/wiki/intel/core_i5/i5-12600k" target="_blank" rel="external">i5-12600k的参数</a>和i9-12900K基本是一样的，重点在215.25 mm² 的 Die Size：</p>
-<table>
-<thead>
-<tr>
-<th>ISA</th>
-<th>x86-64 (x86)</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Microarchitecture</td>
-<td><a href="https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake" target="_blank" rel="external">Alder Lake</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove" target="_blank" rel="external">Golden Cove</a>, <a href="https://en.wikichip.org/wiki/intel/microarchitectures/gracemont" target="_blank" rel="external">Gracemont</a></td>
-</tr>
-<tr>
-<td>Process</td>
-<td><a href="https://en.wikichip.org/w/index.php?title=Intel_7_process&amp;action=edit&amp;redlink=1" target="_blank" rel="external">Intel 7</a></td>
-</tr>
-<tr>
-<td>Die</td>
-<td>215.25 mm² 20.5 mm × 10.5 mm</td>
-</tr>
-<tr>
-<td>Cores</td>
-<td>10</td>
-</tr>
-<tr>
-<td>Threads</td>
-<td>16</td>
-</tr>
-</tbody>
-</table>
-<p>即使把 <a href="https://www.techpowerup.com/review/intel-core-i5-12600k-alder-lake-12th-gen/2.html" target="_blank" rel="external">i5-12600k拆开</a>用放大镜看也是和i9-12900K 一样的：</p>
-<p><img src="/images/951413iMgBlog/arch1_small.jpg" alt="img"></p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>笔记本建议买M1 Pro</li>
-<li>M1和M1 Pro如果看重性能的话肯定要买M1 Pro了</li>
-<li>M1 Pro 建议买8 core的，买到就是赚到</li>
-<li>集团内M1 Pro想要轻便就选14寸的，综合考虑我还是推荐14寸的</li>
-<li>I9的笔记本建议买I7、I5，平时使用性能差得不多</li>
-<li>性能还是I9强，做服务器更合适 </li>
-</ul>
-<p>最后我手里头既没有I9也没有M1，结论靠键盘 :)，买错了别找我。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://ata.alibaba-inc.com/articles/211563" target="_blank" rel="external">CPU的生产和概念</a></p>
-]]></content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;Apple-M1-Pro-和-Intel-I9-12900K到底谁强&quot;&gt;&lt;a href=&quot;#Apple-M1-Pro-和-Intel-I9-12900K到底谁强&quot; class=&quot;headerlink&quot; title=&quot;Apple M1 Pro 和 Intel I9-
-    
-    </summary>
-    
-      <category term="CPU" scheme="https://plantegg.github.io/categories/CPU/"/>
-    
-    
-      <category term="CPU" scheme="https://plantegg.github.io/tags/CPU/"/>
-    
-      <category term="Intel" scheme="https://plantegg.github.io/tags/Intel/"/>
-    
-      <category term="M1" scheme="https://plantegg.github.io/tags/M1/"/>
-    
-      <category term="Apple" scheme="https://plantegg.github.io/tags/Apple/"/>
     
   </entry>
   

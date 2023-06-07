@@ -291,6 +291,328 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/26/MySQL知识体系的三驾马车/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/05/26/MySQL知识体系的三驾马车/" itemprop="url">MySQL知识体系的三驾马车</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-05-26T17:30:03+08:00">
+                2019-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL知识体系的三驾马车"><a href="#MySQL知识体系的三驾马车" class="headerlink" title="MySQL知识体系的三驾马车"></a>MySQL知识体系的三驾马车</h1><p>在我看来要掌握好MySQL的话要理解好这三个东西：</p>
+<ul>
+<li>索引（B+树）</li>
+<li>日志（WAL）</li>
+<li>事务(可见性)</li>
+</ul>
+<p>索引决定了查询的性能，也是用户感知到的数据库的关键所在，日常使用过程中抱怨最多的就是查询太慢了；</p>
+<p>而日志是一个数据库的灵魂，他决定了数据库为什么可靠，还要保证性能，核心原理就是将随机写转换成顺序写；</p>
+<p>事务则是数据库的皇冠。</p>
+<h2 id="索引"><a href="#索引" class="headerlink" title="索引"></a>索引</h2><p>索引主要是解决查询性能的问题，数据一般都是写少查多，而且要满足各种查，所以使用数据库过程中最常见的问题就是索引的优化。</p>
+<p>MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索引，能使得索引保持比较小，更容易加载到内存中；数据全部放在B+树的叶节点上，整个叶节点又是个有序双向链表，这样非常合适区间查找。</p>
+<p>如果用平衡二叉树当索引，想象一下一棵 100 万节点的平衡二叉树，树高 20。一次查询可能需要访问 20 个数据块。在机械硬盘时代，从磁盘随机读一个数据块需要 10 ms 左右的寻址时间。也就是说，对于一个 100 万行的表，如果使用二叉树来存储，单独访问一个行可能需要 20 个 10 ms 的时间，这个查询可真够慢的</p>
+<p>对比一下 InnoDB 的一个整数字段B+数索引为例，B+树的杈数一般是 1200。这棵树高是 4 的时候，就可以存 1200 的 3 次方个值，这已经 17 亿了。考虑到树根的数据块总是在内存中的，一个 10 亿行的表上一个整数字段的索引，查找一个值最多只需要访问 3 次磁盘。其实，树的第二层也有很大概率在内存中，那么访问磁盘的平均次数就更少了。</p>
+<p>明确以下几点：</p>
+<ul>
+<li>B+树是N叉树，以一个整数字段索引来看，N基本等于1200。数据库里的树高一般在2-4层。</li>
+<li>索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。</li>
+<li>每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： </li>
+</ul>
+<p><img src="/images/oss/87f90b5535714486f4e0c86982b54141.png" alt="image.png"></p>
+<p>每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。</p>
+<p>一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。</p>
+<h3 id="B-树"><a href="#B-树" class="headerlink" title="B+树"></a>B+树</h3><p>MySQL的索引结构主要是B+树，也可以选hash</p>
+<p>B+树特点：</p>
+<ul>
+<li>叶子结点才有数据，这些数据形成一个有序链表</li>
+<li>非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）</li>
+<li>删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除</li>
+<li>B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO</li>
+<li>因为叶子节点的有序链表存在，支持范围查找</li>
+</ul>
+<p>B+树的标准结构：</p>
+<p><img src="/images/951413iMgBlog/640-9735668." alt="Image"></p>
+<p>innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）</p>
+<p><img src="/images/951413iMgBlog/640-20211217181055800" alt="Image"></p>
+<h3 id="联合索引"><a href="#联合索引" class="headerlink" title="联合索引"></a>联合索引</h3><p>对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。</p>
+<p>MySQL一个查询只能用一个索引。</p>
+<h3 id="索引下推-index-condition-pushdown"><a href="#索引下推-index-condition-pushdown" class="headerlink" title="索引下推(index condition pushdown )"></a>索引下推(index condition pushdown )</h3><p>对于多个where条件的话，如果索引只能命中一个，剩下的那个条件过滤还是会通过回表来获取到后判断是否符合，但是MySQL5.6后，如果剩下的那个条件在联合索引上（但是因为第一个条件是模糊查询，没法用全联合索引），会将这个条件下推到索引判断上，来减少回表次数。这叫<strong>索引下推优化(index condition pushdown )</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>要查询的列(select后面的列)如果都在索引上，那么这个查询的最终结果都可以直接从索引上读取到，这样读一次索引（数据小、顺序读）性能非常好。否则的话需要回表去获取别的列</p>
+<p>前缀索引用不上覆盖索引对查询性能的优化，每次索引命中可能需要做一次回表，确认完整列值</p>
+<h3 id="回表"><a href="#回表" class="headerlink" title="回表"></a>回表</h3><p>什么是回表？</p>
+<p>select id, name from t where id&gt;1 and id<10; 假设表t的id列是一个非主键的普通索引，那么这个查询就需要回表。查询执行的时候根据索引条件="" id="">1 and id&lt;10 找到符合条件的行地址(主键)，因为id索引上肯定有id的值，但是没有name，这里需要返回id,name 所以找到这些记录的地址后还需要回表(按主键)去取到name的值；</10;></p>
+<p>对应地如果select id from t where id&gt;1 and id&lt;10; 就不需要回表了，假设命中5条记录，这5个id的值都在索引上就能取到为啥还额外去回表呢？回表大概率是很慢的，因为你取到的行地址不一定连续，可能需要多次磁盘read</p>
+<p>搞清楚概念后再来看count(*) 要不要回表？既然是统计数据，直接count主键(没有主键会自动添加一个默认隐藏的主键)就好了，多快好省。所以问题的本质是对回表不理解。count(*) 要不要回表不太重要，重要的是理解好什么是回表</p>
+<p>那 select id, name from t where id&gt;1 and id&lt;10; 怎么样才能不回表呢？肯定是建立id name的联合索引就可以了</p>
+<p>select <em> from table order by id limit  150000,10 这样limit后偏移很大一个值的查询，会因为<em>*回表</em></em>导致非常慢。</p>
+<p>这是因为根据id列上索引去查询过滤，但是select *要求查所有列的内容，但是索引上只有id的数据，所以导致每次对id索引进行过滤都要求去回表（根据id到表空间取到这个id行所有列的值），每一行都要回表导致这里出现了150000+10次随机磁盘读。</p>
+<p>可以通过先用一个子查询(select <strong>id</strong> from order by id limit  150000,10)，子查询中只查id列，而id的值都在索引上，用上了<strong>覆盖索引</strong>来避免回表。</p>
+<p>先查到这10个id(扫描行数还是150000+10， 这里的limit因为有deleted记录、每行大小不一样等因素影响，没法一次跳到150000处。但是这次扫描150000行的时候不需要回表，所以速度快多了)，然后再跟整个表做jion（join的时候只需要对这10个id行进行回表），来提升性能。</p>
+<h3 id="索引的一些其它知识点"><a href="#索引的一些其它知识点" class="headerlink" title="索引的一些其它知识点"></a>索引的一些其它知识点</h3><p>多用自增主键是因为自增主键保证的是主键一直是增加的，也就是不会在索引中间插入，这样的话避免的索引页的分裂(代价很高)</p>
+<p>写数据除了记录redo-log之外还会在内存（change buffer）中记录下修改后的数据，这样再次修改、读取的话不需要从磁盘读取数据，非唯一索引才能用上change buffer，因为唯一索引一定需要读磁盘验证唯一性，既然读过磁盘这个change buffer的意义就不大了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">mysql&gt; insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在</div></pre></td></tr></table></figure>
+<p><img src="/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png" alt="image.png"></p>
+<h3 id="Buffer-POOL"><a href="#Buffer-POOL" class="headerlink" title="Buffer POOL"></a>Buffer POOL</h3><p>（1）缓冲池(buffer pool)是一种<strong>常见的降低磁盘访问的机制；</strong></p>
+<p>（2）缓冲池通常<strong>以页(page)为单位缓存数据；</strong></p>
+<p>（3）缓冲池的<strong>常见管理算法是LRU</strong>，memcache，OS，InnoDB都使用了这种算法；</p>
+<p>（4）InnoDB对普通LRU进行了优化：</p>
+<p>  - 将缓冲池分为<strong>老生代和新生代</strong>，入缓冲池的页，优先进入老生代，页被访问，才进入新生代，以解决预读失效的问题</p>
+<p>  - 页被访问（预读的丢到old区），且在老生代<strong>停留时间超过配置阈值（innodb_old_blocks_time）</strong>的，才进入新生代，以解决批量数据访问，大量热数据淘汰的问题</p>
+<p><img src="/images/951413iMgBlog/640-8001413.png" alt="图片"></p>
+<p><strong>只有同时满足「被访问」与「在 old 区域停留时间超过 1 秒」两个条件，才会被插入到 young 区域头部</strong></p>
+<h2 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h2><p>数据库的关键瓶颈在于写，因为每次更新都要落盘防止丢数据，而磁盘最怕的就是随机写。</p>
+<h3 id="Write-Ahead-logging（WAL）"><a href="#Write-Ahead-logging（WAL）" class="headerlink" title="Write-Ahead logging（WAL）"></a>Write-Ahead logging（WAL）</h3><p>写磁盘前先写日志，这样不用担心丢数据问题，写日志又是一个顺序写,性能比随机写好多了，这样将性能很差的随机写转换成了顺序写。然后每过一段时间将这些日志合并后真正写入到表空间，这次是随机写，但是有机会将多个写合并成一个，比如多个写在同一个Page上。</p>
+<p>这是数据库优化的关键。</p>
+<h3 id="bin-log"><a href="#bin-log" class="headerlink" title="bin-log"></a>bin-log</h3><p>MySQL Server用来记录执行修改数据的SQL，Replication基本就是复制并重放这个日志。有statement、row和混合模式三种。</p>
+<p>bin-log保证不了表空间和bin-log的一致性，也就是断电之类的场景下是没法保证数据的一致性。</p>
+<p>MySQL 日志刷新策略通过 sync_binlog 参数进行配置，其有 3 个可选配置：</p>
+<ol>
+<li>sync_binlog=0：MySQL 应用将完全不负责日志同步到磁盘，将缓存中的日志数据刷新到磁盘全权交给操作系统来完成；</li>
+<li>sync_binlog=1：MySQL 应用在事务提交前将缓存区的日志刷新到磁盘；</li>
+<li>sync_binlog=N：当 N 不为 0 与 1 时，MySQL 在收集到 N 个日志提交后，才会将缓存区的日志同步到磁盘。</li>
+</ol>
+<h3 id="redo-log"><a href="#redo-log" class="headerlink" title="redo-log"></a>redo-log</h3><p>INNODB引擎用来保证事务的完整性，也就是crash-safe。MySQL 默认是保证不了不丢数据的，如果写了表空间还没来得及写bin-log就会造成主从数据不一致；或者在事务中需要执行多个SQL，bin-log保证不了完整性。</p>
+<p>而在redo-log中任何修改都会先记录到redo-log中，即使断电MySQL重启后也会先检查redo-log将redo-log中记录了但是没有提交到表空间的数据进行提交（刷脏）</p>
+<p>redo-log和bin-log的比较：</p>
+<ul>
+<li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。redo-log保证了crash-safe的问题，binlog只能用于归档，保证不了safe。</li>
+<li>redo log 是物理日志，记录的是“在某个数据页上做了什么修改”；binlog 是逻辑日志，记录的是这个语句的原始逻辑，比如“给 ID=2 这一行的 c 字段加 1 ”。</li>
+<li>redo log 是循环写的，空间固定会用完；binlog 是可以追加写入的。“追加写”是指 binlog 文件写到一定大小后会切换到下一个，并不会覆盖以前的日志。</li>
+</ul>
+<p><strong>redo-log中记录的是对页的操作，而不是修改后的数据页</strong>，buffer pool（或者说change buffer）中记录的才是数据页。正常刷脏是指的将change buffer中的脏页刷到表空间的磁盘，如果没来得及刷脏就崩溃了，那么就只能从redo-log来将没有刷盘的操作再执行一次让他们真正落盘。buffer pool中的任何变化都会写入到redo-log中（不管事务是否提交）</p>
+<p>只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。</p>
+<p>如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了–更少的merge）。</p>
+<p>redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是<strong>Physiological Logging</strong>的方式，来兼得二者的优势。</p>
+<p>所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：</p>
+<blockquote>
+<p>（Page ID，Record Offset，(Filed 1, Value 1) … (Filed i, Value i) … )</p>
+</blockquote>
+<p>其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。</p>
+<p>Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入<strong>Double Write Buffer</strong>的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。</p>
+<p>InnoDB给每个REDO记录一个全局唯一递增的标号<strong>LSN(Log Sequence Number)</strong>。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。</p>
+<h3 id="binlog和redo-log一致性的保证"><a href="#binlog和redo-log一致性的保证" class="headerlink" title="binlog和redo-log一致性的保证"></a>binlog和redo-log一致性的保证</h3><p>bin-log和redo-log的一致性是通过两阶段提交来保证的，bin-log作为事务的协调者，两阶段提交过程中prepare是非常重的，prepare一定会持久化（日志），记录如何commit和rollback，一旦prepare成功就一定能commit和rollback，如果其他节点commit后崩溃，恢复后会有一个协商过程，其它节点发现崩溃节点已经commit，所以会跟随commit；如果崩溃节点还没有prepare那么其它节点只能rollback。</p>
+<p>实际崩溃后恢复时MySQL是这样保证redo-log和bin-log的完整性的：</p>
+<ol>
+<li>如果redo-log里面的事务是完整的，也就是有了commit标识，那么直接提交</li>
+<li>如果redo-log里面事务只有完整的prepare，则去检查事务对应的binlog是否完整<ol>
+<li>如果binlog完整则提交事务</li>
+<li>如果不完整则回滚事务</li>
+</ol>
+</li>
+<li>redo-log和binlog有一个共同的数据字段叫XID将他们关联起来</li>
+</ol>
+<h3 id="组提交"><a href="#组提交" class="headerlink" title="组提交"></a>组提交</h3><p>在没有开启binlog时，Redo log的刷盘操作将会是最终影响MySQL TPS的瓶颈所在。为了缓解这一问题，MySQL使用了组提交，将多个刷盘操作合并成一个，如果说10个事务依次排队刷盘的时间成本是10，那么将这10个事务一次性一起刷盘的时间成本则近似于1。</p>
+<p>但是开启binlog后，binlog作为事务的协调者每次commit都需要落盘，这导致了Redo log的组提交失去了意义。</p>
+<p><img src="/images/951413iMgBlog/image-20211108152328424.png" alt="image-20211108152328424"></p>
+<p>Group Commit的方案中，其正确性的前提在于一个group内的事务没有并发冲突，因此即便并行也不会破坏事务的执行顺序。这个方案的局限性在于一个group 内的并行度仍然有限</p>
+<h3 id="刷脏"><a href="#刷脏" class="headerlink" title="刷脏"></a>刷脏</h3><p>在内存中修改了，已经写入到redo-log中，但是还没来得及写入表空间的数据叫做脏页，MySQL过一段时间就需要刷脏，刷脏最容易造成MySQL的卡顿。</p>
+<ul>
+<li>redo-log写满后，系统会停止所有更新操作，把checkpoint向前推进也就是将数据写入到表空间。<strong>这时写性能跌0，这个场景对性能影响最大</strong>。</li>
+<li>系统内存不够，也需要将内存中的脏页释放，释放前需要先刷入到表空间。</li>
+<li>系统内存不够，但是redo-log空间够，也会刷脏，也就是刷脏不只是脏页写到redo-log，还要考虑读取情况。刷脏页后redo-log位点也一定会向前推荐</li>
+<li>系统空闲的时候也会趁机刷脏</li>
+<li>刷脏的时候默认还会连带刷邻居脏页（innodb_flush_neighbors)</li>
+</ul>
+<p>当然如果一次性要淘汰的脏页太多，也会导致查询卡顿严重，可以通过设置innodb_io_capacity（一般设置成磁盘的iops），这个值越小的话一次刷脏页的数量越小，如果刷脏页速度还跟不上脏页生成速度就会造成脏页堆积，影响查询、更新性能。</p>
+<p>在 MySQL 5.5 及以前的版本，<strong>回滚日志是跟数据字典一起放在 ibdata 文件里的</strong>，即使长事务最终提交，回滚段被清理，文件也不会变小。我见过数据只有 20GB，而回滚段有 200GB 的库。最终只好为了清理回滚段，重建整个库。</p>
+<p>长事务意味着系统里面会存在很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这就会导致大量占用存储空间。除了对回滚段的影响，长事务还占用锁资源，也可能拖垮整个库。</p>
+<p>表空间会刷进去没有提交的事务（比如大事务change buffer和redo-log都不够的时候），这个修改虽然在表空间中，但是通过可见性来控制是否可见。</p>
+<h3 id="落盘"><a href="#落盘" class="headerlink" title="落盘"></a>落盘</h3><p>innodb_flush_method 参数目前有 6 种可选配置值：</p>
+<ol>
+<li>fdatasync；</li>
+<li>O_DSYNC</li>
+<li>O_DIRECT</li>
+<li>O_DIRECT_NO_FSYNC</li>
+<li>littlesync</li>
+<li>nosync</li>
+</ol>
+<p>其中，littlesync 与 nosync 仅仅用于内部性能测试，并不建议使用。</p>
+<ul>
+<li>fdatasync，即取值 0，这是默认配置值。对 log files 以及 data files 都采用 fsync 的方式进行同步；</li>
+<li>O_DSYNC，即取值 1。对 log files 使用 O_SYNC 打开与刷新日志文件，使用 fsync 来刷新 data files 中的数据；</li>
+<li>O_DIRECT，即取值 4。利用 Direct I/O 的方式打开 data file，并且每次写操作都通过执行 fsync 系统调用的方式落盘；</li>
+<li>O_DIRECT_NO_FSYNC，即取值 5。利用 Direct I/O 的方式打开 data files，但是每次写操作并不会调用 fsync 系统调用进行落盘；</li>
+</ul>
+<p><strong>为什么有 O_DIRECT 与 O_DIRECT_NO_FSYNC 配置的区别？</strong></p>
+<p>首先，我们需要理解更新操作落盘分为两个具体的子步骤：①文件数据更新落盘②文件元数据更新落盘。O_DIRECT 的在部分操作系统中会导致文件元数据不落盘，除非主动调用 fsync，为此，MySQL 提供了 O_DIRECT 以及 O_DIRECT_NO_FSYNC 这两个配置。</p>
+<p>如果你确定在自己的操作系统上，即使不进行 fsync 调用，也能够确保文件元数据落盘，那么请使用 O_DIRECT_NO_FSYNC 配置，这对 MySQL 性能略有帮助。否则，请使用 O_DIRECT，不然文件元数据的丢失可能会导致 MySQL 运行错误。</p>
+<h3 id="Double-Write"><a href="#Double-Write" class="headerlink" title="Double Write"></a>Double Write</h3><p>MySQL默认数据页是16k，而操作系统内核的页目前为4k。因此当一个16k的MySQL页写入过程中突然断电，可能只写入了一部分，即数据存在不一致的情况。MySQL为了防止这种情况，每写一个数据页时，会先写在磁盘上的一个固定位置，然后再写入到真正的位置。如果第二次写入时掉电，MySQL会从第一次写入的位置恢复数据。开启double write之后数据被写入两次，如果能将其优化掉，对用户的性能将会有不小的提升。</p>
+<p>MySQL 8.0关掉Double Write能有5%左右的性能提升</p>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>在 MySQL/InnoDB 中，使用MVCC(Multi Version Concurrency Control) 来实现事务。每个事务修改数据之后，会创建一个新的版本，用事务id作为版本号；一行数据的多个版本会通过指针连接起来，通过指针即可遍历所有版本。</p>
+<p>当事务读取数据时，会根据隔离级别选择合适的版本。例如对于 Read Committed 隔离级别来说，每条SQL都会读取最新的已提交版本；而对于Repeatable Read来说，会在事务开始时选择已提交的最新版本，后续的每条SQL都会读取同一个版本的数据。</p>
+<p><img src="/images/951413iMgBlog/1616899015011-d90d5639-b9d7-43a4-9dcd-a77e00598216.png" alt="img"></p>
+<p>Postgres用Old to New，INNODB使用的是New to Old, 即主表存最新的版本，用链表指向旧的版本。当读取最新版本数据时，由于索引直接指向了最新版本，因此较低；与之相反，读取旧版本的数据代价会随之增加，需要沿着链表遍历。</p>
+<p>INNODB中旧版本的数据存储于undo log中。这里的undo log起到了几个目的，一个是事务的回滚，事务回滚时从undo log可以恢复出原先的数据，另一个目的是实现MVCC，对于旧的事务可以从undo 读取旧版本数据。</p>
+<h3 id="可见性"><a href="#可见性" class="headerlink" title="可见性"></a>可见性</h3><p>是基于事务的隔离级别而言的，常用的事务的隔离级别有可重复读RR（Repeatable Read，MySQL默认的事务隔离级别）和读已提交RC（Read Committed）。</p>
+<h3 id="可重复读"><a href="#可重复读" class="headerlink" title="可重复读"></a>可重复读</h3><p>读已提交：A事务能读到B事务已经commit了的结果，即使B事务开始时间晚于A事务</p>
+<p>重复读的定义：一个事务启动的时候，能够看到所有已经提交的事务结果。但是之后，这个事务执行期间，其他事务的更新对它不可见。</p>
+<p>指的是在一个事务中先后两次读到的结果是一样的，当然这两次读的中间自己没有修改这个数据，如果自己修改了就是当前读了。</p>
+<p>如果两次读过程中，有一个别的事务修改了数据并提交了，第二次读到的还是别的事务修改前的数据，也就是这个修改后的数据不可见，因为别的事务在本事务之后。</p>
+<p>如果一个在本事务启动之后的事务已经提交了，本事务会读到最新的数据，但是因为隔离级别的设置，会要求MySQL判断这个数据不可见，这样只能按照undo-log去反推修改前的数据，如果有很多这样的已经提交的事务，那么需要反推很多次，也会造成卡顿。</p>
+<p>总结下，可见性的关键在于两个事务开始的先后关系：</p>
+<ul>
+<li>如果是可重复读RR（Repeatable Read），后开始的事务提交的结果对前面的事务<strong>不</strong>可见</li>
+<li>如果是读已提交RC（Read Committed），后开始的事务提交的结果对前面的事务可见</li>
+</ul>
+<h3 id="当前读"><a href="#当前读" class="headerlink" title="当前读"></a>当前读</h3><p><strong>更新数据都是先读后写的</strong>，而这个读，只能读当前的值，称为”<strong>当前读</strong>“（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。</p>
+<p>事务的可重复读的能力是怎么实现的？</p>
+<p>可重复读的核心就是一致性读（consistent read）；而<strong>事务更新数据的时候，只能用当前读</strong>。如果当前的记录的行锁被其他事务占用的话，就需要进入锁等待。</p>
+<p>而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：</p>
+<ul>
+<li>在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共<br>用这个一致性视图；</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。</li>
+</ul>
+<h3 id="幻读"><a href="#幻读" class="headerlink" title="幻读"></a>幻读</h3><p>幻读指的是一个事务中前后两次读到的数据不一致（读到了新插入的行）</p>
+<p>可重复读是不会出现幻读的，但是更新数据时只能用当前读，当前读要求读到其它事务的修改（新插入行）</p>
+<p><strong>Innodb 引擎为了解决「可重复读」隔离级别使用「当前读」而造成的幻读问题，就引出了 next-key 锁</strong>，就是记录锁和间隙锁的组合。</p>
+<ul>
+<li>记录锁，锁的是记录本身；</li>
+<li>间隙锁，锁的就是两个值之间的空隙，以防止其他事务在这个空隙间插入新的数据，从而避免幻读现象。</li>
+</ul>
+<h3 id="可重复读、当前读以及行锁案例"><a href="#可重复读、当前读以及行锁案例" class="headerlink" title="可重复读、当前读以及行锁案例"></a>可重复读、当前读以及行锁案例</h3><p>案例表结构</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line"></div><div class="line">mysql&gt; CREATE TABLE `t` (</div><div class="line">  `id` int(11) NOT NULL,</div><div class="line">  `k` int(11) DEFAULT NULL,</div><div class="line">  PRIMARY KEY (`id`)</div><div class="line">) ENGINE=InnoDB;</div><div class="line">insert into t(id, k) values(1,1),(2,2);</div></pre></td></tr></table></figure>
+<p>上表执行如下三个事务</p>
+<p><img src="/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png" alt="img"></p>
+<blockquote>
+<p>begin/start transaction 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果你想要马上启动一个事务，可以使用 start transaction with consistent snapshot 这个命令。</p>
+<p>“start transaction with consistent snapshot; ”的意思是从这个语句开始，创建一个持续整个事务的一致性快照</p>
+<p>在读提交隔离级别(RC)下，这个用法就没意义了，等效于普通的 start transaction。</p>
+</blockquote>
+<p>因为以上案例是RR(start transaction with consistent snapshot;), 也就是可重复读隔离级别。</p>
+<p>那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。</p>
+<p>事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.</p>
+<p>如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。</p>
+<h4 id="MySQL和PG事务实现上的差异"><a href="#MySQL和PG事务实现上的差异" class="headerlink" title="MySQL和PG事务实现上的差异"></a>MySQL和PG事务实现上的差异</h4><p>这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>理解好索引是程序员是否掌握数据库的最关键知识点，理解好索引才会写出更高效的SQL，避免慢查询搞死MySQL。</p>
+<p>对日志的理解可以看到一个数据库为了提升性能（刷磁盘的瓶颈）采取的各种手段。也是最重要的一些设计思想所在。</p>
+<p>事务则是数据库皇冠。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/" target="_blank" rel="external">https://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/</a> 回表</p>
+<p><a href="https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause" target="_blank" rel="external">https://stackoverflow.com/questions/1243952/how-can-i-speed-up-a-mysql-query-with-a-large-offset-in-the-limit-clause</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/05/24/网络包的流转/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -464,7 +786,7 @@
 <p><img src="/images/oss/68dc89e050901cd2478a0636a5f0dcbe.png" alt="image.png"></p>
 <p>这里需要注意一个细节，<strong>硬中断中设置软中断标记，和ksoftirq的判断是否有软中断到达，都是基于smp_processor_id()的。这意味着只要硬中断在哪个CPU上被响应，那么软中断也是在这个CPU上处理的</strong>。所以说，如果你发现你的Linux软中断CPU消耗都集中在一个核上的话，做法是要把调整硬中断的CPU亲和性，来将硬中断打散到不同的CPU核上去。</p>
 <p>软中断（也就是 Linux 里的 ksoftirqd 进程）里收到数据包以后，发现是 tcp 的包的话就会执行到 tcp_v4_rcv 函数。如果是 ESTABLISHED 状态下的数据包，则最终会把数据拆出来放到对应 socket 的接收队列中。然后调用 sk_data_ready 来唤醒用户进程。</p>
-<p><img src="/Users/ren/Library/Application Support/typora-user-images/image-20210310144555255.png" alt=""></p>
+<p><img src="/images/951413iMgBlog/image-20210310144555255.png" alt=""></p>
 <p>对应的堆栈（本堆栈有问题，si%打满）：</p>
 <p><img src="/images/951413iMgBlog/image-20211210160634705.png" alt="image-20211210160634705"></p>
 <p><code>igb_fetch_rx_buffer</code>和<code>igb_is_non_eop</code>的作用就是把数据帧从RingBuffer上取下来。为什么需要两个函数呢？因为有可能帧要占多个RingBuffer，所以是在一个循环中获取的，直到帧尾部。获取下来的一个数据帧用一个sk_buff来表示。<strong>收取完数据以后，对其进行一些校验，然后开始设置sbk变量的timestamp, VLAN id, protocol等字段</strong>。接下来进入到napi_gro_receive中，里面还会调用关键的 netif_receive_skb， 在<code>netif_receive_skb</code>中，数据包将被送到协议栈中，上图中的tcp_v4_rcv就是其中之一（tcp协议）</p>
@@ -4430,220 +4752,6 @@ nameserver 10.0.0.3
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/24/性能优化，从老中医到科学理论指导/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/24/性能优化，从老中医到科学理论指导/" itemprop="url">性能优化，从老中医到科学理论指导</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-24T16:30:03+08:00">
-                2018-08-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/performance/" itemprop="url" rel="index">
-                    <span itemprop="name">performance</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="性能优化，从老中医到科学理论指导"><a href="#性能优化，从老中医到科学理论指导" class="headerlink" title="性能优化，从老中医到科学理论指导"></a>性能优化，从老中医到科学理论指导</h1><p>简单原理：</p>
-<ul>
-<li><p>追着RT去优化，哪个环节、节点RT高，哪里就值得优化，CPU、GC等等只是导致RT高的因素，RT才是结果；</p>
-</li>
-<li><p>QPS=并发/RT</p>
-</li>
-</ul>
-<h2 id="利特尔法则-编辑"><a href="#利特尔法则-编辑" class="headerlink" title="利特尔法则[编辑]"></a>利特尔法则[<a href="https://zh.wikipedia.org/w/index.php?title=利特爾法則&amp;action=edit&amp;section=0&amp;summary=/* top */" target="_blank" rel="external">编辑</a>]</h2><p><strong>利特尔法则</strong>（英语：Little’s law），基于<a href="https://zh.wikipedia.org/wiki/等候理論" target="_blank" rel="external">等候理论</a>，由<a href="https://zh.wikipedia.org/w/index.php?title=約翰·利特爾&amp;action=edit&amp;redlink=1" target="_blank" rel="external">约翰·利特尔</a>在1954年提出。利特尔法则可用于一个稳定的、非占先式的系统中。其内容为：</p>
-<blockquote>
-<p>在一个稳定的系统中，长期的平均顾客人数（L），等于长期的有效抵达率（λ），乘以顾客在这个系统中平均的等待时间（W）</p>
-</blockquote>
-<p>或者，我们可以用一个代数式来表达：</p>
-<p>L=λW</p>
-<p>利特尔法则可用来确定在途存货的数量。此法则认为，系统中的平均存货等于存货单位离开系统的比率（亦即平均需求率）与存货单位在系统中平均时间的乘积。</p>
-<p>虽然此公式看起来直觉性的合理，它依然是个非常杰出的推导结果，因为此一关系式“不受到货流程分配、服务分配、服务顺序，或任何其他因素影响”。</p>
-<p>此一理论适用于所有系统，而且它甚至更适合用于系统中的系统。举例来说，在一间银行里，顾客等待的队伍就是一个子系统，而每一位柜员也可以被视为一个等待的子系统，而利特尔法则可以套用到任何一个子系统，也可以套用到整个银行的等待队伍之母系统。</p>
-<p>唯一的条件就是，这个系统必须是长期稳定的，而且不能有插队抢先的情况发生，这样才能排除换场状况的可能性，例如开业或是关厂。</p>
-<h3 id="案例："><a href="#案例：" class="headerlink" title="案例："></a>案例：</h3><p>需要的线程数 = qps * latency(单位秒)。 依据是little’s law，类似的应用是tcp中的bandwidth-delay product。如果这个数目远大于核心数量，应该考虑用异步接口。<br>举例：</p>
-<ul>
-<li>qps = 2000，latency = 10ms，计算结果 = 2000 * 0.01s = 20。和常见核数在同一个数量级，用同步。</li>
-<li>qps = 100, latency = 5s, 计算结果 = 100 * 5s = 500。和常见核数不在同一个数量级，用异步。</li>
-<li>qps = 500, latency = 100ms，计算结果 = 500 * 0.1s = 50。和常见核数在同一个数量级，可用同步。如果未来延时继续增长，考虑异步。</li>
-</ul>
-<p><img src="/images/951413iMgBlog/image-20211103175727900.png" alt="image-20211103175727900"></p>
-<h2 id="RT"><a href="#RT" class="headerlink" title="RT"></a><a href="https://www.cnblogs.com/huangyingsheng/p/13744422.html" target="_blank" rel="external">RT</a></h2><p>什么是 RT ？是概念还是名词还是理论？</p>
-<p>RT其实也没那么玄乎，就是 Response Time，只不过看你目前在什么场景下，也许你是c端（app、pc等）的用户，响应时间是你请求服务器到服务器响应你的时间间隔，对于我们后端优化来说，就是接受到请求到响应用户的时间间隔。这听起来怎么感觉这不是在说废话吗？这说的不都是服务端的处理时间吗？不同在哪里？其实这里有个容易被忽略的因素，叫做网络开销。<br>所以客户端RT ≈ 网络开销 + 服务端RT。也就是说，一个差的网络环境会导致两个RT差距的悬殊（比如，从深圳访问上海的请求RT，远大于上海本地内的请求RT）</p>
-<p>客户端的RT则会直接影响客户体验，要降低客户端RT，提升用户的体验，必须考虑两点，第一点是服务端的RT，第二点是网络。对于网络来说常见的有CDN、AND、专线等等，分别适用于不同的场景，有机会写个blog聊一下这个话题。</p>
-<p>对于服务端RT来说，主要看服务端的做法。<br>有个公式：RT = Thread CPU Time + Thread Wait Time<br>从公式中可以看出，要想降低RT，就要降低 Thread CPU Time 或者 Thread Wait Time。这也是马上要重点深挖的一个知识点。</p>
-<p><strong>Thread CPU Time（简称CPU Time）</strong></p>
-<p><strong>Thread Wait Time（简称Wait Time）</strong></p>
-<h2 id="单线程QPS"><a href="#单线程QPS" class="headerlink" title="单线程QPS"></a>单线程QPS</h2><p>我们都知道 RT 是由两部分组成 CPU Time + Wait Time 。那如果系统里只有一个线程或者一个进程并且进程中只有一个线程的时候，那么最大的 QPS 是多少呢？<br>假设 RT 是 199ms （CPU Time 为 19ms ，Wait Time 是 180ms ），那么 1000s以内系统可以接收的最大请求就是<br>1000ms/(19ms+180ms)≈5.025。</p>
-<p>所以得出单线程的QPS公式：</p>
-<blockquote>
-<p>单线程𝑄𝑃𝑆=1000𝑚𝑠/𝑅𝑇单线程QPS=1000ms/RT</p>
-</blockquote>
-<h2 id="最佳线程数"><a href="#最佳线程数" class="headerlink" title="最佳线程数"></a>最佳线程数</h2><p>还是上面的那个话题 （CPU Time 为 19ms ，Wait Time 是 180ms ），假设CPU的核数1。假设只有一个线程，这个线程在执行某个请求的时候，CPU真正花在该线程上的时间就是CPU Time，可以看做19ms，那么在整个RT的生命周期中，还有 180ms 的 Wait Time，CPU在做什么呢？抛开系统层面的问题（这里不考虑什么时间片轮循、上下文切换等等），可以认为CPU在这180ms里没做什么，至少对于当前的业务来说，确实没做什么。</p>
-<ul>
-<li>一核的情况<br>由于每个请求的接收，CPU只需要工作19ms，所以在180ms的时间内，可以认为系统还可以额外接收180ms/19ms≈9个的请求。由于在同步模型中，一个请求需要一个线程来处理，因此，我们需要额外的9个线程来处理这些请求。这样，总的线程数就是：</li>
-</ul>
-<p>（180𝑚𝑠+19𝑚𝑠）/19𝑚𝑠≈10个（180ms+19ms）/19ms≈10个</p>
-<p>​    多线程之后，CPU Time从19ms变成了20ms，这1ms的差值代表多线程之后上下文切换、GC带来的额外开销（对于我们java来说是jvm，其他语言另外计算），这里的1ms只是代表一个概述，你也可以把它看做n。</p>
-<ul>
-<li>两核的情况<br>一核的情况下可以有10个线程，那么两核呢？在理想的情况下，可以认为最佳线程数为：2 x ( 180ms + 20ms )/20ms = 20个</li>
-<li>CPU利用率<br>我们之前说的都是CPU满载下的情况，有时候由于某个瓶颈，导致CPU不得不有效利用，比如两核的CPU，因为某个资源，只能各自使用一半的能效，这样总的CPU利用率就变成了50%，再这样的情况下，最佳线程数应该是：50% x 2 x( 180ms + 20ms )/20ms = 10个<br>这个等式转换成公式就是：最佳线程数 = (RT/CPU Time) x CPU 核数 x CPU利用率<br>当然，这不是随便推测的，在收集到的很多的一些著作或者论坛的文档里都有这样的一些实验去论述这个公式或者这个说法是正确的。</li>
-</ul>
-<h3 id="最大QPS"><a href="#最大QPS" class="headerlink" title="最大QPS"></a>最大QPS</h3><h4 id="1-最大QPS公式推导"><a href="#1-最大QPS公式推导" class="headerlink" title="1.最大QPS公式推导"></a>1.最大QPS公式推导</h4><p>假设我们知道了最佳线程数，同时我们还知道每个线程的QPS，那么线程数乘以每个线程的QPS既这台机器在最佳线程数下的QPS。所以我们可以得到下图的推算。</p>
-<p><img src="/images/951413iMgBlog/image_001.png" alt="image"></p>
-<p>我们可以把分子和分母去约数，如下图。</p>
-<p><img src="/images/951413iMgBlog/image_002.png" alt="image"></p>
-<p>于是简化后的公式如下图.</p>
-<p><img src="/images/951413iMgBlog/image_003.png" alt="image"></p>
-<p>从公式可以看出，决定QPS的时CPU Time、CPU核数和CPU利用率。CPU核数是由硬件做决定的，很难操纵，但是CPU Time和CPU利用率与我们的代码息息相关。</p>
-<p>虽然宏观上是正确的，但是推算的过程中还是有一点小小的不完美，因为多线程下的CPU Time（比如高并发下的GC次数增加消耗更多的CPU Time、线程上下文切换等等）和单线程的CPU Time是不一样的，所以会导致推算出来的结果有误差。</p>
-<p>尤其是在同步模型下的相同业务逻辑中，单线程时的CPU Time肯定会比大量多线程的CPU Time小，但是对于异步模型来说，切换的开销会变得小很多，为什么？这里先卖个葫芦吧，看完本篇就知道了。</p>
-<p>既然决定QPS的是CPU Time和CPU核数，那么这两个因子又是由谁来决定的呢？</p>
-<h2 id="理解最佳线程数量"><a href="#理解最佳线程数量" class="headerlink" title="理解最佳线程数量"></a>理解最佳线程数量</h2><p>最佳线程数量 单线程压测，总rt(total)，下游依赖rt(IO), rt(CPU)=rt(total)-rt(IO)</p>
-<p>最佳线程数量 rt(total)/rt(cpu)</p>
-<p>从单线程跑出QPS、各个环节的RT、CPU占用等数据，然后加并发直到QPS不再增加，然后看哪个环境RT增加最大，瓶颈就在哪里</p>
-<p><img src="/images/951413iMgBlog/image-20220506121132920.png" alt="image-20220506121132920" style="zoom:67%;"></p>
-<h2 id="IO"><a href="#IO" class="headerlink" title="IO"></a>IO</h2><p>IO耗时增加的RT一般都不影响QPS，最终通过加并发来提升QPS</p>
-<p>每次测试数据都是错的，我用RT、并发、TPS一计算数据就不对。现场的人基本不理解RT和TPS同时下降是因为压力不够了（前面有瓶颈，压力打不过来），电话会议讲到半夜</p>
-<h2 id="思路严谨"><a href="#思路严谨" class="headerlink" title="思路严谨"></a>思路严谨</h2><p>最难讲清楚</p>
-<p>前美国国防部长拉姆斯菲尔德：</p>
-<p><em>Reports that say that something hasn’t happened are always interesting to me, because as we know, <strong>there are known knowns; there are things we know we know. We also know there are known unknowns; that is to say we know there are some things we do not know. But there are also unknown unknowns—the ones we don’t know we don’t know.</strong> And if one looks throughout the history of our country and other free countries, it is the latter category that tend to be the difficult ones.</em></p>
-<p>这句话总结出了人们对事物认知的三种情况：</p>
-<ol>
-<li>known knowns（已知的已知）</li>
-<li>known unknowns（已知的未知）</li>
-<li>unknown unknowns（未知的未知）</li>
-</ol>
-<blockquote>
-<p>这三种情况几乎应证了我学习工作以来面对的所有难题。当我们遇到一个难题的时候，首先我们对这个问题会有一定的了解（否则你都不会遇到这个问题:)），这就是已知的已知部分；在解决这个问题的时候，我们会遇到困难，困难又有两类，一类是你知道困难的点是什么，但是暂时不知道怎么解决，需要学习，这就是已知的未知；剩下的潜伏在问题里的坑，你还没遇到的，就是未知的未知。</p>
-</blockquote>
-<p>性能调优的优先条件是，性能分析，只有分析出系统的瓶颈，才能进行调优。而分析一个系统的性能，就要面对上面提到的三种情况。计算机系统是非常庞大的，包含了计算机体系结构、操作系统、网络、存储等，单单拎出任何一个方向都值得我们去研究很久，因此，我们在分析系统性能的时候，是无法避免地会遇到很多<code>未知的未知</code>问题，而我们要做的事情就是要将它们变成<code>已知的未知</code>，再变成<code>已知的已知</code>。</p>
-<p><img src="/images/951413iMgBlog/DK-effect.png" alt="DK 效应"></p>
-<p><a href="https://www.rickylss.site/pictures/DK-effect.png" target="_blank" rel="external">
-</a></p>
-<h2 id="老中医经验不可缺少"><a href="#老中医经验不可缺少" class="headerlink" title="老中医经验不可缺少"></a>老中医经验不可缺少</h2><p>量变到质变</p>
-<h2 id="找瓶颈，先干掉瓶颈才能优化其它"><a href="#找瓶颈，先干掉瓶颈才能优化其它" class="headerlink" title="找瓶颈，先干掉瓶颈才能优化其它"></a>找瓶颈，先干掉瓶颈才能优化其它</h2><p>没有找到瓶颈，所做的其它优化会看不出效果，误入歧途，瞎蒙</p>
-<h2 id="全栈能力，一文钱难倒英雄好汉"><a href="#全栈能力，一文钱难倒英雄好汉" class="headerlink" title="全栈能力，一文钱难倒英雄好汉"></a>全栈能力，一文钱难倒英雄好汉</h2><p>因为关键是找瓶颈，作为java程序员如果只能看jstack、jstat可能发现的不是瓶颈</p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p><a href="https://plantegg.github.io/2018/01/23/10+倍性能提升全过程/">10+倍性能提升全过程</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4693,7 +4801,7 @@ nameserver 10.0.0.3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">155</span>
+                <span class="site-state-item-count">156</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4715,7 +4823,7 @@ nameserver 10.0.0.3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">247</span>
+                <span class="site-state-item-count">248</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
