@@ -291,6 +291,245 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/08/31/kubernetes容器网络/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/08/31/kubernetes容器网络/" itemprop="url">kubernetes容器网络</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-08-31T11:30:03+08:00">
+                2020-08-31
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="kubernetes-容器网络"><a href="#kubernetes-容器网络" class="headerlink" title="kubernetes 容器网络"></a>kubernetes 容器网络</h1><h2 id="cni-网络"><a href="#cni-网络" class="headerlink" title="cni 网络"></a>cni 网络</h2><blockquote>
+<p> <strong>cni0</strong> is a Linux network bridge device, all <strong>veth</strong> devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in <strong>Kubernetes Network Model</strong> and the hotel analogy above.</p>
+</blockquote>
+<h3 id="cni（Container-Network-Interface）"><a href="#cni（Container-Network-Interface）" class="headerlink" title="cni（Container Network Interface）"></a>cni（Container Network Interface）</h3><p>CNI 全称为 Container Network Interface，是用来定义容器网络的一个 <a href="https://github.com/containernetworking/cni/blob/master/SPEC.md" target="_blank" rel="external">规范</a>。<a href="https://github.com/containernetworking/cni" target="_blank" rel="external">containernetworking/cni</a> 是一个 CNCF 的 CNI 实现项目，包括基本额 bridge,macvlan等基本网络插件。</p>
+<p>一般将cni各种网络插件的可执行文件二进制放到 <code>/opt/cni/bin</code> ，在 <code>/etc/cni/net.d/</code> 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。</p>
+<p>比如：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">#ls -lh /opt/cni/bin/</div><div class="line">总用量 90M</div><div class="line">-rwxr-x--- 1 root root 4.0M 12月 23 09:39 bandwidth</div><div class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico</div><div class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico-ipam</div><div class="line">-rwxr-x--- 1 root root 3.0M 12月 23 09:39 flannel</div><div class="line">-rwxr-x--- 1 root root 3.5M 12月 23 09:39 host-local</div><div class="line">-rwxr-x--- 1 root root 3.1M 12月 23 09:39 loopback</div><div class="line">-rwxr-x--- 1 root root 3.8M 12月 23 09:39 portmap</div><div class="line">-rwxr-x--- 1 root root 3.3M 12月 23 09:39 tuning</div><div class="line"></div><div class="line">[root@hygon3 15:55 /root]</div><div class="line">#ls -lh /etc/cni/net.d/</div><div class="line">总用量 12K</div><div class="line">-rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist</div><div class="line">-rw-r----- 1 root root  292 12月 23 09:47 10-flannel.conflist</div><div class="line">-rw------- 1 root root 2.6K 12月 23 09:39 calico-kubeconfig</div></pre></td></tr></table></figure>
+<p>CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C/S 方式，所有参数都是通过环境变量、标准输入输出来实现的。</p>
+<p>Step-by-step communication from <strong>Pod 1</strong> to <strong>Pod 6</strong>:</p>
+<ol>
+<li><em>Package leaves</em> <strong><em>Pod 1 netns\</em></strong> <em>through the</em> <strong><em>eth1\</em></strong> <em>interface and reaches the</em> <strong><em>root netns\</em></strong> <em>through the virtual interface</em> <strong><em>veth1*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>veth1\</em></strong> <em>and reaches</em> <strong><em>cni0*</em></strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to</em> <strong><em>eth0*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>from</em> <strong><em>Master 1\</em></strong> <em>and reaches the</em> <strong><em>gateway*</em></strong>;*</li>
+<li><em>Package leaves the</em> <strong><em>gateway\</em></strong> <em>and reaches the</em> <strong><em>root netns\</em></strong> <em>through the</em> <strong><em>eth0\</em></strong> <em>interface on</em> <strong><em>Worker 1*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>and reaches</em> <strong><em>cni0*</em></strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to the</em> <strong><em>veth6\</em></strong> <em>virtual interface;</em></li>
+<li><em>Package leaves the</em> <strong><em>root netns\</em></strong> <em>through</em> <strong><em>veth6\</em></strong> <em>and reaches the</em> <strong><em>Pod 6 netns\</em></strong> <em>though the</em> <strong><em>eth6\</em></strong> <em>interface;</em></li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115124747936.png" alt="image-20220115124747936"></p>
+<h2 id="flannel-网络"><a href="#flannel-网络" class="headerlink" title="flannel 网络"></a>flannel 网络</h2><p>假如POD1访问POD4：</p>
+<ol>
+<li>从POD1中出来的包先到Bridge cni0上（因为POD1对应的veth挂在了cni0上）</li>
+<li>然后进入到宿主机网络，宿主机有路由 10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink ，也就是目标ip 10.244.2.3的包交由 flannel.1 来处理</li>
+<li>flanneld 进程将包封装成vxlan 丢到eth0从宿主机1离开（封装后的目标ip是192.168.2.91）</li>
+<li>这个封装后的vxlan udp包正确路由到宿主机2</li>
+<li>然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（<strong>这里会过宿主机iptables</strong>）</li>
+<li>cni0将包送给POD4</li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115132938290.png" alt="image-20220115132938290"></p>
+<p>对应宿主机查询到的ip、路由信息（和上图不是对应的）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div></pre></td><td class="code"><pre><div class="line">#ip -d -4 addr show cni0</div><div class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</div><div class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</div><div class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer  161.46 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</div><div class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line"></div><div class="line">#ip -d -4 addr show flannel.1</div><div class="line">474: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN group default</div><div class="line">    link/ether fe:49:64:ae:36:af brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</div><div class="line">    vxlan id 1 local 10.133.2.252 dev bond0 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</div><div class="line">    inet 192.168.3.0/32 brd 192.168.3.0 scope global flannel.1</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">       </div><div class="line">[root@hygon239 20:06 /root]</div><div class="line">#kubectl describe node hygon252 | grep -C5 -i vtep  //可以看到VetpMAC 以及对应的宿主机IP（vxlan封包后的IP）</div><div class="line">Labels:             beta.kubernetes.io/arch=amd64</div><div class="line">                    beta.kubernetes.io/os=linux</div><div class="line">                    kubernetes.io/arch=amd64</div><div class="line">                    kubernetes.io/hostname=hygon252</div><div class="line">                    kubernetes.io/os=linux</div><div class="line">Annotations:        flannel.alpha.coreos.com/backend-data: &#123;&quot;VNI&quot;:1,&quot;VtepMAC&quot;:&quot;fe:49:64:ae:36:af&quot;&#125;</div><div class="line">                    flannel.alpha.coreos.com/backend-type: vxlan</div><div class="line">                    flannel.alpha.coreos.com/kube-subnet-manager: true</div><div class="line">                    flannel.alpha.coreos.com/public-ip: 10.133.2.252</div><div class="line">                    kubeadm.alpha.kubernetes.io/cri-socket: /var/run/dockershim.sock</div><div class="line">                    node.alpha.kubernetes.io/ttl: 0</div></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20220115133500854.png" alt="image-20220115133500854"></p>
+<h2 id="kubernetes-calico-网络"><a href="#kubernetes-calico-网络" class="headerlink" title="kubernetes calico 网络"></a>kubernetes calico 网络</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml</div><div class="line"></div><div class="line">#或者老版本的calico</div><div class="line">curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml</div></pre></td></tr></table></figure>
+<p>默认calico用的是ipip封包（这个性能跟原生网络差多少有待验证，本质也是overlay网络，比flannel那种要好很多吗？）</p>
+<p>跨宿主机的两个容器之间的流量链路是：</p>
+<blockquote>
+<p>cali-容器eth0-&gt;宿主机cali27dce37c0e8-&gt;tunl0-&gt;内核ipip模块封包-&gt;物理网卡（ipip封包后）—远程–&gt; 物理网卡-&gt;内核ipip模块解包-&gt;tunl0-&gt;cali-容器</p>
+</blockquote>
+<p><img src="/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png" alt="image.png"></p>
+<p>Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。</p>
+<h2 id="calico-ipip网络不通"><a href="#calico-ipip网络不通" class="headerlink" title="calico ipip网络不通"></a>calico ipip网络不通</h2><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，部分节点之间不通。每台机器部署好calico网络后，会分配一个 /26 CIRD 子网（64个ip）。</p>
+<h3 id="案例1"><a href="#案例1" class="headerlink" title="案例1"></a>案例1</h3><p>目标机是10.122.127.128（宿主机ip 192.168.3.112），如果从10.122.17.64（宿主机ip 192.168.3.110） ping 10.122.127.128不通，查看10.122.127.128路由表：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</div><div class="line">10.122.17.64/26 via 10.122.127.128 dev tunl0  //这条路由不通</div><div class="line">[root@az3-k8s-13 ~]# ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</div><div class="line"></div><div class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</div><div class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink //这样就通了</div></pre></td></tr></table></figure>
+<p>在10.122.127.128抓包如下，明显可以看到icmp request到了 tunl0网卡，tunl0网卡也回复了，但是回复包没有经过kernel ipip模块封装后发到eth1上：</p>
+<p><img src="/images/oss/d3111417ce646ca1475def5bea01e6b9.png" alt="image.png"></p>
+<p>正常机器应该是这样，上图不正常的时候缺少红框中的reply：</p>
+<p><img src="/images/oss/9ea9041af1211b2a5b8de4e216044465.png" alt="image.png"></p>
+<p>解决：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; </div><div class="line">ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</div></pre></td></tr></table></figure>
+<p>删除错误路由增加新的路由就可以了，新增路由的意思是从tunl0发给10.122.17.64/26的包下一跳是 192.168.3.110。</p>
+<p> via 192.168.3.110 表示下一跳的ip</p>
+<p>onlink参数的作用：<br>使用这个参数将会告诉内核，不必检查网关是否可达。因为在linux内核中，网关与本地的网段不同是被认为不可达的，从而拒绝执行添加路由的操作。</p>
+<p>因为tunl0网卡ip的 CIDR 是32，也就是不属于任何子网，那么这个网卡上的路由没有网关，配置路由的话必须是onlink, 内核存也没法根据子网来选择到这块网卡，所以还会加上 dev 指定网卡。</p>
+<h3 id="案例2"><a href="#案例2" class="headerlink" title="案例2"></a>案例2</h3><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，只有node2没有192.168.3.111这个ip，结果node2跟其他节点都不通：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">#calicoctl node status</div><div class="line">Calico process is running.</div><div class="line"></div><div class="line">IPv4 BGP status</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div><div class="line">| PEER ADDRESS  |     PEER TYPE     | STATE |   SINCE    |    INFO     |</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div><div class="line">| 192.168.0.111 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.112 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.113 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.114 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div></pre></td></tr></table></figure>
+<p>从node4 ping node2，然后在node2上抓包，可以看到 icmp request都发到了node2上，但是node2收到后没有发给tunl0：</p>
+<p><img src="/images/oss/16fda9322e9a59c37c11629acc611bf3.png" alt="image.png"></p>
+<p>所以icmp没有回复，这里的问题在于<strong>kernel收到包后为什么不给tunl0</strong></p>
+<p>同样，在node2上ping node4，同时在node2上抓包，可以看到发给node4的request包和reply包：</p>
+<p><img src="/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png" alt="image.png"></p>
+<p>从request包可以看到src ip 是0.111， dest ip是 3.113，<strong>因为 node2 没有192.168.3.111这个ip</strong></p>
+<p>非常关键的我们看到node4的回复包 src ip 不是3.113，而是0.113（根据node4的路由就应该是0.113）</p>
+<p><img src="/images/oss/5c7172e2422579eb99c66e881d47bf99.png" alt="image.png"></p>
+<p>这就是问题所在，从node4过来的ipip包src ip都是0.113，实际这里ipip能认识的只是3.113. </p>
+<p>如果这个时候在3.113机器上把0.113网卡down掉，那么3.113上的：</p>
+<p>10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink 路由被自动删除，3.113将不再回复request。这是因为calico记录的node2的ip是192.168.0.111，所以会自动增加</p>
+<p>解决办法，在node4上删除这条路由记录，也就是强制让回复包走3.113网卡，这样收发的ip就能对应上了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">ip route del 192.168.0.0/24 dev eth0 proto kernel scope link src 192.168.0.113</div><div class="line">//同时将默认路由改到3.113</div><div class="line">ip route del default via 192.168.0.253 dev eth0; </div><div class="line">ip route add default via 192.168.3.253 dev eth1</div></pre></td></tr></table></figure>
+<p>最终OK后，node4上的ip route是这样的：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">[root@az3-k8s-14 ~]# ip route</div><div class="line">default via 192.168.3.253 dev eth1 </div><div class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink </div><div class="line">10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink </div><div class="line">10.122.127.128/26 via 192.168.3.112 dev tunl0 proto bird onlink </div><div class="line">blackhole 10.122.157.128/26 proto bird </div><div class="line">10.122.157.129 dev cali19f6ea143e3 scope link </div><div class="line">10.122.157.130 dev cali09e016ead53 scope link </div><div class="line">10.122.157.131 dev cali0ad3225816d scope link </div><div class="line">10.122.157.132 dev cali55a5ff1a4aa scope link </div><div class="line">10.122.157.133 dev cali01cf8687c65 scope link </div><div class="line">10.122.157.134 dev cali65232d7ada6 scope link </div><div class="line">10.122.173.128/26 via 192.168.3.114 dev tunl0 proto bird onlink </div><div class="line">172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 </div><div class="line">192.168.3.0/24 dev eth1 proto kernel scope link src 192.168.3.113</div></pre></td></tr></table></figure>
+<p>正常后的抓包, 注意这里drequest的est ip 和reply的 src ip终于一致了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">//request</div><div class="line">00:16:3e:02:06:1e &gt; ee:ff:ff:ff:ff:ff, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 57971, offset 0, flags [DF], proto IPIP (4), length 104)</div><div class="line">    192.168.0.111 &gt; 192.168.3.110: (tos 0x0, ttl 64, id 18953, offset 0, flags [DF], proto ICMP (1), length 84)</div><div class="line">    10.122.124.128 &gt; 10.122.17.64: ICMP echo request, id 22001, seq 4, length 64</div><div class="line">    </div><div class="line">//reply    </div><div class="line">ee:ff:ff:ff:ff:ff &gt; 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 2565, offset 0, flags [none], proto IPIP (4), length 104)</div><div class="line">    192.168.3.110 &gt; 192.168.0.111: (tos 0x0, ttl 64, id 26374, offset 0, flags [none], proto ICMP (1), length 84)</div><div class="line">    10.122.17.64 &gt; 10.122.124.128: ICMP echo reply, id 22001, seq 4, length 64</div></pre></td></tr></table></figure>
+<p>总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。</p>
+<h2 id="flannel网络不通"><a href="#flannel网络不通" class="headerlink" title="flannel网络不通"></a>flannel网络不通</h2><h3 id="firewalld"><a href="#firewalld" class="headerlink" title="firewalld"></a>firewalld</h3><p>在麒麟系统的物理机上通过kubeadm setup集群，发现有的环境flannel网络不通，在宿主机上ping 其它物理机flannel.0网卡的ip，通过在对端宿主机抓包发现icmp收到后被防火墙扔掉了，抓包中可以看到错误信息：icmp unreachable - admin prohibited</p>
+<p>下图中正常的icmp是直接ping 物理机ip</p>
+<p><img src="/images/951413iMgBlog/image-20211228203650921.png" alt="image-20211228203650921"></p>
+<blockquote>
+<p>The “admin prohibited filter” seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn’t want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.</p>
+</blockquote>
+<p>发现有问题的环境中宿主机的防火墙设置报错了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &apos;/usr/sbin/iptables -w10 -t filter -X DOCKER-ISOLATION-STAGE-1&apos; failed: iptables: No chain/target/match by that name.</div><div class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &apos;/usr/sbin/iptables -w10 -t filter -F DOCKER-ISOLATION-STAGE-2&apos; failed: iptables: No chain/target/match by that name.</div></pre></td></tr></table></figure>
+<p>应该是因为启动docker的时候 firewalld 是运行着的</p>
+<blockquote>
+<p>Do you have firewalld enabled, and was it (re)started after docker was started? If so, then it’s likely that firewalld wiped docker’s IPTables rules. Restarting the docker daemon should re-create those rules.</p>
+</blockquote>
+<p>停掉 firewalld 服务可以解决这个问题</p>
+<h3 id="掉电重启后flannel网络不通"><a href="#掉电重启后flannel网络不通" class="headerlink" title="掉电重启后flannel网络不通"></a><a href="https://github.com/flannel-io/flannel/issues/799" target="_blank" rel="external">掉电重启后flannel网络不通</a></h3><p>flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机，但是从flannel解开udp转送到cni的时候出了问题，大概率是iptables 拦截了包</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">It seems docker version &gt;=1.13 will add iptables rule like below,and it make this issue happen:</div><div class="line">iptables -P FORWARD DROP</div><div class="line"></div><div class="line">All you need to do is add a rule below:</div><div class="line">iptables -P FORWARD ACCEPT</div></pre></td></tr></table></figure>
+<h2 id="清理"><a href="#清理" class="headerlink" title="清理"></a><a href="https://serverfault.com/questions/247767/cannot-delete-gre-tunnel" target="_blank" rel="external">清理</a></h2><p>cni信息</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">/etc/cni/net.d/*</div><div class="line">/var/lib/cni/ 下存放有ip分配信息</div></pre></td></tr></table></figure>
+<p>calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">ip link set dev tunl0 name tunl0_fallback</div><div class="line"></div><div class="line">或者</div><div class="line">/sbin/ip link set eth1 down</div><div class="line">/sbin/ip link set eth1 name eth123</div><div class="line">/sbin/ip link set eth123 up</div></pre></td></tr></table></figure>
+<p>flannel</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ip link delete flannel.1</div><div class="line">ip link delete cni0</div></pre></td></tr></table></figure>
+<h2 id="netns"><a href="#netns" class="headerlink" title="netns"></a><a href="https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw" target="_blank" rel="external">netns</a></h2><p>以下case创建一个名为 ren 的netns，然后在里面增加一对虚拟网卡veth1 veth1_p,  veth1放置在ren里面，veth1_p 放在物理机上，给他们配置上ip并up就能通了。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div></pre></td><td class="code"><pre><div class="line">1004  [2021-10-27 10:49:08] ip netns add ren</div><div class="line">1005  [2021-10-27 10:49:12] ip netns show</div><div class="line">1006  [2021-10-27 10:49:22] ip netns exec ren route   //为空</div><div class="line">1007  [2021-10-27 10:49:29] ip netns exec ren iptables -L</div><div class="line">1008  [2021-10-27 10:49:55] ip link add veth1 type veth peer name veth1_p //此时宿主机上能看到这两块网卡</div><div class="line">1009  [2021-10-27 10:50:07] ip link set veth1 netns ren //将veth1从宿主机默认网络空间挪到ren中，宿主机中看不到veth1了</div><div class="line">1010  [2021-10-27 10:50:18] ip netns exec ren route  </div><div class="line">1011  [2021-10-27 10:50:25] ip netns exec ren iptables -L</div><div class="line">1012  [2021-10-27 10:50:39] ifconfig</div><div class="line">1013  [2021-10-27 10:50:51] ip link list</div><div class="line">1014  [2021-10-27 10:51:29] ip netns exec ren ip link list</div><div class="line">1017  [2021-10-27 10:53:27] ip netns exec ren ip addr add 172.19.0.100/24 dev veth1 </div><div class="line">1018  [2021-10-27 10:53:31] ip netns exec ren ip link list</div><div class="line">1019  [2021-10-27 10:53:39] ip netns exec ren ifconfig</div><div class="line">1020  [2021-10-27 10:53:42] ip netns exec ren ifconfig -a</div><div class="line">1021  [2021-10-27 10:54:13] ip netns exec ren ip link set dev veth1 up</div><div class="line">1022  [2021-10-27 10:54:16] ip netns exec ren ifconfig</div><div class="line">1023  [2021-10-27 10:54:22] ping 172.19.0.100</div><div class="line">1024  [2021-10-27 10:54:35] ifconfig -a</div><div class="line">1025  [2021-10-27 10:55:03] ip netns exec ren ip addr add 172.19.0.101/24 dev veth1_p</div><div class="line">1026  [2021-10-27 10:55:10] ip addr add 172.19.0.101/24 dev veth1_p</div><div class="line">1027  [2021-10-27 10:55:16] ifconfig veth1_p</div><div class="line">1028  [2021-10-27 10:55:30] ip link set dev veth1_p up</div><div class="line">1029  [2021-10-27 10:55:32] ifconfig veth1_p</div><div class="line">1030  [2021-10-27 10:55:38] ping 172.19.0.101</div><div class="line">1031  [2021-10-27 10:55:43] ping 172.19.0.100</div><div class="line">1032  [2021-10-27 10:55:53] ip link set dev veth1_p down</div><div class="line">1033  [2021-10-27 10:55:54] ping 172.19.0.100</div><div class="line">1034  [2021-10-27 10:55:58] ping 172.19.0.101</div><div class="line">1035  [2021-10-27 10:56:08] ifconfig veth1_p</div><div class="line">1036  [2021-10-27 10:56:32] ping 172.19.0.101</div><div class="line">1037  [2021-10-27 10:57:04] ip netns exec ren route</div><div class="line">1038  [2021-10-27 10:57:52] ip netns exec ren ping 172.19.0.101</div><div class="line">1039  [2021-10-27 10:57:58] ip link set dev veth1_p up</div><div class="line">1040  [2021-10-27 10:57:59] ip netns exec ren ping 172.19.0.101</div><div class="line">1041  [2021-10-27 10:58:06] ip netns exec ren ping 172.19.0.100</div><div class="line">1042  [2021-10-27 10:58:14] ip netns exec ren ifconfig</div><div class="line">1043  [2021-10-27 10:58:19] ip netns exec ren route</div><div class="line">1044  [2021-10-27 10:58:26] ip netns exec ren ping 172.19.0.100 -I veth1</div><div class="line">1045  [2021-10-27 10:58:58] ifconfig veth1_p</div><div class="line">1046  [2021-10-27 10:59:10] ping 172.19.0.100</div><div class="line">1047  [2021-10-27 10:59:26] ip netns exec ren ping 172.19.0.101 -I veth1</div><div class="line"></div><div class="line">把网卡加入到docker0的bridge下</div><div class="line">1160  [2021-10-27 12:17:37] brctl show</div><div class="line">1161  [2021-10-27 12:18:05] ip link set dev veth3_p master docker0</div><div class="line">1162  [2021-10-27 12:18:09] ip link set dev veth1_p master docker0</div><div class="line">1163  [2021-10-27 12:18:13] ip link set dev veth2 master docker0</div><div class="line">1164  [2021-10-27 12:18:15] brctl show</div><div class="line"></div><div class="line">btctl showmacs br0</div></pre></td></tr></table></figure>
+<p>Linux 上存在一个默认的网络命名空间，Linux 中的 1 号进程初始使用该默认空间。Linux 上其它所有进程都是由 1 号进程派生出来的，在派生 clone 的时候如果没有额外特别指定，所有的进程都将共享这个默认网络空间。</p>
+<p>所有的网络设备刚创建出来都是在宿主机默认网络空间下的。可以通过 <code>ip link set 设备名 netns 网络空间名</code> 将设备移动到另外一个空间里去，socket也是归属在某一个网络命名空间下的，由创建socket进程所在的netns来决定socket所在的netns</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//file: net/socket.c</span></div><div class="line"><span class="function"><span class="keyword">int</span> <span class="title">sock_create</span><span class="params">(<span class="keyword">int</span> family, <span class="keyword">int</span> type, <span class="keyword">int</span> protocol, struct socket **res)</span></span></div><div class="line">&#123;</div><div class="line"> <span class="keyword">return</span> __sock_create(current-&gt;nsproxy-&gt;net_ns, family, type, protocol, res, <span class="number">0</span>);</div><div class="line">&#125;</div><div class="line"></div><div class="line"><span class="comment">//file: include/net/sock.h</span></div><div class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span></span></div><div class="line"><span class="keyword">void</span> <span class="title">sock_net_set</span><span class="params">(struct sock *sk, struct net *net)</span></div><div class="line">&#123;</div><div class="line"> write_pnet(&amp;sk-&gt;sk_net, net);</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。</p>
+<p><img src="/images/951413iMgBlog/640-5304524." alt="Image"></p>
+<p>每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://morven.life/notes/networking-3-ipip/" target="_blank" rel="external">https://morven.life/notes/networking-3-ipip/</a></p>
+<p><a href="https://www.cnblogs.com/bakari/p/10564347.html" target="_blank" rel="external">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
+<p><a href="https://www.cnblogs.com/goldsunshine/p/10701242.html" target="_blank" rel="external">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/03/MySQL JDBC StreamResult 和 net_write_timeout/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5598,191 +5837,6 @@ Code size增大则instruction cache miss几率变大 (几十倍的执行时间�
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/2010到2020这10年的碎碎念念/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/01/2010到2020这10年的碎碎念念/" itemprop="url">2010到2020这10年的碎碎念念</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T00:30:03+08:00">
-                2020-01-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/others/" itemprop="url" rel="index">
-                    <span itemprop="name">others</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="2010到2020这10年的碎碎念念"><a href="#2010到2020这10年的碎碎念念" class="headerlink" title="2010到2020这10年的碎碎念念"></a>2010到2020这10年的碎碎念念</h1><h2 id="来自网络的一些数据"><a href="#来自网络的一些数据" class="headerlink" title="来自网络的一些数据"></a>来自网络的一些数据</h2><p>这十年，中国的人均GDP从大约3300美金干到了9800美金。这意味着：更多的中国人脱贫，更多的中国人变成了中产。这是这一轮消费升级的核心原动力，没有之一。</p>
-<p>这十年，中国的进出口的总额从2009年占GDP的44.86%，降至34.35%。</p>
-<p>互联网从美国copy开始变成创新、走在前列，因为有庞大的存量市场</p>
-<p>2010年，一个数据发生了逆势波动。那就是中国的适龄小学人口增速。在此之前从1997年后，基本呈负增长。这是因为中国80后家长开始登上历史舞台。这带动了诸多产业的蓬勃发展，比如互联网教育，当然还有学区房。</p>
-<p>10年吉利收购沃尔沃，18年吉利收购戴姆勒10%的股份。</p>
-<p>微信崛起、头条崛起、百度走下神坛。美团、pdd崛起</p>
-<p>12年2月6号的王护士长外逃美国大使馆也让大家兴奋了，11年的郭美美红十字会事件快要被忘记了，但是也让大家对慈善事件更加警惕，倒是谅解了汶川地震的王石10块捐款事件，不过老王很快因为娶了年轻的影星田朴珺一下子人设坍塌，大家更热衷老王的负面言论了。</p>
-<p>温州动车事件让高铁降速了</p>
-<p>我爸是李刚、药家鑫、李天一、邓玉娇（09年），陈冠希艳照门、三鹿奶粉、汶川地震、奥运会（08年）</p>
-<p>2018年：中美贸易站、问题疫苗、个税改革、中兴被美制裁，北京驱赶低端人口，鸿茅药酒，p2p暴雷，昆山反杀案，相互宝</p>
-<p>2015年：雾霾、柴静纪录片《穹顶之下》，屠呦呦诺贝尔奖，放开二胎</p>
-<p>2014年：东莞扫黄、马航370事件；周师傅被查、占中</p>
-<p>2013年：劳教正式被废除，想起2003年的孙志刚事件废除收容制度</p>
-<p>2012年：方韩之争，韩寒走下神坛</p>
-<p>2011年：日本海啸地震，中国抢盐事件；郭美美，温州动车</p>
-<p>2010年：google退出中国，上海世博会开幕，富士康N连跳楼事件；我爸是李刚，腾讯大战360</p>
-<h2 id="自我记忆"><a href="#自我记忆" class="headerlink" title="自我记忆"></a>自我记忆</h2><p>刚看到有人在说乐清钱云会事件，一晃10年了，10年前微博开始流行改变了好多新闻、热点事件的引爆方式。</p>
-<p>这十年BBS、门户慢慢在消亡，10年前大家都知道三大门户网站和天涯，现在的新网民应该知道的不多了。</p>
-<p>影响最大的还是移动网络的崛起，这也取决于4G和山寨机以及后来的小米手机，真正给中国的移动互联网带来巨大的红利，注入的巨大的增长。<br>我自己对移动互联网的判断是极端错误的，即使09年我就开始用上了iphone手机，那又怎么样，看问题还是用静态的视觉观点。手机没有键盘、手机屏幕狭小，这些确实是限制，到2014年我还想不明白为什么要在手机上购物，比较、看物品图片太不方便了，结果便利性秒杀了这些不方便；只有手机的群体秒杀了办公室里的白领，最后大家都很高兴地用手机购物了，甚至PC端bug更多，更甚至有些网站不提供PC端。</p>
-<p>移动网络的崛起和微信的成功也相辅相成的，在移动网络时代每个人都有自己的手机，所以账号系统的打通不再是问题，尤其是都被微信这个移动航母在吞噬，其它公司都活在微信的阴影里。</p>
-<p>当然移动支付的崛起就理所当然了。</p>
-<p>即使今天网上购物还是PC上要方便，那又怎么样，很多时候网上购物都是不在电脑前的零碎时间。</p>
-<p>10多年前第一次看到智能手机是室友购买的多普达，20年前也是这个室友半夜里很兴奋地播报台湾大选，让我知道了台湾大选这个事情。</p>
-<p>基本的价值观、世界观，没怎么改变，不应该是年龄大了僵化了，应该是掌握信息的手段和能力增强了，翻墙获取信息也很容易，基本的逻辑还在也没那么容易跑偏了。可能就是别人看到的年纪大了脑子僵化了吧，自我感觉不一定对。</p>
-<p>最近10年经济发展的非常好，政府对言论的控制越来越精准，舆论引导也非常”成功”,所以网络上看到这5年和5年前基本差别很大，5年前公知是个褒义词，5年后居然成了贬义词。</p>
-<p>房价自然是这10年最火的话题，07年大家开始感觉到房价上涨快、房价高，08年金融危机本来是最好的机会，结果4万亿刺激下09年年底房价开始翻倍，到10年面对翻倍了的房价政府、媒体、老百姓都在喊高，实际也只是横盘，13-14年小拉一波，16年涨价去库存再大拉一波。基本让很多人绝望了</p>
-<p>这十年做的最错的事情除了没有早点买房外就是想搞点投资收入投了制造外加炒股，踩点能力太差了，虽然前5年像任志强一样一直看多房价的不多，这个5年都被现实教育了，房价也基本到头了。</p>
-<p>工作上应该更早地、坚定地进入互联网、移动互联网，这10年互联网对人才的需求实在太大了，虽然最终能伴随公司成长的太少，毕竟活下来长大的公司不多。</p>
-<p>Google退出中国、看着小杨同学和一些同事移民、360大战QQ、诺贝尔和平奖、华为251事件都算是自己在一些公众事情上投入比较多的。非常不舍google的离开，这些年也基本还是只用google，既是无奈中用下百度也还是觉得搜不到什么有效信息；好奇移民的想法和他们出去后的各种生活；360跟QQ大战的时候觉得腾讯的垄断太牛叉了，同时认为可能360有这种资源的话会更作恶和垄断的更厉害，至少腾讯还是在乎外面的看法和要面子的；LXB到现在也是敏感词，直到病死在软禁中，这些年敏感词越来越多，言论的控制更严厉了；华为251也是个奇葩事件了，暴露了资本家的粗野和枉法。</p>
-<p>自己工作上跳槽一次，继续做一个北漂。公司对自己的方法论改变确实比较大，近距离看到了一些成功因素方面的逻辑（更有效的激励和企业文化）。</p>
-<p>经历了从外企到私企，从小公司到大公司的不同，外企英语是天花板，也看到了华为所谓的狼性、在金钱激励下的狼性，和对企业文化的维护，不能否认90%以上的人工作是为了钱</p>
-<p>这几年也开始习惯写技术文章来总结了，这得益于Markdown+截图表述的便利，也深刻感受到深抠，然后总结分享的方法真的很好（高斯学习方法），也体会到了抓手、触类旁通的运用。10年前在搜狐blog写过一两年的博客放弃的很快，很难一直有持续的高水平总结和输出。</p>
-<p>10年前还在比较MSN和QQ谁更好（我是坚定站在QQ这边的），10年后MSN再也看不见了，QQ也有了更好的替代工具微信。用处不大的地方倒是站对了，对自己最有用的关键地方都站错了。</p>
-<p>10年前差点要去豆瓣，10年后豆瓣还活着，依然倔强地保持自己的品味，这太难得了。相反十年前好用得不得了的RSS订阅，从抓虾转到google reader再到feedly好东西就是活得这么艰难。反过来公众号起来了、贴吧式微了，公众号运作新闻类是没问题的（看完就过），但是对技术类深度一点的就很不合适了，你看看一篇文章24小时内的阅读量占据了98%以上，再到后面就存亡了！但是公众号有流量，流量可以让大家跪在地上。</p>
-<p>10年前啃老是被看不起的，10年后早结婚、多啃老也基本成了这10年更对的事情，结婚得买房，啃老买得更早，不对的事情变对了（结婚早没错）。</p>
-<p>很成功地组织了一次同学20周年的聚会，也看到了远则亲、近则仇的现实情况，自己组织统筹能力还可以。</p>
-<p>情绪控制能力太差、容易失眠。这十年爱上了羽毛球和滑雪，虽然最近几年滑雪少了。</p>
-<p>体会到自小贫穷带来的一些抠门的坏习惯。</p>
-<p>2015年的股票大跌让自己很痛苦，这个过程反馈出来的不愿意撒手、在股市上的鸵鸟方式，股市上总是踩不到正确的点。割肉太难，割掉的总是错误的。</p>
-<p>15、16年我认为云计算不怎么样，觉得无非就是新瓶装旧酒，现在云计算不再有人质疑了，即使现在都还是亏钱。</p>
-<p>当然我也质疑过外卖就是一跑腿的，确实撑不起那么大的盘子，虽然没有像团购一样消亡，基本跟共享单车一样了，主要因为我是共享单车的重度用户，而我极端不喜欢外卖，所以要站出来看问题、屁股坐在哪边会严重影响看法，也就是不够客观。</p>
-<p>网约车和移动支付一起在硝烟中混战</p>
-<p>电动车开始起来，主要受政府弯道超车的刺激，目前看取决于自有充电位（适合三四线城市），可是三四线城市用户舍不得花这个溢价，汽油车都还没爽够呢。</p>
-<p>对世界杯不再那么关注，对AlphaGo的新闻倒是很在意了。魏则西事件牢牢地把百度钉死在耻辱柱上。</p>
-<p>随着12306的发展和高铁的起来，终于过年回家的火车票不用再靠半夜排队了。</p>
-<p>2019年年末行政强制安装ETC，让我想起20年前物理老师在课堂上跟我们描述的将来小汽车走高速公路再也不用停下来收费了，会自动感应，开过去就自动扣钱了。我一直对这个未来场景念念不忘，最近10年我经常问别人为什么不办ETC，这个年底看到的是行政命令下的各种抱怨。</p>
-<h3 id="看到："><a href="#看到：" class="headerlink" title="看到："></a>看到：</h3><ul>
-<li><p>老人、家人更不愿意听身边亲近人员的建议；</p>
-</li>
-<li><p>老人思维为什么固化、怎么样在自己老后不是那样固化；</p>
-</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5832,7 +5886,7 @@ Code size增大则instruction cache miss几率变大 (几十倍的执行时间�
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">156</span>
+                <span class="site-state-item-count">157</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5854,7 +5908,7 @@ Code size增大则instruction cache miss几率变大 (几十倍的执行时间�
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">248</span>
+                <span class="site-state-item-count">249</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

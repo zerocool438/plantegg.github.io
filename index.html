@@ -894,6 +894,167 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/05/06/我的网络传输速度为什么突然下降了/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2023/05/06/我的网络传输速度为什么突然下降了/" itemprop="url">我的网络传输速度为什么突然下降了</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2023-05-06T12:30:03+08:00">
+                2023-05-06
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="我的网络传输速度为什么突然下降了"><a href="#我的网络传输速度为什么突然下降了" class="headerlink" title="我的网络传输速度为什么突然下降了"></a>我的网络传输速度为什么突然下降了</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>这个问题是我星球成员做星球里面的必做实验时碰到的一个问题</p>
+<p>最后的分析用到了我们的抓包大法+ping一ping真牛逼的证明方案，所以特意放出来供大家测试一下自己的分析能力，同时也检验大家对知识的掌握和运用。</p>
+<p>这个问题很好，在EC2上稳定重现，假如你们的业务碰到了这个问题你怎么解决？</p>
+<p>或者换个场景描述：你有一个SQL单独执行很快，2个SQL并行一起查速度就降到了原来的10%，是DB还是谁的锅？</p>
+<p>推特上大佬们的讨论，看看别人都是怎么思考和推理的：<a href="https://treeverse.app/view/RDzsOXjO" target="_blank" rel="external">https://treeverse.app/view/RDzsOXjO</a></p>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>一个降速问题，在AWS的 <a href="t2.micro">t2.micro</a>机器上几乎100％复现，操作: </p>
+<ol>
+<li>开三台aws <a href="t2.micro">t2.micro</a>机器，一台做server两台做client, 已知正常情况rtt是0.5ms，bandwidth 60mbps，文件大小2g</li>
+<li>client1 去curl get server 文件</li>
+<li>一段时间等client1网速稳定后,client2 去curl get server 文件</li>
+<li>可以观察到两个client都降速到3.5mbps，这种情况就是算把server跑坏了。</li>
+<li>关掉client2, 观察到client1恢复到7-8mbps，但是远低于60mbps的带宽上限，也就是速度被限制到了标称的10%</li>
+<li>server搞坏之后，client重新下载就会出现一开始还行，但过10s就会掉到7-8mbps的情况，需要重启server才能恢复到60mbps</li>
+</ol>
+<p>星球不能发多图，和pcap文件，重现的详细抓包、截图等都放在google driver上了: <a href="https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a" target="_blank" rel="external">https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a</a> （<strong>建议大家去下载client2.pcap抓包看看</strong>）</p>
+<p>抓包发现大量dup ack, 且bytes in flight很大，server send buffer很大。</p>
+<p><img src="/images/951413iMgBlog/FryRnESX2vOUCICndaLZ3MuaqSmH.png" alt="img"></p>
+<p><strong>==强烈建议你先别往下看，去下载上面链接中的抓包文件分析看看，然后和下面的分析对比一下==</strong></p>
+<hr>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>有网络大牛陈硕老师 <a href="https://twitter.com/bnu_chenshuo/status/1654288717673291776" target="_blank" rel="external">在EC2上重现了这个问题</a> 以及他的分析，速度由300Mbps下降到了60Mbps：</p>
+<p><img src="/images/951413iMgBlog/Fnl-CGFUBMjLwQWa2i6kPo7MuJFc.png" alt="img"></p>
+<p>以及 左耳朵耗子 老师也做了实验以及分析：<a href="https://twitter.com/haoel/status/1654655067365179393" target="_blank" rel="external">https://twitter.com/haoel/status/1654655067365179393</a></p>
+<p>我的分析：<a href="https://articles.zsxq.com/id_iq5a872u8sux.html" target="_blank" rel="external">https://articles.zsxq.com/id_iq5a872u8sux.html</a></p>
+<p><img src="/images/951413iMgBlog/image-20230506132001274.png" alt="image-20230506132001274"></p>
+<h3 id="证明"><a href="#证明" class="headerlink" title="证明"></a>证明</h3><p>证明原理如这个图</p>
+<p><img src="/images/951413iMgBlog/image-20230506131422140.png" alt="image-20230506131422140"></p>
+<p><img src="/images/951413iMgBlog/image-20230506131709216.png" alt="image-20230506131709216"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>99%的人不会弄脏双手去实验，哪怕是只需要下载一个抓包就能分析出来都不会去下载。但是为什么刚好是两位陈老师会去测试重现一下呢(原谅你没有AWS机器，但是不接受你不去google driver下载抓包文件 :) )，大概率他们的时间、经验、知识都比你要丰富一些，但是他们不忌惮弄脏手而你只想做个过客看看就懂，但最后你真的啥都没看懂！</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/04/16/比较不同CPU下的分支预测/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5756,141 +5917,6 @@
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/01/01/网络抓包常用命令/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2022/01/01/网络抓包常用命令/" itemprop="url">网络抓包常用命令</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2022-01-01T14:30:03+08:00">
-                2022-01-01
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/tcpdump/" itemprop="url" rel="index">
-                    <span itemprop="name">tcpdump</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络抓包常用命令"><a href="#网络抓包常用命令" class="headerlink" title="网络抓包常用命令"></a>网络抓包常用命令</h1><p>详细解析和Demo版本：<a href="https://plantegg.github.io/2019/06/21/就是要你懂抓包--WireShark之命令行版tshark/">就是要你懂抓包–WireShark之命令行版tshark</a></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div><div class="line">89</div><div class="line">90</div><div class="line">91</div><div class="line">92</div><div class="line">93</div><div class="line">94</div><div class="line">95</div><div class="line">96</div><div class="line">97</div><div class="line">98</div><div class="line">99</div><div class="line">100</div><div class="line">101</div><div class="line">102</div><div class="line">103</div><div class="line">104</div><div class="line">105</div><div class="line">106</div><div class="line">107</div><div class="line">108</div><div class="line">109</div><div class="line">110</div><div class="line">111</div><div class="line">112</div><div class="line">113</div><div class="line">114</div><div class="line">115</div><div class="line">116</div><div class="line">117</div><div class="line">118</div><div class="line">119</div><div class="line">120</div><div class="line">121</div><div class="line">122</div><div class="line">123</div><div class="line">124</div><div class="line">125</div><div class="line">126</div><div class="line">127</div><div class="line">128</div><div class="line">129</div><div class="line">130</div><div class="line">131</div><div class="line">132</div><div class="line">133</div><div class="line">134</div><div class="line">135</div><div class="line">136</div><div class="line">137</div><div class="line">138</div><div class="line">139</div><div class="line">140</div><div class="line">141</div><div class="line">142</div><div class="line">143</div><div class="line">144</div><div class="line">145</div><div class="line">146</div><div class="line">147</div><div class="line">148</div><div class="line">149</div><div class="line">150</div><div class="line">151</div><div class="line">152</div><div class="line">153</div><div class="line">154</div><div class="line">155</div><div class="line">156</div><div class="line">157</div><div class="line">158</div><div class="line">159</div><div class="line">160</div><div class="line">161</div><div class="line">162</div><div class="line">163</div><div class="line">164</div><div class="line">165</div><div class="line">166</div><div class="line">167</div><div class="line">168</div><div class="line">169</div><div class="line">170</div><div class="line">171</div><div class="line">172</div><div class="line">173</div><div class="line">174</div><div class="line">175</div><div class="line">176</div><div class="line">177</div><div class="line">178</div><div class="line">179</div><div class="line">180</div><div class="line">181</div><div class="line">182</div><div class="line">183</div><div class="line">184</div><div class="line">185</div><div class="line">186</div><div class="line">187</div><div class="line">188</div><div class="line">189</div><div class="line">190</div><div class="line">191</div></pre></td><td class="code"><pre><div class="line">用tcpdump抓取并保存包：</div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"></div><div class="line">抓到的包存储在plantegg.cap中，可以用作wireshark、tshark详细分析</div><div class="line">如果明确知道目的ip、端口等可以通过指定条件来明确只抓取某个连接的包</div><div class="line"></div><div class="line"></div><div class="line">抓取详细SQL语句：</div><div class="line">sudo tshark -i eth0 -Y "mysql.command==3" -T fields -e mysql.query</div><div class="line">sudo tshark -i eth0 -R mysql.query        -T fields -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.</span></div><div class="line">sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query 'port 8507'</div><div class="line">sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y " ((tcp.port eq 4444 )  )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"></div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"></div><div class="line">如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=false</div><div class="line"></div><div class="line">查看SQL具体内容</div><div class="line">sudo tshark -r gege_plantegg.cap -Y "mysql.query or (  tcp.stream==1)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"></div><div class="line"></div><div class="line">按mysql查询分析响应时间</div><div class="line">对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。</div><div class="line"></div><div class="line">以上抓包结果文件可以用tshark进行详细分析</div><div class="line"></div><div class="line">分析MySQL rt，倒数第四列基本就是rt</div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"></div><div class="line">或者排序一下</div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div><div class="line"></div><div class="line">MySQL响应时间直方图【第八列的含义-- Time since previous frame in this TCP stream: seconds】：</div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"></div><div class="line">按http response分析响应时间</div><div class="line">tshark -nr 213_php.cap -o tcp.calculate_timestamps:true  -Y "http.request or http.response" -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1</div><div class="line"></div><div class="line">分析rtt、丢包、deplicate等等，可以得到整体网络状态</div><div class="line"><span class="meta">$</span><span class="bash"> tshark -r retrans.cap -q -z io,<span class="built_in">stat</span>,1,<span class="string">"AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt"</span>,<span class="string">"COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission"</span>,<span class="string">"COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission"</span>,<span class="string">"COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack"</span>,<span class="string">"COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment"</span>,<span class="string">"MIN(tcp.window_size)tcp.window_size"</span></span></div><div class="line"></div><div class="line">===================================================================================</div><div class="line">| IO Statistics                                                                   |</div><div class="line">|                                                                                 |</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">|                                                                                 |</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line">1</div><div class="line">===================================================================================</div><div class="line">2</div><div class="line">| IO Statistics                                                                   |</div><div class="line">3</div><div class="line">|                                                                                 |</div><div class="line">4</div><div class="line">| Duration: 89.892365 secs                                                        |</div><div class="line">5</div><div class="line">| Interval:  2 secs                                                               |</div><div class="line">6</div><div class="line">|                                                                                 |</div><div class="line">7</div><div class="line">| Col 1: AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt                            |</div><div class="line">8</div><div class="line">|     2: COUNT(tcp.analysis.retransmission)  tcp.analysis.retransmission          |</div><div class="line">9</div><div class="line">|     3: COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission |</div><div class="line">10</div><div class="line">|     4: COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack             |</div><div class="line">11</div><div class="line">|     5: COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment               |</div><div class="line">12</div><div class="line">|     6: AVG(tcp.window_size)tcp.window_size                                      |</div><div class="line">13</div><div class="line">|---------------------------------------------------------------------------------|</div><div class="line">14</div><div class="line">|          |1         |2      |3      |4      |5      |6      |                   |</div><div class="line">15</div><div class="line">| Interval |    AVG   | COUNT | COUNT | COUNT | COUNT |  AVG  |                   |</div><div class="line">16</div><div class="line">|-------------------------------------------------------------|                   |</div><div class="line">17</div><div class="line">|  0 &lt;&gt;  2 | 0.001152 |     0 |     0 |     0 |     0 |  4206 |                   |</div><div class="line">18</div><div class="line">|  2 &lt;&gt;  4 | 0.002088 |     0 |     0 |     0 |     1 |  6931 |                   |</div><div class="line">19</div><div class="line">|  4 &lt;&gt;  6 | 0.001512 |     0 |     0 |     0 |     0 |  7099 |                   |</div><div class="line">20</div><div class="line">|  6 &lt;&gt;  8 | 0.002859 |     0 |     0 |     0 |     0 |  7171 |                   |</div><div class="line">21</div><div class="line">|  8 &lt;&gt; 10 | 0.001716 |     0 |     0 |     0 |     0 |  6472 |                   |</div><div class="line">22</div><div class="line">| 10 &lt;&gt; 12 | 0.000319 |     0 |     0 |     0 |     2 |  5575 |                   |</div><div class="line">23</div><div class="line">| 12 &lt;&gt; 14 | 0.002030 |     0 |     0 |     0 |     0 |  6922 |                   |</div><div class="line">24</div><div class="line">| 14 &lt;&gt; 16 | 0.003371 |     0 |     0 |     0 |     2 |  5884 |                   |</div><div class="line">25</div><div class="line">| 16 &lt;&gt; 18 | 0.000138 |     0 |     0 |     0 |     1 |  3480 |                   |</div><div class="line">26</div><div class="line">| 18 &lt;&gt; 20 | 0.000999 |     0 |     0 |     0 |     4 |  6665 |                   |</div><div class="line">27</div><div class="line">| 20 &lt;&gt; 22 | 0.000682 |     0 |     0 |    41 |     2 |  5484 |                   |</div><div class="line">28</div><div class="line">| 22 &lt;&gt; 24 | 0.002302 |     2 |     0 |    19 |     0 |  7127 |                   |</div><div class="line">29</div><div class="line">| 24 &lt;&gt; 26 | 0.000156 |     1 |     0 |    22 |     0 |  3042 |                   |</div><div class="line">30</div><div class="line">| 26 &lt;&gt; 28 | 0.000000 |     1 |     0 |    19 |     1 |   152 |                   |</div><div class="line">31</div><div class="line">| 28 &lt;&gt; 30 | 0.001498 |     1 |     0 |    24 |     0 |  5615 |                   |</div><div class="line">32</div><div class="line">| 30 &lt;&gt; 32 | 0.000235 |     0 |     0 |    44 |     0 |  1880 |                   |</div><div class="line"><span class="meta"></span></div><div class="line"></div><div class="line">#<span class="bash">tshark</span></div><div class="line">tshark -r ./mysql-compress.cap -o tcp.calculate_timestamps:true -T fields -e mysql.caps.cp -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e frame.time_delta_displayed  -e tcp.stream -e tcp.len -e mysql.query </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">用tcpdump抓取并保存包：</span></div><div class="line">sudo tcpdump -i eth0 port 3306 -w plantegg.cap</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了</span></div><div class="line">sudo  tcpdump -t -s 0 tcp port 3306  -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 3 -W 5 -Z root</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">每隔30分钟生成一个包并压缩</span></div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_%Y-%m-%d_%H:%M:%S.pcap' -G 1800 -W 48 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">file size 1000M </span></div><div class="line">nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_' -C 1000 -W 300 -Z root -z gzip &amp;</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">port range</span></div><div class="line">sudo  tcpdump -i enp44s0f0 -t -s 0 portrange 3000-3100  -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 60 -W 100 -Z root</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">subnet</span></div><div class="line">sudo  tcpdump -i enp44s0f0 -t -s 0 net 192.168.0.1/28 -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 60 -W 100 -Z root</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">抓取详细SQL语句, 快速确认client发过来的具体SQL内容：</span></div><div class="line">sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings</div><div class="line">sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'</div><div class="line">sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">query time</span></div><div class="line">sudo tshark -i eth0 -Y " ((tcp.port eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">如果MySQL开启了SSL，那么抓包后的内容tshark/wireshark分析不到MySQL的具体内容，可以强制关闭：connectionProperties里加上useSSL=<span class="literal">false</span></span></div><div class="line"></div><div class="line">tshark -r ./manager.cap -o tcp.calculate_timestamps:true -Y " tcp.analysis.retransmission "  -T fields -e tcp.stream -e frame.number -e frame.time -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst | sort</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">MySQL响应时间直方图【第八列的含义-- Time since previous frame <span class="keyword">in</span> this TCP stream: seconds】：</span></div><div class="line">tshark -r gege_plantegg.pcap -Y "mysql.query or (tcp.srcport3306 and tcp.len&gt;60)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len | awk 'BEGIN &#123;sum0=0;sum3=0;sum10=0;sum30=0;sum50=0;sum100=0;sum300=0;sum500=0;sum1000=0;sumo=0;count=0;sum=0&#125; &#123;rt=$8; if(rt&gt;=0.000) sum=sum+rt; count=count+1; if(rt&lt;=0.000) sum0=sum0+1; else if(rt&lt;0.003) sum3=sum3+1 ; else if(rt&lt;0.01) sum10=sum10+1; else if(rt&lt;0.03) sum30=sum30+1; else if(rt&lt;0.05) sum50=sum50+1; else if(rt &lt; 0.1) sum100=sum100+1; else if(rt &lt; 0.3) sum300=sum300+1; else if(rt &lt; 0.5) sum500=sum500+1; else if(rt &lt; 1) sum1000=sum1000+1; else sum=sum+1 ;&#125; END&#123;printf "-------------\n3ms:\t%s \n10ms:\t%s \n30ms:\t%s \n50ms:\t%s \n100ms:\t%s \n300ms:\t%s \n500ms:\t%s \n1000ms:\t%s \n&gt;1s:\t %s\n-------------\navg: %.6f \n" , sum3,sum10,sum30,sum50,sum100,sum300,sum500,sum1000,sumo,sum/count;&#125;'</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">分析MySQL rt，倒数第四列基本就是rt</span></div><div class="line">tshark -r gege_plantegg.pcap -Y " ((tcp.srcport eq 3306 ) and tcp.len&gt;0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e tcp.analysis.ack_rtt   </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">或者排序一下</span></div><div class="line">tshark -r 213_php.cap -Y "mysql.query or (  tcp.srcport==3306)" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query |sort -nk9 -nk1</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将 tls key和抓包文件合并</span></div><div class="line">editcap --inject-secrets tls,key.log in.pcap out.pcap</div><div class="line"><span class="meta">#</span><span class="bash">把包长截掉，只保留前面54，可以脱敏包内容</span></div><div class="line">editcap -s 54 old.pcap new.pcap</div></pre></td></tr></table></figure>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5940,7 +5966,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">156</span>
+                <span class="site-state-item-count">157</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5962,7 +5988,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">248</span>
+                <span class="site-state-item-count">249</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
