@@ -291,6 +291,1179 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/02/Linux 问题总结/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/02/Linux 问题总结/" itemprop="url">Linux 问题总结</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-02T17:30:03+08:00">
+                2020-01-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-问题总结"><a href="#Linux-问题总结" class="headerlink" title="Linux 问题总结"></a>Linux 问题总结</h1><h2 id="crond文件权限的坑"><a href="#crond文件权限的坑" class="headerlink" title="crond文件权限的坑"></a>crond文件权限的坑</h2><p>crond第一次加载的时候（刚启动）会去检查文件属性，不是644的话以后都不会执行了，即使后面chmod改成了644. </p>
+<p>手工随便修改一下该文件的内容就能触发自动执行了，或者重启crond, 或者 sudo service crond reload， 或者 /etc/cron.d/下有任何修改都会触发crond reload配置(包含 touch )。</p>
+<p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
+<p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
+<h2 id="cgroup目录报No-space-left-on-device"><a href="#cgroup目录报No-space-left-on-device" class="headerlink" title="cgroup目录报No space left on device"></a><a href="https://rotadev.com/cgroup-no-space-left-on-device-server-fault/" target="_blank" rel="external">cgroup目录报No space left on device</a></h2><p>可能是因为某个规则下的 cpuset.cpus 文件是空导致的</p>
+<h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="external">https://access.redhat.com/solutions/30316</a></p>
+<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
+<p>如上图去掉 admin nproc限制就可以了</p>
+<p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">[root@i22h08323 /home/admin]</div><div class="line">#ulimit -u</div><div class="line">unlimited</div></pre></td></tr></table></figure>
+<h2 id="容器中ulimit限制了sudo的执行"><a href="#容器中ulimit限制了sudo的执行" class="headerlink" title="容器中ulimit限制了sudo的执行"></a>容器中ulimit限制了sudo的执行</h2><p>容器启动的时候默认nofile为65535（可以通过 docker run –ulimit nofile=655360 来设置），如果容器中的 /etc/security/limits.conf 中设置的nofile大于 65535就会报错，因为容器的1号进程就是65535了，比如在容器中用root用户执行sudo ls报错：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sudo ls</div><div class="line">sudo: pam_open_session: Permission denied</div><div class="line">sudo: policy plugin failed session initialization</div></pre></td></tr></table></figure>
+<p>可以修改容器中的 ulimit 不要超过默认的65535或者修改容器的启动参数来解决。</p>
+<p>子进程都会继承父进程的一些环境变量，比如 limits.conf, sudo/su/crond/passwd等都会触发重新加载limits, </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景</div></pre></td></tr></table></figure>
+<h2 id="systemd-limits"><a href="#systemd-limits" class="headerlink" title="systemd limits"></a>systemd limits</h2><p>/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。</p>
+<p>因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。</p>
+<p>对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf 和/etc/systemd/user.conf.d/.conf。</p>
+<h2 id="open-files-限制在1024"><a href="#open-files-限制在1024" class="headerlink" title="open files 限制在1024"></a>open files 限制在1024</h2><p>docker 容器内 nofile只有1024，检查：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">cat /etc/sysconfig/docker</div><div class="line">或者</div><div class="line">cat /usr/lib/systemd/system/docker.service</div><div class="line">LimitNOFILE=1048576</div><div class="line">LimitNPROC=1048576</div></pre></td></tr></table></figure>
+<h3 id="关于ulimit的一些知识点"><a href="#关于ulimit的一些知识点" class="headerlink" title="关于ulimit的一些知识点"></a>关于ulimit的一些知识点</h3><p>参考 <a href="https://feichashao.com/ulimit_demo/" target="_blank" rel="external">Ulimit</a> <a href="http://blog.yufeng.info/archives/2568" target="_blank" rel="external">http://blog.yufeng.info/archives/2568</a></p>
+<ul>
+<li>limit的设定值是 per-process 的</li>
+<li>在 Linux 中，每个普通进程可以调用 getrlimit() 来查看自己的 limits，也可以调用 setrlimit() 来改变自身的 soft limits</li>
+<li>要改变 hard limit, 则需要进程有 CAP_SYS_RESOURCE 权限</li>
+<li>进程 fork() 出来的子进程，会继承父进程的 limits 设定</li>
+<li><code>ulimit</code> 是 shell 的内置命令。在执行<code>ulimit</code>命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定</li>
+<li>shell 的初始 limits 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值</li>
+</ul>
+<p>ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：</p>
+<ol>
+<li>用户进行登录，触发 pam_limits;</li>
+<li>pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；</li>
+<li>用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;</li>
+<li>当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了</li>
+</ol>
+<p>判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数<br>结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。<br>结论2：fs.file-max: 整个系统上可打开的最大文件数，但不限制 root 用户</p>
+<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
+<p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/crond </div><div class="line">#</div><div class="line"># The PAM configuration file for the cron daemon</div><div class="line">#</div><div class="line">#</div><div class="line"># No PAM authentication called, auth modules not needed</div><div class="line">account    required   pam_access.so</div><div class="line">account    include    system-auth</div><div class="line">session    required   pam_loginuid.so //required 改成 sufficient</div><div class="line">session    include    system-auth</div><div class="line">auth       include    system-auth</div></pre></td></tr></table></figure>
+<p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
+<ul>
+<li><code>account</code> 处理账户限制。对于有效的用户，允许他做什么？</li>
+<li><code>auth</code> 处理用户识别 — 例如，通过输入用户名和密码。</li>
+<li><code>password</code> 只处理与密码相关的问题，比如设置新密码。</li>
+<li><code>session</code> 处理连接管理，包括日志记录。</li>
+</ul>
+<p>在 /etc/pam.d 目录中为将使用 PAM 的每个应用程序创建一个配置文件，文件名与应用程序名相同。例如，<code>login</code> 命令的配置文件是 /etc/pam.d/login。</p>
+<p>必须定义将应用哪些模块，创建一个动作 “堆”。PAM 运行堆中的所有模块，根据它们的结果允许或拒绝用户的请求。还必须定义检查是否是必需的。最后，<em>other</em> 文件为没有特殊规则的所有应用程序提供默认规则。</p>
+<ul>
+<li><code>optional</code> 模块可以成功，也可以失败；PAM 根据模块是否最终成功返回 <code>success</code> 或 <code>failure</code>。</li>
+<li><code>required</code> 模块必须成功。如果失败，PAM 返回 <code>failure</code>，但是会在运行堆中的其他模块之后返回。</li>
+<li><code>requisite</code> 模块也必须成功。但是，如果失败，PAM 立即返回 <code>failure</code>，不再运行其他模块。</li>
+<li><code>sufficient</code> 模块在成功时导致 PAM 立即返回 <code>success</code>，不再运行其他模块。</li>
+</ul>
+<p>当pam安装之后有两大部分：在/lib64/security目录下的各种pam模块以及/etc/pam.d和/etc/pam.d目录下的针对各种服务和应用已经定义好的pam配置文件。当某一个有认证需求的应用程序需要验证的时候，一般在应用程序中就会定义负责对其认证的PAM配置文件。以vsftpd为例，在它的配置文件/etc/vsftpd/vsftpd.conf中就有这样一行定义：</p>
+<blockquote>
+<p>pam_service_name=vsftpd</p>
+</blockquote>
+<p>表示登录FTP服务器的时候进行认证是根据/etc/pam.d/vsftpd文件定义的内容进行。</p>
+<h3 id="PAM-认证过程"><a href="#PAM-认证过程" class="headerlink" title="PAM 认证过程"></a>PAM 认证过程</h3><p>当程序需要认证的时候已经找到相关的pam配置文件，认证过程是如何进行的？下面我们将通过解读/etc/pam.d/system-auth文件予以说明。</p>
+<p>首先要声明一点的是：system-auth是一个非常重要的pam配置文件，主要负责用户登录系统的认证工作。而且该文件不仅仅只是负责用户登录系统认证，其它的程序和服务通过include接口也可以调用到它，从而节省了很多重新自定义配置的工作。所以应该说该文件是系统安全的总开关和核心的pam配置文件。</p>
+<p>下面是/etc/pam.d/system-auth文件的全部内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/system-auth</div><div class="line">#%PAM-1.0</div><div class="line"># This file is auto-generated.</div><div class="line"># User changes will be destroyed the next time authconfig is run.</div><div class="line">auth        required      pam_env.so</div><div class="line">auth        required      pam_faildelay.so delay=2000000</div><div class="line">auth        sufficient    pam_unix.so nullok try_first_pass</div><div class="line">auth        requisite     pam_succeed_if.so uid &gt;= 1000 quiet_success</div><div class="line">auth        required      pam_deny.so</div><div class="line"></div><div class="line">account     required      pam_unix.so</div><div class="line">account     sufficient    pam_localuser.so</div><div class="line">account     sufficient    pam_succeed_if.so uid &lt; 1000 quiet</div><div class="line">account     required      pam_permit.so</div><div class="line"></div><div class="line">password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=</div><div class="line">password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok</div><div class="line">password    required      pam_deny.so</div><div class="line"></div><div class="line">session     optional      pam_keyinit.so revoke</div><div class="line">session     required      pam_limits.so</div><div class="line">-session     optional      pam_systemd.so</div><div class="line">session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid</div><div class="line">session     required      pam_unix.so</div></pre></td></tr></table></figure>
+<h4 id="第一部分"><a href="#第一部分" class="headerlink" title="第一部分"></a>第一部分</h4><p>当用户登录的时候，首先会通过auth类接口对用户身份进行识别和密码认证。所以在该过程中验证会经过几个带auth的配置项。</p>
+<p>其中的第一步是通过pam_env.so模块来定义用户登录之后的环境变量， pam_env.so允许设置和更改用户登录时候的环境变量，默认情况下，若没有特别指定配置文件，将依据/etc/security/pam_env.conf进行用户登录之后环境变量的设置。</p>
+<p>然后通过pam_unix.so模块来提示用户输入密码，并将用户密码与/etc/shadow中记录的密码信息进行对比，如果密码比对结果正确则允许用户登录，而且<strong>该配置项的使用的是“sufficient”控制位，即表示只要该配置项的验证通过，用户即可完全通过认证而不用再去走下面的认证项</strong>。不过在特殊情况下，用户允许使用空密码登录系统，例如当将某个用户在/etc/shadow中的密码字段删除之后，该用户可以只输入用户名直接登录系统。</p>
+<p>下面的配置项中，通过pam_succeed_if.so对用户的登录条件做一些限制，表示允许uid大于500的用户在通过密码验证的情况下登录，在Linux系统中，一般系统用户的uid都在500之内，所以该项即表示允许使用useradd命令以及默认选项建立的普通用户直接由本地控制台登录系统。</p>
+<p>最后通过pam_deny.so模块对所有不满足上述任意条件的登录请求直接拒绝，pam_deny.so是一个特殊的模块，该模块返回值永远为否，类似于大多数安全机制的配置准则，在所有认证规则走完之后，对不匹配任何规则的请求直接拒绝。</p>
+<h4 id="第二部分"><a href="#第二部分" class="headerlink" title="第二部分"></a>第二部分</h4><p>三个配置项主要表示通过account账户类接口来识别账户的合法性以及登录权限。</p>
+<p>第一行仍然使用pam_unix.so模块来声明用户需要通过密码认证。第二行承认了系统中uid小于500的系统用户的合法性。之后对所有类型的用户登录请求都开放控制台。</p>
+<h4 id="第三部分"><a href="#第三部分" class="headerlink" title="第三部分"></a>第三部分</h4><p>会通过password口令类接口来确认用户使用的密码或者口令的合法性。第一行配置项表示需要的情况下将调用pam_cracklib来验证用户密码复杂度。如果用户输入密码不满足复杂度要求或者密码错，最多将在三次这种错误之后直接返回密码错误的提示，否则期间任何一次正确的密码验证都允许登录。需要指出的是，pam_cracklib.so是一个常用的控制密码复杂度的pam模块，关于其用法举例我们会在之后详细介绍。之后带pam_unix.so和pam_deny.so的两行配置项的意思与之前类似。都表示需要通过密码认证并对不符合上述任何配置项要求的登录请求直接予以拒绝。不过用户如果执行的操作是单纯的登录，则这部分配置是不起作用的。</p>
+<h4 id="第四部分"><a href="#第四部分" class="headerlink" title="第四部分"></a>第四部分</h4><p>主要将通过session会话类接口为用户初始化会话连接。其中几个比较重要的地方包括，使用pam_keyinit.so表示当用户登录的时候为其建立相应的密钥环，并在用户登出的时候予以撤销。不过该行配置的控制位使用的是optional，表示这并非必要条件。之后通过pam_limits.so限制用户登录时的会话连接资源，相关pam_limit.so配置文件是/etc/security/limits.conf，默认情况下对每个登录用户都没有限制。关于该模块的配置方法在后面也会详细介绍。</p>
+<h3 id="常用的PAM模块介绍"><a href="#常用的PAM模块介绍" class="headerlink" title="常用的PAM模块介绍"></a>常用的PAM模块介绍</h3><table>
+<thead>
+<tr>
+<th>PAM模块</th>
+<th>结合管理类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pam_unix.so</td>
+<td>auth</td>
+<td>提示用户输入密码,并与/etc/shadow文件相比对.匹配返回0</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>account</td>
+<td>检查用户的账号信息(包括是否过期等).帐号可用时,返回0.</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>password</td>
+<td>修改用户的密码. 将用户输入的密码,作为用户的新密码更新shadow文件</td>
+</tr>
+<tr>
+<td>pam_shells.so</td>
+<td>auth、account</td>
+<td>如果用户想登录系统，那么它的shell必须是在/etc/shells文件中之一的shell</td>
+</tr>
+<tr>
+<td>pam_deny.so</td>
+<td>account、auth、password、session</td>
+<td>该模块可用于拒绝访问</td>
+</tr>
+<tr>
+<td>pam_permit.so</td>
+<td>account、auth、password、session</td>
+<td>模块任何时候都返回成功.</td>
+</tr>
+<tr>
+<td>pam_securetty.so</td>
+<td>auth</td>
+<td>如果用户要以root登录时,则登录的tty必须在/etc/securetty之中.</td>
+</tr>
+<tr>
+<td>pam_listfile.so</td>
+<td>account、auth、password、session</td>
+<td>访问应用程的控制开关</td>
+</tr>
+<tr>
+<td>pam_cracklib.so</td>
+<td>password</td>
+<td>这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.</td>
+</tr>
+<tr>
+<td>pam_limits.so</td>
+<td>session</td>
+<td>定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定</td>
+</tr>
+</tbody>
+</table>
+<h2 id="debug-crond"><a href="#debug-crond" class="headerlink" title="debug crond"></a>debug crond</h2><p>先停掉 crond service，然后开启debug参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">systemctl stop crond</div><div class="line">crond -x proc //不想真正执行的话：test</div></pre></td></tr></table></figure>
+<p>或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">Debug sudo /var/log/sudo_debug all@warn</div><div class="line">Debug sudoers.so /var/log/sudoers_debug all@debug</div></pre></td></tr></table></figure>
+<h2 id="crond-ERROR-getpwnam-failed"><a href="#crond-ERROR-getpwnam-failed" class="headerlink" title="crond ERROR (getpwnam() failed)"></a>crond ERROR (getpwnam() failed)</h2><p><a href="https://www.ibm.com/support/pages/cron-job-fails-error-message-getpwnam-failed-no-such-file-or-directory" target="_blank" rel="external">报错信息</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">crond[246590]: (/usr/bin/ssh) ERROR (getpwnam() failed)</div></pre></td></tr></table></figure>
+<p>要特别注意crond格式是 时间  <strong>用户</strong>  命令</p>
+<p>有时候我们可以省略用户，但是在 <strong>/etc/cron.d/</strong> 中省略用户后报错如上</p>
+<h2 id="进程和线程"><a href="#进程和线程" class="headerlink" title="进程和线程"></a>进程和线程</h2><p>把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。</p>
+<h2 id="deleted-文件"><a href="#deleted-文件" class="headerlink" title="deleted 文件"></a>deleted 文件</h2><p><code>lsof +L1</code> 或者<code>lsof | grep delete</code> 发现有被删除的文件，且占用大量磁盘空间</p>
+<h2 id="No-route-to-host"><a href="#No-route-to-host" class="headerlink" title="No route to host"></a>No route to host</h2><p>如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题</p>
+<p>可以停掉防火墙验证,或者添加端口到防火墙:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#firewall-cmd --permanent --add-port=8090/tcp</div><div class="line">success</div><div class="line">#firewall-cmd --reload</div></pre></td></tr></table></figure>
+<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
+<h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
+<p>getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这个ip，否则就需要通过getHostByName获取所有网卡选择一个</p>
+<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
+<p>因为 /etc/localtime 是deleted状态</p>
+<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="external">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
+<p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
+<p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="external">而 ls -s 中的 -s就是只看实际大小</a></p>
+<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
+<p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="external">图片来源</a></p>
+<p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="external">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
+<p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>
+<h2 id="增加dmesg-buffer"><a href="#增加dmesg-buffer" class="headerlink" title="增加dmesg buffer"></a>增加dmesg buffer</h2><p>If dmesg does not show any information about NUMA, then increase the Ring Buffer size:<br>Boot with ‘log_buf_len=16M’ (or some other big value). Refer the following kbase article <a href="https://access.redhat.com/solutions/47276" target="_blank" rel="external">How do I increase the kernel log ring buffer size?</a> for steps on how to increase the ring buffer</p>
+<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="external">Yum commands error “pycurl.so: undefined symbol”</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"># yum check update</div><div class="line">There was a problem importing one of the Python modules</div><div class="line">required to run yum. The error leading to this problem was:</div><div class="line"></div><div class="line">/usr/lib64/python2.6/site-packages/pycurl.so: undefined symbol: CRYPTO_set_locking_callback</div><div class="line"></div><div class="line">Please install a package which provides this module, or</div><div class="line">verify that the module is installed correctly.</div><div class="line"></div><div class="line">It&apos;s possible that the above module doesn&apos;t match the</div><div class="line">current version of Python, which is:</div><div class="line">2.6.6 (r266:84292, Sep  4 2013, 07:46:00)</div><div class="line">[GCC 4.4.7 20120313 (Red Hat 4.4.7-3)]</div><div class="line"></div><div class="line">If you cannot solve this problem yourself, please go to</div><div class="line">the yum faq at:</div><div class="line">http://yum.baseurl.org/wiki/Faq</div></pre></td></tr></table></figure>
+<ul>
+<li>Check and fix the related library paths or remove 3rd party libraries, usually <code>libcurl</code> or <code>libssh2</code>. On a x86_64 system, the standard paths for those libraries are <code>/usr/lib64/libcurl.so.4</code> and <code>/usr/lib64/libssh2.so.1</code></li>
+</ul>
+<h2 id="软中断、系统调用和上下文切换"><a href="#软中断、系统调用和上下文切换" class="headerlink" title="软中断、系统调用和上下文切换"></a>软中断、系统调用和上下文切换</h2><p>“你可以把内核看做是不断对请求进行响应的服务器，这些请求可能来自在CPU上执行的进程，也可能来自发出中断的外部设备。老板的请求相当于中断，而顾客的请求相当于用户态进程发出的系统调用”。</p>
+<p>软中断和系统调用一样，都是CPU停止掉当前用户态上下文，保存工作现场，然后陷入到内核态继续工作。二者的唯一区别是系统调用是切换到同进程的内核态上下文，而软中断是则是切换到了另外一个内核进程ksoftirqd上。</p>
+<blockquote>
+<p>系统调用开销是200ns起步</p>
+<p>从实验数据来看，一次软中断CPU开销大约3.4us左右</p>
+<p>实验结果显示进程上下文切换平均耗时 3.5us，lmbench工具显示的进程上下文切换耗时从2.7us到5.48之间</p>
+<p>大约每次线程切换开销大约是3.8us左右。<strong>从上下文切换的耗时上来看，Linux线程（轻量级进程）其实和进程差别不太大</strong>。</p>
+</blockquote>
+<p>软中断和进程上下文切换比较起来，进程上下文切换是从用户进程A切换到了用户进程B。而软中断切换是从用户进程A切换到了内核线程ksoftirqd上。而ksoftirqd作为一个内核控制路径，其处理程序比一个用户进程要轻量，所以上下文切换开销相对比进程切换要少一些（实际数据基本差不多）。</p>
+<p>系统调用只是在进程内将用户态切换到内核态，然后再切回来，而上下文切换可是直接从进程A切换到了进程B。显然这个上下文切换需要完成的工作量更大。</p>
+<h3 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483827&amp;idx=3&amp;sn=8b897c8d6d3038ea79bd156a0e88db10&amp;scene=21#wechat_redirect" target="_blank" rel="external">软中断开销计算</a></h3><ul>
+<li><strong>查看软中断总耗时</strong>， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%–1秒[1000ms]中的1.2%）</li>
+<li><strong>查看软中断次数</strong>，再用vmstat命令可以看到软中断的次数（in列 56000）</li>
+<li><strong>计算每次软中断的耗时</strong>，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右</li>
+</ul>
+<h2 id="Linux-启动进入紧急模式"><a href="#Linux-启动进入紧急模式" class="headerlink" title="Linux 启动进入紧急模式"></a>Linux 启动进入紧急模式</h2><p>可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载，麒麟下容易出现弄丢磁盘的标签和uuid</p>
+<p>否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的</p>
+<h2 id="进程状态"><a href="#进程状态" class="headerlink" title="进程状态"></a>进程状态</h2><p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">  Here are the different values that the s, stat and state output specifiers(header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
+<h3 id="D状态的进程"><a href="#D状态的进程" class="headerlink" title="D状态的进程"></a><a href="https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html" target="_blank" rel="external">D状态的进程</a></h3><p>D： Disk sleep（task_uninterruptible)–比如，磁盘满，导致进程D，无法kill</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">echo 1 &gt;  /proc/sys/kernel/hung_task_panic  </div><div class="line"></div><div class="line">----- 处于D状态的超时时间，默认是120s</div><div class="line">$ cat /proc/sys/kernel/hung_task_timeout_secs</div><div class="line"></div><div class="line">----- 发现hung task之后是否触发panic操作</div><div class="line">$ cat /proc/sys/kernel/hung_task_panic</div><div class="line"></div><div class="line">----- 每次检查的进程数</div><div class="line">$ cat /proc/sys/kernel/hung_task_check_count</div><div class="line"></div><div class="line">----- 为了防止日志被刷爆，设置最多的打印次数</div><div class="line">$ cat /proc/sys/kernel/hung_task_warnings</div></pre></td></tr></table></figure>
+<p>这个参数可以用来处理 D 状态进程 </p>
+<p>内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。</p>
+<p>如果配置了 <code>hung_task_panic</code> ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。</p>
+<p>其基本原理也很简单，系统启动时会创建一个内核线程 <code>khungtaskd</code>，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。</p>
+<h3 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h3><p>kill -CONT pid 来恢复</p>
+<p>jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能<strong>导致detach的动作不会被执行</strong>，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。</p>
+<h2 id="路由"><a href="#路由" class="headerlink" title="路由"></a>路由</h2><p>『你所规划的路由必须要是你的网卡 (如 eth0) 或 IP 可以直接沟通 (broadcast) 的情况』才行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCDELRT: No such process // 从bond0没法广播到 11.164.191.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 100.81.183.247 netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable //从bond0.700 没法广播到 100.81.183.247，实际目前从bond0.700没法广播到任何地方</div><div class="line"></div><div class="line">$sudo route add** **11.164.191.247** **dev** **bond0.700</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 100.81.183.247** netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable  //从bond0.700 没法广播到 100.81.183.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCADDRT: Network is unreachable//从bond0没法广播到 11.164.191.247但是从bond0.700可以</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 11.164.191.247** netmask 255.255.255.0 bond0.700</div></pre></td></tr></table></figure>
+<p><a href="https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable" target="_blank" rel="external">https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable</a></p>
+<h2 id="linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”"><a href="#linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”" class="headerlink" title="linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”"></a>linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”</h2><p>在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/timer_list | grep .resolution</div></pre></td></tr></table></figure>
+<p>可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）</p>
+<h2 id="后台执行"><a href="#后台执行" class="headerlink" title="后台执行"></a>后台执行</h2><p>将任务放到后台，断开ssh后还能运行：</p>
+<ol>
+<li>“ctrl-Z”将当前任务挂起；</li>
+<li>“disown -h”让该任务忽略 SIGHUP 信号（不会因为掉线而终止执行）；</li>
+<li>“bg”让该任务在后台恢复运行。</li>
+</ol>
+<h2 id="Linux-进程调度"><a href="#Linux-进程调度" class="headerlink" title="Linux 进程调度"></a>Linux 进程调度</h2><p>Linux的进程调度有一个不太为人熟知的特性，叫做<strong>wakeup affinity</strong>，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。</p>
+<p>这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。<a href="https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA" target="_blank" rel="external">https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA</a></p>
+<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="external">tty</a></h2><p>tty（teletype–最早的一种终端设备，远程打字机） stty 设置tty的相关参数</p>
+<p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
+<p>/dev/pty（Pseudo Terminal） 伪终端</p>
+<p>/dev/tty 控制终端</p>
+<p>远古时代tty是物理形态的存在</p>
+<p><img src="/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
+<p>PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义</p>
+<p><img src="/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
+<p>实际像如下图的工作协作:</p>
+<p><img src="/images/951413iMgBlog/case3.png" alt="Diagram"></p>
+<h2 id="rsync"><a href="#rsync" class="headerlink" title="rsync"></a><a href="https://wangdoc.com/ssh/rsync.html" target="_blank" rel="external">rsync</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">将本地yum备份到150上的/data/yum/ 下</div><div class="line">rsync -arv ./yum/ root@11.167.60.150:/data/yum/</div><div class="line"></div><div class="line">走ssh的8022端口把目录备份到本地</div><div class="line">rsync -e &apos;ssh -p 8022&apos; -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./</div></pre></td></tr></table></figure>
+<p><code>-a</code>、<code>--archive</code>参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。</p>
+<p><code>--delete</code>参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。</p>
+<p><code>-i</code>参数表示输出源目录与目标目录之间文件差异的详细情况。</p>
+<p><code>--link-dest</code>参数指定增量备份的基准目录。</p>
+<p><code>-n</code>参数或<code>--dry-run</code>参数模拟将要执行的操作，而并不真的执行。配合<code>-v</code>参数使用，可以看到哪些内容会被同步过去。</p>
+<p><code>--partial</code>参数允许恢复中断的传输。不使用该参数时，<code>rsync</code>会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与<code>--append</code>或<code>--append-verify</code>配合使用。</p>
+<p><code>--progress</code>参数表示显示进展。</p>
+<p><code>-r</code>参数表示递归，即包含子目录。</p>
+<p><code>-v</code>参数表示输出细节。<code>-vv</code>表示输出更详细的信息，<code>-vvv</code>表示输出最详细的信息。</p>
+<h2 id="Shebang"><a href="#Shebang" class="headerlink" title="Shebang"></a>Shebang</h2><p>Shebang 的东西 <code>#!/bin/bash</code></p>
+<p>对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。</p>
+<h3 id="ELF（Executable-and-Linkable-Format）"><a href="#ELF（Executable-and-Linkable-Format）" class="headerlink" title="ELF（Executable and Linkable Format）"></a>ELF（Executable and Linkable Format）</h3><p>对应windows下的exe</p>
+<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">$cat change_kernel_parameter.sh </div><div class="line">#cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#grep &apos;&apos; /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">#transparent_hugepage=always</div><div class="line">#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line">#追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i &apos;s/\(GRUB_CMDLINE_LINUX=&quot;.*\)&quot;/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always&quot;/&apos; /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i &apos;s/^#SystemMaxUse=$/SystemMaxUse=500M/g&apos; /etc/systemd/journald.conf</div><div class="line">#重启系统</div><div class="line">#sudo reboot</div><div class="line"></div><div class="line">## 选择不同的kernel启动</div><div class="line">#sudo grep &quot;menuentry &quot; /boot/grub2/grub.cfg | grep -n menu</div><div class="line">##grub认的index从0开始数的</div><div class="line">#sudo grub2-reboot 0; sudo reboot</div><div class="line"></div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
+<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
+<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">umount /dev/sdn1</div><div class="line">sudo mkfs.vfat /dev/sdn1</div><div class="line">dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</div></pre></td></tr></table></figure>
+<h2 id="性能"><a href="#性能" class="headerlink" title="性能"></a>性能</h2><p>为保证服务性能应选用 performance 模式，将 CPU 频率固定工作在其支持的最高运行频率上，不进行动态调节，操作命令为 <code>cpupower frequency-set --governor performance</code>。</p>
+<h3 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h3><ul>
+<li>dmesg | tail</li>
+<li>vmstat 1</li>
+<li>mpstat -P ALL 1</li>
+<li>pidstat 1</li>
+<li>iostat -xz 1</li>
+<li>free -m</li>
+<li>sar -n DEV 1</li>
+<li>sar -n TCP,ETCP 1</li>
+</ul>
+<h4 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">//检查sda磁盘中哪个应用程序占用的io比较高</div><div class="line">pidstat -d  1</div><div class="line"></div><div class="line">//分析应用程序中哪一个线程占用的io比较高</div><div class="line">pidstat -dt -p 73739 1  执行两三秒即可,得到74770线程io高</div><div class="line"></div><div class="line">//分析74770这个线程在干什么</div><div class="line">perf trace -t 74770 -o /tmp/tmp_aa.pstrace</div><div class="line">cat /tmp/tmp_aa.pstrace</div><div class="line">  2850.656 ( 1.915 ms): futex(uaddr: 0x653ae9c4, op: WAIT|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.572 ( 0.001 ms): futex(uaddr: 0x653ae990, op: WAKE|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.601 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.690 ( 0.040 ms): write(fd: 159, buf: 0xd7a30020, count: 65536)                         = 65536</div><div class="line">  2852.796 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.798 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2852.939 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div><div class="line">  2852.950 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.977 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.029 ( 0.035 ms): write(fd: 64, buf: 0xcd51e020, count: 65536)                          = 65536</div><div class="line">  2853.164 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.167 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2853.302 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div></pre></td></tr></table></figure>
+<h3 id="内存——虚拟内存参数"><a href="#内存——虚拟内存参数" class="headerlink" title="内存——虚拟内存参数"></a>内存——虚拟内存参数</h3><ul>
+<li><code>dirty_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统将开始使用 pdflush 操作将脏的 page cache 写入磁盘。默认值为 20％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，降低其值有利于提高内存回收时的效率。</li>
+<li><code>dirty_background_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统开始在后台将脏的 page cache 写入磁盘。默认值为 10％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，设置较低的值有利于提高内存回收时的效率。</li>
+</ul>
+<h3 id="I-O-调度器"><a href="#I-O-调度器" class="headerlink" title="I/O 调度器"></a>I/O 调度器</h3><p>I/O 调度程序确定 I/O 操作何时在存储设备上运行以及持续多长时间。也称为 I/O 升降机。对于 SSD 设备，宜设置为 noop。</p>
+<figure class="highlight sh"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="built_in">echo</span> noop &gt; /sys/block/<span class="variable">$&#123;SSD_DEV_NAME&#125;</span>/queue/scheduler</div></pre></td></tr></table></figure>
+<h3 id="磁盘挂载参数"><a href="#磁盘挂载参数" class="headerlink" title="磁盘挂载参数"></a>磁盘挂载参数</h3><p><code>noatime</code> 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新。</p>
+<h2 id="Unix-Linux关系"><a href="#Unix-Linux关系" class="headerlink" title="Unix Linux关系"></a>Unix Linux关系</h2><p><img src="/images/951413iMgBlog/image-20211210085124387.png" alt="image-20211210085124387"></p>
+<p><img src="/images/951413iMgBlog/G2Xri.png" alt="img"></p>
+<h3 id="linux-发行版关系"><a href="#linux-发行版关系" class="headerlink" title="linux 发行版关系"></a><a href="https://blog.51cto.com/wangyafei/1881605" target="_blank" rel="external">linux 发行版关系</a></h3><p><img src="/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg" alt="细数各家linux之间的区别_软件应用_什么值得买"></p>
+<p>Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。</p>
+<p>不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)</p>
+<p>69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网</p>
+<p>Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提供的WEB服务被大家大规模采用</p>
+<p>rpm:  centos/fedora/suse</p>
+<p>deb:  debian/ubuntu/uos(早期基于ubuntu定制，后来基于debian定制，再到最近开始直接基于kernel定制)</p>
+<p>ARPANET：<strong>高等研究計劃署網路</strong>（英語：Advanced Research Projects Agency Network），通称<strong>阿帕网</strong>（英語：ARPANET）是美國<a href="https://zh.m.wikipedia.org/wiki/國防高等研究計劃署" target="_blank" rel="external">國防高等研究計劃署</a>开发的世界上第一个运营的<a href="https://zh.m.wikipedia.org/wiki/封包交換" target="_blank" rel="external">封包交换</a>网络，是全球<a href="https://zh.m.wikipedia.org/wiki/互联网" target="_blank" rel="external">互联网</a>的鼻祖。</p>
+<p>TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。</p>
+<p>在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。</p>
+<h3 id="Deepin-UOS"><a href="#Deepin-UOS" class="headerlink" title="Deepin UOS"></a>Deepin UOS</h3><p><strong><em>\</em>Deepin 与统信 UOS 类似于红帽的 Fedora 与 RHEL 的上下游关系，Deepin 依然保持着原来的社区运营模式，而统信 UOS 则是基于社区版 Deepin 构建的商业发行版，为 Deepin 挖掘更多的商业机会和更大的商业价值，进而反哺社区，形成良性循环**</strong>。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="external">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
+<p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="external">https://www.jianshu.com/p/ac3e7009a764</a></p>
+<p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
+<p>B 站清华大学操作系统视频地址：<a href="https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697</a></p>
+<p><a href="https://linux.cn/article-10465-1.html" target="_blank" rel="external">Linux 工具：点的含义</a> <a href="https://www.linux.com/training-tutorials/linux-tools-meaning-dot/" target="_blank" rel="external">英文版</a></p>
+<p><a href="http://coolnull.com/4432.html" target="_blank" rel="external">linux cp实现强制覆盖</a></p>
+<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="external">https://wangdoc.com/bash/startup.html</a></p>
+<p><a href="https://cjting.me/2020/12/10/tiny-x64-helloworld/" target="_blank" rel="external">编写一个最小的 64 位 Hello World</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/ipmitool修改BIOS/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/01/ipmitool修改BIOS/" itemprop="url">ipmitool 和 BIOS</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T12:30:03+08:00">
+                2020-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="ipmitool-和-BIOS"><a href="#ipmitool-和-BIOS" class="headerlink" title="ipmitool 和 BIOS"></a>ipmitool 和 BIOS</h1><h2 id="什么是-IPMI"><a href="#什么是-IPMI" class="headerlink" title="什么是 IPMI"></a>什么是 IPMI</h2><p>IPMI（智能平台管理接口），Intelligent Platform Management Interface 的缩写。原本是一种<a href="https://baike.baidu.com/item/Intel" target="_blank" rel="external">Intel</a>架构的企业系统的周边设备所采用的一种工业标准。IPMI亦是一个开放的免费标准，用户无需支付额外的费用即可使用此标准。</p>
+<p>IPMI 能够横跨不同的操作系统、固件和硬件平台，可以智能的监视、控制和自动回报大量服务器的运作状况，以降低服务器系统成本。</p>
+<p>1998年Intel、DELL、HP及NEC共同提出IPMI规格，可以透过网路远端控制温度、电压。</p>
+<p>2001年IPMI从1.0版改版至1.5版，新增 PCI Management Bus等功能。</p>
+<p>2004年Intel发表了IPMI 2.0的规格，能够向下相容IPMI 1.0及1.5的规格。新增了Console Redirection，并可以通过Port、Modem以及Lan远端管理伺服器，并加强了安全、VLAN 和刀锋伺服器的支援性。</p>
+<p>Intel/amd/hygon 基本都支持 ipmitool，看起来ARM 支持的接口也许不一样</p>
+<p>BMC（Baseboard Management Controller）即我们常说的带外系统，是在机器上电时即完成自身初始化，开始运行。其系统可在standby电模式下工作。所以，通过带外监控服务器硬件故障，不受OS存活状态影响，可实现7*24小时无间断监控，甚至我们可以通过带外方式，精确感知带内存活，实现OS存活监控。</p>
+<p>BMC在物理形态上，由一主嵌入式芯片+系列总线+末端芯片组成的一个硬件监控&amp;控制系统，嵌入式芯片中运行嵌入式Linux操作系统，负责整个BMC系统的资源协调及用户交互，核心进程是IPMImain进程，实现了全部IPMI2.0协议的消息传递&amp;处理工作。</p>
+<h2 id="ipmitool-用法"><a href="#ipmitool-用法" class="headerlink" title="ipmitool 用法"></a>ipmitool 用法</h2><p>基本步骤：</p>
+<ol>
+<li>查看当前值：ipmitool raw 0x3e 0x5f 0x00 0x11 （非必要，列出目前BIOS中的值）</li>
+<li>打开配置开关(让BIOS进入可配置，默认不可配置)：ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</li>
+<li>修改某个值，比如将numa 设置为on：ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</li>
+<li>查看修改后的值：ipmitool raw 0x3e 0x5d 0x05 0x01 (必须要)</li>
+<li>最后reboot机器新的值就会apply到BIOS中</li>
+</ol>
+<p><a href="https://blog.csdn.net/zygblock/article/details/53367664" target="_blank" rel="external">ipmitool使用</a>基本语法</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">         固定-不变 0x5c修改   要修改的项    长度(一搬都是01)    新的值(0x81 表示on、0x80表示off)</div><div class="line">ipmitool raw 0x3e 0x5c      index       0x01                value</div></pre></td></tr></table></figure>
+<p>第1/2个参数raw 0x3e 固定不变</p>
+<p>第三个参数表示操作可以是：</p>
+<ul>
+<li>0x5c 修改</li>
+<li>0x5f 查看BIOS中的当前值（海光是这样，intel不是）</li>
+<li>0x5d 查询即将写入的值（修改后没有写入 0x5f 看到的是老值）  </li>
+</ul>
+<p>第四个参数Index表示需要修改的配置项（具体见后表）</p>
+<p>第五个参数 0x01 表示值的长度，一般固定不需要改</p>
+<p>value 表示值，0x81表示enable; 0x80表示disable</p>
+<h3 id="ipmitool带外设置步骤"><a href="#ipmitool带外设置步骤" class="headerlink" title="ipmitool带外设置步骤"></a><a href="https://promisechen.github.io/kbase/ipmi.html" target="_blank" rel="external">ipmitool</a>带外设置步骤</h3><p>1）设置valid flag：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c 0x00 0x01 0x81</p>
+<p>2） 设置对应的选项：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c index 0x01 Data  —- index 和Data参考下述表格；</p>
+<p>3）重启CN：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 power reset</p>
+<p>4）读取当前值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10  raw 0x3e 0x5f index 0x01 </p>
+<p> 如moc机型，读取CN的 Numa值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5f 0x05 0x01 </p>
+<h3 id="确认是否设置成功"><a href="#确认是否设置成功" class="headerlink" title="确认是否设置成功"></a>确认是否设置成功</h3><p>查询要写入的新值：ipmitool 0x3e 0x5d 0x00 0x11</p>
+<p> 返回值，如：11 <strong>81</strong> 81 00 00 00 00 00 00 00 00 00 00 00 00 00  00 00</p>
+<p>​      第一个byte 表示查询数量，表示查询0x11个设置项；</p>
+<pre><code>第二个byte 表示index=0的值，即Configuration，必须保证是0x81，才能进行重启，否则设置不生效；
+</code></pre><p>​      第三个byte 表示index=1的值，即Turbo，表示要设置为0x81；</p>
+<p>​      剩余byte依次类推……….</p>
+<p>​      未设置新值的index对应值是00，要设置的index其对应值为Data（步骤3的设置值）；</p>
+<h2 id="海光服务器修改案例"><a href="#海光服务器修改案例" class="headerlink" title="海光服务器修改案例"></a>海光服务器修改案例</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">//海光+alios下 第二列为：0x5c 修改、0x5f BIOS中的查询、0x5d 查询即将写入的值 </div><div class="line">//0x5f 查询BIOS中的值</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5f 0x00 0x11</div><div class="line"> 11 81 81 81 81 80 81 80 81 81 80 81 81 00 00 81</div><div class="line"> 80 81</div><div class="line"> </div><div class="line">//还没有写入任何新值</div><div class="line">#ipmitool raw 0x3e 0x5d 0x00 0x11</div><div class="line"> 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00</div><div class="line"> 00 00 </div><div class="line"></div><div class="line">//enable numa</div><div class="line">#ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</div><div class="line">#ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</div><div class="line"></div><div class="line">//enable boost</div><div class="line">#ipmitool raw 0x3e 0x5c 0x01 0x01 0x81</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x01 0x01</div><div class="line"> 11 81 </div><div class="line">//关闭 SMT</div><div class="line">#ipmitool raw 0x3e 0x5c 0x02 0x01 0x80</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x02 0x01</div><div class="line"> 11 81</div></pre></td></tr></table></figure>
+<h2 id="BIOS中选项的对应关系"><a href="#BIOS中选项的对应关系" class="headerlink" title="BIOS中选项的对应关系"></a>BIOS中选项的对应关系</h2><h3 id="Intel服务器"><a href="#Intel服务器" class="headerlink" title="Intel服务器"></a>Intel服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)0x00  BIOS在读取设定后，会发送index=0x00，data=0x00的命令给BMC，BMC应清零所有参数值。</td>
+</tr>
+<tr>
+<td>Turbo</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>HT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Numa</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – disable 0x81 - enable</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT-d</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+</tr>
+<tr>
+<td>Active Cores</td>
+<td>0x11</td>
+<td>1</td>
+<td>0x80 - Default Core Number0x81 - Active 1 Core0x82 - Active 2 Cores0x83 - Active 3 Cores…0xFE - Active 126 Cores</td>
+</tr>
+<tr>
+<td>C   State</td>
+<td>0x12</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>HWPM</td>
+<td>0x13</td>
+<td>1</td>
+<td>0x80-Disable0x81-Native   mode0x82-OOB   Mode0x83-Native   mode Without Legacy support</td>
+</tr>
+<tr>
+<td>Intel   SgxSW Guard Extensions (SGX)</td>
+<td>0x14</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SGX PRMRR Size</td>
+<td>0x15</td>
+<td>1</td>
+<td>0X80-[00]No valid PRMRR   size    0X81-[40000000]1G0X82-[80000000]2G0X83-[100000000]4G0X84-[200000000]8G0X85-[400000000]16G0X86-[800000000]32G0X87-[1000000000]64G0X88-[2000000000]128G0X89-[4000000000]256G0X8A-[8000000000]512G</td>
+</tr>
+<tr>
+<td>SGX Factory Reset</td>
+<td>0x16</td>
+<td></td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td></td>
+<td>0x17</td>
+<td></td>
+<td>预留</td>
+</tr>
+<tr>
+<td>CPU0_IOU0 (IIO PCIe Br1)</td>
+<td>0x18</td>
+<td>1</td>
+<td>0x80 – x4x4x4x4   0x81 – x4x4x8   0x82 – x8x4x4   0x83 – x8x8   0x84 – x16   0x85 - Auto</td>
+</tr>
+<tr>
+<td>CPU0_IOU1 (IIO PCIe Br2)</td>
+<td>0x19</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU2 (IIO PCIe Br3)</td>
+<td>0x1a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU3 (IIO PCIe Br4)</td>
+<td>0x1b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU4 (IIO PCIe Br5)</td>
+<td>0x1c</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU0 (IIO PCIe Br1)</td>
+<td>0x1d</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU1 (IIO PCIe Br2)</td>
+<td>0x1e</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU2 (IIO PCIe Br3)</td>
+<td>0x1f</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU3 (IIO PCIe Br4)</td>
+<td>0x20</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU4 (IIO PCIe Br5)</td>
+<td>0x21</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU0 (IIO PCIe Br1)</td>
+<td>0x22</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU1 (IIO PCIe Br2)</td>
+<td>0x23</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU2 (IIO PCIe Br3)</td>
+<td>0x24</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU3 (IIO PCIe Br4)</td>
+<td>0x25</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU4 (IIO PCIe Br5)</td>
+<td>0x26</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU0 (IIO PCIe Br1)</td>
+<td>0x27</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU1 (IIO PCIe Br2)</td>
+<td>0x28</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU2 (IIO PCIe Br3)</td>
+<td>0x29</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU3 (IIO PCIe Br4)</td>
+<td>0x2a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU4 (IIO PCIe Br5)</td>
+<td>0x2b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>SGXLEPUBKEYHASHx Write Enable</td>
+<td>0x2C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SubNuma</td>
+<td>0x2D</td>
+<td>1</td>
+<td>0x80-Disabled0x81-SN2</td>
+</tr>
+<tr>
+<td>VirtualNuma</td>
+<td>0x2E</td>
+<td>1</td>
+<td>0x80-Disabled0x81-Enabled</td>
+</tr>
+<tr>
+<td>TPM Priority</td>
+<td>0x2F</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>TDX</td>
+<td>0x30</td>
+<td>1</td>
+<td>0x80 - Disabled0x81 - Enabled</td>
+</tr>
+<tr>
+<td>Select Owner EPOCH input type</td>
+<td>0x31</td>
+<td>1</td>
+<td>0x81-Change to New Random Owner EPOCHs0x82-Manual User Defined Owner EPOCHs</td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 0</td>
+<td>0x32</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 1</td>
+<td>0x33</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="AMD服务器"><a href="#AMD服务器" class="headerlink" title="AMD服务器"></a>AMD服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SMT Mode</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SVM Mode</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 (AMD默认支持智能调频但无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>NUMA nodes per socket</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – NPS0 0x81 – NPS1 0x82 – NPS2 0x83 – NPS4 （开）0x87 – Auto(Auto为NPS1)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x8F – Auto</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80 (AMD无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80 (AMD暂未做IMS功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x83 – enable &amp; TPM   clear</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 (AMD暂未做此功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>RomeMilan</td>
+</tr>
+</tbody>
+</table>
+<h3 id="海光服务器"><a href="#海光服务器" class="headerlink" title="海光服务器"></a>海光服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SMT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SVM</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>P-State Control</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – Performance0x81 – Normal</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Memory Interleaving</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – Socket (关numa) 0x81 - channel（8 node）</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Onboard VGA</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Boot option Filter</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>海光2</td>
+</tr>
+</tbody>
+</table>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/2010到2020这10年的碎碎念念/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5505,562 +6678,6 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
-                2019-06-20
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/LVS/" itemprop="url" rel="index">
-                    <span itemprop="name">LVS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
-<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
-</blockquote>
-<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
-<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
-<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
-<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
-vip：Virtual IP，LVS实例IP
-rip：Real IP，后端RS地址
-RS: Real Server 后端真正提供服务的机器
-LB： Load Balance 负载均衡器
-LVS： Linux Virtual Server
-sip： source ip
-dip： destination
-</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
-<li>DR模型 – (Director Routing-直接路由)</li>
-<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
-<li>fullNAT – (full NAT)</li>
-<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
-<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
-</ul>
-<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
-<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
-<ol>
-<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
-<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
-<li>然后丢给Director，Director将这个包丢给选中的RS</li>
-<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
-<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
-<li>经过交换机直接回复给client了(不再走LVS)</li>
-</ol>
-<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
-<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
-<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
-<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
-<li>RS需要配置vip同时特殊处理arp；</li>
-<li>配置比较复杂；</li>
-<li>不支持端口映射。</li>
-</ul>
-<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
-<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
-<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
-<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
-<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
-<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
-<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
-<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
-<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
-<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
-<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>配置简单</li>
-<li>支持端口映射(看名字就知道)</li>
-<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>LVS和所有RS必须在同一个vlan</li>
-<li>进出流量都要走LVS转发</li>
-<li>LVS容易成为瓶颈</li>
-<li>一般而言需要将VIP配置成RS的网关</li>
-</ul>
-<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
-<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
-<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
-<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
-<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
-<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
-<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS看不到cip(NAT模式下可以看到)</li>
-<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
-</ul>
-<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
-<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
-<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
-<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
-<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
-<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
-<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
-<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
-<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
-<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
-<p>优点：</p>
-<ul>
-<li>不要求LVS和RS在同一个vlan</li>
-<li>出去的流量不需要走LVS，性能好</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
-</ul>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(cip，vip)</li>
-<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
-<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
-<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
-<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
-</ol>
-<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
-<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
-<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
-<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
-<p>最后说一下不太常用的 TUN模型</p>
-<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
-<ol>
-<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
-<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
-<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
-<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>集群节点可以跨vlan</li>
-<li>跟DR一样，响应报文直接发给client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS上必须安装运行IPIP模块</li>
-<li>多增加了一个IP头</li>
-<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
-</ul>
-<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
-<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
-<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
-<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
-<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
-<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
-<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
-<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
-<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
-<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
-<p>所以推出NGLB来解决这个问题</p>
-<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
-<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
-<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
-<li>toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/<code>uname -r</code>/kernel/net/toa/toa.ko）。</li>
-<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
-<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
-<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
-</ol>
-<p>!！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:</p>
-<blockquote>
-<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。</p>
-<p>当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。</p>
-<p>如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。</p>
-</blockquote>
-<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
-<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
-<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
-<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
-<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
-<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
-<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
-<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
-<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
-<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="external">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="external">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
-<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="external">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
-<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
-<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
-<p>2.结合性能测试数据，调整session的prefecth</p>
-<p>3.消除false sharing。</p>
-<p>目前LVS 40G机型，单机4块 40G网卡。</p>
-<p>平均包长1k的情况下能跑满4个网口(160G)</p>
-<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
-<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
-<p>lvs的优化方案为大小桶算法：</p>
-<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
-<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
-<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
-<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
-<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
-<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="external">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
-<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="external">https://yizhi.ren/2019/05/03/lvs/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/09/一文搞懂域名解析相关问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/09/一文搞懂域名解析相关问题/" itemprop="url">就是要你懂DNS--一文搞懂域名解析相关问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-09T10:30:03+08:00">
-                2019-06-09
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="一文搞懂域名解析DNS相关问题"><a href="#一文搞懂域名解析DNS相关问题" class="headerlink" title="一文搞懂域名解析DNS相关问题"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
-<p>本文希望通过一篇文章解决所有域名解析中相关的问题 </p>
-<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
-</blockquote>
-<p>这几个Case描述如下：</p>
-<ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
-<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
-<h2 id="Linux下域名解析流程"><a href="#Linux下域名解析流程" class="headerlink" title="Linux下域名解析流程"></a>Linux下域名解析流程</h2><ul>
-<li>DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
-<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns </li>
-<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-</ul>
-<p><img src="/images/oss/b7458f344de1d1b10c2a6f6ee7f1c501.png" alt="image.png"></p>
-<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
-<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="external">所以默认的nsswitch流程是</a>：</p>
-<p><img src="/images/oss/82489e801d8f7bd455053315d760614b.png" alt="image.png"></p>
-<p>以下是一个 /etc/nsswitch.conf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"># cat /etc/nsswitch.conf |grep -v &quot;^#&quot; |grep -v &quot;^$&quot;</div><div class="line">passwd:     files sss</div><div class="line">shadow:     files sss</div><div class="line">group:      files sss</div><div class="line">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序</div><div class="line">bootparams: nisplus [NOTFOUND=return] files</div><div class="line">ethers:     files</div><div class="line">netmasks:   files</div><div class="line">networks:   files</div><div class="line">protocols:  files</div><div class="line">rpc:        files</div><div class="line">services:   files sss</div><div class="line">netgroup:   nisplus sss</div><div class="line">publickey:  nisplus</div><div class="line">automount:  files nisplus sss</div><div class="line">aliases:    files nisplus</div></pre></td></tr></table></figure>
-<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
-<h2 id="Linux下域名解析流程需要注意的地方"><a href="#Linux下域名解析流程需要注意的地方" class="headerlink" title="Linux下域名解析流程需要注意的地方"></a>Linux下域名解析流程需要注意的地方</h2><ul>
-<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="external">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
-<li>如果被解析的域名不是以 “.” 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a href="https://access.redhat.com/solutions/58028" target="_blank" rel="external">resolv.conf最多支持6个search域</a></li>
-<li>ping调用的是glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch，nslookup不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
-</ul>
-<h2 id="Linux下域名解析诊断工具"><a href="#Linux下域名解析诊断工具" class="headerlink" title="Linux下域名解析诊断工具"></a>Linux下域名解析诊断工具</h2><ul>
-<li>ping</li>
-<li>nslookup (nslookup domain @dns-server-ip)</li>
-<li><a href="https://jvns.ca/blog/2021/12/04/how-to-use-dig/" target="_blank" rel="external">dig</a> (dig +trace domain)</li>
-<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
-<li>strace</li>
-</ul>
-<p><img src="/images/951413iMgBlog/dig.png" alt="img"></p>
-<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>向 /etc/hosts 中添加了一条test.unknow.host, 无法解析到，但是test.localhost可以解析？</p>
-<pre><code>[ren@vb 08:50 /home/ren]
-$head -2 /etc/hosts
-127.0.0.1　 test.unknow.host
-127.0.0.1   test.localhost
-
-[ren@vb 08:50 /home/ren]
-$ping test.unknow.host
-ping: unknown host test.unknow.host
-
-[ren@vb 08:50 /home/ren]
-$ping -c 1 test.localhost
-PING test.localhost (127.0.0.1) 56(84) bytes of data.
-64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
-
---- test.localhost ping statistics ---
-1 packets transmitted, 1 received, 0% packet loss, time 0ms
-rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
-</code></pre><p>为什么 test.unknow.host 没法解析到？<br>可能有哪些因素导致这种现象？</p>
-<p>尝试 ping -c 1 test.localhost 的目的是做什么？</p>
-<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
-<ul>
-<li>/etc/hosts 没有启用</li>
-<li>有本地缓存记录了一个unknow host记录</li>
-</ul>
-<h4 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
-</code></pre><p>可以通，说明 /etc/hosts 是在起作用的，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
-<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了</p>
-<p><img src="/images/oss/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png" alt="undefined"> </p>
-<p>从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
-<p>到这里可能的情况要追加第三种了：</p>
-<ul>
-<li>/etc/hosts 中添加的记录没生效(比如中文符号）</li>
-</ul>
-<h3 id="dhcp"><a href="#dhcp" class="headerlink" title="dhcp"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 /etc/resolv.conf</p>
-<h3 id="dnsmasq"><a href="#dnsmasq" class="headerlink" title="dnsmasq"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：/run/dnsmasq/resolv.conf。集团内部的vipclient就是类似这个原理。</p>
-<h2 id="微服务下的域名解析、负载均衡"><a href="#微服务下的域名解析、负载均衡" class="headerlink" title="微服务下的域名解析、负载均衡"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
-<h3 id="域名解析通过jar、lib包"><a href="#域名解析通过jar、lib包" class="headerlink" title="域名解析通过jar、lib包"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
-<h3 id="域名解析通过dns-server"><a href="#域名解析通过dns-server" class="headerlink" title="域名解析通过dns server"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
-<p>如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
-<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
-<h2 id="kubernetes-和-docker中的域名解析"><a href="#kubernetes-和-docker中的域名解析" class="headerlink" title="kubernetes 和 docker中的域名解析"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
-<h2 id="nginx-中的域名解析"><a href="#nginx-中的域名解析" class="headerlink" title="nginx 中的域名解析"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 /etc/resolv.conf转换而来，要注意对 /etc/resolv.conf中 注释的<a href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf" target="_blank" rel="external">兼容</a></p>
-<p><a href="https://github.com/blacklabelops-legacy/nginx/issues/36" target="_blank" rel="external">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 /etc/resolv.conf没有处理好 # 注释的问题</p>
-<h2 id="进一步的Case学习："><a href="#进一步的Case学习：" class="headerlink" title="进一步的Case学习："></a>进一步的Case学习：</h2><ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://blog.bruceding.me/516.html" target="_blank" rel="external">GO DNS 原理解析</a></p>
-<p><a href="https://blog.arstercz.com/linux-系统如何处理名称解析" target="_blank" rel="external">Linux 系统如何处理名称解析</a></p>
-<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="external">Anatomy of a Linux DNS Lookup – Part I</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6110,7 +6727,7 @@ rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">157</span>
+                <span class="site-state-item-count">159</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6132,7 +6749,7 @@ rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">249</span>
+                <span class="site-state-item-count">251</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
