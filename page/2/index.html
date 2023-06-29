@@ -291,6 +291,212 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/01/19/kubernetes calico网络/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2022/01/19/kubernetes calico网络/" itemprop="url">kubernetes calico网络</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2022-01-19T11:30:03+08:00">
+                2022-01-19
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="kubernetes-calico网络"><a href="#kubernetes-calico网络" class="headerlink" title="kubernetes calico网络"></a>kubernetes calico网络</h1><h2 id="cni-网络"><a href="#cni-网络" class="headerlink" title="cni 网络"></a>cni 网络</h2><blockquote>
+<p> <strong>cni0</strong> is a Linux network bridge device, all <strong>veth</strong> devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in <strong>Kubernetes Network Model</strong> and the hotel analogy above.</p>
+</blockquote>
+<h3 id="cni（Container-Network-Interface）"><a href="#cni（Container-Network-Interface）" class="headerlink" title="cni（Container Network Interface）"></a>cni（Container Network Interface）</h3><p>CNI 全称为 Container Network Interface，是用来定义容器网络的一个 <a href="https://github.com/containernetworking/cni/blob/master/SPEC.md" target="_blank" rel="external">规范</a>。<a href="https://github.com/containernetworking/cni" target="_blank" rel="external">containernetworking/cni</a> 是一个 CNCF 的 CNI 实现项目，包括基本额 bridge,macvlan等基本网络插件。</p>
+<p>一般将cni各种网络插件的可执行文件二进制放到 <code>/opt/cni/bin</code> ，在 <code>/etc/cni/net.d/</code> 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。</p>
+<p>比如：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">#ls -lh /opt/cni/bin/</div><div class="line">总用量 90M</div><div class="line">-rwxr-x--- 1 root root 4.0M 12月 23 09:39 bandwidth</div><div class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico</div><div class="line">-rwxr-x--- 1 root root  35M 12月 23 09:39 calico-ipam</div><div class="line">-rwxr-x--- 1 root root 3.0M 12月 23 09:39 flannel</div><div class="line">-rwxr-x--- 1 root root 3.5M 12月 23 09:39 host-local</div><div class="line">-rwxr-x--- 1 root root 3.1M 12月 23 09:39 loopback</div><div class="line">-rwxr-x--- 1 root root 3.8M 12月 23 09:39 portmap</div><div class="line">-rwxr-x--- 1 root root 3.3M 12月 23 09:39 tuning</div><div class="line"></div><div class="line">[root@hygon3 15:55 /root]</div><div class="line">#ls -lh /etc/cni/net.d/</div><div class="line">总用量 12K</div><div class="line">-rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist</div><div class="line">-rw-r----- 1 root root  292 12月 23 09:47 10-flannel.conflist</div><div class="line">-rw------- 1 root root 2.6K 12月 23 09:39 calico-kubeconfig</div></pre></td></tr></table></figure>
+<p>CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C/S 方式，所有参数都是通过环境变量、标准输入输出来实现的。</p>
+<p>Step-by-step communication from <strong>Pod 1</strong> to <strong>Pod 6</strong>:</p>
+<ol>
+<li><em>Package leaves</em> <strong><em>Pod 1 netns\</em></strong> <em>through the</em> <strong><em>eth1\</em></strong> <em>interface and reaches the</em> <strong><em>root netns\</em></strong> <em>through the virtual interface</em> <strong><em>veth1*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>veth1\</em></strong> <em>and reaches</em> <strong><em>cni0*</em></strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to</em> <strong><em>eth0*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>from</em> <strong><em>Master 1\</em></strong> <em>and reaches the</em> <strong><em>gateway*</em></strong>;*</li>
+<li><em>Package leaves the</em> <strong><em>gateway\</em></strong> <em>and reaches the</em> <strong><em>root netns\</em></strong> <em>through the</em> <strong><em>eth0\</em></strong> <em>interface on</em> <strong><em>Worker 1*</em></strong>;*</li>
+<li><em>Package leaves</em> <strong><em>eth0\</em></strong> <em>and reaches</em> <strong><em>cni0*</em></strong>, looking for<em> **</em>Pod 6*<em>**’s</em> <em>address;</em></li>
+<li><em>Package leaves</em> <strong><em>cni0\</em></strong> <em>and is redirected to the</em> <strong><em>veth6\</em></strong> <em>virtual interface;</em></li>
+<li><em>Package leaves the</em> <strong><em>root netns\</em></strong> <em>through</em> <strong><em>veth6\</em></strong> <em>and reaches the</em> <strong><em>Pod 6 netns\</em></strong> <em>though the</em> <strong><em>eth6\</em></strong> <em>interface;</em></li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115124747936.png" alt="image-20220115124747936"></p>
+<h2 id="kubernetes-calico-网络"><a href="#kubernetes-calico-网络" class="headerlink" title="kubernetes calico 网络"></a>kubernetes calico 网络</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml</div><div class="line"></div><div class="line">#或者老版本的calico</div><div class="line">curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml</div></pre></td></tr></table></figure>
+<p>默认calico用的是ipip封包（这个性能跟原生网络差多少有待验证，本质也是overlay网络，比flannel那种要好很多吗？）</p>
+<p>跨宿主机的两个容器之间的流量链路是：</p>
+<blockquote>
+<p>cali-容器eth0-&gt;宿主机cali27dce37c0e8-&gt;tunl0-&gt;内核ipip模块封包-&gt;物理网卡（ipip封包后）—远程–&gt; 物理网卡-&gt;内核ipip模块解包-&gt;tunl0-&gt;cali-容器</p>
+</blockquote>
+<p><img src="/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png" alt="image.png"></p>
+<p>Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。</p>
+<h2 id="calico-ipip网络不通"><a href="#calico-ipip网络不通" class="headerlink" title="calico ipip网络不通"></a>calico ipip网络不通</h2><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，部分节点之间不通。每台机器部署好calico网络后，会分配一个 /26 CIRD 子网（64个ip）。</p>
+<h3 id="案例1"><a href="#案例1" class="headerlink" title="案例1"></a>案例1</h3><p>目标机是10.122.127.128（宿主机ip 192.168.3.112），如果从10.122.17.64（宿主机ip 192.168.3.110） ping 10.122.127.128不通，查看10.122.127.128路由表：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</div><div class="line">10.122.17.64/26 via 10.122.127.128 dev tunl0  //这条路由不通</div><div class="line">[root@az3-k8s-13 ~]# ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</div><div class="line"></div><div class="line">[root@az3-k8s-13 ~]# ip route |grep tunl0</div><div class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink //这样就通了</div></pre></td></tr></table></figure>
+<p>在10.122.127.128抓包如下，明显可以看到icmp request到了 tunl0网卡，tunl0网卡也回复了，但是回复包没有经过kernel ipip模块封装后发到eth1上：</p>
+<p><img src="/images/oss/d3111417ce646ca1475def5bea01e6b9.png" alt="image.png"></p>
+<p>正常机器应该是这样，上图不正常的时候缺少红框中的reply：</p>
+<p><img src="/images/oss/9ea9041af1211b2a5b8de4e216044465.png" alt="image.png"></p>
+<p>解决：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; </div><div class="line">ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink</div></pre></td></tr></table></figure>
+<p>删除错误路由增加新的路由就可以了，新增路由的意思是从tunl0发给10.122.17.64/26的包下一跳是 192.168.3.110。</p>
+<p> via 192.168.3.110 表示下一跳的ip</p>
+<p>onlink参数的作用：<br>使用这个参数将会告诉内核，不必检查网关是否可达。因为在linux内核中，网关与本地的网段不同是被认为不可达的，从而拒绝执行添加路由的操作。</p>
+<p>因为tunl0网卡ip的 CIDR 是32，也就是不属于任何子网，那么这个网卡上的路由没有网关，配置路由的话必须是onlink, 内核存也没法根据子网来选择到这块网卡，所以还会加上 dev 指定网卡。</p>
+<h3 id="案例2"><a href="#案例2" class="headerlink" title="案例2"></a>案例2</h3><p>集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，只有node2没有192.168.3.111这个ip，结果node2跟其他节点都不通：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">#calicoctl node status</div><div class="line">Calico process is running.</div><div class="line"></div><div class="line">IPv4 BGP status</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div><div class="line">| PEER ADDRESS  |     PEER TYPE     | STATE |   SINCE    |    INFO     |</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div><div class="line">| 192.168.0.111 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.112 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.113 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">| 192.168.3.114 | node-to-node mesh | up    | 2020-08-29 | Established |</div><div class="line">+---------------+-------------------+-------+------------+-------------+</div></pre></td></tr></table></figure>
+<p>从node4 ping node2，然后在node2上抓包，可以看到 icmp request都发到了node2上，但是node2收到后没有发给tunl0：</p>
+<p><img src="/images/oss/16fda9322e9a59c37c11629acc611bf3.png" alt="image.png"></p>
+<p>所以icmp没有回复，这里的问题在于<strong>kernel收到包后为什么不给tunl0</strong></p>
+<p>同样，在node2上ping node4，同时在node2上抓包，可以看到发给node4的request包和reply包：</p>
+<p><img src="/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png" alt="image.png"></p>
+<p>从request包可以看到src ip 是0.111， dest ip是 3.113，<strong>因为 node2 没有192.168.3.111这个ip</strong></p>
+<p>非常关键的我们看到node4的回复包 src ip 不是3.113，而是0.113（根据node4的路由就应该是0.113）</p>
+<p><img src="/images/oss/5c7172e2422579eb99c66e881d47bf99.png" alt="image.png"></p>
+<p>这就是问题所在，从node4过来的ipip包src ip都是0.113，实际这里ipip能认识的只是3.113. </p>
+<p>如果这个时候在3.113机器上把0.113网卡down掉，那么3.113上的：</p>
+<p>10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink 路由被自动删除，3.113将不再回复request。这是因为calico记录的node2的ip是192.168.0.111，所以会自动增加</p>
+<p>解决办法，在node4上删除这条路由记录，也就是强制让回复包走3.113网卡，这样收发的ip就能对应上了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">ip route del 192.168.0.0/24 dev eth0 proto kernel scope link src 192.168.0.113</div><div class="line">//同时将默认路由改到3.113</div><div class="line">ip route del default via 192.168.0.253 dev eth0; </div><div class="line">ip route add default via 192.168.3.253 dev eth1</div></pre></td></tr></table></figure>
+<p>最终OK后，node4上的ip route是这样的：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">[root@az3-k8s-14 ~]# ip route</div><div class="line">default via 192.168.3.253 dev eth1 </div><div class="line">10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink </div><div class="line">10.122.124.128/26 via 192.168.0.111 dev tunl0 proto bird onlink </div><div class="line">10.122.127.128/26 via 192.168.3.112 dev tunl0 proto bird onlink </div><div class="line">blackhole 10.122.157.128/26 proto bird </div><div class="line">10.122.157.129 dev cali19f6ea143e3 scope link </div><div class="line">10.122.157.130 dev cali09e016ead53 scope link </div><div class="line">10.122.157.131 dev cali0ad3225816d scope link </div><div class="line">10.122.157.132 dev cali55a5ff1a4aa scope link </div><div class="line">10.122.157.133 dev cali01cf8687c65 scope link </div><div class="line">10.122.157.134 dev cali65232d7ada6 scope link </div><div class="line">10.122.173.128/26 via 192.168.3.114 dev tunl0 proto bird onlink </div><div class="line">172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 </div><div class="line">192.168.3.0/24 dev eth1 proto kernel scope link src 192.168.3.113</div></pre></td></tr></table></figure>
+<p>正常后的抓包, 注意这里drequest的est ip 和reply的 src ip终于一致了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">//request</div><div class="line">00:16:3e:02:06:1e &gt; ee:ff:ff:ff:ff:ff, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 57971, offset 0, flags [DF], proto IPIP (4), length 104)</div><div class="line">    192.168.0.111 &gt; 192.168.3.110: (tos 0x0, ttl 64, id 18953, offset 0, flags [DF], proto ICMP (1), length 84)</div><div class="line">    10.122.124.128 &gt; 10.122.17.64: ICMP echo request, id 22001, seq 4, length 64</div><div class="line">    </div><div class="line">//reply    </div><div class="line">ee:ff:ff:ff:ff:ff &gt; 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos 0x0, ttl 64, id 2565, offset 0, flags [none], proto IPIP (4), length 104)</div><div class="line">    192.168.3.110 &gt; 192.168.0.111: (tos 0x0, ttl 64, id 26374, offset 0, flags [none], proto ICMP (1), length 84)</div><div class="line">    10.122.17.64 &gt; 10.122.124.128: ICMP echo reply, id 22001, seq 4, length 64</div></pre></td></tr></table></figure>
+<p>总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。</p>
+<h2 id="netns-操作"><a href="#netns-操作" class="headerlink" title="netns 操作"></a><a href="https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw" target="_blank" rel="external">netns 操作</a></h2><p>以下case创建一个名为 ren 的netns，然后在里面增加一对虚拟网卡veth1 veth1_p,  veth1放置在ren里面，veth1_p 放在物理机上，给他们配置上ip并up就能通了。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div></pre></td><td class="code"><pre><div class="line"> 1004  [2021-10-27 10:49:08] ip netns add ren</div><div class="line"> 1005  [2021-10-27 10:49:12] ip netns show</div><div class="line"> 1006  [2021-10-27 10:49:22] ip netns exec ren route   //为空</div><div class="line"> 1007  [2021-10-27 10:49:29] ip netns exec ren iptables -L</div><div class="line"> 1008  [2021-10-27 10:49:55] ip link add veth1 type veth peer name veth1_p //此时宿主机上能看到这两块网卡</div><div class="line"> 1009  [2021-10-27 10:50:07] ip link set veth1 netns ren //将veth1从宿主机默认网络空间挪到ren中，宿主机中看不到veth1了</div><div class="line"> 1010  [2021-10-27 10:50:18] ip netns exec ren route  </div><div class="line"> 1011  [2021-10-27 10:50:25] ip netns exec ren iptables -L</div><div class="line"> 1012  [2021-10-27 10:50:39] ifconfig</div><div class="line"> 1013  [2021-10-27 10:50:51] ip link list</div><div class="line"> 1014  [2021-10-27 10:51:29] ip netns exec ren ip link list</div><div class="line"> 1017  [2021-10-27 10:53:27] ip netns exec ren ip addr add 172.19.0.100/24 dev veth1 </div><div class="line"> 1018  [2021-10-27 10:53:31] ip netns exec ren ip link list</div><div class="line"> 1019  [2021-10-27 10:53:39] ip netns exec ren ifconfig</div><div class="line"> 1020  [2021-10-27 10:53:42] ip netns exec ren ifconfig -a</div><div class="line"> 1021  [2021-10-27 10:54:13] ip netns exec ren ip link set dev veth1 up</div><div class="line"> 1022  [2021-10-27 10:54:16] ip netns exec ren ifconfig</div><div class="line"> 1023  [2021-10-27 10:54:22] ping 172.19.0.100</div><div class="line"> 1024  [2021-10-27 10:54:35] ifconfig -a</div><div class="line"> 1025  [2021-10-27 10:55:03] ip netns exec ren ip addr add 172.19.0.101/24 dev veth1_p</div><div class="line"> 1026  [2021-10-27 10:55:10] ip addr add 172.19.0.101/24 dev veth1_p</div><div class="line"> 1027  [2021-10-27 10:55:16] ifconfig veth1_p</div><div class="line"> 1028  [2021-10-27 10:55:30] ip link set dev veth1_p up</div><div class="line"> 1029  [2021-10-27 10:55:32] ifconfig veth1_p</div><div class="line"> 1030  [2021-10-27 10:55:38] ping 172.19.0.101</div><div class="line"> 1031  [2021-10-27 10:55:43] ping 172.19.0.100</div><div class="line"> 1032  [2021-10-27 10:55:53] ip link set dev veth1_p down</div><div class="line"> 1033  [2021-10-27 10:55:54] ping 172.19.0.100</div><div class="line"> 1034  [2021-10-27 10:55:58] ping 172.19.0.101</div><div class="line"> 1035  [2021-10-27 10:56:08] ifconfig veth1_p</div><div class="line"> 1036  [2021-10-27 10:56:32] ping 172.19.0.101</div><div class="line"> 1037  [2021-10-27 10:57:04] ip netns exec ren route</div><div class="line"> 1038  [2021-10-27 10:57:52] ip netns exec ren ping 172.19.0.101</div><div class="line"> 1039  [2021-10-27 10:57:58] ip link set dev veth1_p up</div><div class="line"> 1040  [2021-10-27 10:57:59] ip netns exec ren ping 172.19.0.101</div><div class="line"> 1041  [2021-10-27 10:58:06] ip netns exec ren ping 172.19.0.100</div><div class="line"> 1042  [2021-10-27 10:58:14] ip netns exec ren ifconfig</div><div class="line"> 1043  [2021-10-27 10:58:19] ip netns exec ren route</div><div class="line"> 1044  [2021-10-27 10:58:26] ip netns exec ren ping 172.19.0.100 -I veth1</div><div class="line"> 1045  [2021-10-27 10:58:58] ifconfig veth1_p</div><div class="line"> 1046  [2021-10-27 10:59:10] ping 172.19.0.100</div><div class="line"> 1047  [2021-10-27 10:59:26] ip netns exec ren ping 172.19.0.101 -I veth1</div><div class="line"> </div><div class="line"> 把网卡加入到docker0的bridge下</div><div class="line"> 1160  [2021-10-27 12:17:37] brctl show</div><div class="line"> 1161  [2021-10-27 12:18:05] ip link set dev veth3_p master docker0</div><div class="line"> 1162  [2021-10-27 12:18:09] ip link set dev veth1_p master docker0</div><div class="line"> 1163  [2021-10-27 12:18:13] ip link set dev veth2 master docker0</div><div class="line"> 1164  [2021-10-27 12:18:15] brctl show</div><div class="line"> </div><div class="line">brctl showmacs br0</div><div class="line">brctl show cni0</div><div class="line">brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡</div></pre></td></tr></table></figure>
+<p>Linux 上存在一个默认的网络命名空间，Linux 中的 1 号进程初始使用该默认空间。Linux 上其它所有进程都是由 1 号进程派生出来的，在派生 clone 的时候如果没有额外特别指定，所有的进程都将共享这个默认网络空间。</p>
+<p>所有的网络设备刚创建出来都是在宿主机默认网络空间下的。可以通过 <code>ip link set 设备名 netns 网络空间名</code> 将设备移动到另外一个空间里去，socket也是归属在某一个网络命名空间下的，由创建socket进程所在的netns来决定socket所在的netns</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//file: net/socket.c</span></div><div class="line"><span class="function"><span class="keyword">int</span> <span class="title">sock_create</span><span class="params">(<span class="keyword">int</span> family, <span class="keyword">int</span> type, <span class="keyword">int</span> protocol, struct socket **res)</span></span></div><div class="line">&#123;</div><div class="line"> <span class="keyword">return</span> __sock_create(current-&gt;nsproxy-&gt;net_ns, family, type, protocol, res, <span class="number">0</span>);</div><div class="line">&#125;</div><div class="line"></div><div class="line"><span class="comment">//file: include/net/sock.h</span></div><div class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span></span></div><div class="line"><span class="keyword">void</span> <span class="title">sock_net_set</span><span class="params">(struct sock *sk, struct net *net)</span></div><div class="line">&#123;</div><div class="line"> write_pnet(&amp;sk-&gt;sk_net, net);</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。</p>
+<p><img src="/images/951413iMgBlog/640-5304524." alt="Image"></p>
+<p>每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://morven.life/notes/networking-3-ipip/" target="_blank" rel="external">https://morven.life/notes/networking-3-ipip/</a></p>
+<p><a href="https://www.cnblogs.com/bakari/p/10564347.html" target="_blank" rel="external">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
+<p><a href="https://www.cnblogs.com/goldsunshine/p/10701242.html" target="_blank" rel="external">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
+<p><a href="https://docker-k8s-lab.readthedocs.io/en/latest/docker/docker-flannel.html" target="_blank" rel="external">手工拉起flannel网络</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/01/19/kubernetes_Flannel网络剖析/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -7191,196 +7397,11 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/03/08/海光CPU/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2021/03/08/海光CPU/" itemprop="url">海光CPU</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-03-08T17:30:03+08:00">
-                2021-03-08
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/CPU/" itemprop="url" rel="index">
-                    <span itemprop="name">CPU</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="海光CPU"><a href="#海光CPU" class="headerlink" title="海光CPU"></a>海光CPU</h1><h3 id="海光物理机CPU相关信息"><a href="#海光物理机CPU相关信息" class="headerlink" title="海光物理机CPU相关信息"></a>海光物理机CPU相关信息</h3><p>总共有16台如下的海光服务器</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                64</div><div class="line">On-line CPU(s) list:   0-63</div><div class="line">Thread(s) per core:    2      //每个物理core有两个超线程</div><div class="line">Core(s) per socket:    16     //每路16个物理core</div><div class="line">Socket(s):             2      //2路</div><div class="line">NUMA node(s):          4</div><div class="line">Vendor ID:             HygonGenuine</div><div class="line">CPU family:            24</div><div class="line">Model:                 1</div><div class="line">Model name:            Hygon C86 5280 16-core Processor</div><div class="line">Stepping:              1</div><div class="line">CPU MHz:               2455.552</div><div class="line">CPU max MHz:           2500.0000</div><div class="line">CPU min MHz:           1600.0000</div><div class="line">BogoMIPS:              4999.26</div><div class="line">Virtualization:        AMD-V</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             64K</div><div class="line">L2 cache:              512K</div><div class="line">L3 cache:              8192K</div><div class="line">NUMA node0 CPU(s):     0-7,32-39</div><div class="line">NUMA node1 CPU(s):     8-15,40-47</div><div class="line">NUMA node2 CPU(s):     16-23,48-55</div><div class="line">NUMA node3 CPU(s):     24-31,56-63</div><div class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid extd_apicid amd_dcm aperfmperf pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpb hw_pstate sme ssbd sev ibpb vmmcall fsgsbase bmi1 avx2 smep bmi2 MySQLeed adx smap clflushopt sha_ni xsaveopt xsavec xgetbv1 xsaves clzero irperf xsaveerptr arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic v_vmsave_vmload vgif overflow_recov succor smca</div><div class="line"></div><div class="line">#numactl -H</div><div class="line">available: 4 nodes (0-3)</div><div class="line">node 0 cpus: 0 1 2 3 4 5 6 7 32 33 34 35 36 37 38 39</div><div class="line">node 0 size: 128854 MB</div><div class="line">node 0 free: 89350 MB</div><div class="line">node 1 cpus: 8 9 10 11 12 13 14 15 40 41 42 43 44 45 46 47</div><div class="line">node 1 size: 129019 MB</div><div class="line">node 1 free: 89326 MB</div><div class="line">node 2 cpus: 16 17 18 19 20 21 22 23 48 49 50 51 52 53 54 55</div><div class="line">node 2 size: 128965 MB</div><div class="line">node 2 free: 86542 MB</div><div class="line">node 3 cpus: 24 25 26 27 28 29 30 31 56 57 58 59 60 61 62 63</div><div class="line">node 3 size: 129020 MB</div><div class="line">node 3 free: 98227 MB</div><div class="line">node distances:</div><div class="line">node   0   1   2   3</div><div class="line">  0:  10  16  28  22</div><div class="line">  1:  16  10  22  28</div><div class="line">  2:  28  22  10  16</div><div class="line">  3:  22  28  16  10</div></pre></td></tr></table></figure>
-<p>AMD Zen 架构的CPU是胶水核，也就是把两个die拼一块封装成一块CPU，所以一块CPU内跨die之间延迟还是很高的。</p>
-<p>7260 系列的hygon CPU(关掉了超线程)</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:        x86_64</div><div class="line">CPU op-mode(s):      32-bit, 64-bit</div><div class="line">Byte Order:          Little Endian</div><div class="line">Address sizes:       43 bits physical, 48 bits virtual</div><div class="line">CPU(s):              48</div><div class="line">On-line CPU(s) list: 0-47</div><div class="line">Thread(s) per core:  1</div><div class="line">Core(s) per socket:  24</div><div class="line">Socket(s):           2</div><div class="line">NUMA node(s):        8</div><div class="line">Vendor ID:           HygonGenuine</div><div class="line">CPU family:          24</div><div class="line">Model:               1</div><div class="line">Model name:          Hygon C86 7260 24-core Processor</div><div class="line">Stepping:            1</div><div class="line">Frequency boost:     enabled</div><div class="line">CPU MHz:             1065.890</div><div class="line">CPU max MHz:         2200.0000</div><div class="line">CPU min MHz:         1200.0000</div><div class="line">BogoMIPS:            4399.38</div><div class="line">Virtualization:      AMD-V</div><div class="line">L1d cache:           1.5 MiB</div><div class="line">L1i cache:           3 MiB</div><div class="line">L2 cache:            24 MiB</div><div class="line">L3 cache:            128 MiB</div><div class="line">NUMA node0 CPU(s):   0-5</div><div class="line">NUMA node1 CPU(s):   6-11</div><div class="line">NUMA node2 CPU(s):   12-17</div><div class="line">NUMA node3 CPU(s):   18-23</div><div class="line">NUMA node4 CPU(s):   24-29</div><div class="line">NUMA node5 CPU(s):   30-35</div><div class="line">NUMA node6 CPU(s):   36-41</div><div class="line">NUMA node7 CPU(s):   42-47</div></pre></td></tr></table></figure>
-<p>7280</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:                    x86_64</div><div class="line">CPU op-mode(s):                  32-bit, 64-bit</div><div class="line">Byte Order:                      Little Endian</div><div class="line">Address sizes:                   43 bits physical, 48 bits virtual</div><div class="line">CPU(s):                          128</div><div class="line">On-line CPU(s) list:             0-127</div><div class="line">Thread(s) per core:              2</div><div class="line">Core(s) per socket:              32</div><div class="line">Socket(s):                       2</div><div class="line">NUMA node(s):                    8</div><div class="line">Vendor ID:                       HygonGenuine</div><div class="line">CPU family:                      24</div><div class="line">Model:                           1</div><div class="line">Model name:                      Hygon C86 7280 32-core Processor</div><div class="line">Stepping:                        1</div><div class="line">CPU MHz:                         2313.699</div><div class="line">BogoMIPS:                        3999.47</div><div class="line">Virtualization:                  AMD-V</div><div class="line">L1d cache:                       2 MiB</div><div class="line">L1i cache:                       4 MiB</div><div class="line">L2 cache:                        32 MiB</div><div class="line">L3 cache:                        128 MiB</div><div class="line">NUMA node0 CPU(s):               0-7,64-71</div><div class="line">NUMA node1 CPU(s):               8-15,72-79</div><div class="line">NUMA node2 CPU(s):               16-23,80-87</div><div class="line">NUMA node3 CPU(s):               24-31,88-95</div><div class="line">NUMA node4 CPU(s):               32-39,96-103</div><div class="line">NUMA node5 CPU(s):               40-47,104-111</div><div class="line">NUMA node6 CPU(s):               48-55,112-119</div><div class="line">NUMA node7 CPU(s):               56-63,120-127</div></pre></td></tr></table></figure>
-<h4 id="64-个-core-的分配策略"><a href="#64-个-core-的分配策略" class="headerlink" title="64 个 core 的分配策略"></a>64 个 core 的分配策略</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">physical         core      processor</div><div class="line">0                0~15         0~15</div><div class="line">1                0~15         16~31</div><div class="line">0                0~15         32~47</div><div class="line">1                0~15         48~63</div></pre></td></tr></table></figure>
-<h4 id="海光bios配置"><a href="#海光bios配置" class="headerlink" title="海光bios配置"></a>海光bios配置</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">在grub.conf里面加入noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off tsx=on tsx_async_abort=off mitigations=off iommu.passthrough=1；持久化ip；挂盘参数defaults,noatime,nodiratime,lazytime,delalloc,nobarrier,data=writeback（因为后面步骤要重启，把一些OS优化也先做了）</div><div class="line">2. bios设置里面</div><div class="line">	配置 Hygon 设定 --- DF选项 --- 内存交错 --- Channel</div><div class="line">								 --- NB选项 --- 关闭iommu</div><div class="line">	打开CPB</div><div class="line">	风扇模式设置为高性能模式</div></pre></td></tr></table></figure>
-<h4 id="海光简介"><a href="#海光简介" class="headerlink" title="海光简介"></a>海光简介</h4><p>公司成立于2016年3月，当前送测处理器为其第一代1.0版本的7185对标处理器为Intel的E5-2680V4，其服务器样机为曙光H620-G30。</p>
-<p>海光CPU的命名规则：<br>型号71xx<br>7：高端<br>1：海光1号<br>xx：sku</p>
-<p>其后续roadmap如下图</p>
-<p><img src="/images/951413iMgBlog/image-20221026100149808.png" alt="image-20221026100149808"></p>
-<p><img src="/images/951413iMgBlog/376c93772606e5e237231ede0da64c0c.png" alt="img"></p>
-<p>海光其产品规格如下，产品相对密集，但是产品之间差异化很小，频率总体接近。</p>
-<p><img src="/images/951413iMgBlog/bad3d840f2d5017c50b77d47d4292eef.png" alt="img"></p>
-<p>AMD授权Zen IP给海光的操作是先成立合资公司，授权给合资公司基于Zen 研发新的 CPU，而且转让给中国的所有信息都符合美国出口法规<strong>。</strong>天津海光和AMD成立的合资公司可以修改AMD的CPU核，变相享有X86授权，而海光公司可以通过购买合资公司研发的CPU核，开发服务器CPU，不过仅仅局限于中国市场。</p>
-<p>AMD与国内公司A成立合资公司B，合资公司B由AMD控股，负责开发CPU核（其实就是拿AMD现成的内核），然后公司A购买合资公司B开发的CPU核，以此为基础开发CPU，最终实现ARM卖IP核的翻版。</p>
-<p><img src="/images/951413iMgBlog/image-20221026100539350.png" alt="image-20221026100539350"></p>
-<p><img src="/images/951413iMgBlog/image-20221026100646800.png" alt="image-20221026100646800"></p>
-<h4 id="海光与AMD-的-Ryzen-EPYC-比较"><a href="#海光与AMD-的-Ryzen-EPYC-比较" class="headerlink" title="海光与AMD 的 Ryzen/EPYC 比较"></a>海光与AMD 的 Ryzen/EPYC 比较</h4><p>由于在 Zen 1 的基础上进行了大量的修改，海光 CPU 可以不用简单地称之为换壳 AMD 处理器了。但其性能相比同代原版 CPU 略差：整数性能基本相同，浮点性能显著降低——普通指令吞吐量只有基准水平的一半。海光 CPU 的随机数生成机制也被修改，加密引擎已被替换，不再对常见的 AES 指令进行加速，但覆盖了其他面向国内安全性的指令如 SM2、SM3 和 SM4。</p>
-<h5 id="相同"><a href="#相同" class="headerlink" title="相同"></a>相同</h5><p>与 AMD 的 Ryzen/EPYC 相比，海光处理器究竟有哪些不同？总体而言，核心布局是相同的，缓存大小、TLB 大小和端口分配都相同，在基础级别上两者没有差异。CPU 仍然是 64KB 四路 L1 指令缓存，32KB 八路 L1 数据缓存，512KB 八路 L2 缓存以及 8MB 十六路 L3 缓存，与 Zen 1 核心完全相同。</p>
-<h5 id="不同"><a href="#不同" class="headerlink" title="不同"></a>不同</h5><p>加密方式变化**</p>
-<p>在 Linux 内核升级中有关加密变化的信息已经明示。这些更新围绕 AMD 虚拟化功能（SEV）的安全加密进行。通常对于 EPYC 处理器来说，SEV 由 AMD 定义的加密协议控制，在这种情况下为 RSA、ECDSA、ECDH、SHA 和 AES。</p>
-<p>但在海光 Dhyana 处理器中，SEV 被设计为使用 SM2、SM3 和 SM4 算法。在更新中有关 SM2 的部分声明道，这种算法基于椭圆曲线加密法，且需要其他私钥/公钥交换；SM3 是一种哈希算法，类似于 SHA-256；而 SM4 是类似于 AES-128 的分组密码算法。为支持这些算法所需的额外功能，其他指令也被加入到了 Linux 内核中。在说明文件中指出，这些算法已在 Hygon Dhyana Plus 处理器上成功进行测试，也已在 AMD 的 EPYC CPU 上成功测试。</p>
-<p>此外，海光与 AMD 原版芯片最大的设计区别在于<strong>吞吐</strong>量，尽管整数性能相同，但海光芯片对于某些浮点指令并未做流水线处理，这意味着吞吐量和延迟都减小了：</p>
-<p><img src="/images/951413iMgBlog/640-6077478.jpeg" alt="img"></p>
-<p>这些对于最基础的任务来说也会有所影响，降低吞吐量的设计会让 CPU 在并行计算时性能受限。另外一个最大的变化，以及 Dhyana 与服务器版的「Dhyana Plus」版本之间的不同在于随机数生成的能力。</p>
-<h3 id="Openjdk-对海光的支持"><a href="#Openjdk-对海光的支持" class="headerlink" title="Openjdk 对海光的支持"></a>Openjdk 对海光的支持</h3><p><a href="https://github.com/openjdk/jdk/commit/d03cf75344fccba375881f0dab4ad169254e650c" target="_blank" rel="external">https://github.com/openjdk/jdk/commit/d03cf75344fccba375881f0dab4ad169254e650c</a></p>
-<p><a href="https://bugs.openjdk.org/browse/JDK-8222090" target="_blank" rel="external">https://bugs.openjdk.org/browse/JDK-8222090</a></p>
-<p><a href="https://github.com/dragonwell-project/dragonwell11/pull/517" target="_blank" rel="external">https://github.com/dragonwell-project/dragonwell11/pull/517</a></p>
-<h2 id="比较不同-NUMA-方式"><a href="#比较不同-NUMA-方式" class="headerlink" title="比较不同 NUMA 方式"></a>比较不同 NUMA 方式</h2><h3 id="bios-on-and-os-cmdline-off"><a href="#bios-on-and-os-cmdline-off" class="headerlink" title="bios on and os cmdline off"></a>bios on and os cmdline off</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div></pre></td><td class="code"><pre><div class="line">lscpu</div><div class="line">架构：                           x86_64</div><div class="line">CPU 运行模式：                   32-bit, 64-bit</div><div class="line">字节序：                         Little Endian</div><div class="line">Address sizes:                   43 bits physical, 48 bits virtual</div><div class="line">CPU:                             96</div><div class="line">在线 CPU 列表：                  0-95</div><div class="line">每个核的线程数：                 2</div><div class="line">每个座的核数：                   24</div><div class="line">座：                             2</div><div class="line">NUMA 节点：                      1</div><div class="line">厂商 ID：                        HygonGenuine</div><div class="line">CPU 系列：                       24</div><div class="line">型号：                           1</div><div class="line">型号名称：                       Hygon C86 7260 24-core Processor</div><div class="line">步进：                           1</div><div class="line">Frequency boost:                 enabled</div><div class="line">CPU MHz：                        1603.426</div><div class="line">CPU 最大 MHz：                   2200.0000</div><div class="line">CPU 最小 MHz：                   1200.0000</div><div class="line">BogoMIPS：                       4399.55</div><div class="line">虚拟化：                         AMD-V</div><div class="line">L1d 缓存：                       1.5 MiB</div><div class="line">L1i 缓存：                       3 MiB</div><div class="line">L2 缓存：                        24 MiB</div><div class="line">L3 缓存：                        128 MiB</div><div class="line">NUMA 节点0 CPU：                 0-95</div><div class="line"></div><div class="line"># uname -r</div><div class="line">4.19.90-23.8.v2101.ky10.x86_64</div></pre></td></tr></table></figure>
-<p>测试命令和结果：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div></pre></td><td class="code"><pre><div class="line">//以下多个测试方式的结果一样</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; taskset -c $i ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line"></div><div class="line">cat lat.log |grep -E &quot;core:|64.0000&quot;</div><div class="line">core:0</div><div class="line">64.00000 270.555</div><div class="line">core:6</div><div class="line">64.00000 231.677</div><div class="line">core:12</div><div class="line">64.00000 268.527</div><div class="line">core:18</div><div class="line">64.00000 268.878</div><div class="line">core:24</div><div class="line">64.00000 158.644</div><div class="line">core:30</div><div class="line">64.00000 159.796</div><div class="line">core:36</div><div class="line">64.00000 162.938</div><div class="line">core:42</div><div class="line">64.00000 112.052</div><div class="line"></div><div class="line"></div><div class="line">//不绑核会一直慢，因为刚好内存在高地址，程序大概率在低core上运行</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line"></div><div class="line">#cat lat.log |grep -E &quot;core:|64.0000&quot;</div><div class="line">core:0</div><div class="line">64.00000 267.904</div><div class="line">core:6</div><div class="line">64.00000 266.112</div><div class="line">core:12</div><div class="line">64.00000 265.657</div><div class="line">core:18</div><div class="line">64.00000 266.033</div><div class="line">core:24</div><div class="line">64.00000 269.574</div><div class="line">core:30</div><div class="line">64.00000 269.640</div><div class="line">core:36</div><div class="line">64.00000 269.639</div><div class="line">core:42</div><div class="line">64.00000 266.373</div></pre></td></tr></table></figure>
-<p>如果绑核，看起来还是能识别距离远近，但是需要同时绑内存，默认绑核不绑核内存达不到就近分配</p>
-<p>内置分配默认从高地址开始，所以core 0总是最慢的。</p>
-<p>不绑核的话内存默认是在高地址，程序大概率远程访问内存，所以极慢</p>
-<h3 id="bios-off"><a href="#bios-off" class="headerlink" title="bios off"></a>bios off</h3><p>测试命令和结果：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">//以下三个命令结果一致</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; taskset -c $i ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line">for i in $(seq 0 6 47); do echo core:$i;  ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line"></div><div class="line">cat lat.log |grep -E &quot;core:|64.0000&quot;</div><div class="line">core:0</div><div class="line">64.00000 197.570</div><div class="line">core:6</div><div class="line">64.00000 204.362</div><div class="line">core:12</div><div class="line">64.00000 198.356</div><div class="line">core:18</div><div class="line">64.00000 197.049</div><div class="line">core:24</div><div class="line">64.00000 202.469</div><div class="line">core:30</div><div class="line">64.00000 199.367</div><div class="line">core:36</div><div class="line">64.00000 197.790</div><div class="line">core:42</div><div class="line">64.00000 197.757</div></pre></td></tr></table></figure>
-<p>rt稳定在200，之所以不符合短板原理是测试中多次取平均导致的，慢的还是慢，有的在近有的在远的地址，但平均值稳定</p>
-<p>交错编址的时候不会把一个cacheline拆分到多个node下的内存条上</p>
-<p>测试结果和OS的启动参数是否numa=off无关</p>
-<p>bios off后没有机会识别内存远近，也就是反复循环分配内存不可能一直分配到本node内</p>
-<h3 id="bios-on-and-os-on"><a href="#bios-on-and-os-on" class="headerlink" title="bios on and os on"></a>bios on and os on</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div></pre></td><td class="code"><pre><div class="line">lscpu</div><div class="line">Architecture:        x86_64</div><div class="line">CPU op-mode(s):      32-bit, 64-bit</div><div class="line">Byte Order:          Little Endian</div><div class="line">Address sizes:       43 bits physical, 48 bits virtual</div><div class="line">CPU(s):              48</div><div class="line">On-line CPU(s) list: 0-47</div><div class="line">Thread(s) per core:  1</div><div class="line">Core(s) per socket:  24</div><div class="line">Socket(s):           2</div><div class="line">NUMA node(s):        8</div><div class="line">Vendor ID:           HygonGenuine</div><div class="line">CPU family:          24</div><div class="line">Model:               1</div><div class="line">Model name:          Hygon C86 7260 24-core Processor</div><div class="line">Stepping:            1</div><div class="line">Frequency boost:     enabled</div><div class="line">CPU MHz:             1069.030</div><div class="line">CPU max MHz:         2200.0000</div><div class="line">CPU min MHz:         1200.0000</div><div class="line">BogoMIPS:            4399.35</div><div class="line">Virtualization:      AMD-V</div><div class="line">L1d cache:           1.5 MiB</div><div class="line">L1i cache:           3 MiB</div><div class="line">L2 cache:            24 MiB</div><div class="line">L3 cache:            128 MiB</div><div class="line">NUMA node0 CPU(s):   0-5</div><div class="line">NUMA node1 CPU(s):   6-11</div><div class="line">NUMA node2 CPU(s):   12-17</div><div class="line">NUMA node3 CPU(s):   18-23</div><div class="line">NUMA node4 CPU(s):   24-29</div><div class="line">NUMA node5 CPU(s):   30-35</div><div class="line">NUMA node6 CPU(s):   36-41</div><div class="line">NUMA node7 CPU(s):   42-47</div></pre></td></tr></table></figure>
-<p>测试命令和参数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div></pre></td><td class="code"><pre><div class="line">for i in $(seq 0 6 47); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line"></div><div class="line"># cat lat.log |grep -E &quot;core:|64.0000&quot;</div><div class="line">core:0</div><div class="line">64.00000 113.048</div><div class="line">core:6</div><div class="line">64.00000 167.637</div><div class="line">core:12</div><div class="line">64.00000 164.398</div><div class="line">core:18</div><div class="line">64.00000 163.328</div><div class="line">core:24</div><div class="line">64.00000 277.176</div><div class="line">core:30</div><div class="line">64.00000 277.157</div><div class="line">core:36</div><div class="line">64.00000 226.747</div><div class="line">core:42</div><div class="line">64.00000 278.472</div><div class="line"></div><div class="line"></div><div class="line">绑核不绑内存或者不绑核运行结果是一样的</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; taskset -c $i ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line">for i in $(seq 0 6 47); do echo core:$i; taskset -c $i ./bin/lat_mem_rd -W 5 -N 5 -t 64M; done &gt;lat.log 2&gt;&amp;1</div><div class="line"></div><div class="line">#cat lat.log |grep -E &quot;core:|64.0000&quot;</div><div class="line">core:0</div><div class="line">64.00000 112.990</div><div class="line">core:6</div><div class="line">64.00000 113.358</div><div class="line">core:12</div><div class="line">64.00000 114.146</div><div class="line">core:18</div><div class="line">64.00000 112.288</div><div class="line">core:24</div><div class="line">64.00000 114.103</div><div class="line">core:30</div><div class="line">64.00000 113.331</div><div class="line">core:36</div><div class="line">64.00000 114.151</div><div class="line">core:42</div><div class="line">64.00000 113.117</div></pre></td></tr></table></figure>
-<h3 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h3><ul>
-<li>只要是bios numa off后用 lat_mem_rd 测试的 rt 是一个大规模次数后的平均值，但是远近内存问题仍然存在，会导致抖动和卡顿</li>
-<li>如果 bios numa on，但是 OS numa off，绑核的话会分别看到不同核访问内存差异极大</li>
-<li>如果 bios numa on，同时 OS numa on，这种情况绑核后会出现完美就近访问，性能最佳</li>
-<li>默认地址分配从高地址开始，如果numa off 那么core 0 最慢；如果 numa on 且绑核会一直快；如果 numa on 但是不绑核，多次测试也是一直快</li>
-</ul>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/8/">8</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/9/">9</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -7425,7 +7446,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">160</span>
+                <span class="site-state-item-count">161</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -7447,7 +7468,7 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">251</span>
+                <span class="site-state-item-count">252</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
