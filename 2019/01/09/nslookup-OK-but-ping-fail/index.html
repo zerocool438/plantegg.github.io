@@ -106,7 +106,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png">
-<meta property="og:updated_time" content="2022-06-27T03:12:00.410Z">
+<meta property="og:updated_time" content="2023-08-28T04:49:03.833Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="nslookup-OK-but-ping-fail">
 <meta name="twitter:description" content="nslookup 域名结果正确，但是 ping 域名 返回 unknown host 2018-02 update : 最根本的原因 https://access.redhat.com/solutions/1426263  下面让我们来看看这个问题的定位过程先Google一下: nslookup ok but ping fail, 这个关键词居然被Google自动提示了，看来碰到这个问题同学的好多">
@@ -394,7 +394,7 @@
 <p>Google到的帖子大概有如下原因：</p>
 <ul>
 <li>域名最后没有加 . 然后被自动追加了 tbsite.net aliyun.com alidc.net，自然 ping不到了</li>
-<li>/etc/resolv.conf 配置的nameserver要保证都是正常服务的</li>
+<li>/etc/resolv.conf 配置的nameserver 要保证都是正常服务的</li>
 <li>/etc/nsswitch.conf 中的这行：hosts: files dns 配置成了 hosts: files mdns dns，而server不支持mdns</li>
 <li>域名是单标签的（domain 单标签； domain.com 多标签），单标签在windows下走的NBNS而不是DNS协议</li>
 </ul>
@@ -437,6 +437,11 @@
 <p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
 <p><a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570" target="_blank" rel="external">参考 glibc bug</a></p>
 <p><a href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc" target="_blank" rel="external">Linux内核与glibc</a></p>
+<blockquote>
+<p><code>getaddrinfo()</code> is a newer function that was introduced to replace <code>gethostbyname()</code> and provides a more flexible and robust way of resolving hostnames. <code>getaddrinfo()</code> can resolve both IPv4 and IPv6 addresses, and it supports more complex name resolution scenarios, such as service name resolution and name resolution with specific protocol families.</p>
+</blockquote>
+<p>linux主要是基于glibc，分析glibc源码（V2.17）getaddrinfo 逻辑如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">// search1、search2等是resolv.conf中配置的search域，会根据resolv.conf中ndots配置和qname的级数来决定</div><div class="line">// 先查加search域的域名还是后查加search域的域名，除没有配置nameserver外，任何错误都会重试下一个</div><div class="line">foreach domain(qname、qname.search1、qname.search2...) </div><div class="line">  foreach retry // resolv.conf中配置的retry数目</div><div class="line">    foreach ns // resolv.conf中配置的nameserver，最多有效的只有前三个，增加rotate 的option后，会从                         </div><div class="line">               //nameserver中（最多前三个）随机选择一个进行请求</div><div class="line">      foreach qtype（A、AAAA）</div><div class="line">      // 根据请求显试指定和系统是双栈还是单栈v4、or单栈v6来决定，如果两个</div><div class="line">      // 类型的话会同时并发请求，不会等另外一个返回。如果在resov.conf中指定</div><div class="line">      // single-request-reopen，则会每个类型请求新建一个链接，否则复用同一个</div><div class="line">        foreach (without_edns0, with_edns0 ) </div><div class="line">        // 注意：默认不支持edns0，如果要支持的话需要设置宏RES_USE_EDNS0，并重编译</div><div class="line">           if (timeout || rcode == servfail </div><div class="line">                || rcode == notimp || rcode == refuse) </div><div class="line">                // timeout时间第一次为resolv.conf中配置，后面的依据下面公式</div><div class="line">                //计算：(timeout&lt;&lt;index_of_dns_server)/num_of_dns_server</div><div class="line">              conftinue;</div></pre></td></tr></table></figure>
 <h2 id="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server"><a href="#还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server" class="headerlink" title="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server"></a>还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server</h2><p>这个时候ping 某个自己的dns server中才有的域名是没法解析到的，即使你配置了自己的dns server，如果这个时候你通过 nslookup 自己的域名, 自己的dns-server-ip 确实是能够解析到的。但是你只是 nslookup 自己的域名 就不行，明显可以看到这个时候nslookup把域名发给了127.0.0.1:53来解析，而这个端口正是easyconnect这个软件在监听，你也可以理解easyconnect这样的软件的工作方式就是必须要挟持你的dns解析，可以理解的是这个时候nslookup肯定解析不到你的域名(只把dns解析丢给第一个nameserver–127.0.0.1)，但是不能理解的是还是ping不通域名，正常ping的逻辑丢给第一个127.0.0.1解析不到域名的话，会丢给第二个dns-server继续尝试解析，但是这里的easyconnect没有进行第二次尝试，这也许是它实现上没有考虑到或者故意这样实现的。</p>
 <h2 id="其他情况"><a href="#其他情况" class="headerlink" title="其他情况"></a>其他情况</h2><p><a href="https://access.redhat.com/solutions/58028" target="_blank" rel="external">resolv.conf中search只能支持最多6个后缀（代码中写死了）</a>: This cannot be modified for RHEL 6.x and below and is resolved in RHEL7 glibc package versions at or exceeding glibc-2.17-222.el7.</p>
 <p>nameserver：指定nameserver，必须配置，每行指定一个nameserver，最多只能生效3行</p>
