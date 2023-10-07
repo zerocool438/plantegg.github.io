@@ -67,6 +67,105 @@
   </entry>
   
   <entry>
+    <title>time_zone 是怎么打爆你的MySQL的</title>
+    <link href="https://plantegg.github.io/2023/10/03/time_zone%E6%98%AF%E6%80%8E%E4%B9%88%E6%89%93%E7%88%86%E4%BD%A0%E7%9A%84MySQL%E7%9A%84/"/>
+    <id>https://plantegg.github.io/2023/10/03/time_zone是怎么打爆你的MySQL的/</id>
+    <published>2023-10-03T09:30:03.000Z</published>
+    <updated>2023-10-07T06:38:57.811Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="time-zone-是怎么打爆你的MySQL的"><a href="#time-zone-是怎么打爆你的MySQL的" class="headerlink" title="time_zone 是怎么打爆你的MySQL的"></a>time_zone 是怎么打爆你的MySQL的</h1><h2 id="基础知识"><a href="#基础知识" class="headerlink" title="基础知识"></a>基础知识</h2><p>这篇关于time_zone 的总结写得非常好<a href="https://opensource.actionsky.com/20211214-time_zone/" target="_blank" rel="external">Time_zone</a> ，建议先读完做个基础知识的打底</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>一般MySQL都会设置 time_zone 为 system，方便MySQL部署在不同的国家、时区也都能很好兼容，这是很符合逻辑的设置。</p>
+<p>如果我们的查询中有一个列类型是 timestamp 的话，意味着：</p>
+<blockquote>
+<p>timestamp 数据类型会存储当时 session的时区信息，读取时会根据当前 session 的时区进行转换；而 datetime 数据类型插入的是什么值，再读取就是什么值，不受时区影响。也可以理解为已经存储的数据是不会变的，只是 timestamp 类型数据在读取时会根据时区转换</p>
+</blockquote>
+<p>如果MySQL 读取 timestamp 字段时，需要做时区转换，当 time_zone 设置为 system 时，意味着MySQL 要去follow OS系统时区，也就是把读到的timestamp 根据OS系统时区进行转换，这个转换调用OS 的glibc 的时区函数来获取 Linux OS 的时区，在这个函数中会加 mutex 锁，当并发高时，会出现 mutex 竞争激烈，每次只有一个线程获得锁，释放锁时会唤醒所有等锁线程，但最终只有一个能获取，于是一下子导致系统 sys飙高、上下文切换飙高。每读取一行带 timestamp 字段时，都会通过这个 glibc 的时区函数导致锁竞争特别激烈最终 QPS 拉胯厉害。</p>
+<p>想一想，你一个SQL查1万行，10个并发这点流量其实一点都不过分，但是这里需要10*1万次转换，锁争抢就激烈了。</p>
+<p>分析参考这个： <a href="https://opensource.actionsky.com/20191112-mysql/" target="_blank" rel="external">https://opensource.actionsky.com/20191112-mysql/</a></p>
+<p>perf 以及火焰图如下：</p>
+<p><img src="/images/951413iMgBlog/image-20230830101924021.png" alt="image-20230830101924021"></p>
+<p><img src="/images/951413iMgBlog/1682500623154-5834bcae-4c74-4c72-bfec-f67717f71c91.png" alt="img"></p>
+<h2 id="解决"><a href="#解决" class="headerlink" title="解决"></a>解决</h2><p>在中国可以将 time_zone=’+8:00’ 将 time_zone 固定死，不再需要follow OS 时区，所以也不需要调用glibc 获取系统时区，避免了前面所说的锁竞争</p>
+<p>这个经验来自无数次线上故障复盘，因为 time_zone 设置为 system 是个默认行为，所以要全部改过来还真不容易，给了我们就业机会 :)</p>
+<p>当然学习总是希望交叉起来，既有深度又有宽度你才能掌握更好，所以请趁热打铁：</p>
+<h2 id="进一步学习"><a href="#进一步学习" class="headerlink" title="进一步学习"></a>进一步学习</h2><p><a href="https://juejin.cn/post/7029291622537887774" target="_blank" rel="external">东八区CST 被JDBC 驱动错误</a>识别成了美国的中央时间，<a href="https://dev.mysql.com/doc/relnotes/connector-j/8.0/en/news-8-0-23.html" target="_blank" rel="external">官方修复</a></p>
+]]></content>
+    
+    <summary type="html">
+    
+      &lt;h1 id=&quot;time-zone-是怎么打爆你的MySQL的&quot;&gt;&lt;a href=&quot;#time-zone-是怎么打爆你的MySQL的&quot; class=&quot;headerlink&quot; title=&quot;time_zone 是怎么打爆你的MySQL的&quot;&gt;&lt;/a&gt;time_zone 是怎么打爆你的
+    
+    </summary>
+    
+      <category term="MySQL" scheme="https://plantegg.github.io/categories/MySQL/"/>
+    
+    
+      <category term="CPU" scheme="https://plantegg.github.io/tags/CPU/"/>
+    
+      <category term="MySQL" scheme="https://plantegg.github.io/tags/MySQL/"/>
+    
+      <category term="time_zone" scheme="https://plantegg.github.io/tags/time-zone/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>localhost和127.0.0.1的区别</title>
+    <link href="https://plantegg.github.io/2023/09/24/localhost%E5%92%8C127.0.0.1%E7%9A%84%E5%8C%BA%E5%88%AB/"/>
+    <id>https://plantegg.github.io/2023/09/24/localhost和127.0.0.1的区别/</id>
+    <published>2023-09-24T09:30:03.000Z</published>
+    <updated>2023-10-07T06:38:45.705Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="localhost和127-0-0-1的区别"><a href="#localhost和127-0-0-1的区别" class="headerlink" title="localhost和127.0.0.1的区别"></a>localhost和127.0.0.1的区别</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>有人告诉我localhost和127.0.0.1的区别是localhost 不经过网卡，把我惊到了，因为我还真不知道这个知识点，于是去特别去验证了一下，这是个错误的理解，localhost会解析成127.0.0.1 然后接下来的流程和127.0.0.1 一模一样</p>
+<p>我用Google搜了下标题，果然得到如下图:</p>
+<p><img src="/images/951413iMgBlog/image-20230910100147730.png" alt="image-20230910100147730"></p>
+<p>红框里是排第一、第四的文章，都大言不惭地说localhost不经过网卡、不收防火墙网管限制等。</p>
+<p>我也看了下第二、第三的文章，这两篇都是说在MySQL命令行中连 localhost 的时候，MySQL命令行会判断 localhost 这个字符串然后不走DNS 解析流程(走的话就肯定解析成了127.0.0.1)，因为是本地连接，可以绕过OS 的内核栈用MySQLD 启动的时候生成的 unix-socket 管道直接连上MySQLD，这样效率更高。</p>
+<p>错误信息大概就是在MySQL这个特殊场景下演变而来的，<strong>英文搜索就没有这个错误污染信息</strong></p>
+<p>但这不是我要说的重点，我想说的是自己动手去求证！这一直都是我们星球里强调的能力和目标，我把<a href="https://twitter.com/plantegg/status/1700011179324920117" target="_blank" rel="external">这条发到Twitter上后有无数的傻逼跑出来质疑或者一知半解不去验证就丢一个结论，这是我最痛恨的</a>。比如：</p>
+<ul>
+<li><p>Localhost 写死了在 /etc/hosts(那我就要问，你清空/etc/hosts localhost还能工作吗？)</p>
+</li>
+<li><p>Localhost 不走网卡（但凡抓个包就知道走了，我估计他们抓了，抓的是eth0. 这里有个小小的歧义 loopback 本地回环网卡算不算网卡）</p>
+</li>
+</ul>
+<p>所以我特意再写篇文章再验证下各种质疑，并让大家看看是怎么验证的，我希望你们可以跟着验证一遍而不是只要知道个结论</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>Localhost 会按<a href="https://plantegg.github.io/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/">dns解析流程进行解析</a>，然后和127.0.0.1 一样。在特殊的程序中比如MySQL 命令行会对localhost提前做特别处理。</p>
+<p>完整的区别见<a href="https://www.tutorialspoint.com/difference-between-localhost-and-127-0-0-1#:~:text=The%20most%20significant%20difference%20between,look%20up%20a%20table%20somewhere." target="_blank" rel="external">这篇英文</a>(Google 英文第一篇就是)总结：</p>
+<p><img src="/images/951413iMgBlog/image-20230910101843256.png" alt="image-20230910101843256"></p>
+<h2 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h2><h3 id="问题1：经过网卡吗？"><a href="#问题1：经过网卡吗？" class="headerlink" title="问题1：经过网卡吗？"></a>问题1：经过网卡吗？</h3><p>Ping localhost，然后 tcpdump -i any（抓所有网卡）icmp (精确点只抓ping包)，可以明显抓到网络包，所以肯定经过网卡</p>
+<h3 id="问题2：localhost和127-0-0-1-的关系"><a href="#问题2：localhost和127-0-0-1-的关系" class="headerlink" title="问题2：localhost和127.0.0.1 的关系"></a>问题2：localhost和127.0.0.1 的关系</h3><p>如图是我在centos、微软azure(应该是个ubuntu)、macos下做的测试：</p>
+<p><img src="/images/951413iMgBlog/image-20230910103644707.png" alt="image-20230910103644707"></p>
+<h3 id="问题3：如果-etc-hosts-中没有写死-localhost-127-0-0-1-会怎么样？"><a href="#问题3：如果-etc-hosts-中没有写死-localhost-127-0-0-1-会怎么样？" class="headerlink" title="问题3：如果/etc/hosts 中没有写死 localhost 127.0.0.1 会怎么样？"></a>问题3：如果/etc/hosts 中没有写死 localhost 127.0.0.1 会怎么样？</h3><p>如下图，ping的时候即使没有 /etc/hosts 也可以把localhost 解析成127.0.0.1，为什么呢？所以接着我就 nslookup 看一下是那个DNS server做的这事，最后我用114.114.114.114 这个公网的DNS 做了解析，就不认识localhost了，说明去掉 /etc/hosts 之后 会把localhost 发给dns server解析，标准的dns(比如114.114.114.114,8.8.8.8) 都不会返回127.0.0.1 ，但是有些特定实现的为了省事帮你解析到127.0.0.1了</p>
+<p><img src="/images/951413iMgBlog/image-20230910104133832.png" alt="image-20230910104133832"></p>
+<h3 id="问题4：127-0-0-1比localhost少了查-etc-hsots-到底快多少"><a href="#问题4：127-0-0-1比localhost少了查-etc-hsots-到底快多少" class="headerlink" title="问题4：127.0.0.1比localhost少了查/etc/hsots 到底快多少?"></a>问题4：127.0.0.1比localhost少了查/etc/hsots 到底快多少?</h3><p>这个问题来自这个评论：<a href="https://twitter.com/InnerHack/status/1700012845302436087" target="_blank" rel="external">https://twitter.com/InnerHack/status/1700012845302436087</a>  所以我去验证了一下，特别强调这个数据意义不大，但是你们可以学会用strace，命令：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">strace -tt ping -c 1 localhost</div></pre></td></tr></table></figure>
+<p>然后你得到如下图，从strace时间戳你可以看到 localhost 解析成127.0.0.1 的过程，再后面就是ping 127.0.0.1(这里也说明了前面的结论，两者是一样的，就是多了域名解析)</p>
+<p><img src="/images/951413iMgBlog/image-20230910104733229.png" alt="image-20230910104733229"></p>
+<p>域名解析的时候，先去找/etc/hosts 没找到再去找 /etc/resolv.conf 拿dns server ip然后把localhost发给这个dns  server 解析，tcpdump抓包如下，红框是dns server返回的结果：</p>
+<p><img src="/images/951413iMgBlog/image-20230910105107629.png" alt="image-20230910105107629"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>唯有动手能解释一切，不要空逼逼(不是说你们，是说Twitter上那帮人，我是被他们留言多了逼着写了这篇)</p>
+<p>我是欢迎一切有理有据的质疑，事实文中很多信息来源于别人的质疑，然后我去验证</p>
+<p>然后好多验证手段你们可以学学，比如nslookup/tcpdump/strace 等。</p>
+]]></content>
+    
+    <summary type="html">
+    
+      &lt;h1 id=&quot;localhost和127-0-0-1的区别&quot;&gt;&lt;a href=&quot;#localhost和127-0-0-1的区别&quot; class=&quot;headerlink&quot; title=&quot;localhost和127.0.0.1的区别&quot;&gt;&lt;/a&gt;localhost和127.0.0.1的
+    
+    </summary>
+    
+      <category term="network" scheme="https://plantegg.github.io/categories/network/"/>
+    
+    
+      <category term="Linux" scheme="https://plantegg.github.io/tags/Linux/"/>
+    
+      <category term="localhost" scheme="https://plantegg.github.io/tags/localhost/"/>
+    
+      <category term="dns" scheme="https://plantegg.github.io/tags/dns/"/>
+    
+  </entry>
+  
+  <entry>
     <title>解决Java/MySQL性能问题的思路</title>
     <link href="https://plantegg.github.io/2023/08/28/%E8%A7%A3%E5%86%B3%E9%97%AE%E9%A2%98%E6%80%9D%E8%B7%AF/"/>
     <id>https://plantegg.github.io/2023/08/28/解决问题思路/</id>
@@ -2136,158 +2235,6 @@
       <category term="CPU" scheme="https://plantegg.github.io/tags/CPU/"/>
     
       <category term="nginx" scheme="https://plantegg.github.io/tags/nginx/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>MySQL 8.0新特性和性能数据</title>
-    <link href="https://plantegg.github.io/2022/07/03/MySQL8.0%E7%9A%84%E4%B8%80%E4%BA%9B%E6%95%B0%E6%8D%AE/"/>
-    <id>https://plantegg.github.io/2022/07/03/MySQL8.0的一些数据/</id>
-    <published>2022-07-03T09:30:03.000Z</published>
-    <updated>2022-12-01T06:52:55.167Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="MySQL-8-0新特性和性能数据"><a href="#MySQL-8-0新特性和性能数据" class="headerlink" title="MySQL 8.0新特性和性能数据"></a>MySQL 8.0新特性和性能数据</h1><h2 id="MySQL-8-0带来了很多新特性"><a href="#MySQL-8-0带来了很多新特性" class="headerlink" title="MySQL 8.0带来了很多新特性"></a>MySQL 8.0带来了很多新特性</h2><p>针对性能方面介绍全在这个PPT（ <a href="http://dimitrik.free.fr/Presentations/MySQL_Perf-OOW2018-dim.pdf）里面了：" target="_blank" rel="external">http://dimitrik.free.fr/Presentations/MySQL_Perf-OOW2018-dim.pdf）里面了：</a></p>
-<p>IO_Bound 下性能提升简直非常明显，之前主要是fil_system的锁导致IO的并发上不去，见图1。</p>
-<p>因为优化了redo的写入模式，采用了事件的模型，所以写入场景有较好的提升 。</p>
-<p>utf8mb4在点查询场景优势不明显，在distinct range查询下有30%提升。</p>
-<p>内存只读场景略有提升。</p>
-<p>还有傲腾对SSD的数据，不过Intel都放弃了，就不说了。</p>
-<h2 id="性能"><a href="#性能" class="headerlink" title="性能"></a>性能</h2><h3 id="page-size"><a href="#page-size" class="headerlink" title="page size"></a>page size</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
-<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
-<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
-<p>8.0中总算优化了这个场景，测试细节可以参考<a href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html" target="_blank" rel="external">这篇</a></p>
-<p>16K VS 4K 性能对比（4K接近翻倍）</p>
-<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
-<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
-<h3 id="REDO的优化"><a href="#REDO的优化" class="headerlink" title="REDO的优化"></a><strong>REDO的优化</strong></h3><p>redo的优化似乎是8.0读写性能优于以往的主要原因</p>
-<p>redo的模型改成了事件驱动，而不是通过争抢锁实现，专用的flush线程刷完IO后通知用户线程，并且会根据IO的rt自动调整每次flush的data大小，如果io延迟很低，就大量小IO，如果IO延迟高，就用大io刷，也就说redo的刷写能力完全取决于IO的吞吐</p>
-<p>但是事件驱动的方式在小并发下性能没有单线程锁的方式高效，这块已经优化了，需要自己测下效果</p>
-<p><img src="/images/951413iMgBlog/image-20220810150929638.png" alt="image-20220810150929638"></p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>MySQL 8.0优化总结，从官方给出的数据来看，可以总结如下</p>
-<ul>
-<li>只读场景没有什么优化</li>
-<li><a href="https://yuque.antfin-inc.com/frodo/lyul32/qcggx4#b329a99a" target="_blank" rel="external">utf8mb4的性能提升比较明显</a></li>
-<li>优化了fil_system，<a href="https://yuque.antfin-inc.com/frodo/lyul32/qcggx4#26583664" target="_blank" rel="external">MySQL 可以尝试使用4K的页</a></li>
-<li>8.0使用新硬件能够获得较好的收益，多socket, optane</li>
-<li>由于redo的优化以及<a href="https://mysqlserverteam.com/contention-aware-transaction-scheduling-arriving-in-innodb-to-boost-performance/" target="_blank" rel="external">新的热点检查算法</a>，关闭binlog下，读写混合的场景性能比5.7好很多，但是生产环境无法关闭binlog，默认的字符集也不是latin，所以具体的数据需要单独测试，官方数据只能参考</li>
-<li>Double Write的问题需要在高并发，低命中率下才会触发，生产环境遇到的不多，该问题预计下个版本就修复了</li>
-<li>生产环境需要关闭UNDO Auto-Truncate </li>
-<li>binlog的问题在8.0比较明显，暂时没有解法</li>
-<li>另外innodb_flush_method=O_DIRECT_NO_FSYNC 在8.0.14版本后可以保障应用的稳定性了</li>
-</ul>
-<blockquote>
-<p>Prior to 8.0.14, the <code>O_DIRECT_NO_FSYNC</code> setting is not recommended for use on Linux systems. It may cause the operating system to hang due to file system metadata becoming unsynchronized. As of MySQL 8.0.14, <code>InnoDB</code> calls <code>fsync()</code> after creating a new file, after increasing file size, and after closing a file, which permits <code>O_DIRECT_NO_FSYNC</code> mode to be safely used on EXT4 and XFS file systems. The <code>fsync()</code> system call is still skipped after each write operation.</p>
-</blockquote>
-]]></content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;MySQL-8-0新特性和性能数据&quot;&gt;&lt;a href=&quot;#MySQL-8-0新特性和性能数据&quot; class=&quot;headerlink&quot; title=&quot;MySQL 8.0新特性和性能数据&quot;&gt;&lt;/a&gt;MySQL 8.0新特性和性能数据&lt;/h1&gt;&lt;h2 id=&quot;MySQL
-    
-    </summary>
-    
-      <category term="MySQL" scheme="https://plantegg.github.io/categories/MySQL/"/>
-    
-    
-      <category term="performance" scheme="https://plantegg.github.io/tags/performance/"/>
-    
-      <category term="MySQL" scheme="https://plantegg.github.io/tags/MySQL/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>上下文切换的代价</title>
-    <link href="https://plantegg.github.io/2022/06/05/%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%E5%BC%80%E9%94%80/"/>
-    <id>https://plantegg.github.io/2022/06/05/上下文切换开销/</id>
-    <published>2022-06-05T09:30:00.000Z</published>
-    <updated>2022-09-22T01:06:57.117Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="上下文切换的代价"><a href="#上下文切换的代价" class="headerlink" title="上下文切换的代价"></a>上下文切换的代价</h1><h2 id="概念"><a href="#概念" class="headerlink" title="概念"></a>概念</h2><p>进程切换、软中断、内核态用户态切换、CPU超线程切换</p>
-<p>内核态用户态切换：还是在一个线程中，只是由用户态进入内核态为了安全等因素需要更多的指令，系统调用具体多做了啥请看：<a href="https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S#L145" target="_blank" rel="external">https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S#L145</a></p>
-<p>软中断：比如网络包到达，触发ksoftirqd(每个核一个)进程来处理，是进程切换的一种</p>
-<p>进程切换是里面最重的，少不了上下文切换，代价还有进程阻塞唤醒调度。另外进程切换有主动让出CPU的切换、也有时间片用完后被切换</p>
-<p>CPU超线程切换：最轻，发生在CPU内部，OS、应用都无法感知</p>
-<p>多线程调度下的热点火焰图：</p>
-<p><img src="/images/951413iMgBlog/7ece6c553c78927c7886f70c09d7e15b.png" alt="image.png"></p>
-<p>上下文切换后还会因为调度的原因导致线程卡顿更久</p>
-<p>Linux 内核进程调度时间片一般是HZ的倒数，HZ在编译的时候一般设置为1000，倒数也就是1ms，也就是每个进程的时间片是1ms（早年是10ms–HZ 为100的时候），如果进程1阻塞让出CPU进入调度队列，这个时候调度队列前还有两个进程2/3在排队，也就是最差会在2ms后才轮到1被调度执行。负载决定了排队等待调度队列的长短，如果轮到调度的进程已经ready那么性能没有浪费，反之如果轮到被调度但是没有ready（比如网络回包没到达）相当浪费了一次调度</p>
-<blockquote>
-<p><code>sched_min_granularity_ns</code> is the most prominent setting. In the original <a href="https://elixir.bootlin.com/linux/v2.6.25/source/Documentation/scheduler/sched-design-CFS.txt#L82" target="_blank" rel="external">sched-design-CFS.txt</a> this was described as the only “tunable” setting, “to tune the scheduler from ‘desktop’ (low latencies) to ‘server’ (good batching) workloads.”</p>
-<p>In other words, we can change this setting to reduce overheads from context-switching, and therefore improve throughput at the cost of responsiveness (“latency”).</p>
-<p>The CFS setting as mimicking the previous build-time setting, <a href="https://elixir.bootlin.com/linux/v2.6.25/source/kernel/Kconfig.hz" target="_blank" rel="external">CONFIG_HZ</a>. In the first version of the CFS code, the default value was 1 ms, equivalent to 1000 Hz for “desktop” usage. Other supported values of CONFIG_HZ were 250 Hz (the default), and 100 Hz for the “server” end. 100 Hz was also useful when running Linux on very slow CPUs, this was one of the reasons given <a href="https://lwn.net/Articles/56378/" target="_blank" rel="external">when CONFIG_HZ was first added as an build setting on X86</a>.</p>
-</blockquote>
-<p>或者参数调整：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep -i sched_ |grep -v cpu</div><div class="line">kernel.sched_autogroup_enabled = 0</div><div class="line">kernel.sched_cfs_bandwidth_slice_us = 5000</div><div class="line">kernel.sched_cfs_bw_burst_enabled = 1</div><div class="line">kernel.sched_cfs_bw_burst_onset_percent = 0</div><div class="line">kernel.sched_child_runs_first = 0</div><div class="line">kernel.sched_latency_ns = 24000000</div><div class="line">kernel.sched_migration_cost_ns = 500000</div><div class="line">kernel.sched_min_granularity_ns = 3000000</div><div class="line">kernel.sched_nr_migrate = 32</div><div class="line">kernel.sched_rr_timeslice_ms = 100</div><div class="line">kernel.sched_rt_period_us = 1000000</div><div class="line">kernel.sched_rt_runtime_us = 950000</div><div class="line">kernel.sched_schedstats = 1</div><div class="line">kernel.sched_tunable_scaling = 1</div><div class="line">kernel.sched_wakeup_granularity_ns = 4000000</div></pre></td></tr></table></figure>
-<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><h3 id="How-long-does-it-take-to-make-a-context-switch"><a href="#How-long-does-it-take-to-make-a-context-switch" class="headerlink" title="How long does it take to make a context switch?"></a><a href="https://blog.tsunanet.net/2010/11/how-long-does-it-take-to-make-context.html" target="_blank" rel="external">How long does it take to make a context switch?</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div><div class="line">85</div><div class="line">86</div><div class="line">87</div><div class="line">88</div></pre></td><td class="code"><pre><div class="line">model name : Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">2 physical CPUs, 26 cores/CPU, 2 hardware threads/core = 104 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 1144720626ns (114.5ns/syscall)</div><div class="line">2000000 process context switches in 6280519812ns (3140.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 6417846724ns (3208.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 147035970ns (73.5ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 1109675081ns (111.0ns/syscall)</div><div class="line">2000000 process context switches in 4204573541ns (2102.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2740739815ns (1370.4ns/ctxsw)</div><div class="line">2000000  thread context switches in 474815006ns (237.4ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 1039827099ns (104.0ns/syscall)</div><div class="line">2000000 process context switches in 5622932975ns (2811.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 5697704164ns (2848.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 143474146ns (71.7ns/ctxsw)</div><div class="line">----------</div><div class="line">model name : Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</div><div class="line">2 physical CPUs, 16 cores/CPU, 2 hardware threads/core = 64 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 772827735ns (77.3ns/syscall)</div><div class="line">2000000 process context switches in 4009838007ns (2004.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 5234823470ns (2617.4ns/ctxsw)</div><div class="line">2000000  thread context switches in 193276269ns (96.6ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 746578449ns (74.7ns/syscall)</div><div class="line">2000000 process context switches in 3598569493ns (1799.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2475733882ns (1237.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 381484302ns (190.7ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 746674401ns (74.7ns/syscall)</div><div class="line">2000000 process context switches in 4129856807ns (2064.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 4226458450ns (2113.2ns/ctxsw)</div><div class="line">2000000  thread context switches in 193047255ns (96.5ns/ctxsw)</div><div class="line">---------</div><div class="line">model name : Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz</div><div class="line">2 physical CPUs, 24 cores/CPU, 2 hardware threads/core = 96 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 765013680ns (76.5ns/syscall)</div><div class="line">2000000 process context switches in 5906908170ns (2953.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 6741875538ns (3370.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 173271254ns (86.6ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 764139687ns (76.4ns/syscall)</div><div class="line">2000000 process context switches in 4040915457ns (2020.5ns/ctxsw)</div><div class="line">2000000  thread context switches in 2327904634ns (1164.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 378847082ns (189.4ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 762375921ns (76.2ns/syscall)</div><div class="line">2000000 process context switches in 5827318932ns (2913.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 6360562477ns (3180.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 173019064ns (86.5ns/ctxsw)</div><div class="line">--------ECS</div><div class="line">model name : Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">1 physical CPUs, 2 cores/CPU, 2 hardware threads/core = 4 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 561242906ns (56.1ns/syscall)</div><div class="line">2000000 process context switches in 3025706345ns (1512.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 3333843503ns (1666.9ns/ctxsw)</div><div class="line">2000000  thread context switches in 145410372ns (72.7ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 586742944ns (58.7ns/syscall)</div><div class="line">2000000 process context switches in 2369203084ns (1184.6ns/ctxsw)</div><div class="line">2000000  thread context switches in 1929627973ns (964.8ns/ctxsw)</div><div class="line">2000000  thread context switches in 335827569ns (167.9ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 630259940ns (63.0ns/syscall)</div><div class="line">2000000 process context switches in 3027444795ns (1513.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 3172677638ns (1586.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 144168251ns (72.1ns/ctxsw)</div><div class="line">---------kupeng 920</div><div class="line">2 physical CPUs, 96 cores/CPU, 1 hardware threads/core = 192 hw threads total</div><div class="line">-- No CPU affinity --</div><div class="line">10000000 system calls in 1216730780ns (121.7ns/syscall)</div><div class="line">2000000 process context switches in 4653366132ns (2326.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 4689966324ns (2345.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 167871167ns (83.9ns/ctxsw)</div><div class="line">-- With CPU affinity --</div><div class="line">10000000 system calls in 1220106854ns (122.0ns/syscall)</div><div class="line">2000000 process context switches in 3420506934ns (1710.3ns/ctxsw)</div><div class="line">2000000  thread context switches in 2962106029ns (1481.1ns/ctxsw)</div><div class="line">2000000  thread context switches in 543325133ns (271.7ns/ctxsw)</div><div class="line">-- With CPU affinity to CPU 0 --</div><div class="line">10000000 system calls in 1216466158ns (121.6ns/syscall)</div><div class="line">2000000 process context switches in 2797948549ns (1399.0ns/ctxsw)</div><div class="line">2000000  thread context switches in 3119316050ns (1559.7ns/ctxsw)</div><div class="line">2000000  thread context switches in 167728516ns (83.9ns/ctxsw)</div></pre></td></tr></table></figure>
-<p>测试代码仓库：<a href="https://github.com/tsuna/contextswitch" target="_blank" rel="external">https://github.com/tsuna/contextswitch</a></p>
-<p>Source code: <a href="https://github.com/tsuna/contextswitch/blob/master/timectxsw.c" target="_blank" rel="external">timectxsw.c</a> Results:</p>
-<ul>
-<li>Intel 5150: ~4300ns/context switch</li>
-<li>Intel E5440: ~3600ns/context switch</li>
-<li>Intel E5520: ~4500ns/context switch</li>
-<li>Intel X5550: ~3000ns/context switch</li>
-<li>Intel L5630: ~3000ns/context switch</li>
-<li>Intel E5-2620: ~3000ns/context switch</li>
-</ul>
-<p>如果绑核后上下文切换能提速在66-45%之间</p>
-<p>系统调用代价</p>
-<p>Source code: <a href="https://github.com/tsuna/contextswitch/blob/master/timesyscall.c" target="_blank" rel="external">timesyscall.c</a> Results:</p>
-<ul>
-<li>Intel 5150: 105ns/syscall</li>
-<li>Intel E5440: 87ns/syscall</li>
-<li>Intel E5520: 58ns/syscall</li>
-<li>Intel X5550: 52ns/syscall</li>
-<li>Intel L5630: 58ns/syscall</li>
-<li>Intel E5-2620: 67ns/syscall</li>
-</ul>
-<p><a href="https://mp.weixin.qq.com/s/uq5s5vwk5vtPOZ30sfNsOg" target="_blank" rel="external">https://mp.weixin.qq.com/s/uq5s5vwk5vtPOZ30sfNsOg</a> 进程/线程切换究竟需要多少开销？</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div></pre></td><td class="code"><pre><div class="line"><span class="comment">/*</span></div><div class="line">创建两个进程并在它们之间传送一个令牌。其中一个进程在读取令牌时就会引起阻塞。另一个进程发送令牌后等待其返回时也处于阻塞状态。如此往返传送一定的次数，然后统计他们的平均单次切换时间开销</div><div class="line">代码来自：https://www.jianshu.com/p/be3250786a91</div><div class="line">*/</div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdlib.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/time.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;time.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sched.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/types.h&gt;  </span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;      //pipe()  </span></span></div><div class="line">  </div><div class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">()</span>  </span></div><div class="line">&#123;  </div><div class="line">    <span class="keyword">int</span> x, i, fd[<span class="number">2</span>], p[<span class="number">2</span>];  </div><div class="line">    <span class="keyword">char</span> send    = <span class="string">'s'</span>;  </div><div class="line">    <span class="keyword">char</span> receive;  </div><div class="line">    pipe(fd);  </div><div class="line">    pipe(p);  </div><div class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">timeval</span> <span class="title">tv</span>;</span>  </div><div class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">sched_param</span> <span class="title">param</span>;</span>  </div><div class="line">    param.sched_priority = <span class="number">0</span>;  </div><div class="line">  </div><div class="line">    <span class="keyword">while</span> ((x = fork()) == <span class="number">-1</span>); </div><div class="line">    <span class="keyword">if</span> (x==<span class="number">0</span>) &#123;  </div><div class="line">        sched_setscheduler(getpid(), SCHED_FIFO, &amp;param);  </div><div class="line">        gettimeofday(&amp;tv, <span class="literal">NULL</span>);  </div><div class="line">        <span class="built_in">printf</span>(<span class="string">"Before Context Switch Time%u s, %u us\n"</span>, tv.tv_sec, tv.tv_usec);  </div><div class="line">        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">10000</span>; i++) &#123;  </div><div class="line">            read(fd[<span class="number">0</span>], &amp;receive, <span class="number">1</span>);  </div><div class="line">            write(p[<span class="number">1</span>], &amp;send, <span class="number">1</span>);  </div><div class="line">        &#125;  </div><div class="line">        <span class="built_in">exit</span>(<span class="number">0</span>);  </div><div class="line">    &#125;  </div><div class="line">    <span class="keyword">else</span> &#123;  </div><div class="line">        sched_setscheduler(getpid(), SCHED_FIFO, &amp;param);  </div><div class="line">        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">10000</span>; i++) &#123;  </div><div class="line">            write(fd[<span class="number">1</span>], &amp;send, <span class="number">1</span>);  </div><div class="line">            read(p[<span class="number">0</span>], &amp;receive, <span class="number">1</span>);  </div><div class="line">        &#125;  </div><div class="line">        gettimeofday(&amp;tv, <span class="literal">NULL</span>);  </div><div class="line">        <span class="built_in">printf</span>(<span class="string">"After Context SWitch Time%u s, %u us\n"</span>, tv.tv_sec, tv.tv_usec);  </div><div class="line">    &#125;  </div><div class="line">    <span class="keyword">return</span> <span class="number">0</span>;  </div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>平均每次上下文切换耗时3.5us左右</p>
-<h2 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a>软中断开销计算</h2><p>下面的计算方法比较糙，仅供参考。压力越大，一次软中断需要处理的网络包数量就越多，消耗的时间越长。如果包数量太少那么测试干扰就太严重了，数据也不准确。</p>
-<p>测试机将收发队列设置为1，让所有软中断交给一个core来处理。</p>
-<p>无压力时 interrupt大概4000，然后故意跑压力，CPU跑到80%，通过vmstat和top查看：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">$vmstat 1 </div><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line">19  0      0 174980 151840 3882800    0    0     0    11    1    1  1  0 99  0  0</div><div class="line">11  0      0 174820 151844 3883668    0    0     0     0 30640 113918 59 22 20  0  0</div><div class="line"> 9  0      0 175952 151852 3884576    0    0     0   224 29611 108549 57 22 21  0  0</div><div class="line">11  0      0 171752 151852 3885636    0    0     0  3452 30682 113874 57 22 21  0  0</div></pre></td></tr></table></figure>
-<p>top看到 si% 大概为20%，也就是一个核25000个interrupt需要消耗 20% 的CPU, 说明这些软中断消耗了200毫秒</p>
-<p>200*1000微秒/25000=200/25=8微秒，8000纳秒 – 偏高</p>
-<p>降低压力CPU 跑到55% si消耗12%</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 6  0      0 174180 152076 3884360    0    0     0     0 25314 119681 40 17 43  0  0</div><div class="line"> 1  0      0 172600 152080 3884308    0    0     0   252 24971 116407 40 17 43  0  0</div><div class="line"> 4  0      0 174664 152080 3884540    0    0     0  3536 25164 118175 39 18 42  0  0</div></pre></td></tr></table></figure>
-<p>120*1000微秒/(21000)=5.7微秒， 5700纳秒 – 偏高</p>
-<p>降低压力（4核CPU只压到15%）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 0  0      0 183228 151788 3876288    0    0     0     0 15603 42460  6  3 91  0  0</div><div class="line"> 0  0      0 181312 151788 3876032    0    0     0     0 15943 43129  7  2 91  0  0</div><div class="line"> 1  0      0 181728 151788 3876544    0    0     0  3232 15790 42409  7  3 90  0  0</div><div class="line"> 0  0      0 181584 151788 3875956    0    0     0     0 15728 42641  7  3 90  0  0</div><div class="line"> 1  0      0 179276 151792 3876848    0    0     0   192 15862 42875  6  3 91  0  0</div><div class="line"> 0  0      0 179508 151796 3876424    0    0     0     0 15404 41899  7  2 91  0  0</div></pre></td></tr></table></figure>
-<p>单核11000 interrupt，对应 si CPU 2.2%</p>
-<p>22*1000/11000= 2微秒 2000纳秒 略微靠谱</p>
-<h2 id="超线程切换开销"><a href="#超线程切换开销" class="headerlink" title="超线程切换开销"></a>超线程切换开销</h2><p>最小，基本可以忽略，1ns以内</p>
-<h2 id="lmbench测试工具"><a href="#lmbench测试工具" class="headerlink" title="lmbench测试工具"></a>lmbench测试工具</h2><p>lmbench的lat_ctx等，单位是微秒，压力小的时候一次进程的上下文是1540纳秒</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">[root@plantegg 13:19 /root/lmbench3]</div><div class="line"><span class="meta">#</span><span class="bash">taskset -c 4 ./bin/lat_ctx -P 2 -W warmup -s 64 2  //CPU 打满</span></div><div class="line">"size=64k ovr=3.47</div><div class="line">2 7.88</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4 ./bin/lat_ctx -P 1 -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.46</div><div class="line">2 1.54</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-5 ./bin/lat_ctx  -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.44</div><div class="line">2 3.11</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-7 ./bin/lat_ctx -P 2 -W warmup -s 64 2  //CPU 打到50%</span></div><div class="line">"size=64k ovr=3.48</div><div class="line">2 3.14</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">taskset -c 4-15 ./bin/lat_ctx -P 3 -W warmup -s 64 2</span></div><div class="line">"size=64k ovr=3.46</div><div class="line">2 3.18</div></pre></td></tr></table></figure>
-<h2 id="协程对性能的影响"><a href="#协程对性能的影响" class="headerlink" title="协程对性能的影响"></a>协程对性能的影响</h2><p>将WEB服务改用协程调度后，TPS提升50%（30000提升到45000），而contextswitch数量从11万降低到8000（无压力的cs也有4500）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----</div><div class="line"> r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st</div><div class="line"> 5  0      0 3831480 153136 3819244    0    0     0     0 23599 6065 79 19  2  0  0</div><div class="line"> 4  0      0 3829208 153136 3818824    0    0     0   160 23324 7349 80 18  2  0  0</div><div class="line"> 4  0      0 3833320 153140 3818672    0    0     0     0 24567 8213 80 19  2  0  0</div><div class="line"> 4  0      0 3831880 153140 3818532    0    0     0     0 24339 8350 78 20  2  0  0</div><div class="line"> </div><div class="line">[  99s] threads: 60, tps: 0.00, reads/s: 44609.77, writes/s: 0.00, response time: 2.05ms (95%)</div><div class="line">[ 100s] threads: 60, tps: 0.00, reads/s: 46538.27, writes/s: 0.00, response time: 1.99ms (95%)</div><div class="line">[ 101s] threads: 60, tps: 0.00, reads/s: 46061.84, writes/s: 0.00, response time: 2.01ms (95%)</div><div class="line">[ 102s] threads: 60, tps: 0.00, reads/s: 46961.05, writes/s: 0.00, response time: 1.94ms (95%)</div><div class="line">[ 103s] threads: 60, tps: 0.00, reads/s: 46224.15, writes/s: 0.00, response time: 2.00ms (95%)</div><div class="line">[ 104s] threads: 60, tps: 0.00, reads/s: 46556.93, writes/s: 0.00, response time: 1.98ms (95%)</div><div class="line">[ 105s] threads: 60, tps: 0.00, reads/s: 45965.12, writes/s: 0.00, response time: 1.97ms (95%)</div><div class="line">[ 106s] threads: 60, tps: 0.00, reads/s: 46369.96, writes/s: 0.00, response time: 2.01ms (95%)</div><div class="line"></div><div class="line">//4core 机器下</div><div class="line"> PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</div><div class="line"> 11588 admin     20   0   12.9g   6.9g  22976 R 95.7 45.6   0:33.07 Root-Worke //四个协程把CPU基本跑满</div><div class="line"> 11586 admin     20   0   12.9g   6.9g  22976 R 93.7 45.6   0:34.29 Root-Worke</div><div class="line"> 11587 admin     20   0   12.9g   6.9g  22976 R 93.7 45.6   0:32.58 Root-Worke</div><div class="line"> 11585 admin     20   0   12.9g   6.9g  22976 R 92.0 45.6   0:33.25 Root-Worke</div></pre></td></tr></table></figure>
-<p>没开协程CPU有20%闲置打不上去，开了协程后CPU 跑到95%</p>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
-<li>进程上下文切换需要几千纳秒（不同CPU型号会有差异）</li>
-<li>如果做taskset 那么上下文切换会减少50%的时间（避免了L1、L2 Miss等）</li>
-<li>线程比进程上下文切换略快10%左右</li>
-<li>测试数据和实际运行场景相关很大，比较难以把控，CPU竞争太激烈容易把等待调度时间计入；如果CPU比较闲体现不出cache miss等导致的时延加剧</li>
-<li>系统调用相对进程上下文切换就很轻了，大概100ns以内</li>
-<li>函数调用更轻，大概几个ns，压栈跳转</li>
-<li>CPU的超线程调度和函数调用差不多，都是几个ns可以搞定</li>
-</ul>
-<p>看完这些数据再想想协程是在做什么、为什么效率高就很自然的了</p>
-]]></content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;上下文切换的代价&quot;&gt;&lt;a href=&quot;#上下文切换的代价&quot; class=&quot;headerlink&quot; title=&quot;上下文切换的代价&quot;&gt;&lt;/a&gt;上下文切换的代价&lt;/h1&gt;&lt;h2 id=&quot;概念&quot;&gt;&lt;a href=&quot;#概念&quot; class=&quot;headerlink&quot; titl
-    
-    </summary>
-    
-      <category term="performance" scheme="https://plantegg.github.io/categories/performance/"/>
-    
-    
-      <category term="performance" scheme="https://plantegg.github.io/tags/performance/"/>
-    
-      <category term="Linux" scheme="https://plantegg.github.io/tags/Linux/"/>
-    
-      <category term="contextswitch" scheme="https://plantegg.github.io/tags/contextswitch/"/>
     
   </entry>
   

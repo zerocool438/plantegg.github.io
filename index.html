@@ -445,6 +445,319 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/10/03/time_zone是怎么打爆你的MySQL的/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2023/10/03/time_zone是怎么打爆你的MySQL的/" itemprop="url">time_zone 是怎么打爆你的MySQL的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2023-10-03T17:30:03+08:00">
+                2023-10-03
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="time-zone-是怎么打爆你的MySQL的"><a href="#time-zone-是怎么打爆你的MySQL的" class="headerlink" title="time_zone 是怎么打爆你的MySQL的"></a>time_zone 是怎么打爆你的MySQL的</h1><h2 id="基础知识"><a href="#基础知识" class="headerlink" title="基础知识"></a>基础知识</h2><p>这篇关于time_zone 的总结写得非常好<a href="https://opensource.actionsky.com/20211214-time_zone/" target="_blank" rel="external">Time_zone</a> ，建议先读完做个基础知识的打底</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>一般MySQL都会设置 time_zone 为 system，方便MySQL部署在不同的国家、时区也都能很好兼容，这是很符合逻辑的设置。</p>
+<p>如果我们的查询中有一个列类型是 timestamp 的话，意味着：</p>
+<blockquote>
+<p>timestamp 数据类型会存储当时 session的时区信息，读取时会根据当前 session 的时区进行转换；而 datetime 数据类型插入的是什么值，再读取就是什么值，不受时区影响。也可以理解为已经存储的数据是不会变的，只是 timestamp 类型数据在读取时会根据时区转换</p>
+</blockquote>
+<p>如果MySQL 读取 timestamp 字段时，需要做时区转换，当 time_zone 设置为 system 时，意味着MySQL 要去follow OS系统时区，也就是把读到的timestamp 根据OS系统时区进行转换，这个转换调用OS 的glibc 的时区函数来获取 Linux OS 的时区，在这个函数中会加 mutex 锁，当并发高时，会出现 mutex 竞争激烈，每次只有一个线程获得锁，释放锁时会唤醒所有等锁线程，但最终只有一个能获取，于是一下子导致系统 sys飙高、上下文切换飙高。每读取一行带 timestamp 字段时，都会通过这个 glibc 的时区函数导致锁竞争特别激烈最终 QPS 拉胯厉害。</p>
+<p>想一想，你一个SQL查1万行，10个并发这点流量其实一点都不过分，但是这里需要10*1万次转换，锁争抢就激烈了。</p>
+<p>分析参考这个： <a href="https://opensource.actionsky.com/20191112-mysql/" target="_blank" rel="external">https://opensource.actionsky.com/20191112-mysql/</a></p>
+<p>perf 以及火焰图如下：</p>
+<p><img src="/images/951413iMgBlog/image-20230830101924021.png" alt="image-20230830101924021"></p>
+<p><img src="/images/951413iMgBlog/1682500623154-5834bcae-4c74-4c72-bfec-f67717f71c91.png" alt="img"></p>
+<h2 id="解决"><a href="#解决" class="headerlink" title="解决"></a>解决</h2><p>在中国可以将 time_zone=’+8:00’ 将 time_zone 固定死，不再需要follow OS 时区，所以也不需要调用glibc 获取系统时区，避免了前面所说的锁竞争</p>
+<p>这个经验来自无数次线上故障复盘，因为 time_zone 设置为 system 是个默认行为，所以要全部改过来还真不容易，给了我们就业机会 :)</p>
+<p>当然学习总是希望交叉起来，既有深度又有宽度你才能掌握更好，所以请趁热打铁：</p>
+<h2 id="进一步学习"><a href="#进一步学习" class="headerlink" title="进一步学习"></a>进一步学习</h2><p><a href="https://juejin.cn/post/7029291622537887774" target="_blank" rel="external">东八区CST 被JDBC 驱动错误</a>识别成了美国的中央时间，<a href="https://dev.mysql.com/doc/relnotes/connector-j/8.0/en/news-8-0-23.html" target="_blank" rel="external">官方修复</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/09/24/localhost和127.0.0.1的区别/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2023/09/24/localhost和127.0.0.1的区别/" itemprop="url">localhost和127.0.0.1的区别</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2023-09-24T17:30:03+08:00">
+                2023-09-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="localhost和127-0-0-1的区别"><a href="#localhost和127-0-0-1的区别" class="headerlink" title="localhost和127.0.0.1的区别"></a>localhost和127.0.0.1的区别</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>有人告诉我localhost和127.0.0.1的区别是localhost 不经过网卡，把我惊到了，因为我还真不知道这个知识点，于是去特别去验证了一下，这是个错误的理解，localhost会解析成127.0.0.1 然后接下来的流程和127.0.0.1 一模一样</p>
+<p>我用Google搜了下标题，果然得到如下图:</p>
+<p><img src="/images/951413iMgBlog/image-20230910100147730.png" alt="image-20230910100147730"></p>
+<p>红框里是排第一、第四的文章，都大言不惭地说localhost不经过网卡、不收防火墙网管限制等。</p>
+<p>我也看了下第二、第三的文章，这两篇都是说在MySQL命令行中连 localhost 的时候，MySQL命令行会判断 localhost 这个字符串然后不走DNS 解析流程(走的话就肯定解析成了127.0.0.1)，因为是本地连接，可以绕过OS 的内核栈用MySQLD 启动的时候生成的 unix-socket 管道直接连上MySQLD，这样效率更高。</p>
+<p>错误信息大概就是在MySQL这个特殊场景下演变而来的，<strong>英文搜索就没有这个错误污染信息</strong></p>
+<p>但这不是我要说的重点，我想说的是自己动手去求证！这一直都是我们星球里强调的能力和目标，我把<a href="https://twitter.com/plantegg/status/1700011179324920117" target="_blank" rel="external">这条发到Twitter上后有无数的傻逼跑出来质疑或者一知半解不去验证就丢一个结论，这是我最痛恨的</a>。比如：</p>
+<ul>
+<li><p>Localhost 写死了在 /etc/hosts(那我就要问，你清空/etc/hosts localhost还能工作吗？)</p>
+</li>
+<li><p>Localhost 不走网卡（但凡抓个包就知道走了，我估计他们抓了，抓的是eth0. 这里有个小小的歧义 loopback 本地回环网卡算不算网卡）</p>
+</li>
+</ul>
+<p>所以我特意再写篇文章再验证下各种质疑，并让大家看看是怎么验证的，我希望你们可以跟着验证一遍而不是只要知道个结论</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>Localhost 会按<a href="https://plantegg.github.io/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/">dns解析流程进行解析</a>，然后和127.0.0.1 一样。在特殊的程序中比如MySQL 命令行会对localhost提前做特别处理。</p>
+<p>完整的区别见<a href="https://www.tutorialspoint.com/difference-between-localhost-and-127-0-0-1#:~:text=The%20most%20significant%20difference%20between,look%20up%20a%20table%20somewhere." target="_blank" rel="external">这篇英文</a>(Google 英文第一篇就是)总结：</p>
+<p><img src="/images/951413iMgBlog/image-20230910101843256.png" alt="image-20230910101843256"></p>
+<h2 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h2><h3 id="问题1：经过网卡吗？"><a href="#问题1：经过网卡吗？" class="headerlink" title="问题1：经过网卡吗？"></a>问题1：经过网卡吗？</h3><p>Ping localhost，然后 tcpdump -i any（抓所有网卡）icmp (精确点只抓ping包)，可以明显抓到网络包，所以肯定经过网卡</p>
+<h3 id="问题2：localhost和127-0-0-1-的关系"><a href="#问题2：localhost和127-0-0-1-的关系" class="headerlink" title="问题2：localhost和127.0.0.1 的关系"></a>问题2：localhost和127.0.0.1 的关系</h3><p>如图是我在centos、微软azure(应该是个ubuntu)、macos下做的测试：</p>
+<p><img src="/images/951413iMgBlog/image-20230910103644707.png" alt="image-20230910103644707"></p>
+<h3 id="问题3：如果-etc-hosts-中没有写死-localhost-127-0-0-1-会怎么样？"><a href="#问题3：如果-etc-hosts-中没有写死-localhost-127-0-0-1-会怎么样？" class="headerlink" title="问题3：如果/etc/hosts 中没有写死 localhost 127.0.0.1 会怎么样？"></a>问题3：如果/etc/hosts 中没有写死 localhost 127.0.0.1 会怎么样？</h3><p>如下图，ping的时候即使没有 /etc/hosts 也可以把localhost 解析成127.0.0.1，为什么呢？所以接着我就 nslookup 看一下是那个DNS server做的这事，最后我用114.114.114.114 这个公网的DNS 做了解析，就不认识localhost了，说明去掉 /etc/hosts 之后 会把localhost 发给dns server解析，标准的dns(比如114.114.114.114,8.8.8.8) 都不会返回127.0.0.1 ，但是有些特定实现的为了省事帮你解析到127.0.0.1了</p>
+<p><img src="/images/951413iMgBlog/image-20230910104133832.png" alt="image-20230910104133832"></p>
+<h3 id="问题4：127-0-0-1比localhost少了查-etc-hsots-到底快多少"><a href="#问题4：127-0-0-1比localhost少了查-etc-hsots-到底快多少" class="headerlink" title="问题4：127.0.0.1比localhost少了查/etc/hsots 到底快多少?"></a>问题4：127.0.0.1比localhost少了查/etc/hsots 到底快多少?</h3><p>这个问题来自这个评论：<a href="https://twitter.com/InnerHack/status/1700012845302436087" target="_blank" rel="external">https://twitter.com/InnerHack/status/1700012845302436087</a>  所以我去验证了一下，特别强调这个数据意义不大，但是你们可以学会用strace，命令：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">strace -tt ping -c 1 localhost</div></pre></td></tr></table></figure>
+<p>然后你得到如下图，从strace时间戳你可以看到 localhost 解析成127.0.0.1 的过程，再后面就是ping 127.0.0.1(这里也说明了前面的结论，两者是一样的，就是多了域名解析)</p>
+<p><img src="/images/951413iMgBlog/image-20230910104733229.png" alt="image-20230910104733229"></p>
+<p>域名解析的时候，先去找/etc/hosts 没找到再去找 /etc/resolv.conf 拿dns server ip然后把localhost发给这个dns  server 解析，tcpdump抓包如下，红框是dns server返回的结果：</p>
+<p><img src="/images/951413iMgBlog/image-20230910105107629.png" alt="image-20230910105107629"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>唯有动手能解释一切，不要空逼逼(不是说你们，是说Twitter上那帮人，我是被他们留言多了逼着写了这篇)</p>
+<p>我是欢迎一切有理有据的质疑，事实文中很多信息来源于别人的质疑，然后我去验证</p>
+<p>然后好多验证手段你们可以学学，比如nslookup/tcpdump/strace 等。</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/08/28/解决问题思路/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -13702,463 +14015,6 @@ $ FlameGraph/flamegraph.pl out.folded &gt; out.svg
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/28/journald和rsyslog/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2021/01/28/journald和rsyslog/" itemprop="url">journald和rsyslogd</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-28T17:30:03+08:00">
-                2021-01-28
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="journald和rsyslogd"><a href="#journald和rsyslogd" class="headerlink" title="journald和rsyslogd"></a>journald和rsyslogd</h1><p>碰到rsyslog-8.24.0-34.1.al7.x86_64 的 rsyslogd 占用内存过高，于是分析了一下原因并学习了一下系统日志、rsyslog、journald之间的关系，流水账记录此文。</p>
-<h2 id="rsyslogd-占用内存过高的分析"><a href="#rsyslogd-占用内存过高的分析" class="headerlink" title="rsyslogd 占用内存过高的分析"></a>rsyslogd 占用内存过高的分析</h2><p>rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-50M之间）</p>
-<p>现象：</p>
-<p><img src="/images/oss/12d137f9416d7935dbe6540c626ca8b4.png" alt="image.png"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div></pre></td><td class="code"><pre><div class="line">KiB Mem :  7971268 total,   131436 free,  7712020 used,   127812 buff/cache</div><div class="line">KiB Swap:        0 total,        0 free,        0 used.    43484 avail Mem</div><div class="line"></div><div class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</div><div class="line">24850 admin     20   0 8743896   5.1g      0 S   2.0 66.9   1413:55 java</div><div class="line"> 1318 root      20   0 2380404   1.6g    536 S   0.0 21.6 199:09.36 rsyslogd</div><div class="line"> </div><div class="line"># systemctl status rsyslog</div><div class="line">● rsyslog.service - System Logging Service</div><div class="line">   Loaded: loaded (/usr/lib/systemd/system/rsyslog.service; enabled; vendor preset: disabled)</div><div class="line">   Active: active (running) since Tue 2020-10-20 16:01:01 CST; 3 months 8 days ago</div><div class="line">     Docs: man:rsyslogd(8)</div><div class="line">           http://www.rsyslog.com/doc/</div><div class="line"> Main PID: 1318 (rsyslogd)</div><div class="line">   CGroup: /system.slice/rsyslog.service</div><div class="line">           └─1318 /usr/sbin/rsyslogd -n</div><div class="line"></div><div class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 10:27:48 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 10:27:49 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 11:45:23 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 11:45:24 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 13:03:00 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 13:03:01 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ] </div><div class="line"></div><div class="line"></div><div class="line"># grep HUPed /var/log/messages</div><div class="line">Jan 24 03:39:15 iZwz95gaul6x9167sqdqz4Z rsyslogd: [origin software=&quot;rsyslogd&quot; swVersion=&quot;8.24.0-34.1.al7&quot; x-pid=&quot;1318&quot; x-info=&quot;http://www.rsyslog.com&quot;] rsyslogd was HUPed</div><div class="line"></div><div class="line"># journalctl --verify</div><div class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-0000000001567546-0005b9e2e02a0a4f.journal</div><div class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-00000000015ae56b-0005b9ea76e922e9.journal</div><div class="line">1be1e0: Data object references invalid entry at 1d03018</div><div class="line">File corruption detected at /var/log/journal/20190829214900434421844640356160/system.journal:1d02d80 (of 33554432 bytes, 90%).</div><div class="line">FAIL: /var/log/journal/20190829214900434421844640356160/system.journal (Bad message)</div></pre></td></tr></table></figure>
-<p><code>journalctl --verify</code>命令检查发现系统日志卷文件损坏</p>
-<h3 id="问题根因"><a href="#问题根因" class="headerlink" title="问题根因"></a>问题根因</h3><p><a href="https://access.redhat.com/solutions/3705051" target="_blank" rel="external">来自redhat官网的描述</a></p>
-<p><img src="/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png" alt="image.png"></p>
-<p>以下是现场收集到的日志：</p>
-<p><img src="/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png" alt="image.png"></p>
-<p>主要是rsyslogd的sd_journal_get_cursor报错，然后导致内存泄露。</p>
-<p>journald 报Bad message, 跟rsyslogd内存泄露完全没关系，实际上升级rsyslogd后也有journald bad message,但是rsyslogd的内存一直稳定在30M以内</p>
-<p><a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="external">这个CSDN的文章中有完全一样的症状</a> 但是作者的结论是：这是systemd的bug，在journald需要压缩的时候就会发生这个问题。实际上我用的是 systemd-219-62.6.al7.9.x86_64 比他描述的已经修复的版本还要要新，也还是有这个问题，所以这个结论是不对的</p>
-<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>1、重启rsyslog <code>systemctl restart rsyslog</code> 可以释放内存</p>
-<p>2、升级rsyslog到rsyslog-8.24.0-38.1.al7.x86_64或更新的版本才能彻底修复这个问题</p>
-<h3 id="一些配置方法"><a href="#一些配置方法" class="headerlink" title="一些配置方法"></a>一些配置方法</h3><p>修改配置/etc/rsyslog.conf，增加如下两行，然后重启<code>systemctl restart rsyslog</code></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$imjournalRatelimitInterval 0</div><div class="line">$imjournalRatelimitBurst 0</div><div class="line">12</div></pre></td></tr></table></figure>
-<p>1、关掉journal压缩配置</p>
-<p>vi /etc/systemd/journald.conf，把#Compress=yes改成Compress=no，之后systemctl restart systemd-journald即可</p>
-<p>2、限制rsyslogd 内存大小</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">cat /etc/systemd/system/multi-user.target.wants/rsyslog.service</div><div class="line"></div><div class="line">在Service配置中添加MemoryAccounting=yes，MemoryMax=80M，MemoryHigh=8M三项如下所示。</div><div class="line">[Service]</div><div class="line">Type=notify</div><div class="line">EnvironmentFile=-/etc/sysconfig/rsyslog</div><div class="line">ExecStart=/usr/sbin/rsyslogd -n $SYSLOGD_OPTIONS</div><div class="line">Restart=on-failure</div><div class="line">UMask=0066</div><div class="line">StandardOutput=null</div><div class="line">Restart=on-failure</div><div class="line">MemoryAccounting=yes</div><div class="line">MemoryMax=80M</div><div class="line">MemoryHigh=8M</div></pre></td></tr></table></figure>
-<h2 id="OOM-kill"><a href="#OOM-kill" class="headerlink" title="OOM kill"></a>OOM kill</h2><p>rsyslogd内存消耗过高后导致了OOM Kill</p>
-<p><img src="/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png" alt="image.png"></p>
-<p><strong>RSS对应物理内存，单位是4K（page大小）</strong>，红框两个进程用了5G+2G，总内存是8G，所以触发OOM killer了</p>
-<p>每次OOM Kill日志前后总带着systemd-journald的重启</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Permanent journal is using 520.0M (max allowed 500.0M, trying to leave 4.0G free of 83.7G available → current limit 520.0M).</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Journal started</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun invoked oom-killer: gfp_mask=0x6200ca(GFP_HIGHUSER_MOVABLE), nodemask=(null), order=0, oom_score_adj=0</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun cpuset=/ mems_allowed=0</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: CPU: 3 PID: 13296 Comm: AliYunDun Tainted: G           OE     4.19.57-15.1.al7.x86_64 #1</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Hardware name: Alibaba Cloud Alibaba Cloud ECS, BIOS 8c24b4c 04/01/2014</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Call Trace:</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_stack+0x5c/0x7b</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_header+0x77/0x29f</div><div class="line">***</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: [  18118]     0 18118    28218      255   245760        0             0 sshd</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Out of memory: Kill process 18665 (java) score 617 or sacrifice child</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Killed process 18665 (java) total-vm:8446992kB, anon-rss:4905856kB, file-rss:0kB, shmem-rss:0kB</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: oom_reaper: reaped process 18665 (java), now anon-rss:0kB, file-rss:0kB, shmem-rss:0kB</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z systemd: systemd-journald.service watchdog timeout (limit 3min)!</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: sd_journal_get_cursor() failed: &apos;Cannot assign requested address&apos;  [v8.24.0-34.1.al7]</div><div class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</div><div class="line">Jan 28 20:14:38 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-57.1.al7 try http://www.rsyslog.com/e/0 ]</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/45008a8323742fb7f145211a6281afbc.png" alt="image.png"></p>
-<p>OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(limit 3min)，造成timeout的原因是journald定期要把日志刷到磁盘上，然后要么是内存不够，要么是io负载太重，导致刷磁盘这个过程非常慢，于是就timeout了。</p>
-<p>当然systemd-journald 重启也不一定意味着OOM Killer，只是肯定是内存比较紧张了。</p>
-<h2 id="What-is-the-difference-between-syslog-rsyslog-and-syslog-ng"><a href="#What-is-the-difference-between-syslog-rsyslog-and-syslog-ng" class="headerlink" title="What is the difference between syslog, rsyslog and syslog-ng? "></a><a href="https://serverfault.com/questions/692309/what-is-the-difference-between-syslog-rsyslog-and-syslog-ng" target="_blank" rel="external">What is the difference between syslog, rsyslog and syslog-ng? </a></h2><p>Basically, they are all the same, in the way they all permit the logging of data from different types of systems in a central repository.</p>
-<p>But they are three different project, each project trying to improve the previous one with more reliability and functionalities.</p>
-<p>The <code>Syslog</code> project was the very first project. It started in 1980. It is the root project to <code>Syslog</code> protocol. At this time Syslog is a very simple protocol. At the beginning it only supports UDP for transport, so that it does not guarantee the delivery of the messages.</p>
-<p>Next came <code>syslog-ng</code> in 1998. It extends basic <code>syslog</code> protocol with new features like:</p>
-<ul>
-<li>content-based filtering</li>
-<li>Logging directly into a database</li>
-<li>TCP for transport</li>
-<li>TLS encryption</li>
-</ul>
-<p>Next came <code>Rsyslog</code> in 2004. It extends <code>syslog</code> protocol with new features like:</p>
-<ul>
-<li>RELP Protocol support</li>
-<li>Buffered operation support</li>
-</ul>
-<h2 id="rsyslog和journald的基础知识"><a href="#rsyslog和journald的基础知识" class="headerlink" title="rsyslog和journald的基础知识"></a>rsyslog和journald的基础知识</h2><p><code>systemd-journald</code>是用来协助<code>rsyslog</code>记录系统启动服务和服务启动失败的情况等等. <code>systemd-journald</code>使用内存保存记录, 系统重启记录会丢失. 所有还要用<code>rsyslog</code>来记录分类信息, 如上面<code>/etc/rsyslog.d/listen.conf</code>中的<code>syslog</code>分类.</p>
-<p><code>systemd-journald</code>跟随systemd开机就启动，能及时记录所有日志：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line"># systemd-analyze critical-chain systemd-journald.service</div><div class="line">The time after the unit is active or started is printed after the &quot;@&quot; character.</div><div class="line">The time the unit takes to start is printed after the &quot;+&quot; character.</div><div class="line"></div><div class="line">systemd-journald.service +13ms</div><div class="line">└─system.slice</div><div class="line">  └─-.slice</div></pre></td></tr></table></figure>
-<p>systemd-journald 由于是使用于内存的登录文件记录方式，因此重新开机过后，开机前的登录文件信息当然就不会被记载了。 为此，我们还是建议启动 rsyslogd 来协助分类记录！也就是说， systemd-journald 用来管理与查询这次开机后的登录信息，而 rsyslogd 可以用来记录以前及现在的所以数据到磁盘文件中，方便未来进行查询喔！</p>
-<p><strong>Tips</strong> 虽然 systemd-journald 所记录的数据其实是在内存中，但是系统还是利用文件的型态将它记录到 /run/log/ 下面！ 不过我们从前面几章也知道， /run 在 CentOS 7 其实是内存内的数据，所以重新开机过后，这个 /run/log 下面的数据当然就被刷新，旧的当然就不再存在了！</p>
-<blockquote>
-<p>其实鸟哥是这样想的，既然我们还有 rsyslog.service 以及 logrotate 的存在，因此这个 systemd-journald.service 产生的登录文件， 个人建议最好还是放置到 /run/log 的内存当中，以加快存取的速度！而既然 rsyslog.service 可以存放我们的登录文件， 似乎也没有必要再保存一份 journal 登录文件到系统当中就是了。单纯的建议！如何处理，依照您的需求即可喔！</p>
-</blockquote>
-<p><strong><code>system-journal</code>服务监听 <code>/dev/log</code> socket获取日志, 保存在内存中, 并间歇性的写入<code>/var/log/journal</code>目录中.</strong></p>
-<p><code>rsyslog</code>服务启动后监听<code>/run/systemd/journal/socket</code> 获取syslog类型日志, 并写入<code>/var/log/messages</code>文件中. </p>
-<p>获取日志时需要记录日志条目的<code>position</code>到<code>/var/lib/rsyslog/imjournal.state</code>文件中.</p>
-<p>比如haproxy日志配置：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"># cat /etc/haproxy/haproxy.cfg</div><div class="line">global</div><div class="line"># log发给journald(journald监听 /dev/log)</div><div class="line">        log /dev/log    local1 warning</div></pre></td></tr></table></figure>
-<p>以下是drds 的iptables日志配置，将tcp reset包记录下来，默认iptable日志输出到/varlog/messages中（dmesg也能看到），然后可以通过rsyslog.d 配置将这部分日志输出到单独的文件中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"># 配置iptables 日志，增加 [drds] 标识</div><div class="line"># cat /home/admin/drds-worker/install/drds_filter.conf</div><div class="line"># Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</div><div class="line">*filter</div><div class="line">:INPUT ACCEPT [557:88127]</div><div class="line">:FORWARD ACCEPT [0:0]</div><div class="line">:OUTPUT ACCEPT [527:171711]</div><div class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"># -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">COMMIT</div><div class="line"># Completed on Wed Apr  1 11:39:31 2020</div><div class="line"></div><div class="line">#通过rsyslogd将日志写出到指定位置(不配置的话默认输出到 dmesg)</div><div class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</div><div class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/tcp-rt/drds-tcp.log</div></pre></td></tr></table></figure>
-<h3 id="journald-log持久化"><a href="#journald-log持久化" class="headerlink" title="journald log持久化"></a>journald log持久化</h3><p>创建 /var/log/journal 文件夹后默认会持久化，设置持久化后 /run/log 里面就没有日志了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line"># cat /etc/systemd/journald.conf</div><div class="line">#  This file is part of systemd.</div><div class="line">#</div><div class="line">#  systemd is free software; you can redistribute it and/or modify it</div><div class="line">#  under the terms of the GNU Lesser General Public License as published by</div><div class="line">#  the Free Software Foundation; either version 2.1 of the License, or</div><div class="line">#  (at your option) any later version.</div><div class="line">#</div><div class="line"># Entries in this file show the compile time defaults.</div><div class="line"># You can change settings by editing this file.</div><div class="line"># Defaults can be restored by simply deleting this file.</div><div class="line">#</div><div class="line"># See journald.conf(5) for details.</div><div class="line"></div><div class="line">[Journal]</div><div class="line">#Storage=auto  //默认如果有 /var/log/journal 目录就会持久化到这里</div><div class="line">Compress=no</div><div class="line">#Seal=yes</div><div class="line">#SplitMode=uid</div><div class="line">#SyncIntervalSec=5m</div><div class="line">#RateLimitInterval=30s</div><div class="line">#RateLimitBurst=1000</div><div class="line">SystemMaxUse=500M   //最多保留500M日志文件，免得撑爆磁盘</div><div class="line">#SystemKeepFree=</div><div class="line">#SystemMaxFileSize=</div><div class="line">#RuntimeMaxUse=</div><div class="line">#RuntimeKeepFree=</div><div class="line">#RuntimeMaxFileSize=</div><div class="line">#MaxRetentionSec=</div><div class="line">#MaxFileSec=1month</div><div class="line">#ForwardToSyslog=yes</div><div class="line">#ForwardToKMsg=no</div><div class="line">#ForwardToConsole=no</div><div class="line">#ForwardToWall=yes</div><div class="line">#TTYPath=/dev/console</div><div class="line">#MaxLevelStore=debug</div><div class="line">#MaxLevelSyslog=debug</div><div class="line">#MaxLevelKMsg=notice</div><div class="line">#MaxLevelConsole=info</div><div class="line">#MaxLevelWall=emerg</div><div class="line">#LineMax=48K</div></pre></td></tr></table></figure>
-<p>清理日志保留1M：journalctl –vacuum-size=1M </p>
-<p>设置最大保留500M日志： journalctl –vacuum-size=500</p>
-<h3 id="rsyslogd"><a href="#rsyslogd" class="headerlink" title="rsyslogd"></a>rsyslogd</h3><p>以下内容来自鸟哥的书：</p>
-<p>CentOS 7 除了保有既有的 rsyslog.service 之外，其实最上游还使用了 systemd 自己的登录文件日志管理功能喔！他使用的是 systemd-journald.service 这个服务来支持的。基本上，系统由 systemd 所管理，那所有经由 systemd 启动的服务，如果再启动或结束的过程中发生一些问题或者是正常的讯息， 就会将该讯息由 systemd-journald.service 以二进制的方式记录下来，之后再将这个讯息发送给 rsyslog.service 作进一步的记载。</p>
-<p>基本上， rsyslogd 针对各种服务与讯息记录在某些文件的配置文件就是 /etc/rsyslog.conf， 这个文件规定了“（1）什么服务 （2）的什么等级讯息 （3）需要被记录在哪里（设备或文件）” 这三个咚咚，所以设置的语法会是这样：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$cat /etc/rsyslog.conf</div><div class="line">服务名称[.=!]讯息等级        讯息记录的文件名或设备或主机</div><div class="line"># 下面以 mail 这个服务产生的 info 等级为例：</div><div class="line">mail.info            /var/log/maillog_info</div><div class="line"># 这一行说明：mail 服务产生的大于等于 info 等级的讯息，都记录到</div><div class="line"># /var/log/maillog_info 文件中的意思。</div></pre></td></tr></table></figure>
-<p><img src="/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png" alt="syslog 所制订的服务名称与软件调用的方式"></p>
-<p> CentOS 7.x 默认的 rsyslogd 本身就已经具有远程日志服务器的功能了， 只是默认并没有启动该功能而已。你可以通过 man rsyslogd 去查询一下相关的选项就能够知道啦！ 既然是远程日志服务器，那么我们的 Linux 主机当然会启动一个端口来监听了，那个默认的端口就是 UDP 或 TCP 的 port 514 </p>
-<p><img src="/images/oss/40740cd5cfc8896c07c15b959420646f.png" alt="image.png"></p>
-<p>Server配置如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div></pre></td><td class="code"><pre><div class="line">$ cat /etc/rsyslog.conf</div><div class="line"># 找到下面这几行：</div><div class="line"># Provides UDP syslog reception</div><div class="line">#$ModLoad imudp</div><div class="line">#$UDPServerRun 514</div><div class="line"></div><div class="line"># Provides TCP syslog reception</div><div class="line">#$ModLoad imtcp</div><div class="line">#$InputTCPServerRun 514</div><div class="line"># 上面的是 UDP 端口，下面的是 TCP 端口！如果你的网络状态很稳定，就用 UDP 即可。</div><div class="line"># 不过，如果你想要让数据比较稳定传输，那么建议使用 TCP 啰！所以修改下面两行即可！</div><div class="line">$ModLoad imtcp</div><div class="line">$InputTCPServerRun 514</div><div class="line"></div><div class="line"># 2\. 重新启动与观察 rsyslogd 喔！</div><div class="line">[root@study ~]# systemctl restart rsyslog.service</div><div class="line">[root@study ~]# netstat -ltnp &amp;#124; grep syslog</div><div class="line">Proto Recv-Q Send-Q Local Address  Foreign Address   State    PID/Program name</div><div class="line">tcp        0      0 0.0.0.0:514    0.0.0.0:*         LISTEN   2145/rsyslogd</div><div class="line">tcp6       0      0 :::514         :::*              LISTEN   2145/rsyslogd</div><div class="line"># 嘿嘿！你的登录文件主机已经设置妥当啰！很简单吧！</div></pre></td></tr></table></figure>
-<p>client配置：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ cat /etc/rsyslog.conf</div><div class="line">*.*       @@192.168.1.100</div><div class="line">#*.*       @192.168.1.100  # 若用 UDP 传输，设置要变这样！</div></pre></td></tr></table></figure>
-<p>常见的几个系统日志有哪些呢？一般而言，有下面几个：</p>
-<ul>
-<li>/var/log/boot.log： 开机的时候系统核心会去侦测与启动硬件，接下来开始各种核心支持的功能启动等。这些流程都会记录在 /var/log/boot.log 里面哩！ 不过这个文件只会存在这次开机启动的信息，前次开机的信息并不会被保留下来！</li>
-<li>/var/log/cron： 还记得<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html" target="_blank" rel="external">第十五章例行性工作调度</a>吧？你的 crontab 调度有没有实际被进行？ 进行过程有没有发生错误？你的 /etc/crontab 是否撰写正确？在这个登录文件内查询看看。</li>
-<li>/var/log/dmesg： 记录系统在开机的时候核心侦测过程所产生的各项信息。由于 CentOS 默认将开机时核心的硬件侦测过程取消显示， 因此额外将数据记录一份在这个文件中；</li>
-<li>/var/log/lastlog： 可以记录系统上面所有的帐号最近一次登陆系统时的相关信息。<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#uselinux_find" target="_blank" rel="external">第十三章讲到的 lastlog</a> 指令就是利用这个文件的记录信息来显示的。</li>
-<li>/var/log/maillog 或 /var/log/mail/*： 记录邮件的往来信息，其实主要是记录 postfix （SMTP 协定提供者） 与 dovecot （POP3 协定提供者） 所产生的讯息啦。 SMTP 是发信所使用的通讯协定， POP3 则是收信使用的通讯协定。 postfix 与 dovecot 则分别是两套达成通讯协定的软件。</li>
-<li>/var/log/messages： 这个文件相当的重要，几乎系统发生的错误讯息 （或者是重要的信息） 都会记录在这个文件中； 如果系统发生莫名的错误时，这个文件是一定要查阅的登录文件之一。</li>
-<li>/var/log/secure： 基本上，只要牵涉到“需要输入帐号密码”的软件，那么当登陆时 （不管登陆正确或错误） 都会被记录在此文件中。 包括系统的 login 程序、图形接口登陆所使用的 gdm 程序、 su, sudo 等程序、还有网络连线的 ssh, telnet 等程序， 登陆信息都会被记载在这里；</li>
-<li>/var/log/wtmp, /var/log/faillog： 这两个文件可以记录正确登陆系统者的帐号信息 （wtmp） 与错误登陆时所使用的帐号信息 （faillog） ！ 我们在<a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#last" target="_blank" rel="external">第十章谈到的 last</a> 就是读取 wtmp 来显示的， 这对于追踪一般帐号者的使用行为很有帮助！</li>
-<li>/var/log/httpd/<em>, /var/log/samba/</em>： 不同的网络服务会使用它们自己的登录文件来记载它们自己产生的各项讯息！上述的目录内则是个别服务所制订的登录文件。</li>
-</ul>
-<h2 id="journalctl-常用参数"><a href="#journalctl-常用参数" class="headerlink" title="journalctl 常用参数"></a><a href="https://linuxhint.com/journalctl-tail-and-cheatsheet/" target="_blank" rel="external">journalctl 常用参数</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">-n or –lines= Show the most recent **n** number of log lines</div><div class="line"></div><div class="line">-f or –follow Like a tail operation for viewing live updates</div><div class="line"></div><div class="line">-S, –since=, -U, –until= Search based on a date. “2019-07-04 13:19:17”, “00:00:00”, “yesterday”, “today”, “tomorrow”, “now” are valid formats. For complete time and date specification, see systemd.time(7)</div><div class="line"></div><div class="line">-u service unit</div></pre></td></tr></table></figure>
-<p>清理journald日志</p>
-<blockquote>
-<p> journalctl –vacuum-size=1M &amp;&amp; journalctl –vacuum-size=500</p>
-</blockquote>
-<h2 id="logrotate"><a href="#logrotate" class="headerlink" title="logrotate"></a>logrotate</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">/var/log/cron</div><div class="line">&#123;</div><div class="line">    sharedscripts</div><div class="line">    postrotate</div><div class="line">        /bin/kill -HUP `cat /var/run/syslogd.pid 2&gt; /dev/null` 2&gt; /dev/null || true</div><div class="line">    endscript</div><div class="line">&#125;</div><div class="line"></div><div class="line">执行：</div><div class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</div><div class="line">debug：</div><div class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</div><div class="line">查看日志：</div><div class="line">cat /var/lib/logrotate/logrotate.status</div></pre></td></tr></table></figure>
-<h3 id="kill-HUP"><a href="#kill-HUP" class="headerlink" title="kill -HUP"></a><a href="https://unix.stackexchange.com/questions/440004/why-is-kill-hup-used-in-logrotate-in-rhel-is-it-necessary-in-all-cases" target="_blank" rel="external">kill -HUP</a></h3><p>Generally services keep the log files opened while they are running. This mean that they do not care if the log files are renamed/moved or deleted they will continue to write to the open file handled.</p>
-<p>When logrotate move the files, the services keep writing to the same file.</p>
-<p>Example: syslogd will write to /var/log/cron.log. Then logrotate will rename the file to /var/log/cron.log.1, so syslogd will keep writing to the open file /var/log/cron.log.1.</p>
-<p>Sending the HUP signal to syslogd will force him to close existing file handle and open new file handle to the original path /var/log/cron.log which will create a new file.</p>
-<p>The use of the HUP signal instead of another one is at the discretion of the program. Some services like php-fpm will listen to the USR1 signal to reopen it’s file handle without terminating itself.</p>
-<p>不过还得看应用是否屏蔽了 HUP 信号</p>
-<h2 id="systemd"><a href="#systemd" class="headerlink" title="systemd"></a>systemd</h2><p>sudo systemctl list-unit-files –type=service | grep enabled //列出启动项</p>
-<p> journalctl -b -1 //复审前一次启动， -2 复审倒数第 2 次启动. 重演你的系统启动的所有消息</p>
-<p>sudo systemd-analyze blame   <strong>sudo systemd-analyze critical-chain</strong></p>
-<p>systemd-analyze critical-chain –fuzz 1h</p>
-<p>sudo systemd-analyze blame networkd</p>
-<p>systemd-analyze critical-chain network.target local-fs.target</p>
-<p><img src="/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png" alt="img"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>一模一样的症状，但是根因找错了：<a href="https://blog.csdn.net/fanren224/article/details/103991748" target="_blank" rel="external">rsyslog占用内存高</a> </p>
-<p><a href="https://access.redhat.com/solutions/3705051" target="_blank" rel="external">https://access.redhat.com/solutions/3705051</a></p>
-<p><a href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html" target="_blank" rel="external">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
-<p><a href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html" target="_blank" rel="external">鸟哥 journald 介绍</a></p>
-<p><a href="https://linuxhint.com/journalctl-tail-and-cheatsheet/" target="_blank" rel="external">journalctl tail and cheatsheet</a></p>
-<p><a href="https://lp007819.wordpress.com/2015/01/17/systemd-journal-介绍/" target="_blank" rel="external">Journal的由来</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP传输速度案例分析/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2021/01/15/TCP传输速度案例分析/" itemprop="url">TCP传输速度案例分析</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-01-15T17:30:03+08:00">
-                2021-01-15
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="TCP传输速度案例分析"><a href="#TCP传输速度案例分析" class="headerlink" title="TCP传输速度案例分析"></a>TCP传输速度案例分析</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
-<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
-<p> <a href="/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
-<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
-<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。</p>
-<h2 id="前后端rtt差异大-vip下载慢的案例"><a href="#前后端rtt差异大-vip下载慢的案例" class="headerlink" title="前后端rtt差异大+vip下载慢的案例"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：<a href="https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng" target="_blank" rel="external">https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng</a> 文章中的trace-cmd工具也不错</p>
-<p>如下三个链路，有一个不正常了</p>
-<p><img src="/images/oss/2422ae219d3b27cfe8c799642662d5b2.png" alt="image.png"></p>
-<p>首先通过 ss -it dst “ip:port” 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
-<h3 id="原因TCPLossProbe："><a href="#原因TCPLossProbe：" class="headerlink" title="原因TCPLossProbe："></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
-<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO=max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
-<p>握手完毕后第七号包很快重传了</p>
-<p><img src="/images/oss/2867daa600363af61f8f971479246858.png" alt="image.png"></p>
-<h3 id="观察："><a href="#观察：" class="headerlink" title="观察："></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
-<h3 id="解决："><a href="#解决：" class="headerlink" title="解决："></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans=2 关掉TLP</p>
-<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
-<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
-<h2 id="长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例"><a href="#长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例" class="headerlink" title="长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
-<blockquote>
-<p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
-</blockquote>
-<p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
-<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save = 1 </p>
-<p>或者清除： sudo ip tcp_metrics flush all</p>
-<h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
-100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
-
-192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
-
-清除 tcp_metrics, sudo ip tcp_metrics flush all 
-关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
-sudo ip tcp_metrics delete 100.118.58.7
-</code></pre><p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
-<h2 id="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"><a href="#长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响" class="headerlink" title="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
-<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
-<p>client ——150ms—–&gt;&gt;&gt;LVS—1ms–&gt;&gt;&gt;美国的统一接入server—–1ms—–&gt;&gt;&gt;nginx</p>
-<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
-<h3 id="Nginx上抓包"><a href="#Nginx上抓包" class="headerlink" title="Nginx上抓包"></a>Nginx上抓包</h3><p><img src="/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png" alt="image.png"></p>
-<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
-<h3 id="client上抓包"><a href="#client上抓包" class="headerlink" title="client上抓包"></a>client上抓包</h3><p><img src="/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png" alt="image.png"></p>
-<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
-<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
-<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
-<h3 id="将buffer改大"><a href="#将buffer改大" class="headerlink" title="将buffer改大"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
-<p><img src="/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png" alt="image.png"></p>
-<p><img src="/images/oss/0a8c68a58da6f169573b57cde0ffba93.png" alt="image.png"></p>
-<p>接着看一下client上的抓包</p>
-<p><img src="/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png" alt="image.png"></p>
-<p>可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
-<p>那么继续分析一下握手包，syn：</p>
-<p><img src="/images/oss/004886698ddbaa1cbc8342a9cd667c76.png" alt="image.png"></p>
-<p>说明client是支持的，再看 syn+ack：</p>
-<p><img src="/images/oss/70155e021390cb1ee07091c306c375f4.png" alt="image.png"></p>
-<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
-<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
-<p>比如这是这个应用的开发人员的反馈：</p>
-<p><img src="/images/oss/a08a204ec7ad4bba7867dacea1668322.png" alt="image.png"></p>
-<p><a href="https://datatracker.ietf.org/doc/html/rfc1072" target="_blank" rel="external">长肥网络</a>就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。<br>在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
-<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑程序员连自己的业务结构都描述不清）：</p>
-<p>client ——150ms—–&gt;&gt;&gt;nginx</p>
-<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
-<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
-<p>nginx buffer 分析参考案例：<a href="https://juejin.cn/post/6875223721615818765" target="_blank" rel="external">https://juejin.cn/post/6875223721615818765</a> nginx上下游收发包速率不一致导致nginx buffer打爆, 关闭nginx proxy_buffering 可解 （作者：挖坑的张师傅）</p>
-<p><img src="/images/951413iMgBlog/433762.png" alt="image.png"></p>
-<h2 id="应用层发包逻辑影响了BDP不能跑满"><a href="#应用层发包逻辑影响了BDP不能跑满" class="headerlink" title="应用层发包逻辑影响了BDP不能跑满"></a>应用层发包逻辑影响了BDP不能跑满</h2><p>来自 dog250: <a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="external">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a> </p>
-<blockquote>
-<p>用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
-<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
-<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
-</blockquote>
-<h2 id="delay-ack拉高实际rt的案例"><a href="#delay-ack拉高实际rt的案例" class="headerlink" title="delay ack拉高实际rt的案例"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
-<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
-<p><img src="/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
-<p>抓包来分析原因：</p>
-<p><img src="/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
-<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
-<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
-<p><img src="/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="external">SSH Performance</a></p>
-<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="external">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -14208,7 +14064,7 @@ sudo ip tcp_metrics delete 100.118.58.7
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">164</span>
+                <span class="site-state-item-count">167</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -14230,7 +14086,7 @@ sudo ip tcp_metrics delete 100.118.58.7
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">255</span>
+                <span class="site-state-item-count">259</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
