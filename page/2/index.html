@@ -291,6 +291,416 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/03/07/一次海光物理机资源竞争压测的记录/" itemprop="url">一次海光物理机资源竞争压测的记录</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-03-07T17:30:03+08:00">
+                2021-03-07
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="一次海光物理机资源竞争压测的记录"><a href="#一次海光物理机资源竞争压测的记录" class="headerlink" title="一次海光物理机资源竞争压测的记录"></a>一次海光物理机资源竞争压测的记录</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>问题描述如下</p>
+<blockquote>
+<p>sysbench 压200个服务节点(每个4c16G，总共800core), 发现qps不能线性增加（200节点比100节点好1.2倍而已)。</p>
+<p>如果压单个服务节点节点QPS 2.4万，CPU跑到390%（每个服务节点独占4个核），如果压200个服务节点（分布在16台64核的海光物理机上）平均每个服务节点节点QPS才1.2万。但是每个服务节点的CPU也跑到了390%左右。 现在的疑问就是为什么CPU跑上去了QPS打了个5折。</p>
+<p>机器集群为16*64core 为1024core，也就是每个服务节点独占4core还有冗余</p>
+</blockquote>
+<p>因为服务节点还需要通过LVS调用后端的多个MySQL集群，所以需要排除LVS、网络等链路瓶颈，然后找到根因是什么。</p>
+<h3 id="海光物理机CPU相关信息"><a href="#海光物理机CPU相关信息" class="headerlink" title="海光物理机CPU相关信息"></a>海光物理机CPU相关信息</h3><p>总共有16台如下的海光服务器</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div></pre></td><td class="code"><pre><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                64</div><div class="line">On-line CPU(s) list:   0-63</div><div class="line">Thread(s) per core:    2      //每个物理core有两个超线程</div><div class="line">Core(s) per socket:    16     //每路16个物理core</div><div class="line">Socket(s):             2      //2路</div><div class="line">NUMA node(s):          4</div><div class="line">Vendor ID:             HygonGenuine</div><div class="line">CPU family:            24</div><div class="line">Model:                 1</div><div class="line">Model name:            Hygon C86 5280 16-core Processor</div><div class="line">Stepping:              1</div><div class="line">CPU MHz:               2455.552</div><div class="line">CPU max MHz:           2500.0000</div><div class="line">CPU min MHz:           1600.0000</div><div class="line">BogoMIPS:              4999.26</div><div class="line">Virtualization:        AMD-V</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             64K</div><div class="line">L2 cache:              512K</div><div class="line">L3 cache:              8192K</div><div class="line">NUMA node0 CPU(s):     0-7,32-39</div><div class="line">NUMA node1 CPU(s):     8-15,40-47</div><div class="line">NUMA node2 CPU(s):     16-23,48-55</div><div class="line">NUMA node3 CPU(s):     24-31,56-63</div><div class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid extd_apicid amd_dcm aperfmperf pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpb hw_pstate sme ssbd sev ibpb vmmcall fsgsbase bmi1 avx2 smep bmi2 MySQLeed adx smap clflushopt sha_ni xsaveopt xsavec xgetbv1 xsaves clzero irperf xsaveerptr arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic v_vmsave_vmload vgif overflow_recov succor smca</div><div class="line"></div><div class="line">#numactl -H</div><div class="line">available: 4 nodes (0-3)</div><div class="line">node 0 cpus: 0 1 2 3 4 5 6 7 32 33 34 35 36 37 38 39</div><div class="line">node 0 size: 128854 MB</div><div class="line">node 0 free: 89350 MB</div><div class="line">node 1 cpus: 8 9 10 11 12 13 14 15 40 41 42 43 44 45 46 47</div><div class="line">node 1 size: 129019 MB</div><div class="line">node 1 free: 89326 MB</div><div class="line">node 2 cpus: 16 17 18 19 20 21 22 23 48 49 50 51 52 53 54 55</div><div class="line">node 2 size: 128965 MB</div><div class="line">node 2 free: 86542 MB</div><div class="line">node 3 cpus: 24 25 26 27 28 29 30 31 56 57 58 59 60 61 62 63</div><div class="line">node 3 size: 129020 MB</div><div class="line">node 3 free: 98227 MB</div><div class="line">node distances:</div><div class="line">node   0   1   2   3</div><div class="line">  0:  10  16  28  22</div><div class="line">  1:  16  10  22  28</div><div class="line">  2:  28  22  10  16</div><div class="line">  3:  22  28  16  10</div></pre></td></tr></table></figure>
+<p>AMD Zen 架构的CPU是胶水核，也就是把两个die拼一块封装成一块CPU，所以一块CPU内跨die之间延迟还是很高的。</p>
+<h2 id="验证是否是上下游的瓶颈"><a href="#验证是否是上下游的瓶颈" class="headerlink" title="验证是否是上下游的瓶颈"></a>验证是否是上下游的瓶颈</h2><p>需要先分析问题是否在LVS调用后端的多个MySQL集群上。</p>
+<p>先写一个简单的测试程序：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div></pre></td><td class="code"><pre><div class="line">#cat Test.java</div><div class="line">import java.sql.Connection;</div><div class="line">import java.sql.DriverManager;</div><div class="line">import java.sql.ResultSet;</div><div class="line">import java.sql.SQLException;</div><div class="line">import java.sql.Statement;</div><div class="line">/*</div><div class="line"> * 目录：/home/admin/jdbc</div><div class="line"> *</div><div class="line"> * 编译：</div><div class="line"> *  javac -cp /home/admin/lib/*:. Test.java</div><div class="line"> *</div><div class="line"> *  运行：</div><div class="line"> *   java -cp /home/admin/MySQL-server/lib/*:. Test &quot;jdbc:mysql://172.16.160.1:4261/qc_pay_0xwd_0002&quot; &quot;myhhzi0d&quot; &quot;jOXaC1Lbif-k&quot; &quot;select count(*) from pay_order where user_id=1169257092557639682 and order_no=&apos;201909292111250000102&apos;&quot; &quot;100&quot;</div><div class="line"> *   */</div><div class="line">public class Test &#123;</div><div class="line"></div><div class="line">    public static void main(String args[]) throws NumberFormatException, InterruptedException, ClassNotFoundException &#123;</div><div class="line">        Class.forName(&quot;com.mysql.jdbc.Driver&quot;);</div><div class="line">        String url = args[0];</div><div class="line">        String user = args[1];</div><div class="line">        String pass = args[2];</div><div class="line">        String sql = args[3];</div><div class="line">        String interval = args[4];</div><div class="line">        try &#123;</div><div class="line">            Connection conn = DriverManager.getConnection(url, user, pass);</div><div class="line">            while (true) &#123;</div><div class="line">                long start = System.currentTimeMillis();</div><div class="line">                for(int i=0; i&lt;1000; ++i)&#123;</div><div class="line">                    Statement stmt = conn.createStatement();</div><div class="line">                    ResultSet rs = stmt.executeQuery(sql);</div><div class="line">                    while (rs.next()) &#123;</div><div class="line">                    &#125;</div><div class="line">                    rs.close();</div><div class="line">                    stmt.close();</div><div class="line">                    Thread.sleep(Long.valueOf(interval));</div><div class="line">                &#125;</div><div class="line">                long end = System.currentTimeMillis();</div><div class="line">                System.out.println(&quot;rt : &quot; + (end - start));</div><div class="line">            &#125;</div><div class="line">        &#125; catch (SQLException e) &#123;</div><div class="line">            e.printStackTrace();</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>然后通过传入不同的jdbc参数跑2组测试:</p>
+<ol>
+<li>走服务节点执行指定id的点查； </li>
+<li>直接从服务节点节点连MySQL指定id点查  </li>
+</ol>
+<p>上述2组测试同时跑在三组场景下：</p>
+<ul>
+<li>A) 服务节点和MySQL都没有压力； </li>
+<li>B) 跑1、2测试的服务节点没有压力，但是sysbench 在压别的服务节点，这样后端的MySQL是有sysbench压侧压力，LVS也有流量压力的； </li>
+<li>C) sysbench压所有服务节点, 包含运行 1、2测试程序节点） </li>
+</ul>
+<p>这样2组测试3个场景组合可以得到6组响应时间的测试数据</p>
+<p>从最终得到6组数据来看可以排除链路以及MySQL的问题，瓶颈似乎还是在服务节点上</p>
+<p><img src="/images/oss/595bc15fdd72860f2d1875c86384a14b.png" alt="image.png"></p>
+<p>单独压一个服务节点节点并在上面跑测试，服务节点 CPU被压到 390%(每个服务节点 节点固定绑到4核), 这个时候整个宿主机压力不大，但是这四个核比较紧张了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">#cat rt.log  | awk &apos;&#123; print $3 &#125;&apos;  | awk &apos;&#123;if(min==&quot;&quot;)&#123;min=max=$1&#125;; if($1&gt;max) &#123;max=$1&#125;; if($1&lt;min) &#123;min=$1&#125;; total+=$1; count+=1&#125; END &#123;print &quot;avg &quot; total/count,&quot; | max &quot;max,&quot; | min &quot; min, &quot;| count &quot;, count&#125;&apos; ; cat MySQL.log  | awk &apos;&#123; print $3 &#125;&apos;  | awk &apos;&#123;if(min==&quot;&quot;)&#123;min=max=$1&#125;; if($1&gt;max) &#123;max=$1&#125;; if($1&lt;min) &#123;min=$1&#125;; total+=$1; count+=1&#125; END &#123;print &quot;avg &quot; total/count,&quot; | max &quot;max,&quot; | min &quot; min, &quot;| count &quot;, count &#125;&apos;;</div><div class="line">avg 2589.13  | max 3385  | min 2502 | count  69</div><div class="line">avg 1271.07  | max 1405  | min 1254 | count  141</div><div class="line"></div><div class="line">[root@d42a01107.cloud.a02.am78 /root]</div><div class="line">#taskset -pc 48759</div><div class="line">pid 48759&apos;s current affinity list: 19,52-54</div></pre></td></tr></table></figure>
+<p>通过这6组测试数据可以看到，只有在整个系统都有压力（服务节点所在物理机、LVS、MySQL）的时候rt飙升最明显（C组数据），如果只是LVS、MySQL有压力，服务节点没有压力的时候可以看到数据还是很好的（B组数据）</p>
+<h2 id="分析宿主机资源竞争"><a href="#分析宿主机资源竞争" class="headerlink" title="分析宿主机资源竞争"></a>分析宿主机资源竞争</h2><h3 id="perf分析"><a href="#perf分析" class="headerlink" title="perf分析"></a>perf分析</h3><p>只压单个服务节点</p>
+<p><img src="/images/oss/7aea9045e50794fadc0439ee806f2496.png" alt="image.png"></p>
+<p><img src="/images/oss/86c3f14887345a1d5f08cae985816564.png" alt="image.png"></p>
+<p><strong>从以上截图，可以看到关键的 insn per cycle 能到0.51和0.66（这个数值越大性能越好）</strong></p>
+<p>如果同时压物理机上的所有服务节点</p>
+<p><img src="/images/oss/02f47474c612c2bf6e612efea3ab5de3.png" alt="image.png"></p>
+<p><img src="/images/oss/c3d90e077d00a7a3db54770d9eea2dbb.png" alt="image.png"></p>
+<p><strong>从以上截图，可以看到关键的 insn per cycle 能降到了0.27和0.31（这个数值越大性能越好），基本相当于单压的5折</strong></p>
+<p>通过 perf list 找出所有Hardware event，然后对他们进行perf:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo perf stat -e branch-instructions,branch-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-prefetches,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads -a -- `pidof java`</div></pre></td></tr></table></figure>
+<h3 id="尝试不同的绑核后的一些数据"><a href="#尝试不同的绑核后的一些数据" class="headerlink" title="尝试不同的绑核后的一些数据"></a>尝试不同的绑核后的一些数据</h3><p>通过以上perf数据以及numa结构，尝试将不同服务进程绑定到指定的4个核上</p>
+<p>试了以下三种绑核的办法：</p>
+<p>1）docker swarm随机绑（<strong>以上测试都是用的这种默认方案</strong>）；</p>
+<p>2）一个服务节点绑连续4个core,这4个core都在同一个node； </p>
+<p>3）一个服务节点绑4个core，这个4个core都在在同一个node，同时尽量HT在一起，也就是0，1，32，33 ； 2，3，34，35 这种绑法 </p>
+<p><strong>结果是绑法2性能略好</strong>. </p>
+<p>如果是绑法2，压单个服务节点 QPS能到2.3万；绑法1和3，压单个服务节点性能差别不明显，都是2万左右。 </p>
+<h2 id="尝试将Java进程开启HugePage"><a href="#尝试将Java进程开启HugePage" class="headerlink" title="尝试将Java进程开启HugePage"></a>尝试将Java进程开启HugePage</h2><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
+<h3 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h3><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes=2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
+<blockquote>
+<p>-XX:+UseLargePages -XX:LargePageSizeInBytes=2m -XX:+UseHugeTLBFS</p>
+</blockquote>
+<h3 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h3><p>设置HugePage的大小</p>
+<blockquote>
+<p>cat /proc/sys/vm/nr_hugepages</p>
+</blockquote>
+<p>nr_hugepages设置多大参考如下计算方法：</p>
+<blockquote>
+<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB = 3 <em> 1024 MB = 3072 MB = 3072 </em> 1024 kB = 3145728 kB and 3145728 kB / 2048 kB = 1536):</p>
+<p>echo 1536 &gt; /proc/sys/vm/nr_hugepages </p>
+</blockquote>
+<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
+<p>Java进程用上HugePages后iTLB-load-misses从80%下降到了14%左右, dTLB也从30%下降到了20%，但是ipc变化不明显，QPS有不到10%的增加(不能确定是不是抖动所致)</p>
+<p><img src="/images/oss/f6882f4c671b4c4b46feb01aa5e272fd.png" alt="image.png"></p>
+<p>在公有云ecs虚拟机上测试对性能没啥帮助，实际看到用掉的HuagPage不多，如果/proc/sys/vm/nr_hugepages 设置比较大的话JVM会因为内存不足起不来，两者内存似乎是互斥的</p>
+<h2 id="用sysbench验证一下海光服务器的多core能力"><a href="#用sysbench验证一下海光服务器的多core能力" class="headerlink" title="用sysbench验证一下海光服务器的多core能力"></a>用sysbench验证一下海光服务器的多core能力</h2><p>Intel E5 2682 2.5G VS hygon 7280 2.0G（Zen1）</p>
+<p><img src="/images/951413iMgBlog/image-20210813095409553.png" alt="image-20210813095409553"></p>
+<p><img src="/images/951413iMgBlog/image-20210813095757299.png" alt="image-20210813095757299"></p>
+<p>由以上两个测试结果可以看出单核能力hygon 7280 强于 Intel 2682，但是hygon超线程能力还是没有任何提升。Intel用超线程计算能将耗时从109秒降到74秒。但是hygon(Zen1) 只是从89秒降到了87秒，基本没有变化。</p>
+<p>再补充一个Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz 对比数据 </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div></pre></td><td class="code"><pre><div class="line">#taskset -c 1,53 /usr/bin/sysbench --num-threads=2 --test=cpu --cpu-max-prime=50000 run</div><div class="line">sysbench 0.5:  multi-threaded system evaluation benchmark</div><div class="line"></div><div class="line">Running the test with following options:</div><div class="line">Number of threads: 2</div><div class="line">Random number generator seed is 0 and will be ignored</div><div class="line"></div><div class="line"></div><div class="line">Primer numbers limit: 50000</div><div class="line"></div><div class="line">Threads started!</div><div class="line"></div><div class="line"></div><div class="line">General statistics:</div><div class="line">    total time:                          48.5571s</div><div class="line">    total number of events:              10000</div><div class="line">    total time taken by event execution: 97.0944s</div><div class="line">    response time:</div><div class="line">         min:                                  8.29ms</div><div class="line">         avg:                                  9.71ms</div><div class="line">         max:                                 20.88ms</div><div class="line">         approx.  95 percentile:               9.71ms</div><div class="line"></div><div class="line">Threads fairness:</div><div class="line">    events (avg/stddev):           5000.0000/2.00</div><div class="line">    execution time (avg/stddev):   48.5472/0.01</div><div class="line"></div><div class="line">#taskset -c 1 /usr/bin/sysbench --num-threads=1 --test=cpu --cpu-max-prime=50000 run</div><div class="line">sysbench 0.5:  multi-threaded system evaluation benchmark</div><div class="line"></div><div class="line">Running the test with following options:</div><div class="line">Number of threads: 1</div><div class="line">Random number generator seed is 0 and will be ignored</div><div class="line"></div><div class="line"></div><div class="line">Primer numbers limit: 50000</div><div class="line"></div><div class="line">Threads started!</div><div class="line"></div><div class="line"></div><div class="line">General statistics:</div><div class="line">    total time:                          83.2642s</div><div class="line">    total number of events:              10000</div><div class="line">    total time taken by event execution: 83.2625s</div><div class="line">    response time:</div><div class="line">         min:                                  8.27ms</div><div class="line">         avg:                                  8.33ms</div><div class="line">         max:                                 10.03ms</div><div class="line">         approx.  95 percentile:               8.36ms</div><div class="line"></div><div class="line">Threads fairness:</div><div class="line">    events (avg/stddev):           10000.0000/0.00</div><div class="line">    execution time (avg/stddev):   83.2625/0.00</div><div class="line"></div><div class="line">#lscpu</div><div class="line">Architecture:          x86_64</div><div class="line">CPU op-mode(s):        32-bit, 64-bit</div><div class="line">Byte Order:            Little Endian</div><div class="line">CPU(s):                104</div><div class="line">On-line CPU(s) list:   0-103</div><div class="line">Thread(s) per core:    2</div><div class="line">Core(s) per socket:    26</div><div class="line">Socket(s):             2</div><div class="line">NUMA node(s):          2</div><div class="line">Vendor ID:             GenuineIntel</div><div class="line">CPU family:            6</div><div class="line">Model:                 85</div><div class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</div><div class="line">Stepping:              7</div><div class="line">CPU MHz:               3200.097</div><div class="line">CPU max MHz:           3800.0000</div><div class="line">CPU min MHz:           1200.0000</div><div class="line">BogoMIPS:              4998.89</div><div class="line">Virtualization:        VT-x</div><div class="line">L1d cache:             32K</div><div class="line">L1i cache:             32K</div><div class="line">L2 cache:              1024K</div><div class="line">L3 cache:              36608K</div><div class="line">NUMA node0 CPU(s):     0-25,52-77</div><div class="line">NUMA node1 CPU(s):     26-51,78-103</div><div class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm mpx rdt avx512f avx512dq rdseed adx smap clflushopt avx512cdavx512bw avx512vl xsaveopt xsavec xgetbv1 cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3 mba</div></pre></td></tr></table></figure>
+<p>用sysbench 测试Hygon C86 5280 16-core Processor，分别1、8、16、24、32、40、48、56、64 个thread，32个thread前都是完美的线性增加，32core之后基本不增长了，这个应该能说明这个服务器就是32core的能力</p>
+<blockquote>
+<p>sysbench –threads=1 –cpu-max-prime=50000 cpu run</p>
+</blockquote>
+<p><img src="/images/oss/f86cd786f3a8297078579b547f78ec81.png" alt="image.png"></p>
+<p>对比下intel的 Xeon 104core，也是物理52core，但是性能呈现完美线性</p>
+<p><img src="/images/oss/8086f47b955d8d951e4dd4c7fe5e135e.png" alt="image.png"></p>
+<h3 id="openssl场景多核能力验证"><a href="#openssl场景多核能力验证" class="headerlink" title="openssl场景多核能力验证"></a>openssl场景多核能力验证</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">openssl speed aes-256-ige -multi N</div></pre></td></tr></table></figure>
+<p>intel 52 VS 26，可以看到52个线程的性能大概是26个的1.8倍</p>
+<p><img src="/images/oss/4534d8e5901cc812aa54e610d1386445.png" alt="image.png"></p>
+<p>intel 104 VS 52 线程，性能还能提升1.4倍</p>
+<p><img src="/images/oss/6583f52e03b9753969e52d6a8b211725.png" alt="image.png"></p>
+<p>海光32 VS 16, 性能能提升大概1.8倍，跟intel一致</p>
+<p><img src="/images/oss/41e7f230ec27653c1b5ae5287971cd3a.png" alt="image.png"></p>
+<p>海光64 VS 32, 性能能提升大概1.2倍</p>
+<p><img src="/images/oss/2ad45a252392a06fa64d7475848e5601.png" alt="image.png"></p>
+<p>总结下就是，在物理core数以内的线程数intel和海光性能基本增加一致；但如果超过物理core数开始使用HT后海光明显相比Intel差了很多。</p>
+<p>intel超线程在openssl场景下性能能提升40%，海光就只能提升20%了。</p>
+<h3 id="对比一下鲲鹏920-ARM架构的芯片"><a href="#对比一下鲲鹏920-ARM架构的芯片" class="headerlink" title="对比一下鲲鹏920 ARM架构的芯片"></a>对比一下鲲鹏920 ARM架构的芯片</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#numactl -H</div><div class="line">available: 1 nodes (0)</div><div class="line">node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95</div><div class="line">node 0 size: 773421 MB</div><div class="line">node 0 free: 756092 MB</div><div class="line">node distances:</div><div class="line">node   0</div><div class="line">  0:  10</div></pre></td></tr></table></figure>
+<p>96核一起跑openssl基本就是1核的96倍，完美线性，这是因为鲲鹏就没有超线程，都是物理核。如果并发增加到192个，性能和96个基本一样的。</p>
+<p><img src="/images/oss/be30ab94eddc37f1d90c53204a0ed215.png" alt="image.png"></p>
+<h3 id="用Sysbench直接压MySQL-oltp-read-only的场景"><a href="#用Sysbench直接压MySQL-oltp-read-only的场景" class="headerlink" title="用Sysbench直接压MySQL oltp_read_only的场景"></a>用Sysbench直接压MySQL oltp_read_only的场景</h3><p><img src="/images/oss/89c7a0228c45f79b688710206ba9d414.png" alt="image.png"></p>
+<p>从1到10个thread的时候完美呈现线性，到20个thread就只比10个thread增加50%了，30thread比20增加40%，过了32个thread后增加10个core性能加不到10%了。</p>
+<p>在32thread前，随着并发的增加 IPC也有所减少，这也是导致thread翻倍性能不能翻倍的一个主要原因。</p>
+<p>基本也和openssl 场景一致，海光的HT基本可以忽略，做的不是很好。超过32个thread后（物理core数）性能增加及其微弱</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>海光的一个core只有一个fpu，所以超线程算浮点完全没用.</p>
+<blockquote>
+<p>FP处理所有矢量操作。简单的整数向量运算（例如shift，add）都可以在一个周期内完成，是AMD以前架构延迟的一半。<strong>基本浮点数学运算具有三个周期的延迟</strong>，其中包括乘法（用于双精度需要一个额外周期）。<strong>融合乘加是五个周期。</strong></p>
+<p>FP具有用于128位加载操作的单个管道。实际上，整个FP端都针对128位操作进行了优化。 Zen支持所有最新指令，例如SSE和AVX1/2。 256位AVX的设计方式是可以将它们作为两个独立的128位操作来执行。 Zen通过将这些指令作为两个操作。也就是说，<strong>Zen将256位操作分为两个µOP</strong>。同样，存储也是在128位块上完成的，从而使256位加载的有效吞吐量为每两个周期一个存储。这些管道之间的平衡相当好，因此大多数操作将安排至少两个管道，以保持每个周期至少一个这样的指令的吞吐量。暗示着，<strong>256位操作将占用两倍的资源来完成操作（即2x寄存器，调度程序和端口）。这是AMD采取的一种折衷方案，有助于节省芯片空间和功耗。</strong>相比之下，英特尔的竞争产品Skylake确实具有专用的256位电路。还应注意的是，英特尔的现代服务器级型号进一步扩展了此功能，以纳入支持AVX-512的专用512位电路，而性能最高的型号则具有二个专用的AVX-512单元。</p>
+<p>此外，Zen还支持SHA和AES（并实现了2个AES单元），以提高加密性能。这些单位可以在浮点调度程序的管道0和1上找到。</p>
+<p>这个也是为什么浮点比Intel X86会弱的原因。</p>
+</blockquote>
+<h3 id="一些其他对比结论"><a href="#一些其他对比结论" class="headerlink" title="一些其他对比结论"></a>一些其他对比结论</h3><ul>
+<li>对纯CPU 运算场景，并发不超过物理core时，比如Prime运算，比如DRDS(CPU bound，IO在网络，可以加并发弥补)<ul>
+<li>海光的IPC能保持稳定；</li>
+<li>intel的IPC有所下降，但是QPS在IPC下降后还能完美线性</li>
+</ul>
+</li>
+<li>在openssl和MySQL oltp_read_only场景下<ul>
+<li>如果并发没超过物理core数时，海光和Intel都能随着并发的翻倍性能能增加80%</li>
+<li>如果并发超过物理core数后，Intel还能随着并发的翻倍性能增加50%，海光增加就只有20%了</li>
+<li>简单理解在这两个场景下Intel的HT能发挥半个物理core的作用，海光的HT就只能发挥0.2个物理core的作用了</li>
+</ul>
+</li>
+<li>海光5280/7280 是Zen1/Zen2的AMD 架构，每个core只有一个fpu，综上在多个场景下HT基本上都可以忽略</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU的制造和概念/">CPU的制造和概念</a></p>
+<p><a href="/2021/05/16/CPU Cache Line 和性能/">CPU 性能和Cache Line</a></p>
+<p><a href="/2021/05/16/Perf IPC以及CPU利用率/">Perf IPC以及CPU性能</a></p>
+<p><a href="/2021/06/18/几款CPU性能对比/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/飞腾ARM芯片(FT2500">飞腾ARM芯片(FT2500)的性能测试</a>的性能测试/)</p>
+<p><a href="/2021/05/14/十年后数据库还是不敢拥抱NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/一次海光物理机资源竞争压测的记录/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://dino.ciuffetti.info/2011/07/howto-java-huge-pages-linux/" target="_blank" rel="external">How to use Huge Pages with Java and Linux</a>这个资料中提到了Java使用HugePage的时候启动进程的用户权限问题，在我的docker容器中用的admin启动的进程，测试验证是不需要按资料中的设置。</p>
+<p><a href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a href="https://bbs.huaweicloud.com/blogs/146367" target="_blank" rel="external">华为TaiShan服务器ARMNginx应用调优案例 大量绑核、中断、Numa等相关调优信息</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/03/05/MacOS下如何使用iTerm2访问水木社区/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/03/05/MacOS下如何使用iTerm2访问水木社区/" itemprop="url">MacOS下如何使用iTerm2访问水木社区</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-03-05T17:30:03+08:00">
+                2021-03-05
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MacOS下如何使用iTerm2访问水木社区"><a href="#MacOS下如何使用iTerm2访问水木社区" class="headerlink" title="MacOS下如何使用iTerm2访问水木社区"></a>MacOS下如何使用iTerm2访问水木社区</h1><p>关键字： MacOS、iTerm 、Dracula、ssh、bbs.newsmth.net</p>
+<p>windows下有各种Term软件来帮助我们通过ssh访问bbs.newsmth.net, 但是工作环境切换到MacOS后发现FTerm、CTerm这样的工具都没有对应的了。但是term下访问 bbs.newsmth.net 简直是太爽了，所以本文希望解决这个问题。</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>ssh 访问 bbs.newsmth.net 是没问题的，但是<strong>要解决配色和字符编码问题</strong></p>
+<h3 id="解决编码"><a href="#解决编码" class="headerlink" title="解决编码"></a>解决编码</h3><p>在iTerm2的配置中增加一个profile，如下图 smth，主要是改字符编码集为 GB 18030，然后修改配色方案，我喜欢的Dracula不适合SMTH，十大完全看不了。</p>
+<p><img src="/images/951413iMgBlog/image-20210602133111201.png" alt="image-20210602133111201"></p>
+<p>执行脚本如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#cat /usr/local/bin/smth</div><div class="line">echo -e &quot;\033]50;SetProfile=smth\a&quot;          //切换到smth的profile,也就是切换到了 GB18030</div><div class="line">sshpass -p&apos;密码&apos; ssh -o ServerAliveInterval=60 水木id@bbs.newsmth.net</div><div class="line">echo -e &quot;\033]50;SetProfile=Default\a&quot;       //切换回UTF8</div></pre></td></tr></table></figure>
+<p>SetProfile=smth用来解决profile切换，连smth term前切换成GB 18030，断开的时候恢复成UTF-8，要不然的话正常工作的命令行就乱码了。</p>
+<h3 id="解决配色问题"><a href="#解决配色问题" class="headerlink" title="解决配色问题"></a>解决配色问题</h3><p>然后还是在profile里面把smth的配色方案改成：Tango Dark, 一切简直是完美，工作灌水两不误，别人还发现不了</p>
+<h2 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h2><p>目录（右边是工作窗口）：</p>
+<p><img src="/images/oss/0265ed7a728bfdd6be940d838fc1feaf.png" alt="image.png"></p>
+<p>十大，这个十大颜色和右边工作模式的配色方案不一样</p>
+<p><img src="/images/oss/252b9295375f6e6078278a6e64e1d68c.png" alt="image.png"></p>
+<p>断开后恢复成 Dracula 配色和UTF-8编码，不影响工作，别的工作tab也还是正常使用utf8</p>
+<p><img src="/images/oss/cf8912c0634182b44fa92eeb9f854362.png" alt="image.png"></p>
+<p>别的term网站也是类似，比如小百合、byr、ptt等</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/02/14/TCP疑难问题案例汇总/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -12475,618 +12885,6 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/05/该死的virtualbox/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/11/05/该死的virtualbox/" itemprop="url">该死的错误</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-05T12:30:03+08:00">
-                2019-11-05
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="该死的错误"><a href="#该死的错误" class="headerlink" title="该死的错误"></a>该死的错误</h1><p>virtualbox+ubuntu用了快10年了，各种莫名其妙的问题，一直没有换掉，也怪自己 virtualbox+ubuntu组合也许确实奇葩吧，每次碰到问题都没法google到真正的答案了。</p>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>用的过程中突然发现挂载的数据盘找不到了（主要存放工作文件）， 看历史记录发现自己执行了：</p>
-<pre><code>sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512
-</code></pre><p>/dev/sdb1 对应的正是我的大磁盘，哭死去，怪自己不认识 /dev/sdb1！！ 从来不知道自己挂载的磁盘的真正名字，df -lh 也没仔细看过，导致了这次故障</p>
-<p>出问题的history:</p>
-<pre><code>29214  01/11/19 10:29:05 vi /tmp/tmp.txt
-29215  01/11/19 10:29:18 cat /tmp/tmp.txt |grep &quot;^172.16&quot;
-29216  01/11/19 10:29:27 cat /tmp/tmp.txt |grep &quot;^172.16&quot; &gt;cainiao.txt
-29217  01/11/19 10:29:31 wc -l cainiao.txt
-29218  01/11/19 10:33:13 cat cainiao.txt 
-29219  01/11/19 13:36:55 sudo dd if=/dev/urandom of=/dev/sdb1 bs=1M count=512 //故障发生
-29220  01/11/19 13:37:08 cd ..
-29221  01/11/19 13:37:46 cd / //尝试解决
-29222  01/11/19 19:13:45 ls -lh
-29223  01/11/19 19:13:49 cd ali 
-29224  03/11/19 10:24:56 dmesg
-29225  03/11/19 10:27:28 dmesg |grep -i sda
-29226  03/11/19 10:27:59 dmesg |grep -i sata
-29227  04/11/19 10:19:46 dmesg
-29228  04/11/19 10:20:20 dmesg |grep -i sda
-29229  04/11/19 10:25:21 dmesg 
-29230  04/11/19 10:25:25 dmesg 
-29231  04/11/19 10:25:34 dmesg |grep -i sda
-</code></pre><h2 id="尝试"><a href="#尝试" class="headerlink" title="尝试"></a>尝试</h2><p>各种重启还是无效，重新删掉数据盘再次挂载启动后依然看不见</p>
-<h2 id="mount"><a href="#mount" class="headerlink" title="mount"></a>mount</h2><p>virtualbox的启动参数里明确能看到这快盘，和挂载配置</p>
-<p>启动后通过fdisk可以看见这块大硬盘</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>尝试手工mount （这时看到的才是root cause）</p>
-<pre><code>write-protected, mounting read-only 和 bad superblock 错误
-</code></pre><p>尝试 fsck(危险动作）</p>
-<pre><code>sudo fsck -y /dev/sdb1
-</code></pre><p>然后再次mount成功了</p>
-<pre><code>sudo mount  /dev/sdb1 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-</code></pre><p>lsblk(修复后）</p>
-<pre><code>$sudo lsblk
-NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
-sda      8:0    0   20G  0 disk 
-├─sda1   8:1    0   16G  0 part /
-├─sda2   8:2    0    1K  0 part 
-└─sda5   8:5    0    4G  0 part [SWAP]
-sdb      8:16   0   50G  0 disk 
-├─sdb1   8:17   0   46G  0 part /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3
-├─sdb2   8:18   0    1K  0 part 
-└─sdb5   8:21   0    4G  0 part 
-sr0     11:0    1 73.6M  0 rom  /media/ren/VBox_GAs_6.0.10
-</code></pre><p>进到mount后的目录中，查看磁盘大小正常，但是文件看不见了</p>
-<pre><code>du 发现文件都在lost+found目录下，但是文件夹名字都改成了 inode名字
-</code></pre><p>根据文件夹大小找出之前的文件夹（比较大的），将其复制出来，一切正常了</p>
-<h2 id="修复记录"><a href="#修复记录" class="headerlink" title="修复记录"></a>修复记录</h2><p>其中sda是系统盘，sdb是修复后的大磁盘， sdc 是修复前的大磁盘（备份过的）</p>
-<pre><code>$sudo fdisk -l
-
-Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x01012f4d
-
-Device     Boot    Start      End  Sectors Size Id Type
-/dev/sda1  *        2048 33554431 33552384  16G 83 Linux
-/dev/sda2       33556478 41940991  8384514   4G  5 Extended
-/dev/sda5       33556480 41940991  8384512   4G 82 Linux swap / Solaris
-
-Disk /dev/sdb: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdb1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdb2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdb5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-
-Disk /dev/sdc: 50 GiB, 53687091200 bytes, 104857600 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: dos
-Disk identifier: 0x000e88f6
-
-Device     Boot    Start       End  Sectors Size Id Type
-/dev/sdc1  *        2048  96471039 96468992  46G 83 Linux
-/dev/sdc2       96473086 104855551  8382466   4G  5 Extended
-/dev/sdc5       96473088 104855551  8382464   4G 82 Linux swap / Solaris
-</code></pre><p>可以看到没有修复的磁盘 uuid不太正常，类型也识别为 dos(正常应该是ext4）</p>
-<pre><code>[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc
-/dev/sdc: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdc1
-/dev/sdc1: PARTUUID=&quot;000e88f6-01&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb
-/dev/sdb: PTUUID=&quot;000e88f6&quot; PTTYPE=&quot;dos&quot;
-
-[ren@vb 18:12 /home/ren]
-$sudo blkid /dev/sdb1
-/dev/sdb1: UUID=&quot;a64abcac-657d-42ee-8e7b-575eac99bce3&quot; TYPE=&quot;ext4&quot; PARTUUID=&quot;000e88f6-01&quot;
-</code></pre><p>尝试mount失败</p>
-<pre><code>[ren@vb 18:14 /home/ren]
-$sudo mkdir /media/ren/hd
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sd
-sda   sda1  sda2  sda5  sdb   sdb1  sdb2  sdb5  sdc   sdc1  sdc2  sdc5  
-
-[ren@vb 18:15 /home/ren]
-$sudo mount /dev/sdc1 /media/ren/hd
-mount: /dev/sdc1 is write-protected, mounting read-only
-mount: wrong fs type, bad option, bad superblock on /dev/sdc1,
-       missing codepage or helper program, or other error
-
-       In some cases useful info is found in syslog - try
-       dmesg | tail or so.
-</code></pre><p>dmesg中比较正常和不正常的磁盘日志，是看不出来差别的（还没有触发mount动作）</p>
-<pre><code>[ren@vb 18:16 /home/ren]
-$dmesg |grep sdc
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-[一 11月  4 18:06:47 2019] sd 4:0:0:0: [sdc] Attached SCSI disk
-
-[ren@vb 18:17 /home/ren]
-$dmesg |grep sdb
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write Protect is off
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Mode Sense: 00 3a 00 00
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-[一 11月  4 18:06:47 2019]  sdb: sdb1 sdb2 &lt; sdb5 &gt;
-[一 11月  4 18:06:47 2019] sd 3:0:0:0: [sdb] Attached SCSI disk
-[一 11月  4 18:07:02 2019] EXT4-fs (sdb1): mounted filesystem without journal. Opts: (null)
-</code></pre><p>复盘捞到的 syslog 日志</p>
-<pre><code>Nov  4 18:06:57 vb systemd[1]: Device dev-disk-by\x2duuid-5241a10b\x2d5dde\x2d4051\x2d8d8b\x2d05718dd56445.device appeared twice with different sysfs paths /sys/devices/pci0000:00/0000:00:0d.0/ata4/host3/target3:0:0/3:0:0:0/block/sdb/sdb5 and /sys/devices/pci0000:00/0000:00:0d.0/ata5/host4/target4:0:0/4:0:0:0/block/sdc/sdc5
-Nov  4 18:06:57 vb kernel: [    6.754716] sd 4:0:0:0: [sdc] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
-Nov  4 18:06:57 vb kernel: [    6.754744] sd 4:0:0:0: [sdc] Write Protect is off
-Nov  4 18:06:57 vb kernel: [    6.754747] sd 4:0:0:0: [sdc] Mode Sense: 00 3a 00 00
-Nov  4 18:06:57 vb kernel: [    6.754757] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn&apos;t support DPO or FUA
-Nov  4 18:06:57 vb kernel: [    6.767797]  sdc: sdc1 sdc2 &lt; sdc5 &gt;
-Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
-</code></pre><h2 id="磁盘自检失败，进入emergency-mode"><a href="#磁盘自检失败，进入emergency-mode" class="headerlink" title="磁盘自检失败，进入emergency mode"></a>磁盘自检失败，进入emergency mode</h2><p>修复参考方案：<a href="https://www.jianshu.com/p/7433e0bb38e9" target="_blank" rel="external">https://www.jianshu.com/p/7433e0bb38e9</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">welcome to emergency mode. ......  journalctl -xb...</div><div class="line">Press enter for maintenance</div><div class="line">(or type Control-D to continue):</div></pre></td></tr></table></figure>
-<p>解决方法有两个：</p>
-<p><strong>第一种：跳过检测受损分区</strong></p>
-<p>１、按照提示　执行　journalctl -xb</p>
-<p>　　在日志记录中向下翻页找到损坏的分区是哪个，一般是红色的字体，也可以输入/ fsck fail，按N/n来快速查找（我的是/dev/sda11，这个分区我挂载的是/home）</p>
-<p>２、vi /etc/fstab </p>
-<p>编辑fstab这个文件，注释掉对应的mount行。或将损坏的分区后面的数字从２改为０（０代表启动时不检查该分区）</p>
-<p>３、执行reboot 　重启</p>
-<p><strong>第二种方法：修复受损的分区</strong></p>
-<p>１、执行命令 umount /dev/sdb1 （对应自己出错的设备）卸载设备;</p>
-<p>２、执行命令 fsck -y /dev/sdb1 执行fsck校验并修复文件;</p>
-<p>3、重新mount就可以使用了</p>
-<p>两种方法我都解决了我的问题，不过我还是使用了第二种，第一种总感觉治标不治本！</p>
-<h2 id="奇葩问题"><a href="#奇葩问题" class="headerlink" title="奇葩问题"></a>奇葩问题</h2><p>virtualbox 太多命名其妙的问题了，争取早日换掉</p>
-<h3 id="磁盘uuid重复后，生成新的uuid"><a href="#磁盘uuid重复后，生成新的uuid" class="headerlink" title="磁盘uuid重复后，生成新的uuid"></a>磁盘uuid重复后，生成新的uuid</h3><p>[/drives/c/Program Files/Oracle/VirtualBox]<br>$./VBoxManage.exe internalcommands sethduuid “D:\vb\ubuntu-disk.vmdk”</p>
-<h3 id="Windows系统突然dns不工作了"><a href="#Windows系统突然dns不工作了" class="headerlink" title="Windows系统突然dns不工作了"></a>Windows系统突然dns不工作了</h3><p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
-<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
-</code></pre><h3 id="ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings"><a href="#ubuntu-鼠标中键不能复制粘贴的恢复办法-gpointing-device-settings" class="headerlink" title="ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings"></a>ubuntu 鼠标中键不能复制粘贴的恢复办法 gpointing-device-settings</h3><p><a href="http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button" target="_blank" rel="external">http://askubuntu.com/questions/302077/how-to-enable-paste-in-terminal-with-middle-mouse-button</a></p>
-<h3 id="ubuntu无法关闭锁屏，无法修改配置："><a href="#ubuntu无法关闭锁屏，无法修改配置：" class="headerlink" title="ubuntu无法关闭锁屏，无法修改配置："></a>ubuntu无法关闭锁屏，无法修改配置：</h3><p>sudo mv ~/.config/dconf ~/.config/dconf.bak //删掉dconf就好了<br><a href="https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings" target="_blank" rel="external">https://unix.stackexchange.com/questions/296231/cannot-save-changes-made-in-gnome-settings</a></p>
-<h2 id="感受"><a href="#感受" class="headerlink" title="感受"></a>感受</h2><p>自己不懂 /dev/sdb 导致了这次问题</p>
-<p>这种错误居然从virtualbox或者ubuntu的系统日志中找不到相关信息，这个应该是没有触发挂载。自己对mount、fsck不够熟悉也是主要原因，运气好在fsck 居然没丢任何数据</p>
-<h2 id="历史老问题"><a href="#历史老问题" class="headerlink" title="历史老问题"></a>历史老问题</h2><p>这种额外挂载的磁盘在ubuntu下启动后不会出现，需要在ubuntu文件系统中人肉访问一次，就触发了挂载动作，然后在bash中才可以正常使用，这个问题我折腾了N年都没解决，实际这次发现是自己对挂载、fstab不够了解。</p>
-<p>在 /etc/fstab 中增加boot时挂载这个问题终于解决掉了</p>
-<pre><code>UUID=a64abcac-657d-42ee-8e7b-575eac99bce3 /media/ren/a64abcac-657d-42ee-8e7b-575eac99bce3  ext4 defaults 1 1
-</code></pre>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/10/31/epoll和惊群/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/10/31/epoll和惊群/" itemprop="url">epoll和惊群</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-10-31T12:30:03+08:00">
-                2019-10-31
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
-<h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
-<p>惊群的本质在于多个线程处理同一个事件。</p>
-<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
-<p>linux 内核通过睡眠队列来组织所有等待某个事件的 task，而 wakeup 机制则可以异步唤醒整个睡眠队列上的 task，wakeup 逻辑在唤醒睡眠队列时，会遍历该队列链表上的每一个节点，调用每一个节点的 callback，从而唤醒睡眠队列上的每个 task，为什么要欢行所有的task，关键在于内核不知道这个消息是一个task处理就够了还是从逻辑上这些wakeup的所有task都要处理，所以只能全部唤醒。这样，在一个 connect 到达这个 lisent socket 的时候，内核会唤醒所有睡眠在 accept 队列上的 task。N 个 task 进程(线程)同时从 accept 返回，但是，只有一个 task 返回这个 connect 的 fd，其他 task 都返回-1(EAGAIN)。这是典型的 accept”惊群”现象。</p>
-<p>如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。</p>
-<p>连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）</p>
-<p>关键点：多个进程监听相同事件（或者说一个epoll有多个进程来处理）</p>
-<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
-<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read/write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
-<h2 id="无IO复用时Accept"><a href="#无IO复用时Accept" class="headerlink" title="无IO复用时Accept"></a>无IO复用时Accept</h2><blockquote>
-<p>无IO复用（就只能一个进程监听listen 端口）的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
-</blockquote>
-<p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"> <span class="comment">/* nr_exclusive的值默认设为1 */</span></div><div class="line"> <span class="meta">#<span class="meta-keyword">define</span> wake_up_interruptible_sync_poll(x, m)              \</span></div><div class="line">    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, 1, (void *) (m))</div><div class="line"></div><div class="line">tcp_v4_rcv</div><div class="line">tcp_v4_do_rcv</div><div class="line">tcp_child_process</div><div class="line">sock_def_readable</div><div class="line">wake_up_interruptible_sync_poll</div><div class="line">__wake_up_common</div><div class="line"> <span class="comment">/* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */</span></div><div class="line">list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)</div><div class="line">    <span class="comment">/* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */</span></div><div class="line">    <span class="keyword">if</span> (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;</div><div class="line">       !--nr_exclusive)</div><div class="line">       <span class="keyword">break</span>;</div></pre></td></tr></table></figure>
-<p>sock中定义了几个I/O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
-<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
-<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
-<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
-<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p><img src="/images/951413iMgBlog/2021-11-05-10-49-41.png" alt="img"></p>
-<p><img src="/images/951413iMgBlog/2021-10-14-11-21-46.png" alt="img"></p>
-<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//主进程中：</span></div><div class="line">ngx_init_cycle</div><div class="line">ngx_open_listening_sockets</div><div class="line">    socket</div><div class="line">    bind</div><div class="line">    listen</div><div class="line">    epoll_create</div><div class="line">    epoll_ctl</div><div class="line"></div><div class="line"><span class="comment">//子进程中：</span></div><div class="line">ngx_event_process_init</div><div class="line">ngx_prcocess_events_and_timers</div><div class="line">ngx_epoll_process_events</div><div class="line">    epoll_wait</div><div class="line">    rev-&gt;handler(rev) <span class="comment">// 对于listening socket，handler是ngx_event_accept</span></div></pre></td></tr></table></figure>
-<p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
-<pre><code>epoll_wait
-ep_poll
-    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
-    init_waitqueue_entry(&amp;wait, current) 
-    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
-    ...
-    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
-</code></pre><p>回调触发逻辑：</p>
-<pre><code>tcp_v4_rcv
-tcp_v4_do_rcv
-tcp_child_process
-sock_def_readable /* sock I/O 有数据可读事件 */
-wake_up_interruptible_sync_poll
-__wake_up_common
-    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
-    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
-        !--nr_exclusive)
-        break;
-</code></pre><p><img src="/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png" alt="img"></p>
-<p>那么这种情况下内核如何来解决惊群呢？ </p>
-<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
-<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
-<p>linux man文档中一段文字描述其作用：</p>
-<blockquote>
-<p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
-</blockquote>
-<p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
-<ul>
-<li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
-<li>每一个线程拥有自己的服务器套接字</li>
-<li>在服务器套接字上没有了锁的竞争</li>
-<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
-<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
-</ul>
-<p>其核心的实现主要有三点：</p>
-<ul>
-<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
-<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
-<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
-</ul>
-<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<ul>
-<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
-<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
-<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
-</ul>
-<p>以nginx为例，一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。</p>
-<ul>
-<li>每个 Worker 都会有一个属于自己的 epoll 对象</li>
-<li>每个 Worker 会关注所有的 listen 状态上的新连接事件（可以通过accept_mutex或者reuseport来解决惊群）</li>
-<li>对于用户连接，只有一个 Worker 会处理，其它 Worker 不会持有该用户连接的 socket（不会惊群）</li>
-</ul>
-<p><img src="/images/951413iMgBlog/640-9645142.png" alt="Image"></p>
-<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
-<p><img src="/images/951413iMgBlog/640-9645236." alt=""></p>
-<p>因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。</p>
-<p><img src="/images/951413iMgBlog/2021-12-31-12-44-05.png" alt="img"></p>
-<p>图片来自：<a href="https://wenfh2020.com/2021/11/22/question-thundering-herd/" target="_blank" rel="external">https://wenfh2020.com/2021/11/22/question-thundering-herd/</a></p>
-<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept</p>
-<p><img src="/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
-<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
-<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
-<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="external">因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接（或者这个worker上的其它请求），但是这个时候worker一直在压缩如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
-<blockquote>
-<p>上面Nginx Hang死的原因是：Nginx 使用了边缘触发模式，因此Nginx 在套接字有可读性事件的情况下，必须把所有数据都读掉才行，在gzip buffer &lt; connection rcvbuf 同时后端比较快时候，一次性读不完连接上所有数据，就会出现读数据-&gt;压缩-&gt;新数据到达-&gt;继续读数据-&gt; 继续压缩… 的循环，由于压缩需要时间，此时套接字上又来了新的数据，只要数据来的速度比压缩的快，就会出现数据一直读不完的情况，CPU 就一直切不出去。</p>
-<p>解决：OSS gzip_buffers 配置为 64*8k = 512K，给后端进程增加了设置sndbuf/rcvbuf 指令之后通过配置Tengine 与后 oss_server 之间的连接的rcvbuf 到512k 以内，这样就能解决这个问题了，实测这个修改几乎不影响后端整体吞吐，同时也不会出现Nginx worker Hang 的情况。</p>
-</blockquote>
-<p>如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
-<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
-<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
-<p>用图形展示大概如下：</p>
-<p><img src="/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
-<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲, 这会导致 RT 抖动加大：</p>
-<p>Here is the same test run against the SO_REUSEPORT multi-queue NGINX setup (c):</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</div><div class="line">        | cut -d &quot; &quot; -f 1</div><div class="line">        | ./mmhistogram -t &quot;Duration in ms (multiple queues)&quot;</div><div class="line">min:1.49 avg:31.37 med=24.67 max:144.55 dev:25.27 count:100000</div><div class="line">Duration in ms (multiple queues):</div><div class="line"> value |-------------------------------------------------- count</div><div class="line">     0 |                                                   0</div><div class="line">     1 |                                                 * 1023</div><div class="line">     2 |                                         ********* 5321</div><div class="line">     4 |                                 ***************** 9986</div><div class="line">     8 |                  ******************************** 18443</div><div class="line">    16 |    ********************************************** 25852</div><div class="line">    32 |************************************************** 27949</div><div class="line">    64 |                              ******************** 11368</div><div class="line">   128 |                                                   58</div></pre></td></tr></table></figure>
-<p>相对地一个accept queue多个 worker的模式 running against a single-queue NGINX:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</div><div class="line">        | cut -d &quot; &quot; -f 1</div><div class="line">        | ./mmhistogram -t &quot;Duration in ms (single queue)&quot;</div><div class="line">min:3.61 avg:30.39 med=30.28 max:72.65 dev:1.58 count:100000</div><div class="line">Duration in ms (single queue):</div><div class="line"> value |-------------------------------------------------- count</div><div class="line">     0 |                                                   0</div><div class="line">     1 |                                                   0</div><div class="line">     2 |                                                   1</div><div class="line">     4 |                                                   16</div><div class="line">     8 |                                                   67</div><div class="line">    16 |************************************************** 91760</div><div class="line">    32 |                                              **** 8155</div><div class="line">    64 |                                                   1</div></pre></td></tr></table></figure>
-<p>可以看到一个accept queue多个 worker的模式下 RT 极其稳定</p>
-<h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="external">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="external">comment</a></p>
-<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
-<h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
-<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">epoll_ctl</div><div class="line">ep_insert</div><div class="line">ep_ptable_queue_proc</div><div class="line">    <span class="comment">/* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */</span></div><div class="line">     * 注意，和标准accept的等待任务不同，这里并没有给等待任务设置WQ_FLAG_EXCLUSIVE。</div><div class="line">     */</div><div class="line">    init_waitqueue_func_entry(&amp;pwq-&gt;wait, ep_poll_callback);</div><div class="line">    <span class="comment">/* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */</span></div><div class="line">    <span class="keyword">if</span> (epi-&gt;event.events &amp; EPOLLEXCLUSIVE)</div><div class="line">        <span class="comment">/* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */</span></div><div class="line">        add_wait_queue_exclusive(whead, &amp;pwq-&gt;wait);</div><div class="line">    <span class="keyword">else</span></div><div class="line">        <span class="comment">/* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */</span></div><div class="line">        add_wait_queue(whead, &amp;pwq-&gt;wait);</div></pre></td></tr></table></figure>
-<p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.<br>调用栈如下：</p>
-<pre><code>//  tcp_v4_do_rcv()
-//  --&gt;tcp_child_process()
-//  ---&gt;sock_def_readable()
-//  ----&gt;wake_up_interruptible_sync_poll()
-//  -----&gt;__wake_up_sync_key()
-</code></pre><p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
-<p><img src="/images/951413iMgBlog/worker2.png" alt=""></p>
-<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
-<p><img src="/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png" alt="image.png"></p>
-<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
-<h4 id="多个worker共享一个-accept-queue-带来的问题"><a href="#多个worker共享一个-accept-queue-带来的问题" class="headerlink" title="多个worker共享一个 accept queue 带来的问题"></a><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="external">多个worker共享一个 accept queue 带来的问题</a></h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
-<p><img src="/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png" alt="image.png"></p>
-<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
-<p>图中LIFO场景出现是在多个worker共享一个accept queue的epoll场景下，如果用 SO_REUSEPORT 搞成每个worker一个accept queue就不存在这个问题了</p>
-<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
-<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
-<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
-<p><img src="/images/951413iMgBlog/sharedqueue.png" alt=""></p>
-<h3 id="比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT"><a href="#比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT" class="headerlink" title="比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
-<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/lyztyycode/article/details/78648798" target="_blank" rel="external">Linux惊群效应详解（最详细的了吧）</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/80837278" target="_blank" rel="external">再谈Linux epoll惊群问题的原因和解决方案</a></p>
-<p><a href="https://www.atatech.org/articles/117111" target="_blank" rel="external">epoll lifo引发的nginx “负载不均”</a> </p>
-<p><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="external">Why does one NGINX worker take all the load?</a></p>
-<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="external">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a> </p>
-<p><a href="https://www.atatech.org/articles/174248" target="_blank" rel="external">Gzip 导致 Nginx worker Hang 问题解法</a></p>
-<p><a href="https://www.atatech.org/articles/112471" target="_blank" rel="external">Socket多进程分发原理</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/107227145" target="_blank" rel="external">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
-<p><a href="https://my.oschina.net/alchemystar/blog/3008840" target="_blank" rel="external">https://my.oschina.net/alchemystar/blog/3008840</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -13136,7 +12934,7 @@ __wake_up_common
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">169</span>
+                <span class="site-state-item-count">171</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -13158,7 +12956,7 @@ __wake_up_common
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">262</span>
+                <span class="site-state-item-count">265</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
