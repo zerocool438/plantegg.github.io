@@ -102,13 +102,19 @@
 <meta property="og:url" content="https://plantegg.github.io/2018/08/21/vxlan网络性能测试/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="vxlan网络性能测试 缘起 Docker集群中需要给每个容器分配一个独立的IP，同时在不同宿主机环境上的容器IP又要能够互相联通，所以需要一个overlay的网络（vlan也可以解决这个问题） overlay网络就是把容器之间的网络包重新打包在宿主机的IP包里面，传到目的容器所在的宿主机后，再把这个overlay的网络包还原成容器包交给容器 这里多了一次封包解包的过程，所以性能上必然有些损耗 封">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174305030.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174402374.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174428881.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174725237.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174802828.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174829420.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png">
-<meta property="og:updated_time" content="2023-06-07T01:21:13.116Z">
+<meta property="og:updated_time" content="2024-01-16T06:39:17.822Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="vxlan网络性能测试">
 <meta name="twitter:description" content="vxlan网络性能测试 缘起 Docker集群中需要给每个容器分配一个独立的IP，同时在不同宿主机环境上的容器IP又要能够互相联通，所以需要一个overlay的网络（vlan也可以解决这个问题） overlay网络就是把容器之间的网络包重新打包在宿主机的IP包里面，传到目的容器所在的宿主机后，再把这个overlay的网络包还原成容器包交给容器 这里多了一次封包解包的过程，所以性能上必然有些损耗 封">
-<meta name="twitter:image" content="https://plantegg.github.io/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174305030.png">
 
 
 
@@ -465,8 +471,22 @@ Connecting to host 192.168.6.6, port 5201
 [ ID] Interval   Transfer Bandwidth   Retr
 [  4]   0.00-10.00  sec   508 MBytes   426 Mbits/sec   11 sender
 [  4]   0.00-10.00  sec   506 MBytes   424 Mbits/sec  receiver
-</code></pre><h2 id="PPS-压测"><a href="#PPS-压测" class="headerlink" title="PPS 压测"></a>PPS 压测</h2><p>购买的 ECS PPS为 600 万</p>
+</code></pre><h2 id="PPS-压测"><a href="#PPS-压测" class="headerlink" title="PPS 压测"></a>PPS 压测</h2><p>必须到<a href="https://sourceforge.net/projects/iperf2/files/" target="_blank" rel="external">这里下载最新版的iperf2</a> 才有增强的 pps 测试能力</p>
+<p>购买的 ECS PPS为 600 万</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">iperf -c 10.0.1.2 -t 600 -u -i 1 -l 16 -b 500kpps -P 16 //实际outgoing 有丢包</div><div class="line"></div><div class="line">调整参数刚好压到 ECS的标称 600万 PPS，同时通过netstat -s 观察没有丢包</div><div class="line">iperf -c 10.0.1.2 -t 600 -u -i 1 -l 16 -b 250kpps -P 24 -e</div><div class="line">[SUM] 25.00-26.00 sec  91.6 MBytes   768 Mbits/sec  6002993/1  6002999 pps</div><div class="line"></div><div class="line">iperf -c 100.69.170.17 -u -i 1 -l 16 -b 2000kpps -e</div></pre></td></tr></table></figure>
+<p>压测机器内核 3.10，故意不打满，160万pps</p>
+<p>server收包端的top，几乎看不到si 和ksoftirq：</p>
+<p><img src="/images/951413iMgBlog/image-20231227174305030.png" alt="image-20231227174305030"></p>
+<p>对应的tsar pps 监控：</p>
+<p><img src="/images/951413iMgBlog/image-20231227174402374.png" alt="image-20231227174402374"></p>
+<p>client端的iperf 数据：</p>
+<p><img src="/images/951413iMgBlog/image-20231227174428881.png" alt="image-20231227174428881"></p>
+<p>在如上基础上加大压力，可以看到si% 快速被打爆，和流量不成正比，大量丢包</p>
+<p><img src="/images/951413iMgBlog/image-20231227174725237.png" alt="image-20231227174725237"></p>
+<p><img src="/images/951413iMgBlog/image-20231227174802828.png" alt="image-20231227174802828"></p>
+<p><img src="/images/951413iMgBlog/image-20231227174829420.png" alt="image-20231227174829420"></p>
+<p>实际流量只是从160万pps 增加到320万pps，但是si CPU的增加可不是翻倍，而是出现了踩踏，丢包也大量出现(因为si% 达到100%)</p>
+<p>在4.19/5.10的内核上进行如上验证，也是一样出现了软中断CPU踩踏 </p>
 <h2 id="带宽压测"><a href="#带宽压测" class="headerlink" title="带宽压测"></a>带宽压测</h2><h2 id="netperf-安装依赖-automake-1-14-环境无法升级，放弃"><a href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃" class="headerlink" title="netperf 安装依赖 automake-1.14, 环境无法升级，放弃"></a>netperf 安装依赖 automake-1.14, 环境无法升级，放弃</h2><h2 id="qperf-测试工具"><a href="#qperf-测试工具" class="headerlink" title="qperf 测试工具"></a>qperf 测试工具</h2><ul>
 <li>sudo yum install qperf -y</li>
 </ul>
@@ -1187,7 +1207,7 @@ msg_size  =4 KiB (4,096)
 <div class="copyright" >
   
   &copy; 
-  <span itemprop="copyrightYear">2023</span>
+  <span itemprop="copyrightYear">2024</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
