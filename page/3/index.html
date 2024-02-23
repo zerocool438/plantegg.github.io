@@ -291,6 +291,203 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/09/epoll的LT和ET/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/09/epoll的LT和ET/" itemprop="url">epoll的LT和ET</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-09T12:30:03+08:00">
+                2019-12-09
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="epoll的LT和ET"><a href="#epoll的LT和ET" class="headerlink" title="epoll的LT和ET"></a>epoll的LT和ET</h1><ul>
+<li><p>LT水平触发(翻译为 条件触发 更合适） </p>
+<blockquote>
+<p>如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
+</blockquote>
+</li>
+<li><p>ET边沿触发<br>&gt;</p>
+<blockquote>
+<p>  如果事件来了，不管来了几个，你若不处理或者没有处理完，除非下一个事件到来，否则epoll将不会再通知你。 比如事件来了，打印一行通知，但是不去处理事件，那么不再通知，除非下个事件来了</p>
+</blockquote>
+</li>
+</ul>
+<p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
+<p>举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。</p>
+<h3 id="条件触发的问题：不必要的唤醒"><a href="#条件触发的问题：不必要的唤醒" class="headerlink" title="条件触发的问题：不必要的唤醒"></a>条件触发的问题：不必要的唤醒</h3><ol>
+<li>内核：收到一个新建连接的请求</li>
+<li>内核：由于 “惊群效应” ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程B：epoll_wait() 返回</li>
+<li>线程A：执行 accept() 并且成功</li>
+<li>线程B：执行 accept() 失败，accept() 返回 EAGAIN</li>
+</ol>
+<h3 id="边缘触发的问题：不必要的唤醒以及饥饿"><a href="#边缘触发的问题：不必要的唤醒以及饥饿" class="headerlink" title="边缘触发的问题：不必要的唤醒以及饥饿"></a>边缘触发的问题：不必要的唤醒以及饥饿</h3><p>不必要的唤醒：</p>
+<ol>
+<li>内核：收到第一个连接请求。线程 A 和 线程 B 两个线程都在 epoll_wait() 上等待。由于采用边缘触发模式，所以只有一个线程会收到通知。这里假定线程 A 收到通知</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：此时 accept queue 为空，所以将边缘触发的 socket 的状态从可读置成不可读</li>
+<li>内核：收到第二个建连请求</li>
+<li>内核：此时，由于线程 A 还在执行 accept() 处理，只剩下线程 B 在等待 epoll_wait()，于是唤醒线程 B</li>
+<li>线程A：继续执行 accept() 直到返回 EAGAIN</li>
+<li>线程B：执行 accept()，并返回 EAGAIN，此时线程 B 可能有点困惑(“明明通知我有事件，结果却返回 EAGAIN”)</li>
+<li>线程A：再次执行 accept()，这次终于返回 EAGAIN</li>
+</ol>
+<p>饥饿：</p>
+<ol>
+<li>内核：接收到两个建连请求。线程 A 和 线程 B 两个线程都在等在 epoll_wait()。由于采用边缘触发模式，只有一个线程会被唤醒，我们这里假定线程 A 先被唤醒</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：收到第三个建连请求。由于线程 A 还没有处理完(没有返回 EAGAIN)，当前 socket 还处于可读的状态，由于是边缘触发模式，所有不会产生新的事件</li>
+<li>线程A：继续执行 accept() 希望返回 EAGAIN 再进入 epoll_wait() 等待，然而它又 accept() 成功并处理了一个新连接</li>
+<li>内核：又收到了第四个建连请求</li>
+<li>线程A：又继续执行 accept()，结果又返回成功</li>
+</ol>
+<p>ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：</p>
+<blockquote>
+<p>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip …..</p>
+</blockquote>
+<p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
+<p>这样就会造成nginx的这个worker假死了一样。如果上传速度慢，这个循环无法持续存在，也就是一旦读完nginx切走（再有数据进来等待下次触发），不会造成假死。</p>
+<p>JDK中的NIO是条件触发（level-triggered），不支持ET。netty，nginx和redis默认是边缘触发（edge-triggered），netty因为JDK不支持ET，所以自己实现了Netty-native的抽象，不依赖JDK来提供ET。</p>
+<p>边缘触发会比条件触发更高效一些，因为边缘触发不会让同一个文件描述符多次被处理,比如有些文件描述符已经不需要再读写了,但是在条件触发下每次都会返回,而边缘触发只会返回一次。</p>
+<p>如果设置边缘触发,则必须将对应的文件描述符设置为非阻塞模式并且循环读取数据。否则会导致程序的效率大大下降或丢消息。</p>
+<p>poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘触发。条件触发同时支持block和non-block，使用更简单一些。</p>
+<h3 id="epoll-LT惊群的发生"><a href="#epoll-LT惊群的发生" class="headerlink" title="epoll LT惊群的发生"></a>epoll LT惊群的发生</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line"><span class="comment">// 否则会阻塞在IO系统调用，导致没有机会再epoll</span></div><div class="line">set_socket_nonblocking(sd);</div><div class="line">epfd = epoll_create(<span class="number">64</span>);</div><div class="line">event.data.fd = sd;</div><div class="line">epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &amp;event);</div><div class="line"><span class="keyword">while</span> (<span class="number">1</span>) &#123;</div><div class="line">    epoll_wait(epfd, events, <span class="number">64</span>, xx);</div><div class="line">    ... <span class="comment">// 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！</span></div><div class="line">    <span class="comment">// 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：</span></div><div class="line">    <span class="comment">// 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)</span></div><div class="line">    <span class="comment">// 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。</span></div><div class="line">    csd = accept(sd, &amp;in_addr, &amp;in_len); </div><div class="line">    ...</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
+<p>保证1：在LT模式下，“就绪链表”上取出的epi上报完事件后会重新加回“就绪链表”；<br>保证2：如果“就绪链表”不为空，且此时有进程阻塞在同一个epoll句柄的睡眠队列上，则唤醒它。</p>
+<p>epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而为之的，内核肯定是知道这件事的，这个并不像之前accept惊群那样算是内核的一个缺陷。epoll LT模式只是提供了一种模式，误用这种模式将会造成类似惊群那样的效应。但是不管怎么说，为了讨论上的方便，后面我们姑且将这种效应称作epoll LT惊群吧。</p>
+<h3 id="epoll-ET模式可以解决上面的问题，但是带来了新的麻烦"><a href="#epoll-ET模式可以解决上面的问题，但是带来了新的麻烦" class="headerlink" title="epoll ET模式可以解决上面的问题，但是带来了新的麻烦"></a>epoll ET模式可以解决上面的问题，但是带来了新的麻烦</h3><p>由于epi entry的callback即ep_poll_callback所做的事情仅仅是将该epi自身加入到epoll句柄的“就绪链表”，同时唤醒在epoll句柄睡眠队列上的task，所以这里并不对事件的细节进行计数，比如说，<strong>如果ep_poll_callback在将一个epi加入“就绪链表”之前发现它已经在“就绪链表”了，那么就不会再次添加，因此可以说，一个epi可能pending了多个事件，注意到这点非常重要！</strong></p>
+<p>一个epi上pending多个事件，这个在LT模式下没有任何问题，因为获取事件的epi总是会被重新添加回“就绪链表”，那么如果还有事件，在下次check的时候总会取到。然而对于ET模式，仅仅将epi从“就绪链表”删除并将事件本身上报后就返回了，因此如果该epi里还有事件，则只能等待再次发生事件，进而调用ep_poll_callback时将该epi加入“就绪队列”。这意味着什么？</p>
+<p>这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/157349" target="_blank" rel="external">Epoll is fundamentally broken</a> </p>
+<p><a href="https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12" target="_blank" rel="external">Epoll is fundamentally broken 1/2</a> </p>
+<p><a href="https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/" target="_blank" rel="external">https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/09/如何在工作中学习-2019V2版/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -13184,216 +13381,6 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/25/Linux LVM使用/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/02/25/Linux LVM使用/" itemprop="url">Linux LVM使用</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
-                2018-02-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-LVM使用"><a href="#Linux-LVM使用" class="headerlink" title="Linux LVM使用"></a>Linux LVM使用</h1><p>LVM是 Logical Volume Manager（逻辑<a href="https://baike.baidu.com/item/卷管理" target="_blank" rel="external">卷管理</a>）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。</p>
-<p><strong>从一块硬盘到能使用LV文件系统的步骤：</strong></p>
-<p>​     <strong>硬盘—-分区(fdisk)—-PV(pvcreate)—-VG(vgcreate)—-LV(lvcreate)—-格式化(mkfs.ext4 LV为ext文件系统)—-挂载</strong></p>
-<p><img src="/images/951413iMgBlog/949069-20200416104045527-1858978940.png" alt="img"></p>
-<p>LVM磁盘管理方式</p>
-<p><img src="/images/951413iMgBlog/image-20220725100705140.png" alt="image-20220725100705140"></p>
-<p><strong>lvreduce 缩小LV</strong></p>
-<p><strong>先卸载—&gt;然后减小逻辑边界—-&gt;最后减小物理边界—&gt;在检测文件系统  ==谨慎用==</strong></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$sudo e2label /dev/nvme0n1p1 polaru01  //给磁盘打标签</div><div class="line"></div><div class="line">[aliyun@uos15 15:07 /dev/disk/by-label]</div><div class="line">$lsblk  -f</div><div class="line">NAME        FSTYPE LABEL     UUID                                 FSAVAIL FSUSE% MOUNTPOINT</div><div class="line">sda                                                                              </div><div class="line">├─sda1      vfat   EFI       D0E3-79A8                               299M     0% /boot/efi</div><div class="line">├─sda2      ext4   Boot      f204c992-fb20-40e1-bf58-b11c994ee698    1.3G     6% /boot</div><div class="line">├─sda3      ext4   Roota     dbc68010-8c36-40bf-b794-271e59ff5727   14.8G    61% /</div><div class="line">├─sda4      ext4   Rootb     73fe0ac6-ff6b-46cc-a609-c574be026e8f                </div><div class="line">├─sda5      ext4   _dde_data 798fce56-fc82-4f59-bcaa-d2ed5c48da8d   42.1G    54% /data</div><div class="line">├─sda6      ext4   Backup    267dc7a8-1659-4ccc-b7dc-5f2cd80f4e4e    3.7G    57% /recovery</div><div class="line">└─sda7      swap   SWAP      7a5632dc-bc7b-410e-9a50-07140f20cd13                [SWAP]</div><div class="line">nvme0n1                                                                          </div><div class="line">└─nvme0n1p1 ext4   polaru01  762a5700-8cf1-454a-b385-536b9f63c25d  413.4G    54% /u01</div><div class="line">nvme1n1     xfs    u02       8ddf19c4-fe71-4428-b2aa-e45acf08050c                </div><div class="line">nvme2n1     xfs    u03       2b8625b4-c67d-4f1e-bed6-88814adfd6cc                </div><div class="line">nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1</div></pre></td></tr></table></figure>
-<h2 id="LVM-创建、扩容"><a href="#LVM-创建、扩容" class="headerlink" title="LVM 创建、扩容"></a>LVM 创建、扩容</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div></pre></td><td class="code"><pre><div class="line">sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1</div><div class="line">如果报错：</div><div class="line">  Can&apos;t open /dev/nvme1n1 exclusively.  Mounted filesystem?</div><div class="line">  Can&apos;t open /dev/nvme0n1 exclusively.  Mounted filesystem?</div><div class="line">是说/dev/nvme0n1已经mounted了，需要先umount</div><div class="line"></div><div class="line">vgdisplay </div><div class="line">sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1</div><div class="line">sudo mkfs.ext4 /dev/vg1/u03   </div><div class="line">sudo mkdir /lvm</div><div class="line">sudo fdisk -l</div><div class="line">sudo umount /lvm</div><div class="line">sudo lvresize -L 5.8T /dev/vg1/u03 //lv 扩容</div><div class="line">sudo e2fsck -f /dev/vg1/u03 </div><div class="line">sudo resize2fs /dev/vg1/u03</div><div class="line">sudo mount /dev/vg1/u03 /lvm</div><div class="line">cd /lvm/</div><div class="line">lvdisplay </div><div class="line">sudo vgdisplay vg1</div><div class="line">lsblk -l</div><div class="line">lsblk </div><div class="line">sudo vgextend vg1 /dev/nvme3n1  //vg 扩容, 增加一块磁盘到vg1</div><div class="line">ls /u01</div><div class="line">sudo vgdisplay </div><div class="line">sudo fdisk  -l</div><div class="line">sudo pvdisplay </div><div class="line">sudo lvcreate -L 1T -n lv2 vg1  //从vg1中再分配一块1T大小的磁盘</div><div class="line">sudo lvdisplay </div><div class="line">sudo mkfs.ext4 /dev/vg1/lv2 </div><div class="line">mkdir /lv2</div><div class="line">ls /</div><div class="line">sudo mkdir /lv2</div><div class="line">sudo mount /dev/vg1/lv2 /lv2</div><div class="line">df -lh</div><div class="line"></div><div class="line">//手工创建lvm</div><div class="line"> 1281  18/05/22 11:04:22 ls -l /dev/|grep -v ^l|awk &apos;&#123;print $NF&#125;&apos;|grep -E &quot;^nvme[7-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$&quot;</div><div class="line"> 1282  18/05/22 11:05:06 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1</div><div class="line"> 1283  18/05/22 11:05:50 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1</div><div class="line"> 1287  18/05/22 11:07:59 lvcreate -A y -I 128K -l 100%FREE  -i 3 -n big vgbig</div><div class="line"> 1288  18/05/22 11:08:02 df -h</div><div class="line"> 1289  18/05/22 11:08:21 lvdisplay</div><div class="line"> 1290  18/05/22 11:08:34 df -lh</div><div class="line"> 1291  18/05/22 11:08:42 df -h</div><div class="line"> 1292  18/05/22 11:09:05 mkfs.ext4 /dev/vgbig/big -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L big -J size=4000</div><div class="line"> 1298  18/05/22 11:10:28 mkdir -p /big</div><div class="line"> 1301  18/05/22 11:12:11 mount /dev/vgbig/big /big</div></pre></td></tr></table></figure>
-<h2 id="创建LVM"><a href="#创建LVM" class="headerlink" title="创建LVM"></a>创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">function create_polarx_lvm_V62()&#123;</div><div class="line">    vgremove vgpolarx</div><div class="line"></div><div class="line">    #sed -i "97 a\    types = ['nvme', 252]" /etc/lvm/lvm.conf</div><div class="line">    parted -s /dev/nvme0n1 rm 1</div><div class="line">    parted -s /dev/nvme1n1 rm 1</div><div class="line">    parted -s /dev/nvme2n1 rm 1</div><div class="line">    parted -s /dev/nvme3n1 rm 1</div><div class="line">    dd if=/dev/zero of=/dev/nvme0n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme1n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme2n1  count=10000 bs=512</div><div class="line">    dd if=/dev/zero of=/dev/nvme3n1  count=10000 bs=512</div><div class="line"></div><div class="line">    #lvmdiskscan</div><div class="line">    vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1</div><div class="line">    lvcreate -A y -I 16K -l 100%FREE  -i 4 -n polarx vgpolarx</div><div class="line">    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">    sed  -i  "/polarx/d" /etc/fstab</div><div class="line">    mkdir -p /polarx</div><div class="line">    echo "LABEL=polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0" &gt;&gt; /etc/fstab</div><div class="line">    mount -a</div><div class="line">&#125;</div><div class="line"></div><div class="line">create_polarx_lvm_V62</div></pre></td></tr></table></figure>
-<p>-I 64K 值条带粒度，默认64K，mysql pagesize 16K，所以最好16K</p>
-<p>默认创建的是 linear，一次只用一块盘，不能累加多快盘的iops能力：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">#lvcreate -h</div><div class="line">  lvcreate - Create a logical volume</div><div class="line"></div><div class="line">  Create a linear LV.</div><div class="line">  lvcreate -L|--size Size[m|UNIT] VG</div><div class="line">	[ -l|--extents Number[PERCENT] ]</div><div class="line">	[    --type linear ]</div><div class="line">	[ COMMON_OPTIONS ]</div><div class="line">	[ PV ... ]</div><div class="line"></div><div class="line">  Create a striped LV (infers --type striped).</div><div class="line">  lvcreate -i|--stripes Number -L|--size Size[m|UNIT] VG</div><div class="line">	[ -l|--extents Number[PERCENT] ]</div><div class="line">	[ -I|--stripesize Size[k|UNIT] ]</div><div class="line">	[ COMMON_OPTIONS ]</div><div class="line">	[ PV ... ]</div><div class="line"></div><div class="line">  Create a raid1 or mirror LV (infers --type raid1|mirror).</div><div class="line">  lvcreate -m|--mirrors Number -L|--size Size[m|UNIT] VG</div><div class="line">	[ -l|--extents Number[PERCENT] ]</div><div class="line">	[ -R|--regionsize Size[m|UNIT] ]</div><div class="line">	[    --mirrorlog core|disk ]</div><div class="line">	[    --minrecoveryrate Size[k|UNIT] ]</div><div class="line">	[    --maxrecoveryrate Size[k|UNIT</div></pre></td></tr></table></figure>
-<h2 id="remount"><a href="#remount" class="headerlink" title="remount"></a>remount</h2><p>正常使用中的文件系统是不能被umount的，如果需要修改mount参数的话可以考虑用mount 的 -o remount 参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">[root@ky3 ~]# mount -o lazytime,remount /polarx/  //增加lazytime参数</div><div class="line">[root@ky3 ~]# mount -t ext4</div><div class="line">/dev/mapper/vgpolarx-polarx on /polarx type ext4 (rw,noatime,nodiratime,lazytime,nodelalloc,nobarrier,stripe=128,data=writeback)</div><div class="line">[root@ky3 ~]# mount -o rw,remount /polarx/  //去掉刚加的lazytime 参数</div><div class="line">[root@ky3 ~]# mount -t ext4</div><div class="line">/dev/mapper/vgpolarx-polarx on /polarx type ext4 (rw,noatime,nodiratime,nodelalloc,nobarrier,stripe=128,data=writeback)</div></pre></td></tr></table></figure>
-<p>remount 时要特别小心，会大量回收 slab 等导致sys CPU 100% 打挂整机，remount会导致slab回收等，请谨慎执行</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">[2023-10-26 15:04:49][kernel][info]EXT4-fs (dm-0): re-mounted. Opts: lazytime,data=writeback,nodelalloc,barrier=0,nolazytime</div><div class="line">[2023-10-26 15:04:49][kernel][info]EXT4-fs (dm-1): re-mounted. Opts: lazytime,data=writeback,nodelalloc,barrier=0,nolazytime</div><div class="line">[2023-10-26 15:05:16][kernel][warning]Modules linked in: ip_tables tcp_diag inet_diag venice_reduce_print(OE) bianque_driver(OE) 8021q garp mrp bridge stp llc ip6_tables tcp_rds_rt_j(OE) tcp_rt_base(OE) slb_vctk(OE) slb_vtoa(OE) hookers slb_ctk_proxy(OE) slb_ctk_session(OE) slb_ctk_debugfs(OE) loop nf_conntrack fuse btrfs zlib_deflate raid6_pq xor vfat msdos fat xfs libcrc32c ext3 jbd dm_mod khotfix_D902467(OE) kpatch_D537536(OE) kpatch_D793896(OE) kpatch_D608634(OE) kpatch_D629788(OE) kpatch_D820113(OE) kpatch_D723518(OE) kpatch_D616841(OE) kpatch_D602147(OE) kpatch_D523456(OE) kpatch_D559221(OE) ipflt(OE) kpatch_D656712(OE) kpatch_D753272(OE) kpatch_D813404(OE) i40e kpatch_D543129(OE) kpatch_D645707(OE) kpatch(OE) rpcrdma(OE) xprtrdma(OE) ib_isert(OE) ib_iser(OE) ib_srpt(OE) ib_srp(OE) ib_ipoib(OE) ib_addr(OE) ib_sa(OE)</div><div class="line">[2023-10-26 15:05:16][kernel][warning]ib_mad(OE) bonding iTCO_wdt iTCO_vendor_support intel_powerclamp coretemp intel_rapl kvm_intel kvm crc32_pclmul ghash_clmulni_intel aesni_intel lrw gf128mul glue_helper ablk_helper cryptd ipmi_devintf pcspkr sg lpc_ich mfd_core i2c_i801 shpchp wmi ipmi_si ipmi_msghandler acpi_pad acpi_power_meter binfmt_misc aocblk(OE) mlx5_ib(OE) ext4 mbcache jbd2 crc32c_intel ast(OE) syscopyarea mlx5_core(OE) sysfillrect sysimgblt ptp i2c_algo_bit pps_core drm_kms_helper aocnvm(OE) vxlan ttm aocmgr(OE) ip6_udp_tunnel udp_tunnel drm i2c_core sd_mod crc_t10dif crct10dif_generic crct10dif_pclmul crct10dif_common ahci libahci libata rdma_ucm(OE) rdma_cm(OE) iw_cm(OE) ib_umad(OE) ib_ucm(OE) ib_uverbs(OE) ib_cm(OE) ib_core(OE) mlx_compat(OE) [last unloaded: ip_tables]</div><div class="line">[2023-10-26 15:05:16][kernel][warning]CPU: 85 PID: 105195 Comm: mount Tainted: G        W  OE K------------   3.10.0-327.ali2017.alios7.x86_64 #1</div><div class="line">[2023-10-26 15:05:16][kernel][warning]Hardware name: Foxconn AliServer-Thor-04-12U-v2/Thunder2.0 2U, BIOS 1.0.PL.FC.P.026.05 03/04/2020</div><div class="line">[2023-10-26 15:05:16][kernel][warning]task: ffff8898016c5b70 ti: ffff88b2b5094000 task.ti: ffff88b2b5094000</div><div class="line">[2023-10-26 15:05:16][kernel][warning]RIP: 0010:[&lt;ffffffff81656502&gt;]  [&lt;ffffffff81656502&gt;] _raw_spin_lock+0x12/0x50</div><div class="line">[2023-10-26 15:05:16][kernel][warning]RSP: 0018:ffff88b2b5097d98  EFLAGS: 00000202</div><div class="line">[2023-10-26 15:05:16][kernel][warning]RAX: 0000000000160016 RBX: ffffffff81657696 RCX: 007d44c33c3e3c3e</div><div class="line">[2023-10-26 15:05:16][kernel][warning]RDX: 007d44c23c3e3c3e RSI: 00000000007d44c3 RDI: ffff88b0247b67d8</div><div class="line">[2023-10-26 15:05:16][kernel][warning]RBP: ffff88b2b5097d98 R08: 0000000000000000 R09: 0000000000000007</div><div class="line">[2023-10-26 15:05:16][kernel][warning]R10: ffff88b0247a7bc0 R11: 0000000000000000 R12: ffffffff81657696</div><div class="line">[2023-10-26 15:05:16][kernel][warning]R13: ffff88b2b5097d80 R14: ffffffff81657696 R15: ffff88b2b5097d78</div><div class="line">[2023-10-26 15:05:16][kernel][warning]FS:  00007ff7d3f4f880(0000) GS:ffff88bd6a340000(0000) knlGS:0000000000000000</div><div class="line">[2023-10-26 15:05:16][kernel][warning]CS:  0010 DS: 0000 ES: 0000 CR0: 0000000080050033</div><div class="line">[2023-10-26 15:05:16][kernel][warning]CR2: 00007fff5286b000 CR3: 0000008177750000 CR4: 00000000003607e0</div><div class="line">[2023-10-26 15:05:16][kernel][warning]DR0: 0000000000000000 DR1: 0000000000000000 DR2: 0000000000000000</div><div class="line">[2023-10-26 15:05:16][kernel][warning]DR3: 0000000000000000 DR6: 00000000fffe0ff0 DR7: 0000000000000400</div><div class="line">[2023-10-26 15:05:16][kernel][warning]Call Trace:</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff812085df&gt;] shrink_dentry_list+0x4f/0x480</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff81208a9c&gt;] shrink_dcache_sb+0x8c/0xd0</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff811f3a7c&gt;] do_remount_sb+0x4c/0x1a0</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff81212519&gt;] do_mount+0x6a9/0xa40</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff8117830e&gt;] ? __get_free_pages+0xe/0x50</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff81212946&gt;] SyS_mount+0x96/0xf0</div><div class="line">[2023-10-26 15:05:16][kernel][warning][&lt;ffffffff816600fd&gt;] system_call_fastpath+0x16/0x1b</div><div class="line">[2023-10-26 15:05:16][kernel][warning]Code: f6 47 02 01 74 e5 0f 1f 00 e8 a6 17 ff ff eb db 66 0f 1f 84 00 00 00 00 00 0f 1f 44 00 00 55 48 89 e5 b8 00 00 02 00 f0 0f c1 07 &lt;89&gt; c2 c1 ea 10 66 39 c2 75 02 5d c3 83 e2 fe 0f b7 f2 b8 00 80</div><div class="line">[2023-10-26 15:05:44][kernel][emerg]BUG: soft lockup - CPU#85 stuck for 23s! [mount:105195]</div></pre></td></tr></table></figure>
-<h2 id="复杂版创建LVM"><a href="#复杂版创建LVM" class="headerlink" title="复杂版创建LVM"></a>复杂版创建LVM</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div><div class="line">64</div><div class="line">65</div><div class="line">66</div><div class="line">67</div><div class="line">68</div><div class="line">69</div><div class="line">70</div><div class="line">71</div><div class="line">72</div><div class="line">73</div><div class="line">74</div><div class="line">75</div><div class="line">76</div><div class="line">77</div><div class="line">78</div><div class="line">79</div><div class="line">80</div><div class="line">81</div><div class="line">82</div><div class="line">83</div><div class="line">84</div></pre></td><td class="code"><pre><div class="line">function disk_part()&#123;</div><div class="line">    set -e</div><div class="line">    if [ $# -le 1 ]</div><div class="line">    then</div><div class="line">        echo "disk_part argument error"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line">    action=$1</div><div class="line">    disk_device_list=(`echo $*`)</div><div class="line"></div><div class="line">    echo $disk_device_list</div><div class="line">    unset disk_device_list[0]</div><div class="line"></div><div class="line">    echo $action</div><div class="line">    echo $&#123;disk_device_list[*]&#125;</div><div class="line">    len=`echo $&#123;#disk_device_list[@]&#125;`</div><div class="line">    echo "start remove origin partition  "</div><div class="line">    for dev in  $&#123;disk_device_list[@]&#125;</div><div class="line">    do</div><div class="line">        #echo $&#123;dev&#125;</div><div class="line">        `parted -s $&#123;dev&#125; rm 1` || true</div><div class="line">        dd if=/dev/zero of=$&#123;dev&#125;  count=100000 bs=512</div><div class="line">    done</div><div class="line"><span class="meta">#</span>替换98行，插入的话r改成a</div><div class="line">    sed -i "98 r\    types = ['aliflash' , 252 , 'nvme' ,252 , 'venice', 252 , 'aocblk', 252]" /etc/lvm/lvm.conf</div><div class="line">    sed  -i  "/flash/d" /etc/fstab</div><div class="line"></div><div class="line">    if [ x$&#123;1&#125; == x"split" ]</div><div class="line">    then</div><div class="line">        echo "split disk "</div><div class="line">        #lvmdiskscan</div><div class="line">    echo $&#123;disk_device_list&#125;</div><div class="line">        vgcreate -s 32 vgpolarx $&#123;disk_device_list[*]&#125;</div><div class="line">        #stripesize 16K 和MySQL pagesize适配</div><div class="line">    		lvcreate -A y -I 16K -l 100%FREE  -i $&#123;#disk_device_list[@]&#125; -n polarx vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 75%VG  -i $&#123;len&#125; -n volume1 vgpolarx</div><div class="line">        #lvcreate -A y -I 128K -l 100%FREE  -i $&#123;len&#125; -n volume2 vgpolarx</div><div class="line">        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000</div><div class="line">        sed  -i  "/polarx/d" /etc/fstab</div><div class="line">        mkdir -p /polarx</div><div class="line">    		opt="defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0"</div><div class="line">        echo "LABEL=polarx /polarx     ext4        $&#123;opt&#125;    0 0" &gt;&gt; /etc/fstab</div><div class="line">        mount -a</div><div class="line">    else</div><div class="line">        echo "unkonw action "</div><div class="line">    fi</div><div class="line">&#125;</div><div class="line"></div><div class="line">function format_nvme_mysql()&#123;</div><div class="line"></div><div class="line">    if [ `df |grep flash|wc -l` -eq $1  ]</div><div class="line">    then</div><div class="line">        echo "check success"</div><div class="line">        echo "start umount partition "</div><div class="line">        parttion_list=`df |grep flash|awk -F ' ' '&#123;print $1&#125;'`</div><div class="line">        for partition in $&#123;parttion_list[@]&#125;</div><div class="line">        do</div><div class="line">            echo $partition</div><div class="line">            umount $partition</div><div class="line">        done</div><div class="line">    else</div><div class="line">        echo "check host fail"</div><div class="line">        exit -1</div><div class="line">    fi</div><div class="line"></div><div class="line">  disk_device_list=(`ls -l /dev/|grep -v ^l|awk '&#123;print $NF&#125;'|grep -E "^nvme[0-9]&#123;1,2&#125;n1$|^df[a-z]$|^os[a-z]$"`)</div><div class="line">  full_disk_device_list=()</div><div class="line">    for i in $&#123;!disk_device_list[@]&#125;</div><div class="line">  do</div><div class="line">        echo $&#123;i&#125;</div><div class="line">    full_disk_device_list[$&#123;i&#125;]=/dev/$&#123;disk_device_list[$&#123;i&#125;]&#125;</div><div class="line">  done</div><div class="line">    echo $&#123;full_disk_device_list[@]&#125;</div><div class="line">    disk_part split $&#123;full_disk_device_list[@]&#125;</div><div class="line">&#125;</div><div class="line"></div><div class="line">if [ ! -d "/polarx" ]; then</div><div class="line">    umount /dev/vgpolarx/polarx</div><div class="line">    vgremove -f vgpolarx</div><div class="line">    dmsetup --force --retry --deferred remove vgpolarx-polarx</div><div class="line">    format_nvme_mysql $1</div><div class="line">else</div><div class="line">   echo "the lvm exists."</div><div class="line">fi</div></pre></td></tr></table></figure>
-<p>LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样</p>
-<p>查看 lvcreate 使用的参数：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div></pre></td><td class="code"><pre><div class="line">#lvs -o +lv_full_name,devices,stripe_size,stripes</div><div class="line">  LV   VG   Attr       LSize Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert LV       Devices           Stripe #Str</div><div class="line">  drds vg1  -wi-ao---- 5.37t                                                     vg1/drds /dev/nvme0n1p1(0)     0     1</div><div class="line">  drds vg1  -wi-ao---- 5.37t                                                     vg1/drds /dev/nvme2n1p1(0)     0     1</div><div class="line">  </div><div class="line"># lvs -v --segments</div><div class="line">  LV     VG       Attr       Start SSize  #Str Type    Stripe  Chunk</div><div class="line">  polarx vgpolarx -wi-ao----    0  11.64t    4 striped 128.00k    0 </div><div class="line">  </div><div class="line"># lvdisplay -m</div><div class="line">  --- Logical volume ---</div><div class="line">  LV Path                /dev/vgpolarx/polarx</div><div class="line">  LV Name                polarx</div><div class="line">  VG Name                vgpolarx</div><div class="line">  LV UUID                Wszlwf-SCjv-Txkw-9B1t-p82Z-C0Zl-oJopor</div><div class="line">  LV Write Access        read/write</div><div class="line">  LV Creation host, time ky4, 2022-08-18 15:53:29 +0800</div><div class="line">  LV Status              available</div><div class="line">  # open                 1</div><div class="line">  LV Size                11.64 TiB</div><div class="line">  Current LE             381544</div><div class="line">  Segments               1</div><div class="line">  Allocation             inherit</div><div class="line">  Read ahead sectors     auto</div><div class="line">  - currently set to     2048</div><div class="line">  Block device           254:0</div><div class="line"></div><div class="line">  --- Segments ---</div><div class="line">  Logical extents 0 to 381543:</div><div class="line">    Type		striped</div><div class="line">    Stripes		4</div><div class="line">    Stripe size		128.00 KiB</div><div class="line">    Stripe 0:</div><div class="line">      Physical volume	/dev/nvme1n1</div><div class="line">      Physical extents	0 to 95385</div><div class="line">    Stripe 1:</div><div class="line">      Physical volume	/dev/nvme3n1</div><div class="line">      Physical extents	0 to 95385</div><div class="line">    Stripe 2:</div><div class="line">      Physical volume	/dev/nvme2n1</div><div class="line">      Physical extents	0 to 95385</div><div class="line">    Stripe 3:</div><div class="line">      Physical volume	/dev/nvme0n1</div><div class="line">      Physical extents	0 to 95385</div></pre></td></tr></table></figure>
-<p>==要特别注意 stripes 表示多快盘一起用，iops能力累加，但是默认 stripes 是1，也就是只用1块盘，也就是linear==</p>
-<h2 id="安装LVM"><a href="#安装LVM" class="headerlink" title="安装LVM"></a>安装LVM</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo yum install lvm2 -y</div></pre></td></tr></table></figure>
-<h2 id="dmsetup查看LVM"><a href="#dmsetup查看LVM" class="headerlink" title="dmsetup查看LVM"></a>dmsetup查看LVM</h2><p>管理工具dmsetup是 Device mapper in the kernel 中的一个</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">dmsetup ls</div><div class="line">dmsetup info /dev/dm-0</div></pre></td></tr></table></figure>
-<h2 id="reboot-失败"><a href="#reboot-失败" class="headerlink" title="reboot 失败"></a>reboot 失败</h2><p>在麒麟下OS reboot的时候可能因为<code>mount: /polarx: 找不到 LABEL=/polarx.</code> 导致OS无法启动，可以进入紧急模式，然后注释掉 /etc/fstab 中的polarx 行，再reboot</p>
-<p>这是因为LVM的label、uuid丢失了，导致挂载失败。</p>
-<p>查看设备的label</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">sudo lsblk -o name,mountpoint,label,size,uuid  or lsblk -f</div></pre></td></tr></table></figure>
-<p>修复：</p>
-<p>紧急模式下修改 /etc/fstab 去掉有问题的挂载; 修改标签</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#blkid   //查询uuid、label</div><div class="line">/dev/mapper/klas-root: UUID=&quot;c4793d67-867e-4f14-be87-f6713aa7fa36&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot;</div><div class="line">/dev/sda2: UUID=&quot;8DCEc5-b4P7-fW0y-mYwR-5YTH-Yf81-rH1CO8&quot; TYPE=&quot;LVM2_member&quot; PARTUUID=&quot;4ffd9bfa-02&quot;</div><div class="line">/dev/nvme0n1: UUID=&quot;nJAHxP-d15V-Fvmq-rxa3-GKJg-TCqe-gD1A2Z&quot; TYPE=&quot;LVM2_member&quot;</div><div class="line">/dev/sda1: UUID=&quot;29f59517-91c6-4b3c-bd22-0a47c800d7f4&quot; BLOCK_SIZE=&quot;512&quot; TYPE=&quot;xfs&quot; PARTUUID=&quot;4ffd9bfa-01&quot;</div><div class="line">/dev/mapper/vgpolarx-polarx: LABEL=&quot;polarx&quot; UUID=&quot;025a3ac5-d38a-42f1-80b6-563a55cba12a&quot; BLOCK_SIZE=&quot;4096&quot; TYPE=&quot;ext4&quot;</div><div class="line"></div><div class="line">e2label /dev/mapper/vgpolarx-polarx polarx</div></pre></td></tr></table></figure>
-<p>比如，下图右边的是启动失败的</p>
-<p><img src="/images/951413iMgBlog/image-20211228185144635.png" alt="image-20211228185144635"></p>
-<h2 id="软RAID"><a href="#软RAID" class="headerlink" title="软RAID"></a><a href="https://xiaoz.co/2020/04/28/array-with-mdadm/" target="_blank" rel="external">软RAID</a></h2><blockquote>
-<p>mdadm(multiple devices admin)是一个非常有用的管理软raid的工具，可以用它来创建、管理、监控raid设备，当用mdadm来创建磁盘阵列时，可以使用整块独立的磁盘(如/dev/sdb,/dev/sdc)，也可以使用特定的分区(/dev/sdb1,/dev/sdc1)</p>
-</blockquote>
-<p>mdadm使用手册</p>
-<blockquote>
-<p>mdadm –create device –level=Y –raid-devices=Z devices<br>    -C | –create /dev/mdn<br>    -l | –level  0|1|4|5<br>    -n | –raid-devices device [..]<br>    -x | –spare-devices device [..]</p>
-</blockquote>
-<p><a href="https://www.cxyzjd.com/article/weixin_51486343/113114906" target="_blank" rel="external">创建</a> -l 0表示raid0， -l 10表示raid10</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line">mdadm -C /dev/md0 -a yes -l 0 -n2 /dev/nvme&#123;6,7&#125;n1  //raid0</div><div class="line">mdadm -D /dev/md0</div><div class="line">mkfs.ext4 /dev/md0</div><div class="line">mkdir /md0</div><div class="line">mount /dev/md0 /md0</div><div class="line"></div><div class="line">//条带</div><div class="line">mdadm --create --verbose /dev/md0 --level=linear --raid-devices=2 /dev/sdb /dev/sdc</div><div class="line">检查</div><div class="line">mdadm -E /dev/nvme[0-5]n1</div></pre></td></tr></table></figure>
-<p>删除</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">umount /md0 </div><div class="line">mdadm -S /dev/md0</div></pre></td></tr></table></figure>
-<p>监控raid</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">#cat /proc/mdstat</div><div class="line">Personalities : [raid0] [raid6] [raid5] [raid4]</div><div class="line">md6 : active raid6 nvme3n1[3] nvme2n1[2] nvme1n1[1] nvme0n1[0]</div><div class="line">      7501211648 blocks super 1.2 level 6, 512k chunk, algorithm 2 [4/4] [UUUU]</div><div class="line">      [=&gt;...................]  resync =  7.4% (280712064/3750605824) finish=388.4min speed=148887K/sec</div><div class="line">      bitmap: 28/28 pages [112KB], 65536KB chunk //raid6一直在异步刷数据</div><div class="line"></div><div class="line">md0 : active raid0 nvme7n1[3] nvme6n1[2] nvme4n1[0] nvme5n1[1]</div><div class="line">      15002423296 blocks super 1.2 512k chunks</div></pre></td></tr></table></figure>
-<p>控制刷盘速度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sysctl -a |grep raid</div><div class="line">dev.raid.speed_limit_max = 0</div><div class="line">dev.raid.speed_limit_min = 0</div></pre></td></tr></table></figure>
-<h2 id="nvme-cli"><a href="#nvme-cli" class="headerlink" title="nvme-cli"></a>nvme-cli</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">nvme id-ns /dev/nvme1n1 -H</div><div class="line">for i in `seq 0 1 2`; do nvme format --lbaf=3 /dev/nvme$&#123;i&#125;n1 ; done  //格式化，选择不同的扇区大小，默认512，可选4K</div><div class="line"></div><div class="line">fuser -km /data/</div></pre></td></tr></table></figure>
-<h2 id="raid硬件卡"><a href="#raid硬件卡" class="headerlink" title="raid硬件卡"></a>raid硬件卡</h2><p><a href="http://aijishu.com/a/1060000000225602" target="_blank" rel="external">raid卡外观</a></p>
-<p><img src="/images/951413iMgBlog/bV6Ra.png" alt="image.png"></p>
-<h2 id="mount-参数对性能的影响"><a href="#mount-参数对性能的影响" class="headerlink" title="mount 参数对性能的影响"></a>mount 参数对性能的影响</h2><p>推荐mount参数：defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0  这些和 default 0 0 的参数差别不大，但是如果加了<a href="https://yuque.antfin-inc.com/mysql/release_notes/rds_oncall_find_inode_nowait?singleDoc#" target="_blank" rel="external">lazytime 会在某些场景下性能很差</a></p>
-<p>比如在mysql filesort 场景下就可能触发 find_inode_nowait 热点，MySQL filesort 过程中，对文件的操作时序是 create,open,unlink,write,read,close; 而文件系统的 lazytime 选项，在发现 inode 进行修改了之后，会对同一个 inode table 中的 inode 进行修改，导致 file_inode_nowait 函数中，spin lock 的热点。</p>
-<p>所以mount时注意不要有 lazytime </p>
-<p><img src="/images/951413iMgBlog/format,png.png" alt="img"></p>
-<p><img src="/images/951413iMgBlog/1593311985695-a9a135ad-fac5-47d2-945f-9826c3739cbc.png" alt="img"></p>
-<p>如果一个SQL 要创建大量临时表，而 /tmp/ 挂在参数有lazytime的话也会导致同样的问题，如图堆栈：</p>
-<p><img src="/images/951413iMgBlog/1593577258724-57d2a896-48c5-4ed7-890e-322d0533ae40.png" alt="img"></p>
-<p>对应的内核代码：</p>
-<p><img src="/images/951413iMgBlog/image-20231027170529214.png" alt="image-20231027170529214"></p>
-<p><img src="/images/951413iMgBlog/image-20231027170707041.png" alt="image-20231027170707041"></p>
-<p>另外一个应用，也经常因为find_inode_nowait 热点把CPU 爆掉：</p>
-<p><img src="/images/951413iMgBlog/1698206577587-29d21289-4251-4297-a08b-f82d77332289.png" alt="img"></p>
-<p><img src="/images/951413iMgBlog/image-20231027165103176.png" alt="image-20231027165103176"></p>
-<p>lazytime 的问题可以通过代码复现：</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;fcntl.h&gt;</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/stat.h&gt;</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/types.h&gt;</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"pthread.h"</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"stdio.h"</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"stdlib.h"</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;atomic&gt;</span></span></div><div class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;string&gt;</span></span></div><div class="line"><span class="keyword">typedef</span> <span class="keyword">unsigned</span> <span class="keyword">long</span> <span class="keyword">long</span> ulonglong;</div><div class="line"><span class="keyword">static</span> <span class="keyword">const</span> <span class="keyword">char</span> *FILE_PREFIX = <span class="string">"stress"</span>;</div><div class="line"><span class="keyword">static</span> <span class="keyword">const</span> <span class="keyword">char</span> *FILE_DIR = <span class="string">"/flash4/tmp/"</span>;</div><div class="line"><span class="keyword">static</span> <span class="built_in">std</span>::atomic&lt;ulonglong&gt; f_num(<span class="number">0</span>);</div><div class="line"><span class="keyword">static</span> <span class="keyword">constexpr</span> <span class="keyword">size_t</span> THREAD_NUM = <span class="number">128</span>;</div><div class="line"><span class="keyword">static</span> <span class="keyword">constexpr</span> ulonglong LOOP = <span class="number">1000000000000</span>;</div><div class="line"></div><div class="line"><span class="function"><span class="keyword">void</span> <span class="title">file_op</span><span class="params">(<span class="keyword">const</span> <span class="keyword">char</span> *file_name)</span> </span>&#123;</div><div class="line"> <span class="keyword">int</span> f;</div><div class="line"> <span class="keyword">char</span> content[<span class="number">1024</span>];</div><div class="line"> content[<span class="number">0</span>] = <span class="string">'a'</span>;</div><div class="line"> content[<span class="number">500</span>] = <span class="string">'b'</span>;</div><div class="line"> content[<span class="number">1023</span>] = <span class="string">'c'</span>;</div><div class="line"> f = open(file_name, O_RDWR | O_CREAT);</div><div class="line"> unlink(file_name);</div><div class="line"> <span class="keyword">for</span> (ulonglong i = <span class="number">0</span>; i &lt; <span class="number">1024</span> * <span class="number">16</span>; i++) &#123;</div><div class="line">   write(f, content, <span class="number">1024</span>);</div><div class="line"> &#125;</div><div class="line"> close(f);</div><div class="line">&#125;</div><div class="line"><span class="function"><span class="keyword">void</span> *<span class="title">handle</span><span class="params">(<span class="keyword">void</span> *data)</span> </span>&#123;</div><div class="line"> <span class="keyword">char</span> file[<span class="number">1024</span>];</div><div class="line"> ulonglong current_id;</div><div class="line"> <span class="keyword">for</span> (ulonglong i = <span class="number">0</span>; i &lt; LOOP; i++) &#123;</div><div class="line">   current_id = f_num++;</div><div class="line">   <span class="built_in">snprintf</span>(file, <span class="number">1024</span>, <span class="string">"%s%s_%d.txt"</span>, FILE_DIR, FILE_PREFIX, current_id);</div><div class="line">   file_op(file);</div><div class="line"> &#125;</div><div class="line">&#125;</div><div class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">int</span> argc, <span class="keyword">char</span>** args)</span> </span>&#123;</div><div class="line"> <span class="keyword">for</span> (<span class="built_in">std</span>::<span class="keyword">size_t</span> i = <span class="number">0</span>; i &lt; THREAD_NUM; i++) &#123;</div><div class="line">   <span class="keyword">pthread_t</span> tid;</div><div class="line">   <span class="keyword">int</span> ret = pthread_create(&amp;tid, <span class="literal">NULL</span>, handle, <span class="literal">NULL</span>);</div><div class="line"> &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
-<p>主动；工具、生产效率；面向故障、事件</p>
-<h2 id="LVM-异常修复"><a href="#LVM-异常修复" class="headerlink" title="LVM 异常修复"></a>LVM 异常修复</h2><p>文件系统损坏，是导致系统启动失败比较常见的原因。文件系统损坏，比较常见的原因是分区丢失和文件系统需要手工修复。</p>
-<p>1、分区表丢失，只要重新创建分区表即可。因为分区表信息只涉及变更磁盘上第一个扇区指定位置的内容。所以只要确认有分区情况，在分区表丢失的情况下，重做分区是不会损坏磁盘上的数据的。但是分区起始位置和尺寸需要正确 。起始位置确定后，使用fdisk重新分区即可。所以，问题的关键是如何确定分区的开始位置。</p>
-<h4 id="确定分区起始位置："><a href="#确定分区起始位置：" class="headerlink" title="确定分区起始位置："></a>确定分区起始位置：</h4><p>MBR(Master Boot Record)是指磁盘第一块扇区上的一种数据结构，512字节，磁盘分区数据是MBR的一部分，可以使用通过dd if=/dev/vdc bs=512 count=1 | hexdump -C 以16进制列出扇区0的裸数据：</p>
-<p><img src="/images/951413iMgBlog/image-20240118103305675.png" alt="image-20240118103305675"></p>
-<p>可以看出磁盘的分区类型ID、分区起始扇区和分区包含扇区数量，通过这几个数值可以确定分区位置。后面LVM可以通过LABELONE计算出起始位置。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/" target="_blank" rel="external">https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/</a></p>
-<p><a href="https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/" target="_blank" rel="external">pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?</a></p>
-<p>软RAID配置方法<a href="https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/" target="_blank" rel="external">参考这里</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -13443,7 +13430,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">173</span>
+                <span class="site-state-item-count">174</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
