@@ -291,6 +291,279 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
+                2019-12-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
+<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
+<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
+<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
+<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
+</code></pre><h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
+<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
+<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
+<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
+<p>性能压测原则：</p>
+<blockquote>
+<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
+<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
+<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
+<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
+<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
+<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
+<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
+<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
+<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<blockquote>
+<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
+</blockquote>
+<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
+<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
+<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
+<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
+<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
+<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
+<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
+<blockquote>
+<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
+</blockquote>
+<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
+<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
+<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
+<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
+<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
+<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
+<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************/
+/**Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+        UT_LOW_PRIORITY_CPU();
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //调用 CPU Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+        return(j);
+}
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
+<ul>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
+</ul>
+<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
+<blockquote>
+<p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
+<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
+</blockquote>
+<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
+<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
+<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
+<blockquote>
+<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+</blockquote>
+<p>也就是<strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。</strong>这可是14倍的变化呀。</p>
+<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
+<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
+<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
+<h2 id="我想追加几个问题帮大家理解"><a href="#我想追加几个问题帮大家理解" class="headerlink" title="我想追加几个问题帮大家理解"></a>我想追加几个问题帮大家理解</h2><h3 id="为什么要有自旋锁-内核里面的spinlock"><a href="#为什么要有自旋锁-内核里面的spinlock" class="headerlink" title="为什么要有自旋锁(内核里面的spinlock)?"></a>为什么要有自旋锁(内核里面的spinlock)?</h3><p>等锁的时候可以释放CPU进入等待，这叫悲观锁，代价是释放CPU必然导致上下文切换，一次上下文切换至少需要几千个时钟周期，也就是CPU需要几千个时钟周期来完成上下文切换的工作(几千个时钟周期没有产出–真浪费)</p>
+<p>或者等锁的时候不释放CPU，赌很快能等到锁，这叫乐观锁，Linux OS用的是spinlock（类似大家看到的CAS），也就是CPU不释放一直不停地检查能否拿到锁，一个时钟周期检查一次太快了(想想你去银行柜台办业务，每秒钟问一次柜员轮到你了没有！)，所以CPU工程师就在想能不能提供一条指令一直占着CPU很久，这条指令就是pause，每一个spinlock就会调用pause休息几十、几百个时钟周期后再去看看能否抢到所(柜台给你提供了沙发茶水，你坐一会再去问柜员)</p>
+<h3 id="执行Pause指令的时候CPU真的休息了吗？"><a href="#执行Pause指令的时候CPU真的休息了吗？" class="headerlink" title="执行Pause指令的时候CPU真的休息了吗？"></a>执行Pause指令的时候CPU真的休息了吗？</h3><p>如果没有事情做的话，CPU是会停下来(省电)，如果开了超线程，如果一个核执行了Pause，那么对这个核的另一个超线程来说，白捡了100%的CPU，别人休息（Pause、stall）的时候正好给我用(这是超线程的本质)！</p>
+<p>这也是为什么有些场景2个超线程能发挥2倍能力，有些场景2个超线程只能跑出1倍能力。</p>
+<p>相对比上下文切换浪费的几千个时钟周期，Pause(spinlock)真是一点都没浪费。但如果你一直spinlock 几万、几十万个时钟周期都没等到锁还不释放也不对，这会导致其他线程调度不到CPU而饿死。一般自旋一段时间后都会放弃CPU转为上下文切换，所以MySQL 加了参数 innodb_spin_wait_delay 来控制spinlock的长短。</p>
+<h3 id="并发高导致自旋锁效率低？"><a href="#并发高导致自旋锁效率低？" class="headerlink" title="并发高导致自旋锁效率低？"></a>并发高导致自旋锁效率低？</h3><p>如果并发高，都抢同一个锁，这里的效率会随着并发的增加而降低，不展开了，记住这个结论，类似太多人在柜台问轮到自己没有，留给柜员办业务的时间反而少了！</p>
+<h2 id="ARM"><a href="#ARM" class="headerlink" title="ARM"></a><a href="https://stackoverflow.com/questions/70810121/why-does-hintspin-loop-use-isb-on-aarch64" target="_blank" rel="external">ARM</a></h2><p>ARM 指令集中有 nop 来让流水线空转一个时钟周期，汇编里面的 yield 命令底层就是执行 nop 来达到目的，但是这还不够好，在64位的ARM 指令集里面增加了 <a href="https://developer.arm.com/documentation/ddi0596/2021-06/Base-Instructions/ISB--Instruction-Synchronization-Barrier-" target="_blank" rel="external">ISB (instruction synchronization barrier)</a> 来<a href="https://github.com/rust-lang/rust/commit/c064b6560b7ce0adeb9bbf5d7dcf12b1acb0c807" target="_blank" rel="external">实现类似 Pause 的作用</a> ：</p>
+<blockquote>
+<p>On arm64 we have seen on several databases that ISB (instruction synchronization barrier) is better to use than yield in a spin loop. The yield instruction is a nop. The isb instruction puts the processor to sleep for some short time. isb is a good equivalent to the pause instruction on x86.</p>
+</blockquote>
+<h3 id="对比"><a href="#对比" class="headerlink" title="对比"></a><a href="https://github.com/rust-lang/rust/commit/c064b6560b7ce0adeb9bbf5d7dcf12b1acb0c807" target="_blank" rel="external">对比</a></h3><p>Below is an experiment that shows the effects of yield and isb on Arm64 and the<br>time of a pause instruction on x86 Intel processors.  The micro-benchmarks use<br><a href="https://github.com/google/benchmark.git" target="_blank" rel="external">https://github.com/google/benchmark.git</a></p>
+<p>测试代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div></pre></td><td class="code"><pre><div class="line">$ cat a.cc</div><div class="line">static void BM_scalar_increment(benchmark::State&amp; state) &#123;</div><div class="line">  int i = 0;</div><div class="line">  for (auto _ : state)</div><div class="line">    benchmark::DoNotOptimize(i++);</div><div class="line">&#125;</div><div class="line">BENCHMARK(BM_scalar_increment);</div><div class="line">static void BM_yield(benchmark::State&amp; state) &#123;</div><div class="line">  for (auto _ : state)</div><div class="line">    asm volatile(&quot;yield&quot;::);</div><div class="line">&#125;</div><div class="line">BENCHMARK(BM_yield);</div><div class="line">static void BM_isb(benchmark::State&amp; state) &#123;</div><div class="line">  for (auto _ : state)</div><div class="line">    asm volatile(&quot;isb&quot;::);</div><div class="line">&#125;</div><div class="line">BENCHMARK(BM_isb);</div><div class="line">BENCHMARK_MAIN();</div></pre></td></tr></table></figure>
+<p>测试结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div></pre></td><td class="code"><pre><div class="line">$ g++ -o run a.cc -O2 -lbenchmark -lpthread</div><div class="line">$ ./run</div><div class="line">--------------------------------------------------------------</div><div class="line">Benchmark                    Time             CPU   Iterations</div><div class="line">--------------------------------------------------------------</div><div class="line"></div><div class="line">AWS Graviton2 (Neoverse-N1) processor:</div><div class="line">BM_scalar_increment      0.485 ns        0.485 ns   1000000000</div><div class="line">BM_yield                 0.400 ns        0.400 ns   1000000000</div><div class="line">BM_isb                    13.2 ns         13.2 ns     52993304</div><div class="line"></div><div class="line">AWS Graviton (A-72) processor:</div><div class="line">BM_scalar_increment      0.897 ns        0.874 ns    801558633</div><div class="line">BM_yield                 0.877 ns        0.875 ns    800002377</div><div class="line">BM_isb                    13.0 ns         12.7 ns     55169412</div><div class="line"></div><div class="line">Apple Arm64 M1 processor:</div><div class="line">BM_scalar_increment      0.315 ns        0.315 ns   1000000000</div><div class="line">BM_yield                 0.313 ns        0.313 ns   1000000000</div><div class="line">BM_isb                    9.06 ns         9.06 ns     77259282</div><div class="line"></div><div class="line">static void BM_pause(benchmark::State&amp; state) &#123;</div><div class="line">  for (auto _ : state)</div><div class="line">    asm volatile(&quot;pause&quot;::);</div><div class="line">&#125;</div><div class="line">BENCHMARK(BM_pause);</div><div class="line"></div><div class="line">Intel Skylake processor:</div><div class="line">BM_scalar_increment      0.295 ns        0.295 ns   1000000000</div><div class="line">BM_pause                  41.7 ns         41.7 ns     16780553</div><div class="line"></div><div class="line">Tested on Graviton2 aarch64-linux with `./x.py test`.</div></pre></td></tr></table></figure>
+<p>依照如上测试结果可以看出在 ARM 指令集下一次 yield 基本耗费一个时钟周期，但是一次 isb 需要 20-30 个时钟周期，而在intel Skylate 下一次Pause 需要140个时钟周期</p>
+<p>所以MySQL 的 <a href="https://bugs.mysql.com/bug.php?id=100664#:~:text=better%20user%20experience.-,isb,-%3A%0AThe%20pause%20instruction" target="_blank" rel="external">aarch64 版本在2020年也终于进行了改进</a> </p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="external">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield、ISB 来代替Pause</p>
+<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
+<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/09/epoll的LT和ET/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4125,7 +4398,9 @@ avg: 0.005937
 <h2 id="解析已知协议与IP域名映射"><a href="#解析已知协议与IP域名映射" class="headerlink" title="解析已知协议与IP域名映射"></a>解析已知协议与IP域名映射</h2><p>以下技巧抄自：<a href="https://www.ilikejobs.com/posts/wireshark/" target="_blank" rel="external">https://www.ilikejobs.com/posts/wireshark/</a></p>
 <p><img src="/images/951413iMgBlog/wireshark 8.png" alt="wireshark"></p>
 <h2 id="查询当前已经解析了哪些域名"><a href="#查询当前已经解析了哪些域名" class="headerlink" title="查询当前已经解析了哪些域名"></a>查询当前已经解析了哪些域名</h2><p><img src="/images/951413iMgBlog/wireshark 9.png" alt="wireshark"></p>
-<h2 id="设置私有IP名称"><a href="#设置私有IP名称" class="headerlink" title="设置私有IP名称"></a>设置私有IP名称</h2><p><img src="/images/951413iMgBlog/wireshark 10.png" alt="wireshark"></p>
+<h2 id="设置私有IP名称"><a href="#设置私有IP名称" class="headerlink" title="设置私有IP名称"></a>设置私有IP名称</h2><p>先确认下图红框选项是选上的：</p>
+<p><img src="/images/951413iMgBlog/image-20240315110305420.png" alt="image-20240315110305420" style="zoom:50%;"></p>
+<p><img src="/images/951413iMgBlog/wireshark 10.png" alt="wireshark"></p>
 <p>查看刚设置自定义的名称：</p>
 <p><img src="/images/951413iMgBlog/wireshark 11.png" alt="wireshark"></p>
 <h2 id="保存文件（含host对应名称）"><a href="#保存文件（含host对应名称）" class="headerlink" title="保存文件（含host对应名称）"></a>保存文件（含host对应名称）</h2><p><img src="/images/951413iMgBlog/wireshark 12.png" alt="wireshark"></p>
@@ -13157,230 +13432,6 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/02/25/Docker常见问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/02/25/Docker常见问题/" itemprop="url">Docker 常见问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-02-25T17:30:03+08:00">
-                2018-02-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/docker/" itemprop="url" rel="index">
-                    <span itemprop="name">docker</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Docker-常见问题"><a href="#Docker-常见问题" class="headerlink" title="Docker 常见问题"></a>Docker 常见问题</h1><h2 id="启动"><a href="#启动" class="headerlink" title="启动"></a>启动</h2><p>docker daemon启动的时候如果报 socket错误，是因为daemon启动参数配置了： -H fd://  ，但是 docker.socket是disable状态，启动daemon依赖socket，但是systemctl又拉不起来docker.socket，因为被disable了，先  sudo systemctl enable docker.socket 就可以了。</p>
-<p>如果docker.socket service被mask后比disable更粗暴，mask后手工都不能拉起来了，但是disable后还可以手工拉起，然后再拉起docker service。 这是需要先 systemctl unmask </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$sudo systemctl restart docker.socket</div><div class="line">Failed to restart docker.socket: Unit docker.socket is masked.</div></pre></td></tr></table></figure>
-<p>另外 docker.socket 启动依赖环境的要有 docker group这个组，可以添加： groupadd docker</p>
-<h2 id="failed-to-start-docker-service-unit-not-found-rhel-7-7"><a href="#failed-to-start-docker-service-unit-not-found-rhel-7-7" class="headerlink" title="failed to start docker.service unit not found. rhel 7.7"></a>failed to start docker.service unit not found. rhel 7.7</h2><p>systemctl list-unit-files |grep docker.service 可以看到docker.service 是存在并enable了</p>
-<p>实际是redhat 7.7的yum仓库所带的docker启动参数变了， 如果手工启动的话也会报找不到docker-runc 手工:</p>
-<blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">&gt; ln -s /usr/libexec/docker/docker-runc-current /usr/bin/docker-runc</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<p><a href="https://access.redhat.com/solutions/2876431" target="_blank" rel="external">https://access.redhat.com/solutions/2876431</a>  <a href="https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system" target="_blank" rel="external">https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system</a></p>
-<p>yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)</p>
-<h3 id="Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network"><a href="#Docker-启动报错：-Error-starting-daemon：-Error-initializing-network-controller：-list-bridge-addresses-failed：-no-available-network" class="headerlink" title="Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network"></a><a href="http://blog.joylau.cn/2019/04/08/Docker-Start-Error/" target="_blank" rel="external">Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network</a></h3><p>这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ip link add docker0 type bridge</div><div class="line">ip addr add dev docker0 172.30.0.0/24</div></pre></td></tr></table></figure>
-<p>启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#systemctl status docker -l</div><div class="line">● docker.service - Docker Application Container Engine</div><div class="line">   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)</div><div class="line">   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago</div><div class="line">     Docs: http://docs.docker.io</div><div class="line">  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)</div><div class="line">  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)</div><div class="line"> Main PID: 68317 (code=exited, status=1/FAILURE)</div><div class="line"></div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991179104+08:00&quot; level=warning msg=&quot;failed to load plugin io.containerd.snapshotter.v1.aufs&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991371956+08:00&quot; level=warning msg=&quot;could not use snapshotter btrfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991381620+08:00&quot; level=warning msg=&quot;could not use snapshotter aufs in metadata plugin&quot; error=&quot;modprobe aufs failed: &quot;modprobe: FATAL: Module aufs not found.\n&quot;: exit status 1&quot;</div><div class="line">Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time=&quot;2021-01-22T17:21:43.991388991+08:00&quot; level=warning msg=&quot;could not use snapshotter zfs in metadata plugin&quot; error=&quot;path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin&quot;</div><div class="line">Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.</div><div class="line">Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.</div></pre></td></tr></table></figure>
-<p>参考：<a href="https://github.com/docker/for-linux/issues/123" target="_blank" rel="external">https://github.com/docker/for-linux/issues/123</a>  </p>
-<p>或者这样解决：<a href="https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller" target="_blank" rel="external">https://stackoverflow.com/questions/39617387/docker-daemon-cant-initialize-network-controller</a></p>
-<p>This was related to the machine having several network cards (can also happen in machines with VPN)</p>
-<p>The solution was to start manually docker like this:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">/usr/bin/docker daemon --debug --bip=192.168.y.x/24</div></pre></td></tr></table></figure>
-<p>where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The –debug is not really needed, but might help if something else fails.</p>
-<p>After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that –bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. </p>
-<p>本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了</p>
-<h3 id="alios下容器里面ping不通docker0"><a href="#alios下容器里面ping不通docker0" class="headerlink" title="alios下容器里面ping不通docker0"></a>alios下容器里面ping不通docker0</h3><p>alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. </p>
-<p><img src="/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png" alt="image.png"></p>
-<p>非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通</p>
-<p><img src="/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif" alt="docker0-tcpdump.gif"></p>
-<p>猜测是 alios 的bug</p>
-<h2 id="systemctl-start-docker"><a href="#systemctl-start-docker" class="headerlink" title="systemctl start docker"></a>systemctl start docker</h2><p>Failed to start docker.service: Unit not found.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">UNIT LOAD PATH</div><div class="line">          Unit files are loaded from a set of paths determined during </div><div class="line">          compilation, described in the two tables below. Unit files found </div><div class="line">          in directories listed earlier override files with the same name </div><div class="line">          in directories lower in the list.</div><div class="line"></div><div class="line">           Table 1.  Load path when running in system mode (--system).</div><div class="line">           ┌────────────────────────┬─────────────────────────────┐</div><div class="line">           │Path                    │ Description                 │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/etc/systemd/system     │ Local configuration         │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/run/systemd/system     │ Runtime units               │</div><div class="line">           ├────────────────────────┼─────────────────────────────┤</div><div class="line">           │/usr/lib/systemd/system │ Units of installed packages │</div><div class="line">           └────────────────────────┴─────────────────────────────┘</div></pre></td></tr></table></figure>
-<p><a href="https://askubuntu.com/questions/1014480/how-do-i-add-bin-to-path-for-a-systemd-service" target="_blank" rel="external">systemd 设置path环境变量，可以设置</a>：</p>
-<blockquote>
-<p>[Service]<br>Type=notify<br>Environment=PATH=/opt/kube/bin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/opt/satools:/root/bin</p>
-</blockquote>
-<h2 id="容器没有systemctl"><a href="#容器没有systemctl" class="headerlink" title="容器没有systemctl"></a>容器没有systemctl</h2><p><strong>Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候</strong> </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd</div></pre></td></tr></table></figure>
-<p>1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：<a href="https://github.com/gdraheim/docker-systemctl-replacement" target="_blank" rel="external">https://github.com/gdraheim/docker-systemctl-replacement</a></p>
-<p>systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。</p>
-<p><strong>新版本init link向了systemd</strong></p>
-<h2 id="busybox-Alpine-Scratch"><a href="#busybox-Alpine-Scratch" class="headerlink" title="busybox/Alpine/Scratch"></a>busybox/Alpine/Scratch</h2><p>busybox集成了常用的linux工具(nc/telnet/cat……），保持精细，方便一张软盘能装下。</p>
-<p>Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而不是glibc</p>
-<p>scratch一个空的框架，什么也没有</p>
-<h2 id="找不到shell"><a href="#找不到shell" class="headerlink" title="找不到shell"></a>找不到shell</h2><p>Dockerfile 中(<a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：" target="_blank" rel="external">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">CMD ./hello OR RUN 等同于 /bin/sh -c &quot;./hello&quot;, 需要shell，</div><div class="line">改用：</div><div class="line">CMD [&quot;./hello&quot;] 等同于 ./hello 不需要shell</div></pre></td></tr></table></figure>
-<h2 id="entrypoint-VS-cmd"><a href="#entrypoint-VS-cmd" class="headerlink" title="entrypoint VS cmd"></a>entrypoint VS cmd</h2><p>dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT</p>
-<p>在写Dockerfile时, ENTRYPOINT或者CMD命令会自动覆盖之前的ENTRYPOINT或者CMD命令</p>
-<p>从参数中传入的ENTRYPOINT或者CMD命令会自动覆盖Dockerfile中的ENTRYPOINT或者CMD命令</p>
-<h2 id="copy-VS-add"><a href="#copy-VS-add" class="headerlink" title="copy VS add"></a>copy VS add</h2><p><strong>COPY</strong>指令和<strong>ADD</strong>指令的唯一区别在于是否支持从远程URL获取资源。 <strong>COPY</strong>指令只能从执行<strong>docker</strong> build所在的主机上读取资源并复制到镜像中。 而<strong>ADD</strong>指令还支持通过URL从远程服务器读取资源并复制到镜像中。 </p>
-<p>满足同等功能的情况下，推荐使用<strong>COPY</strong>指令。ADD指令更擅长读取本地tar文件并解压缩</p>
-<h2 id="Digest-VS-Image-ID"><a href="#Digest-VS-Image-ID" class="headerlink" title="Digest VS Image ID"></a>Digest VS Image ID</h2><p>pull镜像的时候，将docker digest带上，即使黑客使用手段将某一个digest对应的内容强行修改了，docker也能check出来，因为docker会在pull下镜像的时候，只要根据image的内容计算sha256</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker images --digests</div></pre></td></tr></table></figure>
-<ul>
-<li>The “digest” is a hash of the manifest, introduced in Docker registry v2.</li>
-<li>The image ID is a hash of the local image JSON configuration. 就是inspect 看到的 RepoDigests</li>
-</ul>
-<h2 id="容器中抓包和调试-–-nsenter"><a href="#容器中抓包和调试-–-nsenter" class="headerlink" title="容器中抓包和调试 – nsenter"></a>容器中抓包和调试 – nsenter</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div></pre></td><td class="code"><pre><div class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</div><div class="line"></div><div class="line">进入namespace：nsenter --target 17277 --net --pid –mount</div><div class="line"></div><div class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</div><div class="line">nsenter --target 17277 --net </div><div class="line"></div><div class="line">// ip netns 获取容器网络信息</div><div class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &apos;&#123;&#123;.State.Pid&#125;&#125;&apos; ab4e471edf50   //获取容器进程id</div><div class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</div><div class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</div><div class="line"> </div><div class="line">// 宿主机上查看容器ip</div><div class="line"> 1026  [2021-04-14 15:54:11] ip netns list</div><div class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</div><div class="line"> </div><div class="line"> //nsenter调试网络</div><div class="line"> Get the pause container&apos;s sandboxkey: </div><div class="line">root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey</div><div class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/82ec9e32d486&quot;,</div><div class="line">root@worker01:~#</div><div class="line">Now, using nsenter you can see the container&apos;s information.</div><div class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ip addr show</div><div class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1</div><div class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</div><div class="line">    inet 127.0.0.1/8 scope host lo</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">3: eth0@if7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default</div><div class="line">   link/ether 0a:58:0a:f4:01:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0</div><div class="line">   inet 10.244.1.2/24 scope global eth0</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">Identify the peer_ifindex, and finally you can see the veth pair endpoint in root namespace.</div><div class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ethtool -S eth0</div><div class="line">NIC statistics:</div><div class="line">     peer_ifindex: 7</div><div class="line">root@worker01:~#</div><div class="line">root@worker01:~# ip -d link show | grep &apos;7: veth&apos;</div><div class="line">7: veth5e43ca47@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue master cni0 state UP mode DEFAULT group default</div><div class="line">root@worker01:~#</div></pre></td></tr></table></figure>
-<p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可，<a href="https://medium.com/@anilkreddyr/kubernetes-with-flannel-understanding-the-networking-part-2-78b53e5364c7" target="_blank" rel="external">详细case</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">#docker inspect cb7b05d82153 | grep -i SandboxKey   //根据 pause 容器id找network namespace</div><div class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/d6b2ef3cf886&quot;,</div><div class="line"></div><div class="line">[root@hygon252 19:00 /root]</div><div class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ip addr show</div><div class="line">3: eth0@if496: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default  //496对应宿主机上的veth编号</div><div class="line">    link/ether 1e:95:dd:d9:88:bd brd ff:ff:ff:ff:ff:ff link-netnsid 0</div><div class="line">    inet 192.168.3.22/24 brd 192.168.3.255 scope global eth0</div><div class="line">       valid_lft forever preferred_lft forever</div><div class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ethtool -S eth0</div><div class="line">NIC statistics:</div><div class="line">     peer_ifindex: 496</div><div class="line">     </div><div class="line">#ip -d -4 addr show cni0</div><div class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</div><div class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</div><div class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer   43.31 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</div><div class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</div><div class="line">       valid_lft forever preferred_lft forever</div></pre></td></tr></table></figure>
-<h2 id="创建虚拟网卡"><a href="#创建虚拟网卡" class="headerlink" title="创建虚拟网卡"></a>创建虚拟网卡</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">To make this interface you&apos;d first need to make sure that you have the dummy kernel module loaded. You can do this like so:</div><div class="line">$ sudo lsmod | grep dummy</div><div class="line">$ sudo modprobe dummy</div><div class="line">$ sudo lsmod | grep dummy</div><div class="line">dummy                  12960  0 </div><div class="line">With the driver now loaded you can create what ever dummy network interfaces you like:</div><div class="line"></div><div class="line">$ sudo ip link add eth10 type dummy</div></pre></td></tr></table></figure>
-<h2 id="修改网卡名字"><a href="#修改网卡名字" class="headerlink" title="修改网卡名字"></a>修改网卡名字</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">ip link set ens33 down</div><div class="line">ip link set ens33 name eth0</div><div class="line">ip link set eth0 up</div><div class="line"></div><div class="line">mv /etc/sysconfig/network-scripts/ifcfg-&#123;ens33,eth0&#125;</div><div class="line">sed -ire &quot;s/NAME=\&quot;ens33\&quot;/NAME=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</div><div class="line">sed -ire &quot;s/DEVICE=\&quot;ens33\&quot;/DEVICE=\&quot;eth0\&quot;/&quot; /etc/sysconfig/network-scripts/ifcfg-eth0</div><div class="line">MAC=$(cat /sys/class/net/eth0/address)</div><div class="line">echo -n &apos;HWADDR=&quot;&apos;$MAC\&quot; &gt;&gt; /etc/sysconfig/network-scripts/ifcfg-eth0</div></pre></td></tr></table></figure>
-<h2 id="OS版本"><a href="#OS版本" class="headerlink" title="OS版本"></a>OS版本</h2><p><strong>搞Docker就得上el7， 6的性能太差了</strong> Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。</p>
-<h2 id="清理mount文件"><a href="#清理mount文件" class="headerlink" title="清理mount文件"></a>清理mount文件</h2><p>删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk ‘{ print $3 }’ |grep overlay2| xargs umount 批量删除</p>
-<h2 id="No-space-left-on-device"><a href="#No-space-left-on-device" class="headerlink" title="No space left on device"></a><a href="https://www.manjusaka.blog/posts/2023/01/07/special-case-no-space-left-on-device/" target="_blank" rel="external">No space left on device</a></h2><p><strong>OSError: [Errno 28] No space left on device</strong>：</p>
-<p>​    大部分时候不是真的磁盘没有空间了还有可能是inode不够了(df -ih 查看inode使用率)</p>
-<p>​    尝试用 fallocate 来测试创建文件是否成功</p>
-<p>​    尝试fdisk-l / tune2fs -l 来确认分区和文件系统的正确性</p>
-<p>​    fallocate 创建一个文件名很长的文件失败(也就是原始报错的文件名)，同时fallocate 创建一个短文件名的文件成功</p>
-<p>​    dmesg 查看系统报错信息</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">[13155344.231942] EXT4-fs warning (device sdd): ext4_dx_add_entry:2461: Directory (ino: 3145729) index full, reach max htree level :2</div><div class="line">[13155344.231944] EXT4-fs warning (device sdd): ext4_dx_add_entry:2465: Large directory feature is not enabled on this filesystem</div></pre></td></tr></table></figure>
-<p><img src="/images/951413iMgBlog/1673940401316-88667b79-1ba2-43fe-9f92-9e51affc49b0.png" alt="img">    </p>
-<p>看起来是小文件太多撑爆了ext4的BTree索引，通过 tune2fs -l /dev/nvme1n1p1 验证下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">#tune2fs -l /dev/nvme1n1p1 |grep Filesystem</div><div class="line">Filesystem volume name:   /flash2</div><div class="line">Filesystem revision #:    1 (dynamic)</div><div class="line">Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent 64bit flex_bg sparse_super large_file huge_file uninit_bg dir_nlink extra_isize</div><div class="line">Filesystem flags:         signed_directory_hash</div><div class="line">Filesystem state:         clean</div><div class="line">Filesystem OS type:       Linux</div><div class="line">Filesystem created:       Fri Mar  6 17:08:36 2020</div></pre></td></tr></table></figure>
-<p>​    执行 <code>tune2fs -O large_dir</code> /dev/nvme1n1p1 打开 large_dir 选项</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">tune2fs -l /dev/nvme1n1p1 |grep -i large</div><div class="line">Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent flex_bg large_dir sparse_super large_file huge_file uninit_bg dir_nlink extra_isize</div></pre></td></tr></table></figure>
-<p>如上所示，开启后Filesystem features 多了 large_dir，<a href="https://git.kernel.org/pub/scm/linux/kernel/git/tytso/ext4.git/commit/?h=dev&amp;id=88a399955a97fe58ddb2a46ca5d988caedac731b" target="_blank" rel="external">不过4.13以上内核才支持这个功能</a></p>
-<h2 id="CPU-资源分配"><a href="#CPU-资源分配" class="headerlink" title="CPU 资源分配"></a>CPU 资源分配</h2><p>对于cpu的限制，Kubernetes采用cfs quota来限制进程在单位时间内可用的时间片。当独享和共享实例在同一台node节点上的时候，一旦实例的工作负载增加，可能会导致独享实例工作负载在不同的cpu核心上来回切换，影响独享实例的性能。所以，为了不影响独享实例的性能，我们希望在同一个node上，独享实例和共享实例的cpu能够分开绑定，互不影响。</p>
-<p>内核的默认cpu.shares是1024，也可以通过 cpu.cfs_quota_us / cpu.cfs_period_us去控制容器规格(除后的结果就是核数)</p>
-<p>cpu.shares 多层级限制后上层有更高的优先级，可能会经常看到 CPU 多核之间不均匀的现象，部分核总是跑不满之类的。  cpu.shares 是用来调配争抢用，比如离线、在线混部可以通过 cpu.shares 多给在线业务</p>
-<p>给容器限制16core的quota：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">docker update --cpu-quota=1600000 --cpu-period=100000 c1 c2</div></pre></td></tr></table></figure>
-<h2 id="sock"><a href="#sock" class="headerlink" title="sock"></a>sock</h2><p>docker有两个sock，一个是dockershim.sock，一个是docker.sock。dockershim.sock是由实现了CRI接口的一个插件提供的，主要把k8s请求转换成docker请求，最终docker还是要 通过docker.sock来管理容器。</p>
-<blockquote>
-<p>kubelet —CRI—-&gt; docker-shim(kubelet内置的CRI-plugin) –&gt; docker</p>
-</blockquote>
-<h2 id="docker-image-api"><a href="#docker-image-api" class="headerlink" title="docker image api"></a>docker image api</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">获取所有镜像名字： GET /v2/_catalog   </div><div class="line">curl registry:5000/v2/_catalog</div><div class="line"></div><div class="line">获取某个镜像的tag： GET /v2/&lt;name&gt;/tags/list  </div><div class="line">curl registry:5000/v2/drds/corona-server/tags/list</div></pre></td></tr></table></figure>
-<h3 id="从registry中删除镜像"><a href="#从registry中删除镜像" class="headerlink" title="从registry中删除镜像"></a>从registry中删除镜像</h3><p>默认registry仓库不支持删除镜像，修改registry配置来支持删除</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">#cat config.yml</div><div class="line">version: 0.1</div><div class="line">log:</div><div class="line">  fields:</div><div class="line">    service: registry</div><div class="line">storage:</div><div class="line">  delete: //增加如下两行，默认是false，不能删除</div><div class="line">    enabled: true</div><div class="line">  cache:</div><div class="line">    blobdescriptor: inmemory</div><div class="line">  filesystem:</div><div class="line">    rootdirectory: /var/lib/registry</div><div class="line">http:</div><div class="line">  addr: :5000</div><div class="line">  headers:</div><div class="line">    X-Content-Type-Options: [nosniff]</div><div class="line">health:</div><div class="line">  storagedriver:</div><div class="line">    enabled: true</div><div class="line">    interval: 10s</div><div class="line">    threshold: 3</div><div class="line">    </div><div class="line">#docker cp ./config.yml registry:/etc/docker/registry/config.yml    </div><div class="line">#docker restart registry</div></pre></td></tr></table></figure>
-<p>然后通过API来查询要删除镜像的id：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div></pre></td><td class="code"><pre><div class="line">//查询要删除镜像的tag</div><div class="line">curl registry:5000/v2/drds/corona-server/tags/list</div><div class="line">//根据tag查找Etag</div><div class="line">curl -v registry:5000/v2/drds/corona-server/manifests/2.0.0_3012622_20220214_4ca91d96-arm64 -H &apos;Accept: application/vnd.docker.distribution.manifest.v2+json&apos;</div><div class="line">//根据前一步返回的Etag来删除对应的tag</div><div class="line">curl -X  DELETE registry:5000/v2/drds/corona-server/manifests/sha256:207ec19c1df6a3fa494d41a1a8b5332b969a010f0d4d980e39f153b1eaca2fe2 -v</div><div class="line"></div><div class="line">//执行垃圾回收</div><div class="line">docker exec -it registry bin/registry garbage-collect /etc/docker/registry/config.yml</div></pre></td></tr></table></figure>
-<h2 id="检查是否restart能支持只重启deamon，容器还能正常运行"><a href="#检查是否restart能支持只重启deamon，容器还能正常运行" class="headerlink" title="检查是否restart能支持只重启deamon，容器还能正常运行"></a>检查是否restart能支持只重启deamon，容器还能正常运行</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$sudo docker info | grep Restore</div><div class="line">Live Restore Enabled: true</div></pre></td></tr></table></figure>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html" target="_blank" rel="external">https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -13430,7 +13481,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">174</span>
+                <span class="site-state-item-count">175</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -13452,7 +13503,7 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">267</span>
+                <span class="site-state-item-count">270</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

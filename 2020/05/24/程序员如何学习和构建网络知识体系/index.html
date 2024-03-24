@@ -103,7 +103,7 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="程序员如何学习和构建网络知识体系大家学习网络知识的过程中经常发现当时看懂了，很快又忘了，最典型的比如TCP三次握手、为什么要握手，大家基本都看过，但是种感觉还差那么一点点。都要看是因为面试官总要问，所以不能不知道啊。 我们来看一个典型的面试问题：  问：为什么TCP是可靠的？答：因为TCP有连接（或者回答因为TCP有握手） 追问：为什么有连接就可靠了？（面试的人估计心里在骂，你这不是傻逼么，有连接">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220221151815993.png">
-<meta property="og:updated_time" content="2023-10-07T06:38:54.587Z">
+<meta property="og:updated_time" content="2024-03-24T02:24:21.270Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="程序员如何学习和构建网络知识体系">
 <meta name="twitter:description" content="程序员如何学习和构建网络知识体系大家学习网络知识的过程中经常发现当时看懂了，很快又忘了，最典型的比如TCP三次握手、为什么要握手，大家基本都看过，但是种感觉还差那么一点点。都要看是因为面试官总要问，所以不能不知道啊。 我们来看一个典型的面试问题：  问：为什么TCP是可靠的？答：因为TCP有连接（或者回答因为TCP有握手） 追问：为什么有连接就可靠了？（面试的人估计心里在骂，你这不是傻逼么，有连接">
@@ -457,8 +457,6 @@
 <li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
 <li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full， 诊断: dmesg |grep conntrack</li>
 </ul>
-<p><a href="https://perthcharles.github.io/2015/08/27/timestamp-intro/" target="_blank" rel="external">Linux 系统有PAWS机制</a>，全称Protect Againest Wrapped Sequence numbers，目的是为了解决在高带宽下，TCP序号可能被重复使用而带来的问题。<a href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/" target="_blank" rel="external">PAWS会检查syn网络包的timestamps</a> 来判断这个syn包的发送时间是否早于上一个syn包，如果早就扔掉。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成per host粒度了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">timestamp为TCP/IP协议栈提供了两个功能：  </div><div class="line">    a. 更加准确的RTT测量数据，尤其是有丢包时  -- RTTM  </div><div class="line">    b. 保证了在极端情况下，TCP的可靠性        -- PAWS</div></pre></td></tr></table></figure>
 <p>tcp connect 的流程是这样的：</p>
 <p>1、tcp发出SYN建链报文后，报文到ip层需要进行路由查询</p>
 <p>2、路由查询完成后，报文到arp层查询下一跳mac地址</p>
@@ -466,7 +464,16 @@
 <p>4、arp层收到arp回应报文之后，从缓存中取出SYN报文，完成mac头填写并发送给驱动。</p>
 <p>问题在于，arp层报文缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
 <p>TCP层发现SYN报文发出去3s（1s+2s）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
-<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3。</p>
+<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3</p>
+<h2 id="PAWS"><a href="#PAWS" class="headerlink" title="PAWS"></a>PAWS</h2><p><a href="https://perthcharles.github.io/2015/08/27/timestamp-intro/" target="_blank" rel="external">Linux 系统有PAWS机制</a>，全称Protect Againest Wrapped Sequence numbers，目的是为了解决在高带宽下，TCP序号可能被重复使用而带来的问题。<a href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/" target="_blank" rel="external">PAWS会检查syn网络包的timestamps</a> ，来判断这个syn包的发送时间是否早于上一个syn包，如果早就扔掉，这也是导致syn握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成per host粒度了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">timestamp为TCP/IP协议栈提供了两个功能：  </div><div class="line">    a. 更加准确的RTT测量数据，尤其是有丢包时  -- RTTM  </div><div class="line">    b. 保证了在极端情况下，TCP的可靠性        -- PAWS</div></pre></td></tr></table></figure>
+<p>不同 OS 内核PAWS 行为还不一样</p>
+<h3 id="2-6内核"><a href="#2-6内核" class="headerlink" title="2.6内核"></a>2.6内核</h3><p>服务端tw_recycle置1且客户端有timestamp，60s内同一客户端IP SYN包timestamp需要是递增，否则丢弃。</p>
+<h3 id="3-10内核"><a href="#3-10内核" class="headerlink" title="3.10内核"></a>3.10内核</h3><p>服务端tw_recycle置1，客户端有timestamp，60s内同一客户端IP SYN包timestamp需要是递增，否则丢弃。</p>
+<p>服务端tw_recycle置1，客户端先有带timestamp SYN请求，60s内后续不带timestamp的SYN请求，将被丢弃。</p>
+<h3 id="4-18内核及以上"><a href="#4-18内核及以上" class="headerlink" title="4.18内核及以上"></a>4.18内核及以上</h3><p>4.12后内核取消tw_recycle，但是4.10后修改此前timestamps置位为1时的行为，这也成为很多混部场景异常的导火索。</p>
+<p>当tcp_timestamps置1，将针对每个连接的timestamps使用一个随机数，而非沿用此前使用系统时间作为timestamps TsVL。</p>
+<p>当tcp_timestamps置2，沿用此前使用系统时间作为timestamps TsVL</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>一定要会用tcpdump和wireshark（纯工具，没有任何门槛，用不好只有一个原因: 懒）</li>
 <li>多实践（因为网络知识离我们有点远、有点抽象）,用好各种工具，工具能帮我们看到、摸到</li>
@@ -603,7 +610,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">174</span>
+                <span class="site-state-item-count">175</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -625,7 +632,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">267</span>
+                <span class="site-state-item-count">270</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -667,7 +674,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#程序员如何学习和构建网络知识体系"><span class="nav-number">1.</span> <span class="nav-text">程序员如何学习和构建网络知识体系</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#重点掌握如下两篇文章"><span class="nav-number">1.1.</span> <span class="nav-text">## 重点掌握如下两篇文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#来看一个案例"><span class="nav-number">1.2.</span> <span class="nav-text">来看一个案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#不要追求知识的广度"><span class="nav-number">1.3.</span> <span class="nav-text">不要追求知识的广度</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP是最复杂的，要从实用出发"><span class="nav-number">1.4.</span> <span class="nav-text">TCP是最复杂的，要从实用出发</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.5.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#程序员如何学习和构建网络知识体系"><span class="nav-number">1.</span> <span class="nav-text">程序员如何学习和构建网络知识体系</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#重点掌握如下两篇文章"><span class="nav-number">1.1.</span> <span class="nav-text">## 重点掌握如下两篇文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#来看一个案例"><span class="nav-number">1.2.</span> <span class="nav-text">来看一个案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#不要追求知识的广度"><span class="nav-number">1.3.</span> <span class="nav-text">不要追求知识的广度</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP是最复杂的，要从实用出发"><span class="nav-number">1.4.</span> <span class="nav-text">TCP是最复杂的，要从实用出发</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#PAWS"><span class="nav-number">1.5.</span> <span class="nav-text">PAWS</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6内核"><span class="nav-number">1.5.1.</span> <span class="nav-text">2.6内核</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-10内核"><span class="nav-number">1.5.2.</span> <span class="nav-text">3.10内核</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-18内核及以上"><span class="nav-number">1.5.3.</span> <span class="nav-text">4.18内核及以上</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.6.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
             
 
           </div>
