@@ -113,7 +113,7 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20220413134252639">
-<meta property="og:updated_time" content="2024-03-24T02:24:21.618Z">
+<meta property="og:updated_time" content="2024-04-03T08:11:46.501Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="到底一台服务器上最多能创建多少个TCP连接">
 <meta name="twitter:description" content="到底一台服务器上最多能创建多少个TCP连接 经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？  port range我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range 中随机取一个可用的 12# cat /proc/sys/net/ipv4/ip_">
@@ -413,8 +413,8 @@
 <li>如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。</li>
 <li>另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。</li>
 </ul>
-<p>我们在创建连接前，经常会先调bind，bind后可以调listen当做服务端监听，也可以直接调connect当做client来连服务端。</p>
-<p>bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。</p>
+<p>我们在创建连接前，经常会先调bind，bind后可以调 listen当做服务端监听，也可以直接调connect当做client来连服务端。</p>
+<p>bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接这个socket 是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的(得local port 唯一)，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。</p>
 <p>比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 </p>
 <blockquote>
 <p>Linux 4.2后的内核增加了IP_BIND_ADDRESS_NO_PORT 这个socket option来解决这个问题，将src port的选择延后到connect的时候</p>
@@ -430,7 +430,7 @@
 </blockquote>
 <p>从这段文档中我们可以知道三个事：</p>
 <ol>
-<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
+<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，如果机器有两个本地ip，那么任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
 <li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
 <li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
 </ol>
@@ -479,7 +479,7 @@
 <p>以上测试时的参数</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</div><div class="line">1024    65535</div></pre></td></tr></table></figure>
 <p>将1024改成1025后，分配出来的都是奇数端口了：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</div><div class="line">1025    1034</div><div class="line"></div><div class="line">$./client</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div><div class="line">local port: 1027</div><div class="line">local port: 1029</div><div class="line">local port: 1031</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div><div class="line">local port: 1027</div><div class="line">local port: 1029</div><div class="line">local port: 1031</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div><div class="line">local port: 1027</div><div class="line">local port: 1029</div><div class="line">local port: 1031</div></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</div><div class="line">1025    1034</div><div class="line"></div><div class="line">$./client</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div><div class="line">local port: 1027</div><div class="line">local port: 1029</div><div class="line">local port: 1031</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div><div class="line">local port: 1027</div><div class="line">local port: 1029</div><div class="line">local port: 1031</div><div class="line">local port: 1033</div><div class="line">local port: 1025</div></pre></td></tr></table></figure>
 <p>之所以都是偶数端口，是因为port_range 从偶数开始, 每次从++变到+2的<a href="https://github.com/plantegg/linux/commit/1580ab63fc9a03593072cc5656167a75c4f1d173" target="_blank" rel="external">原因</a>，connect挑选随机端口时都是在起始端口的基础上+2，而bind挑选随机端口的起始端口是系统port_range起始端口+1（这样和connect错开），然后每次仍然尝试+2，这样connect和bind基本一个用偶数另外一个就用奇数，一旦不够了再尝试使用另外一组</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</div><div class="line">1024    1047</div><div class="line"></div><div class="line">$./bind &amp;  ---bind程序随机挑选5个端口</div><div class="line">port number 1039</div><div class="line">port number 1043</div><div class="line">port number 1045</div><div class="line">port number 1041</div><div class="line">port number 1047  --用完所有奇数端口</div><div class="line"></div><div class="line">$./bind &amp;    --继续挑选偶数端口</div><div class="line">[8] 4170</div><div class="line">port number 1044</div><div class="line">port number 1042</div><div class="line">port number 1046</div><div class="line">port number 0    --实在没有了</div><div class="line">port number 0</div></pre></td></tr></table></figure>
 <p>可见4.19内核下每次port是+2，在3.10内核版本中是+1. 并且都是递增的，同时即使port不使用，也会随着时间的变化这个起始port增大。</p>
@@ -523,8 +523,8 @@
 <p><img src="/images/951413iMgBlog/640-8259033.png" alt="Image"></p>
 <p><img src="/images/951413iMgBlog/640-20221112211814567.png" alt="Image"></p>
 <p> local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）</p>
-<p>核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪 如果你对</p>
-<p>我的看法，这个分奇偶数的实现就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！</p>
+<p>核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪</p>
+<p>对这个把端口分成奇偶数我的看法：这个做法就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！</p>
 <h2 id="从STGW流量下降探秘内核收包机制"><a href="#从STGW流量下降探秘内核收包机制" class="headerlink" title="从STGW流量下降探秘内核收包机制"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&amp;mid=2649745268&amp;idx=1&amp;sn=f72f164847060d7b19cba272a38485e5&amp;scene=21#wechat_redirect" target="_blank" rel="external">从STGW流量下降探秘内核收包机制</a></h2><p>listen port search消耗CPU异常高</p>
 <p><img src="/images/951413iMgBlog/640-9840722.jpeg" alt="图片"></p>
 <p>在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。</p>
@@ -554,7 +554,8 @@
 <li>其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象</li>
 </ul>
 <p>或者看这篇分析：<a href="https://zhuanlan.zhihu.com/p/25241630" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/25241630</a> </p>
-<h2 id="不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够"><a href="#不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够" class="headerlink" title="不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="external">不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够</a></h2><p>A进程选择某个端口当local port 来connect，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象</p>
+<h2 id="不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够"><a href="#不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够" class="headerlink" title="不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="external">不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够</a></h2><p>A进程选择某个端口当local port 来connect，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象；超频繁的端口复用在LVS 场景下会产生问题，导致建连异常；或者syn包被 RST 触发1秒钟重传 syn</p>
+<p>这个A、B进程共同跑在一台宿主机上很多年了，只因为之前是3.10内核，这次升级到了4.19后因为奇偶数放大了问题</p>
 <h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
 <li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
 <li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
