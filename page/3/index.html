@@ -602,265 +602,6 @@ sudo perf top
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
-                2019-12-16
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/CPU/" itemprop="url" rel="index">
-                    <span itemprop="name">CPU</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
-<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
-<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
-<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
-<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
-<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
-<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
-</code></pre><h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
-<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
-<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
-<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
-</ul>
-<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
-<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
-<p>性能压测原则：</p>
-<blockquote>
-<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
-</blockquote>
-<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
-<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
-<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
-<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
-<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
-<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
-<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
-<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
-<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
-<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
-<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
-<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
-<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
-<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
-<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
-<blockquote>
-<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
-</blockquote>
-<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
-<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
-<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
-<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
-<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
-<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
-<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
-<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
-<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
-<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
-<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
-<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
-<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
-<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
-<blockquote>
-<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
-</blockquote>
-<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
-<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
-<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
-<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
-<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
-<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
-<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
-<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
-<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
-<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
-<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
-<pre><code>/***************************MySQL代码****************************//**
-Runs an idle loop on CPU. The argument gives the desired delay
-in microseconds on 100 MHz Pentium + Visual C++.
-@return dummy value */
-UNIV_INTERN
-ulint
-ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
-{
-        ulint   i, j;
-
-        UT_LOW_PRIORITY_CPU();
-
-        j = 0;
-
-        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
-                j += i;
-                UT_RELAX_CPU();             //调用 CPU Pause
-        }
-
-        UT_RESUME_PRIORITY_CPU();
-
-        return(j);
-}
-</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
-<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
-<ul>
-<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
-<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
-<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
-</ul>
-<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
-<blockquote>
-<p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
-<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
-</blockquote>
-<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
-<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
-<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
-<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
-<blockquote>
-<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
-<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
-</blockquote>
-<p>也就是<strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。</strong>这可是14倍的变化呀。</p>
-<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
-<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
-<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
-<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
-<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
-<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
-<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
-<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
-<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1005284</a></p>
-<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">mysql doc</a></p>
-<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="external">Cache Line 伪共享发现与优化</a></p>
-<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
-<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
-<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
-<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
-<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化如何影响MySQL的性能/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1089,6 +830,265 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
 <p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
 <p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
 <p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield、ISB 来代替Pause</p>
+<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
+<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">
+                2019-12-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
+<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
+<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
+<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
+<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&apos;310&apos; AND Revs_Flag=&apos;Z&apos; AND accrym=&apos;201910&apos; AND emp_no=&apos;1050457&apos;;
+</code></pre><h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
+<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
+<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
+<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
+<p>性能压测原则：</p>
+<blockquote>
+<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
+<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
+<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
+<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
+<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
+<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
+<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
+<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
+<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<blockquote>
+<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
+</blockquote>
+<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
+<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
+<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<p><img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;"></p>
+<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
+<p><img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;"></p>
+<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
+<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
+<blockquote>
+<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
+</blockquote>
+<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
+<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
+<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
+<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="external">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="external">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="external">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
+<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
+<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
+<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************//**
+Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+
+        UT_LOW_PRIORITY_CPU();
+
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //调用 CPU Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+
+        return(j);
+}
+</code></pre><p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
+<ul>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
+</ul>
+<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
+<blockquote>
+<p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="external">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
+<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
+</blockquote>
+<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
+<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
+<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
+<blockquote>
+<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="external">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="external"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+</blockquote>
+<p>也就是<strong>Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。</strong>这可是14倍的变化呀。</p>
+<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
+<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
+<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause<em> innodb_spin_wait_delay</em>N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="external">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="external">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="external">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="external">intel spec</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="external">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="external">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
 <p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="external">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
 <p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="external">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
 
@@ -6028,7 +6028,7 @@ Get https://k8s.gcr.io/v1/_ping: dial tcp 108.177.125.82:443: i/o timeout
 </code></pre><p><a href="https://www.atatech.org/articles/102153" target="_blank" rel="external">如果是git这样的应用内部可以配置socks5和http代理服务器，请参考另外一篇文章</a>，但是有些应用就不能配置了，当然最终通过ssh大法还是可以解决这个问题：</p>
 <pre><code>sudo ssh -L 443:108.177.125.82:443 root@1.1.1.1 //在本地监听443，转发给远程108.177.125.82的443端口
 </code></pre><p>然后再在 /etc/hosts 中将域名 k8s.gcr.io 指向 127.0.0.1， 那么本来要访问 k8s.gcr.io:443的，变成了访问本地 127.0.0.1:443 而 127.0.0.1:443 又通过ssh重定向到了 108.177.125.82:443 这样就实现了http代理或者说这种特殊情况下的科学上网。这个方案不需要装任何东西，但是每个访问目标都要这样处理，好在这种情况不多</p>
-<h2 id="内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？"><a href="#内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？" class="headerlink" title="内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？"></a>内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span> cat ~/.ssh/config </div><div class="line"><span class="meta">#</span>reuse the same connection --关键配置</div><div class="line">ControlMaster auto</div><div class="line">ControlPath ~/tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持</div><div class="line"><span class="meta">#</span>不支持的话直接把这行删了，不影响功能</div><div class="line"><span class="meta">#</span>keep one connection in 72hour</div><div class="line"><span class="meta">#</span>ControlPersist 72h</div><div class="line"><span class="meta">#</span>复用连接的配置到这里，后面的配置与复用无关</div><div class="line"><span class="meta"></span></div><div class="line">#其它也很有用的配置</div><div class="line">GSSAPIAuthentication=no</div><div class="line"><span class="meta">#</span>这个配置在公网因为安全原因请谨慎关闭</div><div class="line">StrictHostKeyChecking=no</div><div class="line">TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span> "ServerAliveInterval [seconds]" configuration in the SSH configuration so that your ssh client sends a "dummy packet" on a regular interval so that the router thinks that the connection is active even if it's particularly quiet</div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span>ServerAliveCountMax=6</div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div></pre></td></tr></table></figure>
+<h2 id="内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？"><a href="#内部堡垒机、跳板机都需要密码-动态码，太复杂了，怎么解？" class="headerlink" title="内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？"></a>内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash"> cat ~/.ssh/config </span></div><div class="line"><span class="meta">#</span><span class="bash">reuse the same connection --关键配置</span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath ~/tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持</span></div><div class="line"><span class="meta">#</span><span class="bash">不支持的话直接把这行删了，不影响功能</span></div><div class="line"><span class="meta">#</span><span class="bash">keep one connection <span class="keyword">in</span> 72hour</span></div><div class="line"><span class="meta">#</span><span class="bash">ControlPersist 72h</span></div><div class="line"><span class="meta">#</span><span class="bash">复用连接的配置到这里，后面的配置与复用无关</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">其它也很有用的配置</span></div><div class="line">GSSAPIAuthentication=no</div><div class="line"><span class="meta">#</span><span class="bash">这个配置在公网因为安全原因请谨慎关闭</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line">TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div></pre></td></tr></table></figure>
 <p>在你的ssh配置文件增加上述参数，意味着72小时内登录同一台跳板机只有第一次需要输入密码，以后都是重用之前的连接，所以也就不再需要输入密码了。</p>
 <p>加了如上参数后的登录过程就有这样的东东(默认没有，这是debug信息)：   </p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">debug1: setting up multiplex master socket</div><div class="line">debug3: muxserver_listen: temporary control path   /home/ren/tmp/ssh_mux_10.16.*.*_22_corp.86g3C34vy36tvCtn</div><div class="line">debug2: fd 3 setting O_NONBLOCK</div><div class="line">debug3: fd 3 is O_NONBLOCK</div><div class="line">debug3: fd 3 is O_NONBLOCK</div><div class="line">debug1: channel 0: new [/home/ren/tmp/ssh_mux_10.16.*.*_22_corp]</div><div class="line">debug3: muxserver_listen: mux listener channel 0 fd 3</div><div class="line">debug1: control_persist_detach: backgrounding master process</div><div class="line">debug2: control_persist_detach: background process is 15154</div><div class="line">debug2: fd 3 setting O_NONBLOCK</div><div class="line">debug1: forking to background</div><div class="line">debug1: Entering interactive session.</div><div class="line">debug2: set_control_persist_exit_time: schedule exit in 259200 seconds</div><div class="line">debug1: multiplexing control connection</div></pre></td></tr></table></figure>
@@ -6115,7 +6115,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <hr>
 <p><strong>这里只是帮大家入门了解ssh，掌握好这些配置文件和-vvv后有好多好玩的可以去挖掘，同时也请在留言中说出你的黑技能</strong></p>
 <h2 id="ssh-config-参考配置"><a href="#ssh-config-参考配置" class="headerlink" title="~/.ssh/config 参考配置"></a>~/.ssh/config 参考配置</h2><p>下面是我个人常用的ssh config配置</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span>cat ~/.ssh/config</div><div class="line"><span class="meta">#</span>GSSAPIAuthentication=no</div><div class="line">StrictHostKeyChecking=no</div><div class="line"><span class="meta">#</span>TCPKeepAlive=yes</div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span> "ServerAliveInterval [seconds]" configuration in the SSH configuration so that your ssh client sends a "dummy packet" on a regular interval so that the router thinks that the connection is active even if it's particularly quiet</div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span>ServerAliveCountMax=6</div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"><span class="meta"></span></div><div class="line">#reuse the same connection</div><div class="line">ControlMaster auto</div><div class="line">ControlPath /tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#keep one connection in 72hour</div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line">Host 192.168.1.*</div><div class="line">ProxyCommand ssh user@us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">Host 192.168.2.*</div><div class="line">ProxyCommand ssh user@cn.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line"><span class="meta">#</span>ProxyCommand /bin/nc -x localhost:12346 %h %p</div><div class="line"></div><div class="line">Host 172</div><div class="line">    HostName 10.172.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump root@1.2.3.4:12345</div><div class="line"></div><div class="line">Host 176</div><div class="line">    HostName 10.176.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump admin@1.2.3.4:12346</div><div class="line">    </div><div class="line">Host 10.5.*.*, 10.*.*.*</div><div class="line">    port 22</div><div class="line">			user root</div><div class="line">			ProxyJump plantegg@1.2.3.4:12347</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat ~/.ssh/config</span></div><div class="line"><span class="meta">#</span><span class="bash">GSSAPIAuthentication=no</span></div><div class="line">StrictHostKeyChecking=no</div><div class="line"><span class="meta">#</span><span class="bash">TCPKeepAlive=yes</span></div><div class="line">CheckHostIP=no</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="string">"ServerAliveInterval [seconds]"</span> configuration <span class="keyword">in</span> the SSH configuration so that your ssh client sends a <span class="string">"dummy packet"</span> on a regular interval so that the router thinks that the connection is active even <span class="keyword">if</span> it<span class="string">'s particularly quiet</span></span></div><div class="line">ServerAliveInterval=15</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ServerAliveCountMax=6</span></span></div><div class="line">ForwardAgent=yes</div><div class="line"></div><div class="line">UserKnownHostsFile /dev/null</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">reuse the same connection</span></span></div><div class="line">ControlMaster auto</div><div class="line">ControlPath /tmp/ssh_mux_%h_%p_%r</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="string">keep one connection in 72hour</span></span></div><div class="line">ControlPersist 72h</div><div class="line"></div><div class="line">Host 192.168.1.*</div><div class="line">ProxyCommand ssh user@us.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line">Host 192.168.2.*</div><div class="line">ProxyCommand ssh user@cn.jump exec /usr/bin/nc %h %p 2&gt;/dev/null</div><div class="line"><span class="meta">#</span><span class="bash"><span class="string">ProxyCommand /bin/nc -x localhost:12346 %h %p</span></span></div><div class="line"></div><div class="line">Host 172</div><div class="line">    HostName 10.172.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump root@1.2.3.4:12345</div><div class="line"></div><div class="line">Host 176</div><div class="line">    HostName 10.176.1.1</div><div class="line">    Port 22</div><div class="line">    User root</div><div class="line">    ProxyJump admin@1.2.3.4:12346</div><div class="line">    </div><div class="line">Host 10.5.*.*, 10.*.*.*</div><div class="line">    port 22</div><div class="line">			user root</div><div class="line">			ProxyJump plantegg@1.2.3.4:12347</div></pre></td></tr></table></figure>
 <p>ProxyJump完全可以取代 ProxyCommand，比如ProxyJump 不再依赖nc、也更灵活一些</p>
 <h2 id="etc-ssh-ssh-config-参考配置"><a href="#etc-ssh-ssh-config-参考配置" class="headerlink" title="/etc/ssh/ssh_config 参考配置"></a>/etc/ssh/ssh_config 参考配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div></pre></td><td class="code"><pre><div class="line">Host *</div><div class="line">Protocol 2</div><div class="line">ServerAliveInterval 30</div><div class="line">User admin</div><div class="line"></div><div class="line">host 10.10.55.*</div><div class="line">ProxyCommand ssh -l admin admin.jump  exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"># uos is a hostname</div><div class="line">Host 10.10.1.13* 192.168.2.133 uos</div><div class="line">ProxyCommand ssh -l root -p 54900 1.1.1.1 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line">#debug for git proxy</div><div class="line">Host github.com</div><div class="line">#    LogLevel DEBUG3</div><div class="line">#    ProxyCommand ssh  -l root gfw.jump exec /usr/bin/nc %h %p</div><div class="line">#    ProxyCommand ssh -oProxyCommand=&apos;ssh -l admin gfw.jump:22&apos; -l root gfw.jump2 exec /usr/bin/nc %h %p</div><div class="line"></div><div class="line"></div><div class="line">ForwardAgent yes</div><div class="line">ForwardX11 yes</div><div class="line">ForwardX11Trusted yes</div><div class="line"></div><div class="line">    SendEnv LANG LC_*</div><div class="line">    HashKnownHosts yes</div><div class="line">    GSSAPIAuthentication no</div><div class="line">    GSSAPIDelegateCredentials no</div><div class="line">    Compression yes</div></pre></td></tr></table></figure>
 <h2 id="其他知识点"><a href="#其他知识点" class="headerlink" title="其他知识点"></a>其他知识点</h2><p>参数的优先级是：命令行配置选项 &gt; ~/.ssh/config &gt; /etc/ssh/ssh_config</p>
@@ -6144,7 +6144,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <li>6 – Cyan</li>
 <li>7 – White</li>
 </ul>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span>!/bin/sh</div><div class="line">export TERM=xterm-256color</div><div class="line"></div><div class="line">read one five fifteen rest &lt; /proc/loadavg</div><div class="line">echo "$(tput setaf 2)</div><div class="line">Kernel: `uname -v | awk -v OFS=' ' '&#123;print $4, $5&#125;'`</div><div class="line">                                                                                                                                   </div><div class="line">        \\   ^__^</div><div class="line">         \\  (oo)\\_______</div><div class="line">            (__)\\       )\\\/\\</div><div class="line">                ||----w |</div><div class="line">                ||     ||</div><div class="line"></div><div class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</div><div class="line"></div><div class="line">有任何需要请联系 ** 多谢!</div><div class="line"><span class="meta"></span></div><div class="line">$(tput setaf 4)Load Averages......: $&#123;one&#125;, $&#123;five&#125;, $&#123;fifteen&#125; (1, 5, 15 min)</div><div class="line"><span class="meta">$</span>(tput setaf 5)</div><div class="line"> ______________</div><div class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</div><div class="line"></div><div class="line">有任何需要请联系 ** 多谢!</div><div class="line"> --------------</div><div class="line">        \\   ^__^</div><div class="line">         \\  (oo)\\_______</div><div class="line">            (__)\\       )\\\/\\</div><div class="line">                ||----w |</div><div class="line">                ||     ||</div><div class="line"><span class="meta"></span></div><div class="line">$(tput sgr0)"</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">!/bin/sh</span></div><div class="line">export TERM=xterm-256color</div><div class="line"></div><div class="line">read one five fifteen rest &lt; /proc/loadavg</div><div class="line">echo "$(tput setaf 2)</div><div class="line">Kernel: `uname -v | awk -v OFS=' ' '&#123;print $4, $5&#125;'`</div><div class="line">                                                                                                                                   </div><div class="line">        \\   ^__^</div><div class="line">         \\  (oo)\\_______</div><div class="line">            (__)\\       )\\\/\\</div><div class="line">                ||----w |</div><div class="line">                ||     ||</div><div class="line"></div><div class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</div><div class="line"></div><div class="line">有任何需要请联系 ** 多谢!</div><div class="line"><span class="meta"></span></div><div class="line">$<span class="bash">(tput setaf 4)Load Averages......: <span class="variable">$&#123;one&#125;</span>, <span class="variable">$&#123;five&#125;</span>, <span class="variable">$&#123;fifteen&#125;</span> (1, 5, 15 min)</span></div><div class="line"><span class="meta">$</span><span class="bash">(tput setaf 5)</span></div><div class="line"> ______________</div><div class="line">本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务</div><div class="line"></div><div class="line">有任何需要请联系 ** 多谢!</div><div class="line"> --------------</div><div class="line">        \\   ^__^</div><div class="line">         \\  (oo)\\_______</div><div class="line">            (__)\\       )\\\/\\</div><div class="line">                ||----w |</div><div class="line">                ||     ||</div><div class="line"><span class="meta"></span></div><div class="line">$<span class="bash">(tput sgr0)<span class="string">"</span></span></div></pre></td></tr></table></figure>
 <p>以上脚本运行结果</p>
 <p><img src="/images/951413iMgBlog/image-20210902224011450.png" alt="image-20210902224011450"></p>
 <h3 id="sshd-Banner"><a href="#sshd-Banner" class="headerlink" title="sshd Banner"></a>sshd Banner</h3><p><code>Banner</code>指定用户登录后，sshd 向其展示的信息文件（<code>Banner /usr/local/etc/warning.txt</code>），默认不展示任何内容。</p>
@@ -6240,7 +6240,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h3 id="动态转发-D-SOCKS5-协议"><a href="#动态转发-D-SOCKS5-协议" class="headerlink" title="动态转发 (-D)   SOCKS5 协议"></a>动态转发 (-D)   SOCKS5 协议</h3><p>动态转发指的是，本机与 SSH 服务器之间创建了一个加密连接，然后本机内部针对某个端口的通信，都通过这个加密连接转发。它的一个使用场景就是，访问所有外部网站，都通过 SSH 转发。</p>
 <p>动态转发需要把本地端口绑定到 SSH 服务器。<strong>至于 SSH 服务器要去访问哪一个网站，完全是动态的，取决于原始通信，所以叫做动态转发</strong>。</p>
 <p>动态的意思就是：需要访问的目标、端口还不确定。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span> ssh -D 4444 ssh-server -N</div><div class="line">//或者如下方式：</div><div class="line">nohup ssh -qTfnN -D *:13658 root@jump vmstat 10  &gt;/dev/null 2&gt;&amp;1</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash"> ssh -D 4444 ssh-server -N</span></div><div class="line">//或者如下方式：</div><div class="line">nohup ssh -qTfnN -D *:13658 root@jump vmstat 10  &gt;/dev/null 2&gt;&amp;1</div></pre></td></tr></table></figure>
 <p>注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。<code>-N</code>参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。</p>
 <p><img src="/images/951413iMgBlog/image-20210913143129749.png" alt="image-20210913143129749"></p>
 <p>下面是 ssh 隧道建立后的一个<strong>使用实例</strong>。</p>
@@ -6254,7 +6254,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h3 id="本地转发-L"><a href="#本地转发-L" class="headerlink" title="本地转发 (-L)"></a>本地转发 (-L)</h3><p>本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定<code>目标网站</code>之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。</p>
 <p>典型使用场景就是，打洞，经过跳板机访问无法直接连通的服务。</p>
 <p>它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（ssh-server），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span> ssh -L :local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host, target-host 域名解析、路由都是由ssh-server完成</div></pre></td></tr></table></figure>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash"> ssh -L :<span class="built_in">local</span>-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host, target-host 域名解析、路由都是由ssh-server完成</span></div></pre></td></tr></table></figure>
 <p>上面命令中，<code>-L</code>参数表示本地转发，<code>local-port</code>是本地端口，<code>target-host</code>是你想要访问的目标服务器，<code>target-port</code>是目标服务器的端口，<code>ssh-server</code>是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port</p>
 <p><img src="/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG" alt="img"></p>
 <p>上图对应的命令是：</p>
@@ -8267,7 +8267,7 @@ void test_stub1(void)
         
           
             <h1 id="定制Linux-Kernel"><a href="#定制Linux-Kernel" class="headerlink" title="定制Linux Kernel"></a>定制Linux Kernel</h1><p>Linux 里面有一个工具，叫 Grub2，全称 Grand Unified Bootloader Version 2。顾名思义，就是搞系统启动的。</p>
-<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span>cat change_kernel_parameter.sh </div><div class="line"><span class="meta">#</span>cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>grep '' /sys/devices/system/cpu/vulnerabilities/*</div><div class="line"><span class="meta">#</span>https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"><span class="meta"></span></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line"><span class="meta">#</span>transparent_hugepage=always</div><div class="line"><span class="meta">#</span>noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line"><span class="meta">#</span>追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span>重启系统</div><div class="line"><span class="meta">#</span>sudo reboot</div><div class="line"><span class="meta"></span></div><div class="line">## 选择不同的kernel启动</div><div class="line"><span class="meta">#</span>sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu</div><div class="line"><span class="meta">#</span>#grub认的index从0开始数的</div><div class="line"><span class="meta">#</span>sudo grub2-reboot 0; sudo reboot</div><div class="line">or</div><div class="line"><span class="meta">#</span>grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot</div></pre></td></tr></table></figure>
+<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line"><span class="meta">$</span><span class="bash">cat change_kernel_parameter.sh </span></div><div class="line"><span class="meta">#</span><span class="bash">cat /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">grep <span class="string">''</span> /sys/devices/system/cpu/vulnerabilities/*</span></div><div class="line"><span class="meta">#</span><span class="bash">https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">cat /sys/kernel/mm/transparent_hugepage/enabled</span></div><div class="line"><span class="meta">#</span><span class="bash">transparent_hugepage=always</span></div><div class="line"><span class="meta">#</span><span class="bash">noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</span></div><div class="line"><span class="meta">#</span><span class="bash">追加nopti nospectre_v2到内核启动参数中</span></div><div class="line">sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="built_in">limit</span> the journald <span class="built_in">log</span> to 500M</span></div><div class="line">sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf</div><div class="line"><span class="meta">#</span><span class="bash">重启系统</span></div><div class="line"><span class="meta">#</span><span class="bash">sudo reboot</span></div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash"><span class="comment"># 选择不同的kernel启动</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grep <span class="string">"menuentry "</span> /boot/grub2/grub.cfg | grep -n menu</span></div><div class="line"><span class="meta">#</span><span class="bash"><span class="comment">#grub认的index从0开始数的</span></span></div><div class="line"><span class="meta">#</span><span class="bash">sudo grub2-reboot 0; sudo reboot</span></div><div class="line">or</div><div class="line"><span class="meta">#</span><span class="bash">grub2-set-default <span class="string">"CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)"</span> ; sudo reboot</span></div></pre></td></tr></table></figure>
 <p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-working_with_the_grub_2_boot_loader" target="_blank" rel="external">GRUB 2 reads its configuration</a> from the <code>/boot/grub2/grub.cfg</code> file on traditional BIOS-based machines and from the <code>/boot/efi/EFI/redhat/grub.cfg</code> file on UEFI machines. This file contains menu information.</p>
 <p>The GRUB 2 configuration file, <code>grub.cfg</code>, is generated during installation, or by invoking the <strong>/usr/sbin/grub2-mkconfig</strong> utility, and is automatically updated by <code>grubby</code> each time a new kernel is installed. When regenerated manually using <strong>grub2-mkconfig</strong>, the file is generated according to the template files located in <code>/etc/grub.d/</code>, and custom settings in the <code>/etc/default/grub</code> file. Edits of <code>grub.cfg</code> will be lost any time <strong>grub2-mkconfig</strong> is used to regenerate the file, so care must be taken to reflect any manual changes in <code>/etc/default/grub</code> as well.</p>
 <h2 id="查看kernel编译参数"><a href="#查看kernel编译参数" class="headerlink" title="查看kernel编译参数"></a>查看kernel编译参数</h2><p>一般在 /boot/config-** 文件内放置所有内核编译参数</p>
@@ -13101,224 +13101,6 @@ net.ipv4.route.min_pmtu = 552
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables使用/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/25/iptables使用/" itemprop="url">iptables使用</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-25T17:30:03+08:00">
-                2018-03-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="iptables使用"><a href="#iptables使用" class="headerlink" title="iptables使用"></a>iptables使用</h1><h2 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h2><p><img src="/images/951413iMgBlog/image-20211116101345648.png" alt="image-20220608093532338"></p>
-<p><a href="https://stuffphilwrites.com/wp-content/uploads/2014/09/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" target="_blank" rel="external">包流</a></p>
-<p><img src="/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" alt="img"></p>
-<h2 id="iptables监控reset的连接信息"><a href="#iptables监控reset的连接信息" class="headerlink" title="iptables监控reset的连接信息"></a>iptables监控reset的连接信息</h2><p>如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息</p>
-<h3 id="iptables规则"><a href="#iptables规则" class="headerlink" title="iptables规则"></a>iptables规则</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span> Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</div><div class="line">*filter</div><div class="line">:INPUT ACCEPT [557:88127]</div><div class="line">:FORWARD ACCEPT [0:0]</div><div class="line">:OUTPUT ACCEPT [527:171711]</div><div class="line"><span class="meta">#</span> 不监听3406上的reset，日志前面添加 [plantegg] </div><div class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"><span class="meta">#</span> -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">COMMIT</div><div class="line"><span class="meta">#</span> Completed on Wed Apr  1 11:39:31 2020</div></pre></td></tr></table></figure>
-<p>将如上配置保存在 plantegg_filter.conf中，设置开机启动:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">//注意，tee 命令的 &quot;-a&quot; 选项的作用等同于 &quot;&gt;&gt;&quot; 命令，如果去除该选项，那么 tee 命令的作用就等同于 &quot;&gt;&quot; 命令。</div><div class="line">//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入</div><div class="line">echo &quot;sudo iptables-restore &lt; plantegg_filter.conf&quot; | sudo tee -a /etc/rc.d/rc.local</div></pre></td></tr></table></figure>
-<h3 id="单独记录到日志文件中"><a href="#单独记录到日志文件中" class="headerlink" title="单独记录到日志文件中"></a>单独记录到日志文件中</h3><p>默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">:msg, startswith, &quot;[plantegg]&quot; -/home/admin/logs/plantegg-tcp.log</div></pre></td></tr></table></figure>
-<p>将 [plantegg] 开头的日志存到对应的文件</p>
-<p>将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">sudo cp /home/admin/plantegg-worker/install/plantegg_filter_log.conf /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">sudo chown -R root:root /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">sudo systemctl restart rsyslog</div></pre></td></tr></table></figure>
-<h3 id="防止日志打满磁盘"><a href="#防止日志打满磁盘" class="headerlink" title="防止日志打满磁盘"></a>防止日志打满磁盘</h3><p>配置 logrotate, 保留最近30天的</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span>cat /etc/logrotate.d/drds</div><div class="line">/home/admin/logs/drds-tcp.log</div><div class="line">&#123;</div><div class="line">daily</div><div class="line">rotate 30</div><div class="line">copytruncate</div><div class="line">compress</div><div class="line">dateext</div><div class="line"><span class="meta">#</span>size 1k</div><div class="line">prerotate</div><div class="line">/usr/bin/chattr -a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">postrotate</div><div class="line">/usr/bin/chattr +a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">&#125;</div><div class="line"></div><div class="line">执行：</div><div class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</div><div class="line">debug：</div><div class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</div><div class="line">查看日志：</div><div class="line">cat /var/lib/logrotate/logrotate.status</div></pre></td></tr></table></figure>
-<p>logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：<a href="https://chasemp.github.io/2013/07/24/su-directive-logrotate/" target="_blank" rel="external">https://chasemp.github.io/2013/07/24/su-directive-logrotate/</a> 报错信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)</div><div class="line">empty log files are rotated, old logs are removed</div><div class="line">considering log /var/log/myapp/default.log</div><div class="line"></div><div class="line">error: skipping &quot;/var/log/myapp/default.log&quot; because parent directory has insecure permissions</div><div class="line">(It&apos;s world writable or writable by group which is not &quot;root&quot;) Set &quot;su&quot; directive in </div><div class="line">config file to tell logrotate which user/group should be used for rotation</div></pre></td></tr></table></figure>
-<h3 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">$tail -10 logs/drds-tcp.log</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9366 SEQ=0 ACK=1747027778 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9368 SEQ=0 ACK=3840170438 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9370 SEQ=0 ACK=3892381139 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0</div></pre></td></tr></table></figure>
-<h2 id="tracing-point-监控"><a href="#tracing-point-监控" class="headerlink" title="tracing_point 监控"></a>tracing_point 监控</h2><p>对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span> grep tcp:tcp /sys/kernel/debug/tracing/available_events</div><div class="line">tcp:tcp_probe</div><div class="line">tcp:tcp_retransmit_synack</div><div class="line">tcp:tcp_rcv_space_adjust</div><div class="line">tcp:tcp_destroy_sock</div><div class="line">tcp:tcp_receive_reset</div><div class="line">tcp:tcp_send_reset</div><div class="line">tcp:tcp_retransmit_skb</div><div class="line"></div><div class="line">//开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe</div><div class="line"><span class="meta">#</span> echo 1 &gt; /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/enable</div><div class="line"></div><div class="line">//如下是开启重传以及reset的记录，本机ip 10.0.186.140</div><div class="line"><span class="meta">#</span> cat trace_pipe</div><div class="line">//重传</div><div class="line">          &lt;idle&gt;-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          </div><div class="line"> Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a</div><div class="line"> C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574</div><div class="line"> </div><div class="line">// 被reset</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd</div><div class="line">// 主动reset  </div><div class="line">     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193</div><div class="line">  </div><div class="line"> // 3306对端中断 </div><div class="line">              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">          &lt;idle&gt;-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE</div><div class="line">         </div><div class="line">//8182 主动关闭         </div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1</div><div class="line">          &lt;idle&gt;-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2</div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE</div><div class="line"></div><div class="line">//3306 被动关闭</div><div class="line">          &lt;idle&gt;-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT</div><div class="line"> Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK</div><div class="line"> Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE</div></pre></td></tr></table></figure>
-<h2 id="iptables-打通网络"><a href="#iptables-打通网络" class="headerlink" title="iptables 打通网络"></a>iptables 打通网络</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)</div><div class="line">iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16</div></pre></td></tr></table></figure>
-<h2 id="ipset-组合iptables使用"><a href="#ipset-组合iptables使用" class="headerlink" title="ipset 组合iptables使用"></a>ipset 组合iptables使用</h2><p>ipset是iptables的扩展,它允许创建匹配地址集合的规则。普通的iptables链只能单IP匹配, 进行规则匹配时，是从规则列表中从头到尾一条一条进行匹配，这像是在链表中搜索指定节点费力。ipset 提供了把这个 O(n) 的操作变成 O(1) 的方法：就是把要处理的 IP 放进一个集合，对这个集合设置一条 iptables 规则。像 iptable 一样，IP sets 是 Linux 内核提供，ipset 这个命令是对它进行操作的一个工具。<br>另外ipset的一个优势是集合可以动态的修改，即使ipset的iptables规则目前已经启动，新加的入ipset的ip也生效。</p>
-<p><a href="https://www.cnblogs.com/faberbeta/p/ipset.html" target="_blank" rel="external">ipset</a>可以以set的形式管理大批IP以及IP段，set可以有多个，通过 ipset修改set后可以立即生效。不用再次修改iptables规则。k8s也会用ipset来管理ip集合</p>
-<blockquote>
-<p>ipset is an extension to iptables that allows you to create firewall rules that match entire “sets” of addresses at once. Unlike normal iptables chains, which are stored and traversed linearly, IP sets are stored in indexed data structures, making lookups very efficient, even when dealing with large sets.</p>
-</blockquote>
-<p>接下来用一个ip+port的白名单案例来展示他们的用法，ipset负责白名单，iptables负责拦截规则：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">  240  [2021-11-30 19:57:10] ipset list drds_whitelist_ips |grep "^127.0."</div><div class="line">  241  [2021-11-30 19:57:27] ipset del drds_whitelist_ips 127.0.0.1 //从set删除ip</div><div class="line">  248  [2021-11-30 19:58:50] ipset list drds_whitelist_ips |grep "^11.1.2"</div><div class="line">  249  [2021-11-30 19:59:05] ipset del drds_whitelist_ips 11.1.2.30</div><div class="line"><span class="meta"></span></div><div class="line">#timeout 259200是集合内新增的IP有三天的寿命</div><div class="line">ipset create myset hash:net timeout 259200 </div><div class="line">  </div><div class="line">ipset list drds_whitelist_ips             //列出set中的所有ip、ip段</div><div class="line">ipset add drds_whitelist_ips 100.1.2.0/24 //从set中增加ip段</div><div class="line"></div><div class="line">iptables -I INPUT 1 -p tcp  -j drds_whitelist //创建新规则链drds_whitelist，所有tcp流入的包都跳转到 drds_whitelist规则</div><div class="line">//有了以上drds_whitelist_ips这个名单, 接下来可以在iptables规则中使用这个set了</div><div class="line">//在第一行增加规则：访问端口1234的tcp请求走规则 drds_whitelist</div><div class="line">iptables -I INPUT 1 -p tcp --dport 1234 -j drds_whitelist </div><div class="line"></div><div class="line">//规则drds_whitelist 添加如下三条</div><div class="line">//第一条白名单中的来源ip访问1234就ACCEPT，不再走后面的. 关键的白名单列表就取自ipset中的drds_whitelist_ips</div><div class="line">iptables -A drds_whitelist -m set --match-set drds_whitelist_ips src -p tcp --dport 1234 -j ACCEPT </div><div class="line"></div><div class="line">//同规则1，记录日志，走到这里说明规则1没生效，那么就是黑名单要拦截的了</div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">//拦截          </div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<p>经过如上操作后，可以得到iptables规则如下</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span>iptables -L -n --line-numbers</div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">target     prot opt source               destination</div><div class="line">drds_whitelist  tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234</div><div class="line"></div><div class="line">Chain drds_whitelist (1 references)</div><div class="line">target     prot opt source               destination</div><div class="line">1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0           match-set drds_whitelist_ips src tcp dpt:80</div><div class="line">2    LOG        tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 LOG flags 7 level 7 prefix `[drds_reject] ` --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options '</div><div class="line">3    REJECT     tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<p>从以上Chain drds_whitelist中删除第三条规则</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">iptables -D drds_whitelist 3</div></pre></td></tr></table></figure>
-<h3 id="block-ip-案例"><a href="#block-ip-案例" class="headerlink" title="block ip 案例"></a>block ip 案例</h3><p>模拟断网测试的时候可以通过iptables固定屏蔽某几个ip来实现。</p>
-<p>创建ipset，存放好需要block的ip列表</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ipset create block_ips hash:net timeout 259200</div><div class="line">ipset add block_ips 10.176.2.245</div></pre></td></tr></table></figure>
-<p>添加iptables过滤规则，规则中不需要列出一堆ip，只需要指定上一步创建好的ipset，以后屏蔽、放开某些ip不需要修改iptables规则了，只需要往ipset添加、删除目标ip</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">iptables -N drds_rule //创建新规则链</div><div class="line"></div><div class="line">iptables -I INPUT 1 -m set --match-set block_ips src  -p tcp  -j drds_rule  //命中就跳转到drds_rule</div><div class="line">//这条可有可无，记录日志，方便调试</div><div class="line">iptables -I drds_rule -m set --match-set block_ips src -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"></div><div class="line">iptables -A drds_rule -m set --match-set block_ips src -p tcp  -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
-<h2 id="iptables记录日志"><a href="#iptables记录日志" class="headerlink" title="iptables记录日志"></a>iptables记录日志</h2><p>记录每个新连接创建的时间，日志在/var/log/kern或者/var/log/dmesg中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">iptables -I INPUT -m state --state NEW -j LOG --log-prefix &quot;Connection In: &quot;</div><div class="line">iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix &quot;Connection Out: &quot;</div><div class="line"></div><div class="line">//检查包，记录invalid包到日志中</div><div class="line">iptables -A INPUT -m conntrack --ctstate INVALID -m limit --limit 1/sec   -j LOG --log-prefix &quot;invalid: &quot; --log-level 7</div></pre></td></tr></table></figure>
-<p>在宿主机上执行，然后在dmesg中能看到包的传递流程。只有raw有TRACE能力，nat、filter、mangle都没有。这个方式对性能影响非常大，时延高（增加1秒左右）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">iptables -t raw -A OUTPUT -p icmp -j TRACE</div><div class="line">iptables -t raw -A PREROUTING -p icmp -j TRACE</div></pre></td></tr></table></figure>
-<h2 id="端口转发"><a href="#端口转发" class="headerlink" title="端口转发"></a><a href="https://www.cnblogs.com/dongzhiquan/p/11427461.html" target="_blank" rel="external">端口转发</a></h2><h3 id="iptables"><a href="#iptables" class="headerlink" title="iptables"></a>iptables</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">iptables -t nat -A PREROUTING -d 10.176.7.5 -p tcp --dport 8507 -j DNAT --to-destination 10.176.7.6:3307</div><div class="line">iptables -t nat -D PREROUTING  -p tcp --dport 18080 -j DNAT --to-destination 10.176.7.245:8080</div><div class="line"><span class="meta"></span></div><div class="line">#将访问8022端口的进出流量转发到22端口</div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8022 -j REDIRECT --to-ports 22 </div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307 </div><div class="line"><span class="meta"></span></div><div class="line">#将本机的端口转发到其他机器</div><div class="line">iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80</div><div class="line"><span class="meta">#</span>将192.168.172.131:80 端口将数据返回给客户端时，将源ip改为192.168.172.130</div><div class="line">iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130</div><div class="line"><span class="meta"></span></div><div class="line">#ip 转发，做完转发后netstat能看到两条连接</div><div class="line">sudo iptables -t nat -A OUTPUT -d 100.69.170.27 -j DNAT --to-destination 127.0.0.1</div><div class="line"></div><div class="line">/sbin/iptables -t nat -I PREROUTING -d 23.27.6.15 -j DNAT --to-destination 45.61.255.176</div><div class="line">/sbin/iptables -t nat -I POSTROUTING -d 45.61.255.176 -j SNAT --to-source 23.27.6.15</div><div class="line">/sbin/iptables -t nat -I POSTROUTING -s 45.61.255.176 -j SNAT --to-source 23.27.6.15</div><div class="line"><span class="meta"></span></div><div class="line"></div><div class="line"></div><div class="line">#清空nat表的所有链</div><div class="line">iptables -t nat -F PREROUTING</div><div class="line"><span class="meta"></span></div><div class="line">#禁止访问某个端口</div><div class="line">iptables -A OUTPUT -p tcp --dport 31165 -j DROP</div></pre></td></tr></table></figure>
-<p>iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5</p>
-<p><img src="/images/951413iMgBlog/640-7027461." alt="Image"></p>
-<h3 id="ncat端口转发"><a href="#ncat端口转发" class="headerlink" title="ncat端口转发"></a>ncat端口转发</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口</div><div class="line">ncat --sh-exec &quot;ncat 192.168.172.131 80&quot; -l 9876  --keep-open</div></pre></td></tr></table></figure>
-<p>scat</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">在本地监听12345端口，并将请求转发至192.168.172.131的22端口。</div><div class="line">socat TCP4-LISTEN:12345,reuseaddr,fork TCP4:192.168.172.131:22</div></pre></td></tr></table></figure>
-<h3 id="iptables-屏蔽IP"><a href="#iptables-屏蔽IP" class="headerlink" title="iptables 屏蔽IP"></a>iptables 屏蔽IP</h3><p>一分钟内新建22端口连接超过 4 次，不分密码对错, 直接 block.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --set --name SSH --rsource</div><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 --name SSH --rsource -j DROP</div><div class="line"></div><div class="line">或者 block 掉暴力破解 ssh 的 IP</div><div class="line">grep &quot;Failed&quot; /var/log/auth.log | \</div><div class="line">     awk &apos;&#123;print $(NF-3)&#125;&apos; | \</div><div class="line">     sort | uniq -c | sort -n | \</div><div class="line">     awk &apos;&#123;if ($1&gt;100) print $2&#125;&apos; | \</div><div class="line">     xargs -I &#123;&#125; iptables -A INPUT -s &#123;&#125; -j DROP</div><div class="line">     </div><div class="line">iptables -A INPUT  -p tcp --sport 3306 -j DROP</div><div class="line">iptables -A OUTPUT -p tcp --dport 3306 -j DROP</div></pre></td></tr></table></figure>
-<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/index.html" target="_blank" rel="external">Per-IP rate limiting with iptables</a></p>
-<h2 id="iptables-常用参数"><a href="#iptables-常用参数" class="headerlink" title="iptables 常用参数"></a>iptables 常用参数</h2><blockquote>
-<p><strong>-I</strong> : Insert rule at given rule number</p>
-<p><strong>-t</strong> : Specifies the packet matching table such as nat, filter, security, mangle, and raw.</p>
-<p><strong>-L</strong> : List info for specific chain (such as INPUT/FORWARD/OUTPUT) of given packet matching table</p>
-<p><strong>–line-numbers</strong> : See firewall rules with line numbers</p>
-<p><strong>-n</strong> : Do not resolve names using dns i.e. only show numeric output for IP address and port numbers.</p>
-<p><strong>-v</strong> : Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks</p>
-</blockquote>
-<h2 id="NetFilter-Hooks"><a href="#NetFilter-Hooks" class="headerlink" title="NetFilter Hooks"></a>NetFilter Hooks</h2><p>下面几个 hook 是内核协议栈中已经定义好的：</p>
-<ul>
-<li><code>NF_IP_PRE_ROUTING</code>: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前</li>
-<li><code>NF_IP_LOCAL_IN</code>: 接收到的包经过路由判断，如果目的是本机，将触发此 hook</li>
-<li><code>NF_IP_FORWARD</code>: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook</li>
-<li><code>NF_IP_LOCAL_OUT</code>: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook</li>
-<li><code>NF_IP_POST_ROUTING</code>: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook</li>
-</ul>
-<h2 id="IPTables-表和链（Tables-and-Chains）"><a href="#IPTables-表和链（Tables-and-Chains）" class="headerlink" title="IPTables 表和链（Tables and Chains）"></a>IPTables 表和链（Tables and Chains）</h2><p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
-<ul>
-<li><code>PREROUTING</code>: 由 <code>NF_IP_PRE_ROUTING</code> hook 触发</li>
-<li><code>INPUT</code>: 由 <code>NF_IP_LOCAL_IN</code> hook 触发</li>
-<li><code>FORWARD</code>: 由 <code>NF_IP_FORWARD</code> hook 触发</li>
-<li><code>OUTPUT</code>: 由 <code>NF_IP_LOCAL_OUT</code> hook 触发</li>
-<li><code>POSTROUTING</code>: 由 <code>NF_IP_POST_ROUTING</code> hook 触发</li>
-</ul>
-<p>如果没有匹配到任何规则那么执行默认规则。下面括号中的policy</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#iptables -L | grep policy</div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">Chain FORWARD (policy ACCEPT)</div><div class="line">Chain OUTPUT (policy ACCEPT)</div></pre></td></tr></table></figure>
-<p>If you would rather deny all connections and manually specify which ones you want to allow to connect, you should change the default policy of your chains to drop. Doing this would probably only be useful for servers that contain sensitive information and only ever have the same IP addresses connect to them.</p>
-<blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">&gt; iptables --policy INPUT DROP`</div><div class="line">&gt; `iptables --policy OUTPUT DROP`</div><div class="line">&gt; `iptables --policy FORWARD DROP</div><div class="line">&gt;</div></pre></td></tr></table></figure>
-</blockquote>
-<h2 id="iptables规则对性能的影响"><a href="#iptables规则对性能的影响" class="headerlink" title="iptables规则对性能的影响"></a>iptables规则对性能的影响</h2><p>蓝色是iptables规则数量，不过如果规则内容差不多，只是ip不一样，完全可以用ipset将他们合并到一条或者几条规则，从而提升性能</p>
-<p><img src="/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/" target="_blank" rel="external">深入理解 iptables 和 netfilter 架构</a></p>
-<p><a href="http://arthurchiao.art/blog/nat-zh/" target="_blank" rel="external">NAT - 网络地址转换（2016）</a></p>
-<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/" target="_blank" rel="external">通过iptables 来控制每个ip的流量</a></p>
-<p><a href="https://lotabout.me/2022/Horrible-Iptables-tutorials/" target="_blank" rel="external">iptables 实用教程</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables监控reset的连接/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -13478,6 +13260,224 @@ net.ipv4.route.min_pmtu = 552
 
 
     
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/03/25/iptables使用/" itemprop="url">iptables使用</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-25T17:30:03+08:00">
+                2018-03-25
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/network/" itemprop="url" rel="index">
+                    <span itemprop="name">network</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="iptables使用"><a href="#iptables使用" class="headerlink" title="iptables使用"></a>iptables使用</h1><h2 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h2><p><img src="/images/951413iMgBlog/image-20211116101345648.png" alt="image-20220608093532338"></p>
+<p><a href="https://stuffphilwrites.com/wp-content/uploads/2014/09/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" target="_blank" rel="external">包流</a></p>
+<p><img src="/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png" alt="img"></p>
+<h2 id="iptables监控reset的连接信息"><a href="#iptables监控reset的连接信息" class="headerlink" title="iptables监控reset的连接信息"></a>iptables监控reset的连接信息</h2><p>如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息</p>
+<h3 id="iptables规则"><a href="#iptables规则" class="headerlink" title="iptables规则"></a>iptables规则</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</span></div><div class="line">*filter</div><div class="line">:INPUT ACCEPT [557:88127]</div><div class="line">:FORWARD ACCEPT [0:0]</div><div class="line">:OUTPUT ACCEPT [527:171711]</div><div class="line"><span class="meta">#</span><span class="bash"> 不监听3406上的reset，日志前面添加 [plantegg] </span></div><div class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"><span class="meta">#</span><span class="bash"> -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --<span class="built_in">log</span>-prefix <span class="string">"[plantegg] "</span> --<span class="built_in">log</span>-level7 --<span class="built_in">log</span>-tcp-sequence --<span class="built_in">log</span>-tcp-options --<span class="built_in">log</span>-ip-options</span></div><div class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">COMMIT</div><div class="line"><span class="meta">#</span><span class="bash"> Completed on Wed Apr  1 11:39:31 2020</span></div></pre></td></tr></table></figure>
+<p>将如上配置保存在 plantegg_filter.conf中，设置开机启动:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">//注意，tee 命令的 &quot;-a&quot; 选项的作用等同于 &quot;&gt;&gt;&quot; 命令，如果去除该选项，那么 tee 命令的作用就等同于 &quot;&gt;&quot; 命令。</div><div class="line">//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入</div><div class="line">echo &quot;sudo iptables-restore &lt; plantegg_filter.conf&quot; | sudo tee -a /etc/rc.d/rc.local</div></pre></td></tr></table></figure>
+<h3 id="单独记录到日志文件中"><a href="#单独记录到日志文件中" class="headerlink" title="单独记录到日志文件中"></a>单独记录到日志文件中</h3><p>默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line"># cat /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">:msg, startswith, &quot;[plantegg]&quot; -/home/admin/logs/plantegg-tcp.log</div></pre></td></tr></table></figure>
+<p>将 [plantegg] 开头的日志存到对应的文件</p>
+<p>将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">sudo cp /home/admin/plantegg-worker/install/plantegg_filter_log.conf /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">sudo chown -R root:root /etc/rsyslog.d/plantegg_filter_log.conf</div><div class="line">sudo systemctl restart rsyslog</div></pre></td></tr></table></figure>
+<h3 id="防止日志打满磁盘"><a href="#防止日志打满磁盘" class="headerlink" title="防止日志打满磁盘"></a>防止日志打满磁盘</h3><p>配置 logrotate, 保留最近30天的</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">cat /etc/logrotate.d/drds</span></div><div class="line">/home/admin/logs/drds-tcp.log</div><div class="line">&#123;</div><div class="line">daily</div><div class="line">rotate 30</div><div class="line">copytruncate</div><div class="line">compress</div><div class="line">dateext</div><div class="line"><span class="meta">#</span><span class="bash">size 1k</span></div><div class="line">prerotate</div><div class="line">/usr/bin/chattr -a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">postrotate</div><div class="line">/usr/bin/chattr +a /home/admin/logs/drds-tcp.log</div><div class="line">endscript</div><div class="line">&#125;</div><div class="line"></div><div class="line">执行：</div><div class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</div><div class="line">debug：</div><div class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</div><div class="line">查看日志：</div><div class="line">cat /var/lib/logrotate/logrotate.status</div></pre></td></tr></table></figure>
+<p>logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：<a href="https://chasemp.github.io/2013/07/24/su-directive-logrotate/" target="_blank" rel="external">https://chasemp.github.io/2013/07/24/su-directive-logrotate/</a> 报错信息：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)</div><div class="line">empty log files are rotated, old logs are removed</div><div class="line">considering log /var/log/myapp/default.log</div><div class="line"></div><div class="line">error: skipping &quot;/var/log/myapp/default.log&quot; because parent directory has insecure permissions</div><div class="line">(It&apos;s world writable or writable by group which is not &quot;root&quot;) Set &quot;su&quot; directive in </div><div class="line">config file to tell logrotate which user/group should be used for rotation</div></pre></td></tr></table></figure>
+<h3 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">$tail -10 logs/drds-tcp.log</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9366 SEQ=0 ACK=1747027778 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9368 SEQ=0 ACK=3840170438 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9370 SEQ=0 ACK=3892381139 WINDOW=0 RES=0x00 ACK RST URGP=0</div><div class="line">Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0</div></pre></td></tr></table></figure>
+<h2 id="tracing-point-监控"><a href="#tracing-point-监控" class="headerlink" title="tracing_point 监控"></a>tracing_point 监控</h2><p>对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash"> grep tcp:tcp /sys/kernel/debug/tracing/available_events</span></div><div class="line">tcp:tcp_probe</div><div class="line">tcp:tcp_retransmit_synack</div><div class="line">tcp:tcp_rcv_space_adjust</div><div class="line">tcp:tcp_destroy_sock</div><div class="line">tcp:tcp_receive_reset</div><div class="line">tcp:tcp_send_reset</div><div class="line">tcp:tcp_retransmit_skb</div><div class="line"></div><div class="line">//开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe</div><div class="line"><span class="meta">#</span><span class="bash"> <span class="built_in">echo</span> 1 &gt; /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/<span class="built_in">enable</span></span></div><div class="line"></div><div class="line">//如下是开启重传以及reset的记录，本机ip 10.0.186.140</div><div class="line"><span class="meta">#</span><span class="bash"> cat trace_pipe</span></div><div class="line">//重传</div><div class="line">          &lt;idle&gt;-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          </div><div class="line"> Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a</div><div class="line"> C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574</div><div class="line"> </div><div class="line">// 被reset</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd</div><div class="line">// 主动reset  </div><div class="line">     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174</div><div class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193</div><div class="line">  </div><div class="line"> // 3306对端中断 </div><div class="line">              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">          &lt;idle&gt;-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE</div><div class="line">         </div><div class="line">//8182 主动关闭         </div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1</div><div class="line">          &lt;idle&gt;-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2</div><div class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE</div><div class="line"></div><div class="line">//3306 被动关闭</div><div class="line">          &lt;idle&gt;-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</div><div class="line">             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT</div><div class="line"> Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK</div><div class="line"> Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE</div></pre></td></tr></table></figure>
+<h2 id="iptables-打通网络"><a href="#iptables-打通网络" class="headerlink" title="iptables 打通网络"></a>iptables 打通网络</h2><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)</div><div class="line">iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16</div></pre></td></tr></table></figure>
+<h2 id="ipset-组合iptables使用"><a href="#ipset-组合iptables使用" class="headerlink" title="ipset 组合iptables使用"></a>ipset 组合iptables使用</h2><p>ipset是iptables的扩展,它允许创建匹配地址集合的规则。普通的iptables链只能单IP匹配, 进行规则匹配时，是从规则列表中从头到尾一条一条进行匹配，这像是在链表中搜索指定节点费力。ipset 提供了把这个 O(n) 的操作变成 O(1) 的方法：就是把要处理的 IP 放进一个集合，对这个集合设置一条 iptables 规则。像 iptable 一样，IP sets 是 Linux 内核提供，ipset 这个命令是对它进行操作的一个工具。<br>另外ipset的一个优势是集合可以动态的修改，即使ipset的iptables规则目前已经启动，新加的入ipset的ip也生效。</p>
+<p><a href="https://www.cnblogs.com/faberbeta/p/ipset.html" target="_blank" rel="external">ipset</a>可以以set的形式管理大批IP以及IP段，set可以有多个，通过 ipset修改set后可以立即生效。不用再次修改iptables规则。k8s也会用ipset来管理ip集合</p>
+<blockquote>
+<p>ipset is an extension to iptables that allows you to create firewall rules that match entire “sets” of addresses at once. Unlike normal iptables chains, which are stored and traversed linearly, IP sets are stored in indexed data structures, making lookups very efficient, even when dealing with large sets.</p>
+</blockquote>
+<p>接下来用一个ip+port的白名单案例来展示他们的用法，ipset负责白名单，iptables负责拦截规则：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">  240  [2021-11-30 19:57:10] ipset list drds_whitelist_ips |grep "^127.0."</div><div class="line">  241  [2021-11-30 19:57:27] ipset del drds_whitelist_ips 127.0.0.1 //从set删除ip</div><div class="line">  248  [2021-11-30 19:58:50] ipset list drds_whitelist_ips |grep "^11.1.2"</div><div class="line">  249  [2021-11-30 19:59:05] ipset del drds_whitelist_ips 11.1.2.30</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">timeout 259200是集合内新增的IP有三天的寿命</span></div><div class="line">ipset create myset hash:net timeout 259200 </div><div class="line">  </div><div class="line">ipset list drds_whitelist_ips             //列出set中的所有ip、ip段</div><div class="line">ipset add drds_whitelist_ips 100.1.2.0/24 //从set中增加ip段</div><div class="line"></div><div class="line">iptables -I INPUT 1 -p tcp  -j drds_whitelist //创建新规则链drds_whitelist，所有tcp流入的包都跳转到 drds_whitelist规则</div><div class="line">//有了以上drds_whitelist_ips这个名单, 接下来可以在iptables规则中使用这个set了</div><div class="line">//在第一行增加规则：访问端口1234的tcp请求走规则 drds_whitelist</div><div class="line">iptables -I INPUT 1 -p tcp --dport 1234 -j drds_whitelist </div><div class="line"></div><div class="line">//规则drds_whitelist 添加如下三条</div><div class="line">//第一条白名单中的来源ip访问1234就ACCEPT，不再走后面的. 关键的白名单列表就取自ipset中的drds_whitelist_ips</div><div class="line">iptables -A drds_whitelist -m set --match-set drds_whitelist_ips src -p tcp --dport 1234 -j ACCEPT </div><div class="line"></div><div class="line">//同规则1，记录日志，走到这里说明规则1没生效，那么就是黑名单要拦截的了</div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line">//拦截          </div><div class="line">iptables -A drds_whitelist -p tcp --dport 1234 -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
+<p>经过如上操作后，可以得到iptables规则如下</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div></pre></td><td class="code"><pre><div class="line"><span class="meta">#</span><span class="bash">iptables -L -n --line-numbers</span></div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">target     prot opt source               destination</div><div class="line">drds_whitelist  tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234</div><div class="line"></div><div class="line">Chain drds_whitelist (1 references)</div><div class="line">target     prot opt source               destination</div><div class="line">1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0           match-set drds_whitelist_ips src tcp dpt:80</div><div class="line">2    LOG        tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 LOG flags 7 level 7 prefix `[drds_reject] ` --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options '</div><div class="line">3    REJECT     tcp  --  0.0.0.0/0            0.0.0.0/0           tcp dpt:1234 reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
+<p>从以上Chain drds_whitelist中删除第三条规则</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">iptables -D drds_whitelist 3</div></pre></td></tr></table></figure>
+<h3 id="block-ip-案例"><a href="#block-ip-案例" class="headerlink" title="block ip 案例"></a>block ip 案例</h3><p>模拟断网测试的时候可以通过iptables固定屏蔽某几个ip来实现。</p>
+<p>创建ipset，存放好需要block的ip列表</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">ipset create block_ips hash:net timeout 259200</div><div class="line">ipset add block_ips 10.176.2.245</div></pre></td></tr></table></figure>
+<p>添加iptables过滤规则，规则中不需要列出一堆ip，只需要指定上一步创建好的ipset，以后屏蔽、放开某些ip不需要修改iptables规则了，只需要往ipset添加、删除目标ip</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">iptables -N drds_rule //创建新规则链</div><div class="line"></div><div class="line">iptables -I INPUT 1 -m set --match-set block_ips src  -p tcp  -j drds_rule  //命中就跳转到drds_rule</div><div class="line">//这条可有可无，记录日志，方便调试</div><div class="line">iptables -I drds_rule -m set --match-set block_ips src -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</div><div class="line"></div><div class="line">iptables -A drds_rule -m set --match-set block_ips src -p tcp  -j REJECT --reject-with icmp-host-prohibited</div></pre></td></tr></table></figure>
+<h2 id="iptables记录日志"><a href="#iptables记录日志" class="headerlink" title="iptables记录日志"></a>iptables记录日志</h2><p>记录每个新连接创建的时间，日志在/var/log/kern或者/var/log/dmesg中：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">iptables -I INPUT -m state --state NEW -j LOG --log-prefix &quot;Connection In: &quot;</div><div class="line">iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix &quot;Connection Out: &quot;</div><div class="line"></div><div class="line">//检查包，记录invalid包到日志中</div><div class="line">iptables -A INPUT -m conntrack --ctstate INVALID -m limit --limit 1/sec   -j LOG --log-prefix &quot;invalid: &quot; --log-level 7</div></pre></td></tr></table></figure>
+<p>在宿主机上执行，然后在dmesg中能看到包的传递流程。只有raw有TRACE能力，nat、filter、mangle都没有。这个方式对性能影响非常大，时延高（增加1秒左右）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">iptables -t raw -A OUTPUT -p icmp -j TRACE</div><div class="line">iptables -t raw -A PREROUTING -p icmp -j TRACE</div></pre></td></tr></table></figure>
+<h2 id="端口转发"><a href="#端口转发" class="headerlink" title="端口转发"></a><a href="https://www.cnblogs.com/dongzhiquan/p/11427461.html" target="_blank" rel="external">端口转发</a></h2><h3 id="iptables"><a href="#iptables" class="headerlink" title="iptables"></a>iptables</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">iptables -t nat -A PREROUTING -d 10.176.7.5 -p tcp --dport 8507 -j DNAT --to-destination 10.176.7.6:3307</div><div class="line">iptables -t nat -D PREROUTING  -p tcp --dport 18080 -j DNAT --to-destination 10.176.7.245:8080</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将访问8022端口的进出流量转发到22端口</span></div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8022 -j REDIRECT --to-ports 22 </div><div class="line">iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307 </div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">将本机的端口转发到其他机器</span></div><div class="line">iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80</div><div class="line"><span class="meta">#</span><span class="bash">将192.168.172.131:80 端口将数据返回给客户端时，将源ip改为192.168.172.130</span></div><div class="line">iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">ip 转发，做完转发后netstat能看到两条连接</span></div><div class="line">sudo iptables -t nat -A OUTPUT -d 100.69.170.27 -j DNAT --to-destination 127.0.0.1</div><div class="line"></div><div class="line">/sbin/iptables -t nat -I PREROUTING -d 23.27.6.15 -j DNAT --to-destination 45.61.255.176</div><div class="line">/sbin/iptables -t nat -I POSTROUTING -d 45.61.255.176 -j SNAT --to-source 23.27.6.15</div><div class="line">/sbin/iptables -t nat -I POSTROUTING -s 45.61.255.176 -j SNAT --to-source 23.27.6.15</div><div class="line"><span class="meta"></span></div><div class="line"></div><div class="line"></div><div class="line">#<span class="bash">清空nat表的所有链</span></div><div class="line">iptables -t nat -F PREROUTING</div><div class="line"><span class="meta"></span></div><div class="line">#<span class="bash">禁止访问某个端口</span></div><div class="line">iptables -A OUTPUT -p tcp --dport 31165 -j DROP</div></pre></td></tr></table></figure>
+<p>iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5</p>
+<p><img src="/images/951413iMgBlog/640-7027461." alt="Image"></p>
+<h3 id="ncat端口转发"><a href="#ncat端口转发" class="headerlink" title="ncat端口转发"></a>ncat端口转发</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口</div><div class="line">ncat --sh-exec &quot;ncat 192.168.172.131 80&quot; -l 9876  --keep-open</div></pre></td></tr></table></figure>
+<p>scat</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">在本地监听12345端口，并将请求转发至192.168.172.131的22端口。</div><div class="line">socat TCP4-LISTEN:12345,reuseaddr,fork TCP4:192.168.172.131:22</div></pre></td></tr></table></figure>
+<h3 id="iptables-屏蔽IP"><a href="#iptables-屏蔽IP" class="headerlink" title="iptables 屏蔽IP"></a>iptables 屏蔽IP</h3><p>一分钟内新建22端口连接超过 4 次，不分密码对错, 直接 block.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --set --name SSH --rsource</div><div class="line">iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 --name SSH --rsource -j DROP</div><div class="line"></div><div class="line">或者 block 掉暴力破解 ssh 的 IP</div><div class="line">grep &quot;Failed&quot; /var/log/auth.log | \</div><div class="line">     awk &apos;&#123;print $(NF-3)&#125;&apos; | \</div><div class="line">     sort | uniq -c | sort -n | \</div><div class="line">     awk &apos;&#123;if ($1&gt;100) print $2&#125;&apos; | \</div><div class="line">     xargs -I &#123;&#125; iptables -A INPUT -s &#123;&#125; -j DROP</div><div class="line">     </div><div class="line">iptables -A INPUT  -p tcp --sport 3306 -j DROP</div><div class="line">iptables -A OUTPUT -p tcp --dport 3306 -j DROP</div></pre></td></tr></table></figure>
+<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/index.html" target="_blank" rel="external">Per-IP rate limiting with iptables</a></p>
+<h2 id="iptables-常用参数"><a href="#iptables-常用参数" class="headerlink" title="iptables 常用参数"></a>iptables 常用参数</h2><blockquote>
+<p><strong>-I</strong> : Insert rule at given rule number</p>
+<p><strong>-t</strong> : Specifies the packet matching table such as nat, filter, security, mangle, and raw.</p>
+<p><strong>-L</strong> : List info for specific chain (such as INPUT/FORWARD/OUTPUT) of given packet matching table</p>
+<p><strong>–line-numbers</strong> : See firewall rules with line numbers</p>
+<p><strong>-n</strong> : Do not resolve names using dns i.e. only show numeric output for IP address and port numbers.</p>
+<p><strong>-v</strong> : Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks</p>
+</blockquote>
+<h2 id="NetFilter-Hooks"><a href="#NetFilter-Hooks" class="headerlink" title="NetFilter Hooks"></a>NetFilter Hooks</h2><p>下面几个 hook 是内核协议栈中已经定义好的：</p>
+<ul>
+<li><code>NF_IP_PRE_ROUTING</code>: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前</li>
+<li><code>NF_IP_LOCAL_IN</code>: 接收到的包经过路由判断，如果目的是本机，将触发此 hook</li>
+<li><code>NF_IP_FORWARD</code>: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook</li>
+<li><code>NF_IP_LOCAL_OUT</code>: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook</li>
+<li><code>NF_IP_POST_ROUTING</code>: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook</li>
+</ul>
+<h2 id="IPTables-表和链（Tables-and-Chains）"><a href="#IPTables-表和链（Tables-and-Chains）" class="headerlink" title="IPTables 表和链（Tables and Chains）"></a>IPTables 表和链（Tables and Chains）</h2><p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
+<ul>
+<li><code>PREROUTING</code>: 由 <code>NF_IP_PRE_ROUTING</code> hook 触发</li>
+<li><code>INPUT</code>: 由 <code>NF_IP_LOCAL_IN</code> hook 触发</li>
+<li><code>FORWARD</code>: 由 <code>NF_IP_FORWARD</code> hook 触发</li>
+<li><code>OUTPUT</code>: 由 <code>NF_IP_LOCAL_OUT</code> hook 触发</li>
+<li><code>POSTROUTING</code>: 由 <code>NF_IP_POST_ROUTING</code> hook 触发</li>
+</ul>
+<p>如果没有匹配到任何规则那么执行默认规则。下面括号中的policy</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">#iptables -L | grep policy</div><div class="line">Chain INPUT (policy ACCEPT)</div><div class="line">Chain FORWARD (policy ACCEPT)</div><div class="line">Chain OUTPUT (policy ACCEPT)</div></pre></td></tr></table></figure>
+<p>If you would rather deny all connections and manually specify which ones you want to allow to connect, you should change the default policy of your chains to drop. Doing this would probably only be useful for servers that contain sensitive information and only ever have the same IP addresses connect to them.</p>
+<blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line">&gt; iptables --policy INPUT DROP`</div><div class="line">&gt; `iptables --policy OUTPUT DROP`</div><div class="line">&gt; `iptables --policy FORWARD DROP</div><div class="line">&gt;</div></pre></td></tr></table></figure>
+</blockquote>
+<h2 id="iptables规则对性能的影响"><a href="#iptables规则对性能的影响" class="headerlink" title="iptables规则对性能的影响"></a>iptables规则对性能的影响</h2><p>蓝色是iptables规则数量，不过如果规则内容差不多，只是ip不一样，完全可以用ipset将他们合并到一条或者几条规则，从而提升性能</p>
+<p><img src="/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/" target="_blank" rel="external">深入理解 iptables 和 netfilter 架构</a></p>
+<p><a href="http://arthurchiao.art/blog/nat-zh/" target="_blank" rel="external">NAT - 网络地址转换（2016）</a></p>
+<p><a href="https://making.pusher.com/per-ip-rate-limiting-with-iptables/" target="_blank" rel="external">通过iptables 来控制每个ip的流量</a></p>
+<p><a href="https://lotabout.me/2022/Horrible-Iptables-tutorials/" target="_blank" rel="external">iptables 实用教程</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
   </section>
 
   
@@ -13538,7 +13538,7 @@ net.ipv4.route.min_pmtu = 552
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">22</span>
+                <span class="site-state-item-count">17</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -13549,7 +13549,7 @@ net.ipv4.route.min_pmtu = 552
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">271</span>
+                <span class="site-state-item-count">266</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
