@@ -102,19 +102,13 @@
 <meta property="og:url" content="https://plantegg.github.io/2018/08/21/vxlan网络性能测试/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="vxlan网络性能测试 缘起 Docker集群中需要给每个容器分配一个独立的IP，同时在不同宿主机环境上的容器IP又要能够互相联通，所以需要一个overlay的网络（vlan也可以解决这个问题） overlay网络就是把容器之间的网络包重新打包在宿主机的IP包里面，传到目的容器所在的宿主机后，再把这个overlay的网络包还原成容器包交给容器 这里多了一次封包解包的过程，所以性能上必然有些损耗 封">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174305030.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174402374.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174428881.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174725237.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174802828.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174829420.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png">
 <meta property="og:image" content="https://plantegg.github.io/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png">
-<meta property="og:updated_time" content="2024-04-10T10:03:10.457Z">
+<meta property="og:updated_time" content="2024-04-10T11:56:59.318Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="vxlan网络性能测试">
 <meta name="twitter:description" content="vxlan网络性能测试 缘起 Docker集群中需要给每个容器分配一个独立的IP，同时在不同宿主机环境上的容器IP又要能够互相联通，所以需要一个overlay的网络（vlan也可以解决这个问题） overlay网络就是把容器之间的网络包重新打包在宿主机的IP包里面，传到目的容器所在的宿主机后，再把这个overlay的网络包还原成容器包交给容器 这里多了一次封包解包的过程，所以性能上必然有些损耗 封">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20231227174305030.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png">
 
 
 
@@ -471,23 +465,7 @@ Connecting to host 192.168.6.6, port 5201
 [ ID] Interval   Transfer Bandwidth   Retr
 [  4]   0.00-10.00  sec   508 MBytes   426 Mbits/sec   11 sender
 [  4]   0.00-10.00  sec   506 MBytes   424 Mbits/sec  receiver
-</code></pre><h2 id="PPS-压测"><a href="#PPS-压测" class="headerlink" title="PPS 压测"></a>PPS 压测</h2><p>必须到<a href="https://sourceforge.net/projects/iperf2/files/" target="_blank" rel="external">这里下载最新版的iperf2</a> 才有增强的 pps 测试能力</p>
-<p>购买的 ECS PPS为 600 万</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">iperf -c 10.0.1.2 -t 600 -u -i 1 -l 16 -b 500kpps -P 16 //实际outgoing 有丢包</div><div class="line"></div><div class="line">调整参数刚好压到 ECS的标称 600万 PPS，同时通过netstat -s 观察没有丢包</div><div class="line">iperf -c 10.0.1.2 -t 600 -u -i 1 -l 16 -b 250kpps -P 24 -e</div><div class="line">[SUM] 25.00-26.00 sec  91.6 MBytes   768 Mbits/sec  6002993/1  6002999 pps</div><div class="line"></div><div class="line">iperf -c 100.69.170.17 -u -i 1 -l 16 -b 2000kpps -e</div></pre></td></tr></table></figure>
-<p>压测机器内核 3.10，故意不打满，160万pps</p>
-<p>server收包端的top，几乎看不到si 和ksoftirq：</p>
-<p><img src="/images/951413iMgBlog/image-20231227174305030.png" alt="image-20231227174305030"></p>
-<p>对应的tsar pps 监控：</p>
-<p><img src="/images/951413iMgBlog/image-20231227174402374.png" alt="image-20231227174402374"></p>
-<p>client端的iperf 数据：</p>
-<p><img src="/images/951413iMgBlog/image-20231227174428881.png" alt="image-20231227174428881"></p>
-<p>在如上基础上加大压力，可以看到si% 快速被打爆，和流量不成正比，大量丢包</p>
-<p><img src="/images/951413iMgBlog/image-20231227174725237.png" alt="image-20231227174725237"></p>
-<p><img src="/images/951413iMgBlog/image-20231227174802828.png" alt="image-20231227174802828"></p>
-<p><img src="/images/951413iMgBlog/image-20231227174829420.png" alt="image-20231227174829420"></p>
-<p>实际流量只是从160万pps 增加到320万pps，但是si CPU的增加可不是翻倍，而是出现了踩踏，丢包也大量出现(因为si% 达到100%)</p>
-<p>在4.19/5.10的内核上进行如上验证，也是一样出现了软中断CPU踩踏 </p>
-<h2 id="带宽压测"><a href="#带宽压测" class="headerlink" title="带宽压测"></a>带宽压测</h2><h2 id="netperf-安装依赖-automake-1-14-环境无法升级，放弃"><a href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃" class="headerlink" title="netperf 安装依赖 automake-1.14, 环境无法升级，放弃"></a>netperf 安装依赖 automake-1.14, 环境无法升级，放弃</h2><h2 id="qperf-测试工具"><a href="#qperf-测试工具" class="headerlink" title="qperf 测试工具"></a>qperf 测试工具</h2><ul>
+</code></pre><h2 id="netperf-安装依赖-automake-1-14-环境无法升级，放弃"><a href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃" class="headerlink" title="netperf 安装依赖 automake-1.14, 环境无法升级，放弃"></a>netperf 安装依赖 automake-1.14, 环境无法升级，放弃</h2><h2 id="qperf-测试工具"><a href="#qperf-测试工具" class="headerlink" title="qperf 测试工具"></a>qperf 测试工具</h2><ul>
 <li>sudo yum install qperf -y</li>
 </ul>
 <h3 id="两台宿主机之间"><a href="#两台宿主机之间" class="headerlink" title="两台宿主机之间"></a>两台宿主机之间</h3><pre><code>$qperf -t 10  10.125.26.108 tcp_bw tcp_lat
@@ -1117,7 +1095,7 @@ msg_size  =4 KiB (4,096)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">177</span>
+                <span class="site-state-item-count">178</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -1128,7 +1106,7 @@ msg_size  =4 KiB (4,096)
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-count">18</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -1139,7 +1117,7 @@ msg_size  =4 KiB (4,096)
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">266</span>
+                <span class="site-state-item-count">267</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
@@ -1181,7 +1159,7 @@ msg_size  =4 KiB (4,096)
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#vxlan网络性能测试"><span class="nav-number">1.</span> <span class="nav-text">vxlan网络性能测试</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#缘起"><span class="nav-number">1.1.</span> <span class="nav-text">缘起</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）"><span class="nav-number">1.2.</span> <span class="nav-text">本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#iperf3-下载和安装"><span class="nav-number">1.3.</span> <span class="nav-text">iperf3 下载和安装</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#测试环境宿主机的基本配置情况"><span class="nav-number">1.4.</span> <span class="nav-text">测试环境宿主机的基本配置情况</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#容器到自身宿主机之间-跟两容器在同一宿主机，速度差不多"><span class="nav-number">1.4.1.</span> <span class="nav-text">容器到自身宿主机之间, 跟两容器在同一宿主机，速度差不多</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#从宿主机A到宿主机B上的容器"><span class="nav-number">1.4.2.</span> <span class="nav-text">从宿主机A到宿主机B上的容器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两宿主机之间测试"><span class="nav-number">1.4.3.</span> <span class="nav-text">两宿主机之间测试</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两容器之间（跨宿主机）"><span class="nav-number">1.4.4.</span> <span class="nav-text">两容器之间（跨宿主机）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#PPS-压测"><span class="nav-number">1.5.</span> <span class="nav-text">PPS 压测</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#带宽压测"><span class="nav-number">1.6.</span> <span class="nav-text">带宽压测</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃"><span class="nav-number">1.7.</span> <span class="nav-text">netperf 安装依赖 automake-1.14, 环境无法升级，放弃</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#qperf-测试工具"><span class="nav-number">1.8.</span> <span class="nav-text">qperf 测试工具</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#两台宿主机之间"><span class="nav-number">1.8.1.</span> <span class="nav-text">两台宿主机之间</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#包的大小分别为1和128"><span class="nav-number">1.8.1.1.</span> <span class="nav-text">包的大小分别为1和128</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#两台宿主机之间，包的大小从一个字节每次翻倍测试"><span class="nav-number">1.8.1.2.</span> <span class="nav-text">两台宿主机之间，包的大小从一个字节每次翻倍测试</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两个容器之间（分别在两台宿主机上）"><span class="nav-number">1.8.2.</span> <span class="nav-text">两个容器之间（分别在两台宿主机上）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#包的大小分别为1和128-1"><span class="nav-number">1.8.2.1.</span> <span class="nav-text">包的大小分别为1和128</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#两个容器之间，包的大小从一个字节每次翻倍测试"><span class="nav-number">1.8.2.2.</span> <span class="nav-text">两个容器之间，包的大小从一个字节每次翻倍测试</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.9.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网络方案性能"><span class="nav-number">1.10.</span> <span class="nav-text">网络方案性能</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#通过测试，汇总测试结论如下"><span class="nav-number">1.10.1.</span> <span class="nav-text">通过测试，汇总测试结论如下</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网络性能结果分析（rama等同方舟vlan网络方案）"><span class="nav-number">1.10.2.</span> <span class="nav-text">网络性能结果分析（rama等同方舟vlan网络方案）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章："><span class="nav-number">1.11.</span> <span class="nav-text">参考文章：</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#vxlan网络性能测试"><span class="nav-number">1.</span> <span class="nav-text">vxlan网络性能测试</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#缘起"><span class="nav-number">1.1.</span> <span class="nav-text">缘起</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）"><span class="nav-number">1.2.</span> <span class="nav-text">本文主要是比较通过vxlan实现的overlay网络之间的性能（相对宿主机之间而言）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#iperf3-下载和安装"><span class="nav-number">1.3.</span> <span class="nav-text">iperf3 下载和安装</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#测试环境宿主机的基本配置情况"><span class="nav-number">1.4.</span> <span class="nav-text">测试环境宿主机的基本配置情况</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#容器到自身宿主机之间-跟两容器在同一宿主机，速度差不多"><span class="nav-number">1.4.1.</span> <span class="nav-text">容器到自身宿主机之间, 跟两容器在同一宿主机，速度差不多</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#从宿主机A到宿主机B上的容器"><span class="nav-number">1.4.2.</span> <span class="nav-text">从宿主机A到宿主机B上的容器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两宿主机之间测试"><span class="nav-number">1.4.3.</span> <span class="nav-text">两宿主机之间测试</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两容器之间（跨宿主机）"><span class="nav-number">1.4.4.</span> <span class="nav-text">两容器之间（跨宿主机）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netperf-安装依赖-automake-1-14-环境无法升级，放弃"><span class="nav-number">1.5.</span> <span class="nav-text">netperf 安装依赖 automake-1.14, 环境无法升级，放弃</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#qperf-测试工具"><span class="nav-number">1.6.</span> <span class="nav-text">qperf 测试工具</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#两台宿主机之间"><span class="nav-number">1.6.1.</span> <span class="nav-text">两台宿主机之间</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#包的大小分别为1和128"><span class="nav-number">1.6.1.1.</span> <span class="nav-text">包的大小分别为1和128</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#两台宿主机之间，包的大小从一个字节每次翻倍测试"><span class="nav-number">1.6.1.2.</span> <span class="nav-text">两台宿主机之间，包的大小从一个字节每次翻倍测试</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#两个容器之间（分别在两台宿主机上）"><span class="nav-number">1.6.2.</span> <span class="nav-text">两个容器之间（分别在两台宿主机上）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#包的大小分别为1和128-1"><span class="nav-number">1.6.2.1.</span> <span class="nav-text">包的大小分别为1和128</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#两个容器之间，包的大小从一个字节每次翻倍测试"><span class="nav-number">1.6.2.2.</span> <span class="nav-text">两个容器之间，包的大小从一个字节每次翻倍测试</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.7.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网络方案性能"><span class="nav-number">1.8.</span> <span class="nav-text">网络方案性能</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#通过测试，汇总测试结论如下"><span class="nav-number">1.8.1.</span> <span class="nav-text">通过测试，汇总测试结论如下</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#网络性能结果分析（rama等同方舟vlan网络方案）"><span class="nav-number">1.8.2.</span> <span class="nav-text">网络性能结果分析（rama等同方舟vlan网络方案）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章："><span class="nav-number">1.9.</span> <span class="nav-text">参考文章：</span></a></li></ol></li></ol></div>
             
 
           </div>

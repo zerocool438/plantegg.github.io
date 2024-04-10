@@ -102,9 +102,6 @@
 <meta property="og:url" content="https://plantegg.github.io/2019/10/31/epoll和惊群/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="epoll和惊群本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。 什么是惊群惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-11-05-10-49-41.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-10-14-11-21-46.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645142.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645236.">
@@ -116,11 +113,11 @@
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/sharedqueue.png">
-<meta property="og:updated_time" content="2024-04-10T10:03:10.440Z">
+<meta property="og:updated_time" content="2024-04-10T11:56:59.300Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="epoll和惊群">
 <meta name="twitter:description" content="epoll和惊群本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。 什么是惊群惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-11-05-10-49-41.png">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
 
 
 
@@ -418,8 +415,6 @@
 <p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
 <p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
 <h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
-<p><img src="/images/951413iMgBlog/2021-11-05-10-49-41.png" alt="img"></p>
-<p><img src="/images/951413iMgBlog/2021-10-14-11-21-46.png" alt="img"></p>
 <p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
 <figure class="highlight c"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line"><span class="comment">//主进程中：</span></div><div class="line">ngx_init_cycle</div><div class="line">ngx_open_listening_sockets</div><div class="line">    socket</div><div class="line">    bind</div><div class="line">    listen</div><div class="line">    epoll_create</div><div class="line">    epoll_ctl</div><div class="line"></div><div class="line"><span class="comment">//子进程中：</span></div><div class="line">ngx_event_process_init</div><div class="line">ngx_prcocess_events_and_timers</div><div class="line">ngx_epoll_process_events</div><div class="line">    epoll_wait</div><div class="line">    rev-&gt;handler(rev) <span class="comment">// 对于listening socket，handler是ngx_event_accept</span></div></pre></td></tr></table></figure>
 <p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
@@ -441,8 +436,7 @@ __wake_up_common
     if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
         !--nr_exclusive)
         break;
-</code></pre><p><img src="/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png" alt="img"></p>
-<p>那么这种情况下内核如何来解决惊群呢？ </p>
+</code></pre><p>那么这种情况下内核如何来解决惊群呢？ </p>
 <h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
 <p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
 <p>linux man文档中一段文字描述其作用：</p>
@@ -671,7 +665,7 @@ __wake_up_common
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">177</span>
+                <span class="site-state-item-count">178</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -682,7 +676,7 @@ __wake_up_common
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-count">18</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -693,7 +687,7 @@ __wake_up_common
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">266</span>
+                <span class="site-state-item-count">267</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
