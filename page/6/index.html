@@ -291,6 +291,772 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/ipmitool修改BIOS/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/01/ipmitool修改BIOS/" itemprop="url">ipmitool 和 BIOS</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-01T12:30:03+08:00">
+                2020-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="ipmitool-和-BIOS"><a href="#ipmitool-和-BIOS" class="headerlink" title="ipmitool 和 BIOS"></a>ipmitool 和 BIOS</h1><h2 id="什么是-IPMI"><a href="#什么是-IPMI" class="headerlink" title="什么是 IPMI"></a>什么是 IPMI</h2><p>IPMI（智能平台管理接口），Intelligent Platform Management Interface 的缩写。原本是一种<a href="https://baike.baidu.com/item/Intel" target="_blank" rel="external">Intel</a>架构的企业系统的周边设备所采用的一种工业标准。IPMI亦是一个开放的免费标准，用户无需支付额外的费用即可使用此标准。</p>
+<p>IPMI 能够横跨不同的操作系统、固件和硬件平台，可以智能的监视、控制和自动回报大量服务器的运作状况，以降低服务器系统成本。</p>
+<p>1998年Intel、DELL、HP及NEC共同提出IPMI规格，可以透过网路远端控制温度、电压。</p>
+<p>2001年IPMI从1.0版改版至1.5版，新增 PCI Management Bus等功能。</p>
+<p>2004年Intel发表了IPMI 2.0的规格，能够向下相容IPMI 1.0及1.5的规格。新增了Console Redirection，并可以通过Port、Modem以及Lan远端管理伺服器，并加强了安全、VLAN 和刀锋伺服器的支援性。</p>
+<p>Intel/amd/hygon 基本都支持 ipmitool，看起来ARM 支持的接口也许不一样</p>
+<p>BMC（Baseboard Management Controller）即我们常说的带外系统，是在机器上电时即完成自身初始化，开始运行。其系统可在standby电模式下工作。所以，通过带外监控服务器硬件故障，不受OS存活状态影响，可实现7*24小时无间断监控，甚至我们可以通过带外方式，精确感知带内存活，实现OS存活监控。</p>
+<p>BMC在物理形态上，由一主嵌入式芯片+系列总线+末端芯片组成的一个硬件监控&amp;控制系统，嵌入式芯片中运行嵌入式Linux操作系统，负责整个BMC系统的资源协调及用户交互，核心进程是IPMImain进程，实现了全部IPMI2.0协议的消息传递&amp;处理工作。</p>
+<h2 id="ipmitool-用法"><a href="#ipmitool-用法" class="headerlink" title="ipmitool 用法"></a>ipmitool 用法</h2><p>基本步骤：</p>
+<ol>
+<li>查看当前值：ipmitool raw 0x3e 0x5f 0x00 0x11 （非必要，列出目前BIOS中的值）</li>
+<li>打开配置开关(让BIOS进入可配置，默认不可配置)：ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</li>
+<li>修改某个值，比如将numa 设置为on：ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</li>
+<li>查看修改后的值：ipmitool raw 0x3e 0x5d 0x05 0x01 (必须要)</li>
+<li>最后reboot机器新的值就会apply到BIOS中</li>
+</ol>
+<p><a href="https://blog.csdn.net/zygblock/article/details/53367664" target="_blank" rel="external">ipmitool使用</a>基本语法</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">         固定-不变 0x5c修改   要修改的项    长度(一搬都是01)    新的值(0x81 表示on、0x80表示off)</div><div class="line">ipmitool raw 0x3e 0x5c      index       0x01                value</div></pre></td></tr></table></figure>
+<p>第1/2个参数raw 0x3e 固定不变</p>
+<p>第三个参数表示操作可以是：</p>
+<ul>
+<li>0x5c 修改</li>
+<li>0x5f 查看BIOS中的当前值（海光是这样，intel不是）</li>
+<li>0x5d 查询即将写入的值（修改后没有写入 0x5f 看到的是老值）  </li>
+</ul>
+<p>第四个参数Index表示需要修改的配置项（具体见后表）</p>
+<p>第五个参数 0x01 表示值的长度，一般固定不需要改</p>
+<p>value 表示值，0x81表示enable; 0x80表示disable</p>
+<h3 id="ipmitool带外设置步骤"><a href="#ipmitool带外设置步骤" class="headerlink" title="ipmitool带外设置步骤"></a><a href="https://promisechen.github.io/kbase/ipmi.html" target="_blank" rel="external">ipmitool</a>带外设置步骤</h3><p>1）设置valid flag：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c 0x00 0x01 0x81</p>
+<p>2） 设置对应的选项：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5c index 0x01 Data  —- index 和Data参考下述表格；</p>
+<p>3）重启CN：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 power reset</p>
+<p>4）读取当前值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10  raw 0x3e 0x5f index 0x01 </p>
+<p> 如moc机型，读取CN的 Numa值：</p>
+<p>ipmitool -I lan -U admin -P admin -H 192.168.1.10 raw 0x3e 0x5f 0x05 0x01 </p>
+<h3 id="确认是否设置成功"><a href="#确认是否设置成功" class="headerlink" title="确认是否设置成功"></a>确认是否设置成功</h3><p>查询要写入的新值：ipmitool 0x3e 0x5d 0x00 0x11</p>
+<p> 返回值，如：11 <strong>81</strong> 81 00 00 00 00 00 00 00 00 00 00 00 00 00  00 00</p>
+<p>​      第一个byte 表示查询数量，表示查询0x11个设置项；</p>
+<pre><code>第二个byte 表示index=0的值，即Configuration，必须保证是0x81，才能进行重启，否则设置不生效；
+</code></pre><p>​      第三个byte 表示index=1的值，即Turbo，表示要设置为0x81；</p>
+<p>​      剩余byte依次类推……….</p>
+<p>​      未设置新值的index对应值是00，要设置的index其对应值为Data（步骤3的设置值）；</p>
+<h2 id="海光服务器修改案例"><a href="#海光服务器修改案例" class="headerlink" title="海光服务器修改案例"></a>海光服务器修改案例</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">//海光+alios下 第二列为：0x5c 修改、0x5f BIOS中的查询、0x5d 查询即将写入的值 </div><div class="line">//0x5f 查询BIOS中的值</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5f 0x00 0x11</div><div class="line"> 11 81 81 81 81 80 81 80 81 81 80 81 81 00 00 81</div><div class="line"> 80 81</div><div class="line"> </div><div class="line">//还没有写入任何新值</div><div class="line">#ipmitool raw 0x3e 0x5d 0x00 0x11</div><div class="line"> 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00</div><div class="line"> 00 00 </div><div class="line"></div><div class="line">//enable numa</div><div class="line">#ipmitool raw 0x3e 0x5c 0x00 0x01 0x81</div><div class="line">#ipmitool raw 0x3e 0x5c 0x05 0x01 0x81</div><div class="line"></div><div class="line">//enable boost</div><div class="line">#ipmitool raw 0x3e 0x5c 0x01 0x01 0x81</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x01 0x01</div><div class="line"> 11 81 </div><div class="line">//关闭 SMT</div><div class="line">#ipmitool raw 0x3e 0x5c 0x02 0x01 0x80</div><div class="line"></div><div class="line">#ipmitool raw 0x3e 0x5d 0x02 0x01</div><div class="line"> 11 81</div></pre></td></tr></table></figure>
+<h2 id="BIOS中选项的对应关系"><a href="#BIOS中选项的对应关系" class="headerlink" title="BIOS中选项的对应关系"></a>BIOS中选项的对应关系</h2><h3 id="Intel服务器"><a href="#Intel服务器" class="headerlink" title="Intel服务器"></a>Intel服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)0x00  BIOS在读取设定后，会发送index=0x00，data=0x00的命令给BMC，BMC应清零所有参数值。</td>
+</tr>
+<tr>
+<td>Turbo</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>HT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Numa</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – disable 0x81 - enable</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>VT-d</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+</tr>
+<tr>
+<td>Active Cores</td>
+<td>0x11</td>
+<td>1</td>
+<td>0x80 - Default Core Number0x81 - Active 1 Core0x82 - Active 2 Cores0x83 - Active 3 Cores…0xFE - Active 126 Cores</td>
+</tr>
+<tr>
+<td>C   State</td>
+<td>0x12</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>HWPM</td>
+<td>0x13</td>
+<td>1</td>
+<td>0x80-Disable0x81-Native   mode0x82-OOB   Mode0x83-Native   mode Without Legacy support</td>
+</tr>
+<tr>
+<td>Intel   SgxSW Guard Extensions (SGX)</td>
+<td>0x14</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SGX PRMRR Size</td>
+<td>0x15</td>
+<td>1</td>
+<td>0X80-[00]No valid PRMRR   size    0X81-[40000000]1G0X82-[80000000]2G0X83-[100000000]4G0X84-[200000000]8G0X85-[400000000]16G0X86-[800000000]32G0X87-[1000000000]64G0X88-[2000000000]128G0X89-[4000000000]256G0X8A-[8000000000]512G</td>
+</tr>
+<tr>
+<td>SGX Factory Reset</td>
+<td>0x16</td>
+<td></td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td></td>
+<td>0x17</td>
+<td></td>
+<td>预留</td>
+</tr>
+<tr>
+<td>CPU0_IOU0 (IIO PCIe Br1)</td>
+<td>0x18</td>
+<td>1</td>
+<td>0x80 – x4x4x4x4   0x81 – x4x4x8   0x82 – x8x4x4   0x83 – x8x8   0x84 – x16   0x85 - Auto</td>
+</tr>
+<tr>
+<td>CPU0_IOU1 (IIO PCIe Br2)</td>
+<td>0x19</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU2 (IIO PCIe Br3)</td>
+<td>0x1a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU3 (IIO PCIe Br4)</td>
+<td>0x1b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU0_IOU4 (IIO PCIe Br5)</td>
+<td>0x1c</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU0 (IIO PCIe Br1)</td>
+<td>0x1d</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU1 (IIO PCIe Br2)</td>
+<td>0x1e</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU2 (IIO PCIe Br3)</td>
+<td>0x1f</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU3 (IIO PCIe Br4)</td>
+<td>0x20</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU1_IOU4 (IIO PCIe Br5)</td>
+<td>0x21</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU0 (IIO PCIe Br1)</td>
+<td>0x22</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU1 (IIO PCIe Br2)</td>
+<td>0x23</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU2 (IIO PCIe Br3)</td>
+<td>0x24</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU3 (IIO PCIe Br4)</td>
+<td>0x25</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU2_IOU4 (IIO PCIe Br5)</td>
+<td>0x26</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU0 (IIO PCIe Br1)</td>
+<td>0x27</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU1 (IIO PCIe Br2)</td>
+<td>0x28</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU2 (IIO PCIe Br3)</td>
+<td>0x29</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU3 (IIO PCIe Br4)</td>
+<td>0x2a</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CPU3_IOU4 (IIO PCIe Br5)</td>
+<td>0x2b</td>
+<td>1</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>SGXLEPUBKEYHASHx Write Enable</td>
+<td>0x2C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+</tr>
+<tr>
+<td>SubNuma</td>
+<td>0x2D</td>
+<td>1</td>
+<td>0x80-Disabled0x81-SN2</td>
+</tr>
+<tr>
+<td>VirtualNuma</td>
+<td>0x2E</td>
+<td>1</td>
+<td>0x80-Disabled0x81-Enabled</td>
+</tr>
+<tr>
+<td>TPM Priority</td>
+<td>0x2F</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>TDX</td>
+<td>0x30</td>
+<td>1</td>
+<td>0x80 - Disabled0x81 - Enabled</td>
+</tr>
+<tr>
+<td>Select Owner EPOCH input type</td>
+<td>0x31</td>
+<td>1</td>
+<td>0x81-Change to New Random Owner EPOCHs0x82-Manual User Defined Owner EPOCHs</td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 0</td>
+<td>0x32</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>Software Guard Extensions Epoch 1</td>
+<td>0x33</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="AMD服务器"><a href="#AMD服务器" class="headerlink" title="AMD服务器"></a>AMD服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SMT Mode</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SVM Mode</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>EIST</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 (AMD默认支持智能调频但无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>NUMA nodes per socket</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – NPS0 0x81 – NPS1 0x82 – NPS2 0x83 – NPS4 （开）0x87 – Auto(Auto为NPS1)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x8F – Auto</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Active Video</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Intel Speed Select</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80 (AMD无此选项)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>IMS</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80 (AMD暂未做IMS功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable0x83 – enable &amp; TPM   clear</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 (AMD暂未做此功能)</td>
+<td>RomeMilan</td>
+</tr>
+<tr>
+<td>BIOS BOOT MODE</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>RomeMilan</td>
+</tr>
+</tbody>
+</table>
+<h3 id="海光服务器"><a href="#海光服务器" class="headerlink" title="海光服务器"></a>海光服务器</h3><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Index</th>
+<th>Data Length（Bytes）</th>
+<th>Data （不在列表中则为无效值）</th>
+<th>支持项目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Configuration</td>
+<td>0x00</td>
+<td>1</td>
+<td>0x81 – valid Flag 0x82 – Restore Default Value (恢复为PRD定义的默认值)</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Core Performance Boost</td>
+<td>0x01</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SMT</td>
+<td>0x02</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SVM</td>
+<td>0x03</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>P-State Control</td>
+<td>0x04</td>
+<td>1</td>
+<td>0x80 – Performance0x81 – Normal</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Memory Interleaving</td>
+<td>0X05</td>
+<td>1</td>
+<td>0x80 – Socket (关numa) 0x81 - channel（8 node）</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Vendor Change</td>
+<td>0x06</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>IOMMU</td>
+<td>0x07</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>SRIOV</td>
+<td>0x08</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Onboard VGA</td>
+<td>0x09</td>
+<td>1</td>
+<td>0x80 – Onboard0x81 – PCIe</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Local HDD Boot</td>
+<td>0x0A</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hotkey support</td>
+<td>0x0B</td>
+<td>1</td>
+<td>0x80 – disable0x81 – enable</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0C</td>
+<td>1</td>
+<td>0x80-Disable0x81-Config 10x82-Config 2</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>Hygon平台没有此选项</td>
+<td>0x0D</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enable</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>TPM</td>
+<td>0x0E</td>
+<td>1</td>
+<td>0x80-Disable0x81-Enabled0x83-Enable&amp;Clear TPM</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Power off remove</td>
+<td>0x0F</td>
+<td>1</td>
+<td>0x80 – disable – 响应命令0x81 – enable –不响应命令</td>
+<td>海光2</td>
+</tr>
+<tr>
+<td>Boot option Filter</td>
+<td>0x10</td>
+<td>1</td>
+<td>0x80 – Legacy0x81 – UEFI</td>
+<td>海光2</td>
+</tr>
+</tbody>
+</table>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/2010到2020这10年的碎碎念念/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5837,230 +6603,6 @@ dip： destination
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/09/一文搞懂域名解析相关问题/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/09/一文搞懂域名解析相关问题/" itemprop="url">就是要你懂DNS--一文搞懂域名解析相关问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-09T10:30:03+08:00">
-                2019-06-09
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="一文搞懂域名解析DNS相关问题"><a href="#一文搞懂域名解析DNS相关问题" class="headerlink" title="一文搞懂域名解析DNS相关问题"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
-<p>本文希望通过一篇文章解决所有域名解析中相关的问题 </p>
-<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
-</blockquote>
-<p>这几个Case描述如下：</p>
-<ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
-<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
-<h2 id="Linux下域名解析流程"><a href="#Linux下域名解析流程" class="headerlink" title="Linux下域名解析流程"></a>Linux下域名解析流程</h2><ul>
-<li>DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
-<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns </li>
-<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-</ul>
-<p><img src="/images/oss/b7458f344de1d1b10c2a6f6ee7f1c501.png" alt="image.png"></p>
-<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
-<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="external">所以默认的nsswitch流程是</a>：</p>
-<p><img src="/images/oss/82489e801d8f7bd455053315d760614b.png" alt="image.png"></p>
-<p>以下是一个 /etc/nsswitch.conf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"># cat /etc/nsswitch.conf |grep -v &quot;^#&quot; |grep -v &quot;^$&quot;</div><div class="line">passwd:     files sss</div><div class="line">shadow:     files sss</div><div class="line">group:      files sss</div><div class="line">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序</div><div class="line">bootparams: nisplus [NOTFOUND=return] files</div><div class="line">ethers:     files</div><div class="line">netmasks:   files</div><div class="line">networks:   files</div><div class="line">protocols:  files</div><div class="line">rpc:        files</div><div class="line">services:   files sss</div><div class="line">netgroup:   nisplus sss</div><div class="line">publickey:  nisplus</div><div class="line">automount:  files nisplus sss</div><div class="line">aliases:    files nisplus</div></pre></td></tr></table></figure>
-<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
-<h2 id="Linux下域名解析流程需要注意的地方"><a href="#Linux下域名解析流程需要注意的地方" class="headerlink" title="Linux下域名解析流程需要注意的地方"></a>Linux下域名解析流程需要注意的地方</h2><ul>
-<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="external">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
-<li>如果被解析的域名不是以 “.” 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a href="https://access.redhat.com/solutions/58028" target="_blank" rel="external">resolv.conf最多支持6个search域</a></li>
-<li>ping调用的是glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch，nslookup不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
-</ul>
-<h2 id="Linux下域名解析诊断工具"><a href="#Linux下域名解析诊断工具" class="headerlink" title="Linux下域名解析诊断工具"></a>Linux下域名解析诊断工具</h2><ul>
-<li>ping</li>
-<li>nslookup (nslookup domain @dns-server-ip)</li>
-<li><a href="https://jvns.ca/blog/2021/12/04/how-to-use-dig/" target="_blank" rel="external">dig</a> (dig +trace domain)</li>
-<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
-<li>strace</li>
-</ul>
-<p><img src="/images/951413iMgBlog/dig.png" alt="img"></p>
-<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>向 /etc/hosts 中添加了一条test.unknow.host, 无法解析到，但是test.localhost可以解析？</p>
-<pre><code>[ren@vb 08:50 /home/ren]
-$head -2 /etc/hosts
-127.0.0.1　 test.unknow.host
-127.0.0.1   test.localhost
-
-[ren@vb 08:50 /home/ren]
-$ping test.unknow.host
-ping: unknown host test.unknow.host
-
-[ren@vb 08:50 /home/ren]
-$ping -c 1 test.localhost
-PING test.localhost (127.0.0.1) 56(84) bytes of data.
-64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
-
---- test.localhost ping statistics ---
-1 packets transmitted, 1 received, 0% packet loss, time 0ms
-rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
-</code></pre><p>为什么 test.unknow.host 没法解析到？<br>可能有哪些因素导致这种现象？</p>
-<p>尝试 ping -c 1 test.localhost 的目的是做什么？</p>
-<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
-<ul>
-<li>/etc/hosts 没有启用</li>
-<li>有本地缓存记录了一个unknow host记录</li>
-</ul>
-<h4 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
-</code></pre><p>可以通，说明 /etc/hosts 是在起作用的，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
-<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了</p>
-<p><img src="/images/oss/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png" alt="undefined"> </p>
-<p>从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
-<p>到这里可能的情况要追加第三种了：</p>
-<ul>
-<li>/etc/hosts 中添加的记录没生效(比如中文符号）</li>
-</ul>
-<h3 id="dhcp"><a href="#dhcp" class="headerlink" title="dhcp"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 /etc/resolv.conf</p>
-<h3 id="dnsmasq"><a href="#dnsmasq" class="headerlink" title="dnsmasq"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：/run/dnsmasq/resolv.conf。集团内部的vipclient就是类似这个原理。</p>
-<h2 id="微服务下的域名解析、负载均衡"><a href="#微服务下的域名解析、负载均衡" class="headerlink" title="微服务下的域名解析、负载均衡"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
-<h3 id="域名解析通过jar、lib包"><a href="#域名解析通过jar、lib包" class="headerlink" title="域名解析通过jar、lib包"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
-<h3 id="域名解析通过dns-server"><a href="#域名解析通过dns-server" class="headerlink" title="域名解析通过dns server"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
-<p>如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
-<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
-<h2 id="kubernetes-和-docker中的域名解析"><a href="#kubernetes-和-docker中的域名解析" class="headerlink" title="kubernetes 和 docker中的域名解析"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
-<h2 id="nginx-中的域名解析"><a href="#nginx-中的域名解析" class="headerlink" title="nginx 中的域名解析"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 /etc/resolv.conf转换而来，要注意对 /etc/resolv.conf中 注释的<a href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf" target="_blank" rel="external">兼容</a></p>
-<p><a href="https://github.com/blacklabelops-legacy/nginx/issues/36" target="_blank" rel="external">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 /etc/resolv.conf没有处理好 # 注释的问题</p>
-<h2 id="进一步的Case学习："><a href="#进一步的Case学习：" class="headerlink" title="进一步的Case学习："></a>进一步的Case学习：</h2><ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a href="https://blog.bruceding.me/516.html" target="_blank" rel="external">GO DNS 原理解析</a></p>
-<p><a href="https://blog.arstercz.com/linux-系统如何处理名称解析" target="_blank" rel="external">Linux 系统如何处理名称解析</a></p>
-<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="external">Anatomy of a Linux DNS Lookup – Part I</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6110,7 +6652,7 @@ rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">178</span>
+                <span class="site-state-item-count">179</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6132,7 +6674,7 @@ rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">267</span>
+                <span class="site-state-item-count">268</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
