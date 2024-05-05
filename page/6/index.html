@@ -291,6 +291,587 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/04/获取一直FullGC下的java进程HeapDump的小技巧/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/04/获取一直FullGC下的java进程HeapDump的小技巧/" itemprop="url">获取一直FullGC下的java进程HeapDump的小技巧</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-04T17:30:03+08:00">
+                2020-01-04
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java/" itemprop="url" rel="index">
+                    <span itemprop="name">Java</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="获取一直FullGC下的java进程HeapDump的小技巧"><a href="#获取一直FullGC下的java进程HeapDump的小技巧" class="headerlink" title="获取一直FullGC下的java进程HeapDump的小技巧"></a>获取一直FullGC下的java进程HeapDump的小技巧</h1><p>就是小技巧，操作步骤需要查询，随手记录</p>
+<ul>
+<li>找到java进程，gdb attach上去， 例如 <code>gdb -p 12345</code></li>
+<li>找到这个<code>HeapDumpBeforeFullGC</code>的地址（这个flag如果为true，会在FullGC之前做HeapDump，默认是false）</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) p &amp;HeapDumpBeforeFullGC</div><div class="line">$2 = (&lt;data variable, no debug info&gt; *) 0x7f7d50fc660f &lt;HeapDumpBeforeFullGC&gt;</div></pre></td></tr></table></figure>
+<ul>
+<li>Copy 地址：0x7f7d50fc660f</li>
+<li>然后把他设置为true，这样下次FGC之前就会生成一份dump文件</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">(gdb) set *0x7f7d50fc660f = 1</div><div class="line">(gdb) quit</div></pre></td></tr></table></figure>
+<ul>
+<li>最后，等一会，等下次FullGC触发，你就有HeapDump了！<br>(如果没有指定heapdump的名字，默认是 java_pidxxx.hprof)</li>
+</ul>
+<p>(PS. <code>jstat -gcutil pid</code> 可以查看gc的概况)</p>
+<p>(操作完成后记得gdb上去再设置回去，不然可能一直fullgc，导致把磁盘打满).</p>
+<h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>在jvm还有响应的时候可以： jinfo -flag +HeapDumpBeforeFullGC pid 设置HeapDumpBeforeFullGC 为true（- 为false，+-都不要为只打印值）</p>
+<p>kill -3 产生coredump  存放在 kernel.core_pattern=/root/core （/etc/sysctl.conf , 先 ulimit -c unlimited；或者 gcore id 获取coredump)</p>
+<p>得到core文件后，采用 gdb -c 执行文件 core文件 进入调试模式，对于java，有以下2个技巧：</p>
+<p>进入gdb调试模式后，输入如下命令： info threads，观察异常的线程，定位到异常的线程后，则可以输入如下命令：thread 线程编号，则会打印出当前java代码的工作流程。</p>
+<p> 而对于这个core，亦可以用jstack jmap打印出堆信息，线程信息，具体命令：</p>
+<p>  jmap -heap 执行文件 core文件   jstack -F -l 执行文件 core文件</p>
+<p><strong>容器中的进程的话需要到宿主机操作，并且将容器中的 jdk文件夹复制到宿主机对应的位置。</strong></p>
+<p>  <strong>ps auxff |grep 容器id -A10 找到JVM在宿主机上的进程id</strong></p>
+<h2 id="coredump"><a href="#coredump" class="headerlink" title="coredump"></a>coredump</h2><p>kill -3 产生coredump  存放在 kernel.core_pattern=/root/core （/etc/sysctl.conf , 先 ulimit -c unlimited；）</p>
+<p>或者 gcore id 获取coredump</p>
+<p><a href="https://www.baeldung.com/linux/managing-core-dumps" target="_blank" rel="external">coredump 所在位置</a>：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$cat /proc/sys/kernel/core_pattern</div><div class="line">/home/admin/</div></pre></td></tr></table></figure>
+<h3 id="coredump-分析"><a href="#coredump-分析" class="headerlink" title="coredump 分析"></a><a href="https://zhuanlan.zhihu.com/p/46605905" target="_blank" rel="external">coredump 分析</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div></pre></td><td class="code"><pre><div class="line">//打开 coredump</div><div class="line">$gdb /opt/taobao/java/bin/java core.24086</div><div class="line">[New LWP 27184]</div><div class="line">[New LWP 27186]</div><div class="line">[New LWP 24086]</div><div class="line">[Thread debugging using libthread_db enabled]</div><div class="line">Using host libthread_db library &quot;/lib64/libthread_db.so.1&quot;.</div><div class="line">Core was generated by `/opt/tt/java_coroutine/bin/java&apos;.</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">Missing separate debuginfos, use: debuginfo-install jdk-8.9.14-20200203164153.alios7.x86_64</div><div class="line">(gdb) info threads  //查看所有thread</div><div class="line">  Id   Target Id         Frame</div><div class="line">  583  Thread 0x7f2fa56177c0 (LWP 24086) 0x00007f2fa4fab017 in pthread_join () from /lib64/libpthread.so.0</div><div class="line">  582  Thread 0x7f2f695f3700 (LWP 27186) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  581  Thread 0x7f2f6cbfb700 (LWP 27184) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  580  Thread 0x7f2f691ef700 (LWP 27176) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  579  Thread 0x7f2f698f6700 (LWP 27174) 0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">  </div><div class="line"></div><div class="line">(gdb) thread apply all bt  //查看所有线程堆栈</div><div class="line">Thread 583 (Thread 0x7f2fa56177c0 (LWP 24086)):</div><div class="line">#0  0x00007f2fa4fab017 in pthread_join () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa4b85085 in ContinueInNewThread0 (continuation=continuation@entry=0x7f2fa4b7fd70 &lt;JavaMain&gt;, stack_size=1048576, args=args@entry=0x7ffe529432d0)</div><div class="line">    at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/solaris/bin/java_md_solinux.c:1044</div><div class="line">#2  0x00007f2fa4b81877 in ContinueInNewThread (ifn=ifn@entry=0x7ffe529433d0, threadStackSize=&lt;optimized out&gt;, argc=&lt;optimized out&gt;, argv=0x7f2fa3c163a8, mode=mode@entry=1,</div><div class="line">    what=what@entry=0x7ffe5294be17 &quot;com.taobao.tddl.server.TddlLauncher&quot;, ret=0) at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/share/bin/java.c:2033</div><div class="line">#3  0x00007f2fa4b8513b in JVMInit (ifn=ifn@entry=0x7ffe529433d0, threadStackSize=&lt;optimized out&gt;, argc=&lt;optimized out&gt;, argv=&lt;optimized out&gt;, mode=mode@entry=1,</div><div class="line">    what=what@entry=0x7ffe5294be17 &quot;com.taobao.tddl.server.TddlLauncher&quot;, ret=ret@entry=0) at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/solaris/bin/java_md_solinux.c:1091</div><div class="line">#4  0x00007f2fa4b8254d in JLI_Launch (argc=0, argv=0x7f2fa3c163a8, jargc=&lt;optimized out&gt;, jargv=&lt;optimized out&gt;, appclassc=1, appclassv=0x0, fullversion=0x400885 &quot;1.8.0_232-b604&quot;,</div><div class="line">    dotversion=0x400881 &quot;1.8&quot;, pname=0x40087c &quot;java&quot;, lname=0x40087c &quot;java&quot;, javaargs=0 &apos;\000&apos;, cpwildcard=1 &apos;\001&apos;, javaw=0 &apos;\000&apos;, ergo=0)</div><div class="line">    at /ssd1/jenkins_home/workspace/ajdk.8.build.master/jdk/src/share/bin/java.c:304</div><div class="line">#5  0x0000000000400635 in main ()</div><div class="line"></div><div class="line">Thread 582 (Thread 0x7f2f695f3700 (LWP 27186)):</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa342d863 in Parker::park(bool, long) () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#2  0x00007f2fa35ba3c3 in Unsafe_Park () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#3  0x00007f2f9343b44a in ?? ()</div><div class="line">#4  0x000000008082e778 in ?? ()</div><div class="line">#5  0x0000000000000003 in ?? ()</div><div class="line">#6  0x00007f2f88e32758 in ?? ()</div><div class="line">#7  0x00007f2f6f532800 in ?? ()</div><div class="line"></div><div class="line">(gdb) thread apply 582 bt //查看582这个线程堆栈，LWP 27186(0x6a32)对应jstack 线程10进程id</div><div class="line"></div><div class="line">Thread 582 (Thread 0x7f2f695f3700 (LWP 27186)):</div><div class="line">#0  0x00007f2fa4fada35 in pthread_cond_wait@@GLIBC_2.3.2 () from /lib64/libpthread.so.0</div><div class="line">#1  0x00007f2fa342d863 in Parker::park(bool, long) () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#2  0x00007f2fa35ba3c3 in Unsafe_Park () from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#3  0x00007f2f9343b44a in ?? ()</div><div class="line">#35 0x00000000f26fc738 in ?? ()</div><div class="line">#36 0x00007f2fa51cec5b in arena_run_split_remove (arena=0x7f2f6ab09c34, chunk=0x80, run_ind=0, flag_dirty=0, flag_decommitted=&lt;optimized out&gt;, need_pages=0) at src/arena.c:398</div><div class="line">#37 0x00007f2f695f2980 in ?? ()</div><div class="line">#38 0x0000000000000001 in ?? ()</div><div class="line">#39 0x00007f2f88e32758 in ?? ()</div><div class="line">#40 0x00007f2f695f2920 in ?? ()</div><div class="line">#41 0x00007f2fa32f46b8 in CallInfo::set_common(KlassHandle, KlassHandle, methodHandle, methodHandle, CallInfo::CallKind, int, Thread*) ()</div><div class="line">   from /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">#42 0x00007f2f7d800000 in ?? ()</div></pre></td></tr></table></figure>
+<h3 id="coredump-转-jmap-hprof"><a href="#coredump-转-jmap-hprof" class="headerlink" title="coredump 转 jmap hprof"></a>coredump 转 jmap hprof</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">jmap -dump:format=b,file=24086.hprof /opt/taobao/java/bin/java core.24086</div></pre></td></tr></table></figure>
+<p>以上命令输入是 core.24086 这个 coredump，输出是一个 jmap 的dump 24086.hprof</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div></pre></td><td class="code"><pre><div class="line">$jmap -J-d64 /opt/taobao/java/bin/java core.24086</div><div class="line"></div><div class="line">Attaching to core core.24086 from executable /opt/taobao/java/bin/java, please wait...</div><div class="line">Debugger attached successfully.</div><div class="line">Server compiler detected.</div><div class="line">JVM version is 25.232-b604</div><div class="line">0x0000000000400000      8K      /opt/taobao/java/bin/java</div><div class="line">0x00007f2fa51be000      6679K   /opt/taobao/install/ajdk-8_9_14-b604/bin/../lib/amd64/libjemalloc.so.2</div><div class="line">0x00007f2fa4fa2000      138K    /lib64/libpthread.so.0</div><div class="line">0x00007f2fa4d8c000      88K     /lib64/libz.so.1</div><div class="line">0x00007f2fa4b7d000      280K    /opt/taobao/install/ajdk-8_9_14-b604/bin/../lib/amd64/jli/libjli.so</div><div class="line">0x00007f2fa4979000      18K     /lib64/libdl.so.2</div><div class="line">0x00007f2fa45ab000      2105K   /lib64/libc.so.6</div><div class="line">0x00007f2fa43a3000      42K     /lib64/librt.so.1</div><div class="line">0x00007f2fa40a1000      1110K   /lib64/libm.so.6</div><div class="line">0x00007f2fa5406000      159K    /lib64/ld-linux-x86-64.so.2</div><div class="line">0x00007f2fa2af1000      17898K  /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/server/libjvm.so</div><div class="line">0x00007f2fa25f1000      64K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libverify.so</div><div class="line">0x00007f2fa23c2000      228K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libjava.so</div><div class="line">0x00007f2fa21af000      60K     /lib64/libnss_files.so.2</div><div class="line">0x00007f2fa1fa5000      47K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libzip.so</div><div class="line">0x00007f2f80ded000      96K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libnio.so</div><div class="line">0x00007f2f80bd4000      119K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libnet.so</div><div class="line">0x00007f2f7e1f6000      50K     /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libmanagement.so</div><div class="line">0x00007f2f75dc8000      209K    /home/admin/drds-server/lib/native/libsigar-amd64-linux.so</div><div class="line">0x00007f2f6d8ad000      293K    /opt/taobao/install/ajdk-8_9_14-b604/jre/lib/amd64/libsunec.so</div><div class="line">0x00007f2f6d697000      86K     /lib64/libgcc_s.so.1</div><div class="line">0x00007f2f6bdf9000      30K     /lib64/libnss_dns.so.2</div><div class="line">0x00007f2f6bbdf000      107K    /lib64/libresolv.so.2</div></pre></td></tr></table></figure>
+<h3 id="coredump-生成-java-stack"><a href="#coredump-生成-java-stack" class="headerlink" title="coredump 生成 java stack"></a><a href="https://www.javacodegeeks.com/2013/02/analysing-a-java-core-dump.html" target="_blank" rel="external">coredump 生成 java stack</a></h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">jstack -J-d64 /opt/taobao/java/bin/java core.24086 </div><div class="line"></div><div class="line">Attaching to core core.24086 from executable /opt/taobao/java/bin/java, please wait...</div><div class="line">Debugger attached successfully.</div><div class="line">Server compiler detected.</div><div class="line">JVM version is 25.232-b604</div><div class="line">Deadlock Detection:</div><div class="line"></div><div class="line">No deadlocks found.</div><div class="line"></div><div class="line">Thread 27186: (state = BLOCKED)</div><div class="line"> - sun.misc.Unsafe.park0(boolean, long) @bci=0 (Compiled frame; information may be imprecise)</div><div class="line"> - sun.misc.Unsafe.park(boolean, long) @bci=63, line=1038 (Compiled frame)</div><div class="line"> - java.util.concurrent.locks.LockSupport.park(java.lang.Object) @bci=14, line=176 (Compiled frame)</div><div class="line"> - java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await() @bci=42, line=2047 (Compiled frame)</div><div class="line"> - java.util.concurrent.LinkedBlockingQueue.take() @bci=29, line=446 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor.getTask() @bci=149, line=1074 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor.runWorker(java.util.concurrent.ThreadPoolExecutor$Worker) @bci=26, line=1134 (Compiled frame)</div><div class="line"> - java.util.concurrent.ThreadPoolExecutor$Worker.run() @bci=5, line=624 (Compiled frame)</div><div class="line"> - java.lang.Thread.run() @bci=11, line=858 (Compiled frame)</div></pre></td></tr></table></figure>
+<h3 id="gdb-coredump-with-java-symbol"><a href="#gdb-coredump-with-java-symbol" class="headerlink" title="gdb coredump with java symbol"></a><a href="https://mail.openjdk.org/pipermail/hotspot-dev/2016-May/023255.html" target="_blank" rel="external">gdb coredump with java symbol</a></h3>
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/02/Linux 问题总结/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/01/02/Linux 问题总结/" itemprop="url">Linux 问题总结</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-02T17:30:03+08:00">
+                2020-01-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux/" itemprop="url" rel="index">
+                    <span itemprop="name">Linux</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Linux-问题总结"><a href="#Linux-问题总结" class="headerlink" title="Linux 问题总结"></a>Linux 问题总结</h1><h2 id="crond文件权限的坑"><a href="#crond文件权限的坑" class="headerlink" title="crond文件权限的坑"></a>crond文件权限的坑</h2><p>crond第一次加载的时候（刚启动）会去检查文件属性，不是644的话以后都不会执行了，即使后面chmod改成了644. </p>
+<p>手工随便修改一下该文件的内容就能触发自动执行了，或者重启crond, 或者 sudo service crond reload， 或者 /etc/cron.d/下有任何修改都会触发crond reload配置(包含 touch )。</p>
+<p>总之 crond会每分钟去检查job有没有change，有的话才触发reload，这个change看的时候change time有没有变化，不看权限的变化，仅仅是权限的变化不会触发crond reload。</p>
+<p> crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个<strong>修改不包含权限的修改</strong>。可以简单地理解这个修改是指文件的change time。</p>
+<h2 id="cgroup目录报No-space-left-on-device"><a href="#cgroup目录报No-space-left-on-device" class="headerlink" title="cgroup目录报No space left on device"></a><a href="https://rotadev.com/cgroup-no-space-left-on-device-server-fault/" target="_blank" rel="external">cgroup目录报No space left on device</a></h2><p>可能是因为某个规则下的 cpuset.cpus 文件是空导致的</p>
+<h2 id="容器中root用户执行-su-admin-切换失败"><a href="#容器中root用户执行-su-admin-切换失败" class="headerlink" title="容器中root用户执行 su - admin 切换失败"></a>容器中root用户执行 su - admin 切换失败</h2><p>问题原因：<a href="https://access.redhat.com/solutions/30316" target="_blank" rel="external">https://access.redhat.com/solutions/30316</a></p>
+<p><img src="/images/oss/63a4ac6669f820156bff035e7dc49ac2.png" alt="image.png"></p>
+<p>如上图去掉 admin nproc限制就可以了</p>
+<p>这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">[root@i22h08323 /home/admin]</div><div class="line">#ulimit -u</div><div class="line">unlimited</div></pre></td></tr></table></figure>
+<h2 id="容器中ulimit限制了sudo的执行"><a href="#容器中ulimit限制了sudo的执行" class="headerlink" title="容器中ulimit限制了sudo的执行"></a>容器中ulimit限制了sudo的执行</h2><p>容器启动的时候默认nofile为65535（可以通过 docker run –ulimit nofile=655360 来设置），如果容器中的 /etc/security/limits.conf 中设置的nofile大于 65535就会报错，因为容器的1号进程就是65535了，比如在容器中用root用户执行sudo ls报错：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#sudo ls</div><div class="line">sudo: pam_open_session: Permission denied</div><div class="line">sudo: policy plugin failed session initialization</div></pre></td></tr></table></figure>
+<p>可以修改容器中的 ulimit 不要超过默认的65535或者修改容器的启动参数来解决。</p>
+<p>子进程都会继承父进程的一些环境变量，比如 limits.conf, sudo/su/crond/passwd等都会触发重新加载limits, </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景</div></pre></td></tr></table></figure>
+<h2 id="systemd-limits"><a href="#systemd-limits" class="headerlink" title="systemd limits"></a>systemd limits</h2><p>/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。</p>
+<p>因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。</p>
+<p>对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf 和/etc/systemd/user.conf.d/.conf。</p>
+<h2 id="open-files-限制在1024"><a href="#open-files-限制在1024" class="headerlink" title="open files 限制在1024"></a>open files 限制在1024</h2><p>docker 容器内 nofile只有1024，检查：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">cat /etc/sysconfig/docker</div><div class="line">或者</div><div class="line">cat /usr/lib/systemd/system/docker.service</div><div class="line">LimitNOFILE=1048576</div><div class="line">LimitNPROC=1048576</div></pre></td></tr></table></figure>
+<h3 id="关于ulimit的一些知识点"><a href="#关于ulimit的一些知识点" class="headerlink" title="关于ulimit的一些知识点"></a>关于ulimit的一些知识点</h3><p>参考 <a href="https://feichashao.com/ulimit_demo/" target="_blank" rel="external">Ulimit</a> <a href="http://blog.yufeng.info/archives/2568" target="_blank" rel="external">http://blog.yufeng.info/archives/2568</a></p>
+<ul>
+<li>limit的设定值是 per-process 的</li>
+<li>在 Linux 中，每个普通进程可以调用 getrlimit() 来查看自己的 limits，也可以调用 setrlimit() 来改变自身的 soft limits</li>
+<li>要改变 hard limit, 则需要进程有 CAP_SYS_RESOURCE 权限</li>
+<li>进程 fork() 出来的子进程，会继承父进程的 limits 设定</li>
+<li><code>ulimit</code> 是 shell 的内置命令。在执行<code>ulimit</code>命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定</li>
+<li>shell 的初始 limits 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值</li>
+</ul>
+<p>ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：</p>
+<ol>
+<li>用户进行登录，触发 pam_limits;</li>
+<li>pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；</li>
+<li>用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;</li>
+<li>当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了</li>
+</ol>
+<p>判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数<br>结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。<br>结论2：fs.file-max: 整个系统上可打开的最大文件数，但不限制 root 用户</p>
+<h2 id="pam-权限报错"><a href="#pam-权限报错" class="headerlink" title="pam 权限报错"></a>pam 权限报错</h2><p><img src="/images/oss/b646979272e71e015de4a47c62b89747.png" alt="image.png"></p>
+<p>从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/crond </div><div class="line">#</div><div class="line"># The PAM configuration file for the cron daemon</div><div class="line">#</div><div class="line">#</div><div class="line"># No PAM authentication called, auth modules not needed</div><div class="line">account    required   pam_access.so</div><div class="line">account    include    system-auth</div><div class="line">session    required   pam_loginuid.so //required 改成 sufficient</div><div class="line">session    include    system-auth</div><div class="line">auth       include    system-auth</div></pre></td></tr></table></figure>
+<p>PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，<code>passwd</code> 命令只需要下面列表中的第三组：</p>
+<ul>
+<li><code>account</code> 处理账户限制。对于有效的用户，允许他做什么？</li>
+<li><code>auth</code> 处理用户识别 — 例如，通过输入用户名和密码。</li>
+<li><code>password</code> 只处理与密码相关的问题，比如设置新密码。</li>
+<li><code>session</code> 处理连接管理，包括日志记录。</li>
+</ul>
+<p>在 /etc/pam.d 目录中为将使用 PAM 的每个应用程序创建一个配置文件，文件名与应用程序名相同。例如，<code>login</code> 命令的配置文件是 /etc/pam.d/login。</p>
+<p>必须定义将应用哪些模块，创建一个动作 “堆”。PAM 运行堆中的所有模块，根据它们的结果允许或拒绝用户的请求。还必须定义检查是否是必需的。最后，<em>other</em> 文件为没有特殊规则的所有应用程序提供默认规则。</p>
+<ul>
+<li><code>optional</code> 模块可以成功，也可以失败；PAM 根据模块是否最终成功返回 <code>success</code> 或 <code>failure</code>。</li>
+<li><code>required</code> 模块必须成功。如果失败，PAM 返回 <code>failure</code>，但是会在运行堆中的其他模块之后返回。</li>
+<li><code>requisite</code> 模块也必须成功。但是，如果失败，PAM 立即返回 <code>failure</code>，不再运行其他模块。</li>
+<li><code>sufficient</code> 模块在成功时导致 PAM 立即返回 <code>success</code>，不再运行其他模块。</li>
+</ul>
+<p>当pam安装之后有两大部分：在/lib64/security目录下的各种pam模块以及/etc/pam.d和/etc/pam.d目录下的针对各种服务和应用已经定义好的pam配置文件。当某一个有认证需求的应用程序需要验证的时候，一般在应用程序中就会定义负责对其认证的PAM配置文件。以vsftpd为例，在它的配置文件/etc/vsftpd/vsftpd.conf中就有这样一行定义：</p>
+<blockquote>
+<p>pam_service_name=vsftpd</p>
+</blockquote>
+<p>表示登录FTP服务器的时候进行认证是根据/etc/pam.d/vsftpd文件定义的内容进行。</p>
+<h3 id="PAM-认证过程"><a href="#PAM-认证过程" class="headerlink" title="PAM 认证过程"></a>PAM 认证过程</h3><p>当程序需要认证的时候已经找到相关的pam配置文件，认证过程是如何进行的？下面我们将通过解读/etc/pam.d/system-auth文件予以说明。</p>
+<p>首先要声明一点的是：system-auth是一个非常重要的pam配置文件，主要负责用户登录系统的认证工作。而且该文件不仅仅只是负责用户登录系统认证，其它的程序和服务通过include接口也可以调用到它，从而节省了很多重新自定义配置的工作。所以应该说该文件是系统安全的总开关和核心的pam配置文件。</p>
+<p>下面是/etc/pam.d/system-auth文件的全部内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div></pre></td><td class="code"><pre><div class="line">$cat /etc/pam.d/system-auth</div><div class="line">#%PAM-1.0</div><div class="line"># This file is auto-generated.</div><div class="line"># User changes will be destroyed the next time authconfig is run.</div><div class="line">auth        required      pam_env.so</div><div class="line">auth        required      pam_faildelay.so delay=2000000</div><div class="line">auth        sufficient    pam_unix.so nullok try_first_pass</div><div class="line">auth        requisite     pam_succeed_if.so uid &gt;= 1000 quiet_success</div><div class="line">auth        required      pam_deny.so</div><div class="line"></div><div class="line">account     required      pam_unix.so</div><div class="line">account     sufficient    pam_localuser.so</div><div class="line">account     sufficient    pam_succeed_if.so uid &lt; 1000 quiet</div><div class="line">account     required      pam_permit.so</div><div class="line"></div><div class="line">password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=</div><div class="line">password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok</div><div class="line">password    required      pam_deny.so</div><div class="line"></div><div class="line">session     optional      pam_keyinit.so revoke</div><div class="line">session     required      pam_limits.so</div><div class="line">-session     optional      pam_systemd.so</div><div class="line">session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid</div><div class="line">session     required      pam_unix.so</div></pre></td></tr></table></figure>
+<h4 id="第一部分"><a href="#第一部分" class="headerlink" title="第一部分"></a>第一部分</h4><p>当用户登录的时候，首先会通过auth类接口对用户身份进行识别和密码认证。所以在该过程中验证会经过几个带auth的配置项。</p>
+<p>其中的第一步是通过pam_env.so模块来定义用户登录之后的环境变量， pam_env.so允许设置和更改用户登录时候的环境变量，默认情况下，若没有特别指定配置文件，将依据/etc/security/pam_env.conf进行用户登录之后环境变量的设置。</p>
+<p>然后通过pam_unix.so模块来提示用户输入密码，并将用户密码与/etc/shadow中记录的密码信息进行对比，如果密码比对结果正确则允许用户登录，而且<strong>该配置项的使用的是“sufficient”控制位，即表示只要该配置项的验证通过，用户即可完全通过认证而不用再去走下面的认证项</strong>。不过在特殊情况下，用户允许使用空密码登录系统，例如当将某个用户在/etc/shadow中的密码字段删除之后，该用户可以只输入用户名直接登录系统。</p>
+<p>下面的配置项中，通过pam_succeed_if.so对用户的登录条件做一些限制，表示允许uid大于500的用户在通过密码验证的情况下登录，在Linux系统中，一般系统用户的uid都在500之内，所以该项即表示允许使用useradd命令以及默认选项建立的普通用户直接由本地控制台登录系统。</p>
+<p>最后通过pam_deny.so模块对所有不满足上述任意条件的登录请求直接拒绝，pam_deny.so是一个特殊的模块，该模块返回值永远为否，类似于大多数安全机制的配置准则，在所有认证规则走完之后，对不匹配任何规则的请求直接拒绝。</p>
+<h4 id="第二部分"><a href="#第二部分" class="headerlink" title="第二部分"></a>第二部分</h4><p>三个配置项主要表示通过account账户类接口来识别账户的合法性以及登录权限。</p>
+<p>第一行仍然使用pam_unix.so模块来声明用户需要通过密码认证。第二行承认了系统中uid小于500的系统用户的合法性。之后对所有类型的用户登录请求都开放控制台。</p>
+<h4 id="第三部分"><a href="#第三部分" class="headerlink" title="第三部分"></a>第三部分</h4><p>会通过password口令类接口来确认用户使用的密码或者口令的合法性。第一行配置项表示需要的情况下将调用pam_cracklib来验证用户密码复杂度。如果用户输入密码不满足复杂度要求或者密码错，最多将在三次这种错误之后直接返回密码错误的提示，否则期间任何一次正确的密码验证都允许登录。需要指出的是，pam_cracklib.so是一个常用的控制密码复杂度的pam模块，关于其用法举例我们会在之后详细介绍。之后带pam_unix.so和pam_deny.so的两行配置项的意思与之前类似。都表示需要通过密码认证并对不符合上述任何配置项要求的登录请求直接予以拒绝。不过用户如果执行的操作是单纯的登录，则这部分配置是不起作用的。</p>
+<h4 id="第四部分"><a href="#第四部分" class="headerlink" title="第四部分"></a>第四部分</h4><p>主要将通过session会话类接口为用户初始化会话连接。其中几个比较重要的地方包括，使用pam_keyinit.so表示当用户登录的时候为其建立相应的密钥环，并在用户登出的时候予以撤销。不过该行配置的控制位使用的是optional，表示这并非必要条件。之后通过pam_limits.so限制用户登录时的会话连接资源，相关pam_limit.so配置文件是/etc/security/limits.conf，默认情况下对每个登录用户都没有限制。关于该模块的配置方法在后面也会详细介绍。</p>
+<h3 id="常用的PAM模块介绍"><a href="#常用的PAM模块介绍" class="headerlink" title="常用的PAM模块介绍"></a>常用的PAM模块介绍</h3><table>
+<thead>
+<tr>
+<th>PAM模块</th>
+<th>结合管理类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pam_unix.so</td>
+<td>auth</td>
+<td>提示用户输入密码,并与/etc/shadow文件相比对.匹配返回0</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>account</td>
+<td>检查用户的账号信息(包括是否过期等).帐号可用时,返回0.</td>
+</tr>
+<tr>
+<td>pam_unix.so</td>
+<td>password</td>
+<td>修改用户的密码. 将用户输入的密码,作为用户的新密码更新shadow文件</td>
+</tr>
+<tr>
+<td>pam_shells.so</td>
+<td>auth、account</td>
+<td>如果用户想登录系统，那么它的shell必须是在/etc/shells文件中之一的shell</td>
+</tr>
+<tr>
+<td>pam_deny.so</td>
+<td>account、auth、password、session</td>
+<td>该模块可用于拒绝访问</td>
+</tr>
+<tr>
+<td>pam_permit.so</td>
+<td>account、auth、password、session</td>
+<td>模块任何时候都返回成功.</td>
+</tr>
+<tr>
+<td>pam_securetty.so</td>
+<td>auth</td>
+<td>如果用户要以root登录时,则登录的tty必须在/etc/securetty之中.</td>
+</tr>
+<tr>
+<td>pam_listfile.so</td>
+<td>account、auth、password、session</td>
+<td>访问应用程的控制开关</td>
+</tr>
+<tr>
+<td>pam_cracklib.so</td>
+<td>password</td>
+<td>这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.</td>
+</tr>
+<tr>
+<td>pam_limits.so</td>
+<td>session</td>
+<td>定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定</td>
+</tr>
+</tbody>
+</table>
+<h2 id="debug-crond"><a href="#debug-crond" class="headerlink" title="debug crond"></a>debug crond</h2><p>先停掉 crond service，然后开启debug参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">systemctl stop crond</div><div class="line">crond -x proc //不想真正执行的话：test</div></pre></td></tr></table></figure>
+<p>或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">Debug sudo /var/log/sudo_debug all@warn</div><div class="line">Debug sudoers.so /var/log/sudoers_debug all@debug</div></pre></td></tr></table></figure>
+<h2 id="crond-ERROR-getpwnam-failed"><a href="#crond-ERROR-getpwnam-failed" class="headerlink" title="crond ERROR (getpwnam() failed)"></a>crond ERROR (getpwnam() failed)</h2><p><a href="https://www.ibm.com/support/pages/cron-job-fails-error-message-getpwnam-failed-no-such-file-or-directory" target="_blank" rel="external">报错信息</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">crond[246590]: (/usr/bin/ssh) ERROR (getpwnam() failed)</div></pre></td></tr></table></figure>
+<p>要特别注意crond格式是 时间  <strong>用户</strong>  命令</p>
+<p>有时候我们可以省略用户，但是在 <strong>/etc/cron.d/</strong> 中省略用户后报错如上</p>
+<h2 id="进程和线程"><a href="#进程和线程" class="headerlink" title="进程和线程"></a>进程和线程</h2><p>把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。</p>
+<h2 id="deleted-文件"><a href="#deleted-文件" class="headerlink" title="deleted 文件"></a>deleted 文件</h2><p><code>lsof +L1</code> 或者<code>lsof | grep delete</code> 发现有被删除的文件，且占用大量磁盘空间</p>
+<h2 id="No-route-to-host"><a href="#No-route-to-host" class="headerlink" title="No route to host"></a>No route to host</h2><p>如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题</p>
+<p>可以停掉防火墙验证,或者添加端口到防火墙:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">#firewall-cmd --permanent --add-port=8090/tcp</div><div class="line">success</div><div class="line">#firewall-cmd --reload</div></pre></td></tr></table></figure>
+<h2 id="强制重启系统"><a href="#强制重启系统" class="headerlink" title="强制重启系统"></a>强制重启系统</h2><p><img src="/images/oss/ee2e438907fa72c70d5393a651dc9113.png" alt="image.png"></p>
+<h2 id="hostname"><a href="#hostname" class="headerlink" title="hostname"></a>hostname</h2><p>hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip</p>
+<p>getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这个ip，否则就需要通过getHostByName获取所有网卡选择一个</p>
+<h2 id="tsar-Floating-point-execption"><a href="#tsar-Floating-point-execption" class="headerlink" title="tsar Floating point execption"></a>tsar Floating point execption</h2><p><img src="/images/oss/72197d600425656ec9a8ed18bcc5853b.png" alt="image.png"></p>
+<p>因为 /etc/localtime 是deleted状态</p>
+<h2 id="奇怪的文件大小-sparse-file"><a href="#奇怪的文件大小-sparse-file" class="headerlink" title="奇怪的文件大小 sparse file"></a>奇怪的文件大小 <a href="https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls" target="_blank" rel="external">sparse file</a></h2><p><img src="/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png" alt="img"></p>
+<p>如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.</p>
+<p><a href="https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/" target="_blank" rel="external">而 ls -s 中的 -s就是只看实际大小</a></p>
+<p><img src="/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png" alt="img"></p>
+<p><a href="https://www.systutorials.com/handling-sparse-files-on-linux/" target="_blank" rel="external">图片来源</a></p>
+<p><a href="https://www.mankier.com/1/fallocate" target="_blank" rel="external">回收文件中的空洞</a>：sudo fallocate -c –length 70G gc.log</p>
+<p>如果文件一直打开写入中是没法回收的，因为一回收又被重新lseek到之前的末尾重新写入了！</p>
+<h2 id="增加dmesg-buffer"><a href="#增加dmesg-buffer" class="headerlink" title="增加dmesg buffer"></a>增加dmesg buffer</h2><p>If dmesg does not show any information about NUMA, then increase the Ring Buffer size:<br>Boot with ‘log_buf_len=16M’ (or some other big value). Refer the following kbase article <a href="https://access.redhat.com/solutions/47276" target="_blank" rel="external">How do I increase the kernel log ring buffer size?</a> for steps on how to increase the ring buffer</p>
+<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="external">Yum commands error “pycurl.so: undefined symbol”</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"># yum check update</div><div class="line">There was a problem importing one of the Python modules</div><div class="line">required to run yum. The error leading to this problem was:</div><div class="line"></div><div class="line">/usr/lib64/python2.6/site-packages/pycurl.so: undefined symbol: CRYPTO_set_locking_callback</div><div class="line"></div><div class="line">Please install a package which provides this module, or</div><div class="line">verify that the module is installed correctly.</div><div class="line"></div><div class="line">It&apos;s possible that the above module doesn&apos;t match the</div><div class="line">current version of Python, which is:</div><div class="line">2.6.6 (r266:84292, Sep  4 2013, 07:46:00)</div><div class="line">[GCC 4.4.7 20120313 (Red Hat 4.4.7-3)]</div><div class="line"></div><div class="line">If you cannot solve this problem yourself, please go to</div><div class="line">the yum faq at:</div><div class="line">http://yum.baseurl.org/wiki/Faq</div></pre></td></tr></table></figure>
+<ul>
+<li>Check and fix the related library paths or remove 3rd party libraries, usually <code>libcurl</code> or <code>libssh2</code>. On a x86_64 system, the standard paths for those libraries are <code>/usr/lib64/libcurl.so.4</code> and <code>/usr/lib64/libssh2.so.1</code></li>
+</ul>
+<h2 id="软中断、系统调用和上下文切换"><a href="#软中断、系统调用和上下文切换" class="headerlink" title="软中断、系统调用和上下文切换"></a>软中断、系统调用和上下文切换</h2><p>“你可以把内核看做是不断对请求进行响应的服务器，这些请求可能来自在CPU上执行的进程，也可能来自发出中断的外部设备。老板的请求相当于中断，而顾客的请求相当于用户态进程发出的系统调用”。</p>
+<p>软中断和系统调用一样，都是CPU停止掉当前用户态上下文，保存工作现场，然后陷入到内核态继续工作。二者的唯一区别是系统调用是切换到同进程的内核态上下文，而软中断是则是切换到了另外一个内核进程ksoftirqd上。</p>
+<blockquote>
+<p>系统调用开销是200ns起步</p>
+<p>从实验数据来看，一次软中断CPU开销大约3.4us左右</p>
+<p>实验结果显示进程上下文切换平均耗时 3.5us，lmbench工具显示的进程上下文切换耗时从2.7us到5.48之间</p>
+<p>大约每次线程切换开销大约是3.8us左右。<strong>从上下文切换的耗时上来看，Linux线程（轻量级进程）其实和进程差别不太大</strong>。</p>
+</blockquote>
+<p>软中断和进程上下文切换比较起来，进程上下文切换是从用户进程A切换到了用户进程B。而软中断切换是从用户进程A切换到了内核线程ksoftirqd上。而ksoftirqd作为一个内核控制路径，其处理程序比一个用户进程要轻量，所以上下文切换开销相对比进程切换要少一些（实际数据基本差不多）。</p>
+<p>系统调用只是在进程内将用户态切换到内核态，然后再切回来，而上下文切换可是直接从进程A切换到了进程B。显然这个上下文切换需要完成的工作量更大。</p>
+<h3 id="软中断开销计算"><a href="#软中断开销计算" class="headerlink" title="软中断开销计算"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483827&amp;idx=3&amp;sn=8b897c8d6d3038ea79bd156a0e88db10&amp;scene=21#wechat_redirect" target="_blank" rel="external">软中断开销计算</a></h3><ul>
+<li><strong>查看软中断总耗时</strong>， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%–1秒[1000ms]中的1.2%）</li>
+<li><strong>查看软中断次数</strong>，再用vmstat命令可以看到软中断的次数（in列 56000）</li>
+<li><strong>计算每次软中断的耗时</strong>，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右</li>
+</ul>
+<h2 id="Linux-启动进入紧急模式"><a href="#Linux-启动进入紧急模式" class="headerlink" title="Linux 启动进入紧急模式"></a>Linux 启动进入紧急模式</h2><p>可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载，麒麟下容易出现弄丢磁盘的标签和uuid</p>
+<p>否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的</p>
+<h2 id="进程状态"><a href="#进程状态" class="headerlink" title="进程状态"></a>进程状态</h2><p><a href="https://zhuanlan.zhihu.com/p/401910162" target="_blank" rel="external">https://zhuanlan.zhihu.com/p/401910162</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">PROCESS STATE CODES</div><div class="line">  Here are the different values that the s, stat and state output specifiers(header &quot;STAT&quot; or &quot;S&quot;) will display to describe the state of a process:</div><div class="line"> </div><div class="line">    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现</div><div class="line">    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度</div><div class="line">    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态</div><div class="line">    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）</div><div class="line">    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态</div><div class="line">    W    paging (not valid since the 2.6.xx kernel) #没有用了</div><div class="line">    X    dead (should never be seen) #进程退出时的状态</div><div class="line">    Z    defunct (&quot;zombie&quot;) process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程</div></pre></td></tr></table></figure>
+<h3 id="D状态的进程"><a href="#D状态的进程" class="headerlink" title="D状态的进程"></a><a href="https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html" target="_blank" rel="external">D状态的进程</a></h3><blockquote>
+<p> Process D是指进程处于不可中断状态。即uninterruptible sleep，通常我们比较常遇到的就是进程自旋等到进入竞争区等，刷脏页，进程同步等</p>
+<p>D： Disk sleep（task_uninterruptible)–比如，磁盘满，导致进程D，无法kill</p>
+</blockquote>
+<p>相关设置</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div></pre></td><td class="code"><pre><div class="line">echo 1 &gt;  /proc/sys/kernel/hung_task_panic  </div><div class="line"></div><div class="line">----- 处于D状态的超时时间，默认是120s</div><div class="line">$ cat /proc/sys/kernel/hung_task_timeout_secs</div><div class="line"></div><div class="line">----- 发现hung task之后是否触发panic操作</div><div class="line">$ cat /proc/sys/kernel/hung_task_panic</div><div class="line"></div><div class="line">----- 每次检查的进程数</div><div class="line">$ cat /proc/sys/kernel/hung_task_check_count</div><div class="line"></div><div class="line">----- 为了防止日志被刷爆，设置最多的打印次数</div><div class="line">$ cat /proc/sys/kernel/hung_task_warnings</div></pre></td></tr></table></figure>
+<p>这个参数可以用来处理 D 状态进程 </p>
+<p>内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。</p>
+<p>如果配置了 <code>hung_task_panic</code> ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。</p>
+<p>其基本原理也很简单，系统启动时会创建一个内核线程 <code>khungtaskd</code>，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。</p>
+<p>查看D进程出现的原因：</p>
+<p><img src="/images/951413iMgBlog/image-20230814112500971.png" alt="image-20230814112500971"></p>
+<p>这个堆栈能看到进程在哪里 D 住了，但不一定是根本原因，有可能是被动进入 D 状态的</p>
+<p><img src="/images/951413iMgBlog/image-20230814112742429.png" alt="image-20230814112742429"></p>
+<h3 id="T-状态进程"><a href="#T-状态进程" class="headerlink" title="T 状态进程"></a>T 状态进程</h3><p>kill -CONT pid 来恢复</p>
+<p>jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能<strong>导致detach的动作不会被执行</strong>，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。</p>
+<h2 id="路由"><a href="#路由" class="headerlink" title="路由"></a>路由</h2><p>『你所规划的路由必须要是你的网卡 (如 eth0) 或 IP 可以直接沟通 (broadcast) 的情况』才行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCDELRT: No such process // 从bond0没法广播到 11.164.191.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 100.81.183.247 netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable //从bond0.700 没法广播到 100.81.183.247，实际目前从bond0.700没法广播到任何地方</div><div class="line"></div><div class="line">$sudo route add** **11.164.191.247** **dev** **bond0.700</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 100.81.183.247** netmask 255.255.255.0 bond0.700</div><div class="line">SIOCADDRT: Network is unreachable  //从bond0.700 没法广播到 100.81.183.247</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0</div><div class="line">SIOCADDRT: Network is unreachable//从bond0没法广播到 11.164.191.247但是从bond0.700可以</div><div class="line"></div><div class="line">$sudo route add -net 11.164.191.0  **gw 11.164.191.247** netmask 255.255.255.0 bond0.700</div></pre></td></tr></table></figure>
+<p><a href="https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable" target="_blank" rel="external">https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable</a></p>
+<h2 id="linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”"><a href="#linux-2-6-32内核高精度定时器带来的cpu-sy暴涨的“问题”" class="headerlink" title="linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”"></a>linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”</h2><p>在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">cat /proc/timer_list | grep .resolution</div></pre></td></tr></table></figure>
+<p>可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）</p>
+<h2 id="后台执行"><a href="#后台执行" class="headerlink" title="后台执行"></a>后台执行</h2><p>将任务放到后台，断开ssh后还能运行：</p>
+<ol>
+<li>“ctrl-Z”将当前任务挂起；</li>
+<li>“disown -h”让该任务忽略 SIGHUP 信号（不会因为掉线而终止执行）；</li>
+<li>“bg”让该任务在后台恢复运行。</li>
+</ol>
+<h2 id="Linux-进程调度"><a href="#Linux-进程调度" class="headerlink" title="Linux 进程调度"></a>Linux 进程调度</h2><p>Linux的进程调度有一个不太为人熟知的特性，叫做<strong>wakeup affinity</strong>，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。</p>
+<p>这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。<a href="https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA" target="_blank" rel="external">https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA</a></p>
+<h2 id="tty"><a href="#tty" class="headerlink" title="tty"></a><a href="https://www.cnblogs.com/liqiuhao/p/9031803.html" target="_blank" rel="external">tty</a></h2><p>tty（teletype–最早的一种终端设备，远程打字机） stty 设置tty的相关参数</p>
+<p>tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端</p>
+<p>/dev/pty（Pseudo Terminal） 伪终端</p>
+<p>/dev/tty 控制终端</p>
+<p>远古时代tty是物理形态的存在</p>
+<p><img src="/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg" alt="img"></p>
+<p>PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义</p>
+<p><img src="/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg" alt="img"></p>
+<p>实际像如下图的工作协作:</p>
+<p><img src="/images/951413iMgBlog/case3.png" alt="Diagram"></p>
+<h2 id="rsync"><a href="#rsync" class="headerlink" title="rsync"></a><a href="https://wangdoc.com/ssh/rsync.html" target="_blank" rel="external">rsync</a></h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">将本地yum备份到150上的/data/yum/ 下</div><div class="line">rsync -arv ./yum/ root@11.167.60.150:/data/yum/</div><div class="line"></div><div class="line">走ssh的8022端口把目录备份到本地</div><div class="line">rsync -e &apos;ssh -p 8022&apos; -arv gcsql@10.2.3.4:/home/gcsql/doc/ ./</div></pre></td></tr></table></figure>
+<p><code>-a</code>、<code>--archive</code>参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。</p>
+<p><code>--delete</code>参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。</p>
+<p><code>-i</code>参数表示输出源目录与目标目录之间文件差异的详细情况。</p>
+<p><code>--link-dest</code>参数指定增量备份的基准目录。</p>
+<p><code>-n</code>参数或<code>--dry-run</code>参数模拟将要执行的操作，而并不真的执行。配合<code>-v</code>参数使用，可以看到哪些内容会被同步过去。</p>
+<p><code>--partial</code>参数允许恢复中断的传输。不使用该参数时，<code>rsync</code>会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与<code>--append</code>或<code>--append-verify</code>配合使用。</p>
+<p><code>--progress</code>参数表示显示进展。</p>
+<p><code>-r</code>参数表示递归，即包含子目录。</p>
+<p><code>-v</code>参数表示输出细节。<code>-vv</code>表示输出更详细的信息，<code>-vvv</code>表示输出最详细的信息。</p>
+<h2 id="Shebang"><a href="#Shebang" class="headerlink" title="Shebang"></a>Shebang</h2><p>Shebang 的东西 <code>#!/bin/bash</code></p>
+<p>对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。</p>
+<h3 id="ELF（Executable-and-Linkable-Format）"><a href="#ELF（Executable-and-Linkable-Format）" class="headerlink" title="ELF（Executable and Linkable Format）"></a>ELF（Executable and Linkable Format）</h3><p>对应windows下的exe</p>
+<h2 id="修改启动参数"><a href="#修改启动参数" class="headerlink" title="修改启动参数"></a>修改启动参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div></pre></td><td class="code"><pre><div class="line">$cat change_kernel_parameter.sh </div><div class="line">#cat /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#grep &apos;&apos; /sys/devices/system/cpu/vulnerabilities/*</div><div class="line">#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC</div><div class="line"></div><div class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">#transparent_hugepage=always</div><div class="line">#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off</div><div class="line">#追加nopti nospectre_v2到内核启动参数中</div><div class="line">sudo sed -i &apos;s/\(GRUB_CMDLINE_LINUX=&quot;.*\)&quot;/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always&quot;/&apos; /etc/default/grub</div><div class="line"></div><div class="line">//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置</div><div class="line">sudo grub2-mkconfig -o /boot/grub2/grub.cfg</div><div class="line"></div><div class="line">#limit the journald log to 500M</div><div class="line">sed -i &apos;s/^#SystemMaxUse=$/SystemMaxUse=500M/g&apos; /etc/systemd/journald.conf</div><div class="line">#重启系统</div><div class="line">#sudo reboot</div><div class="line"></div><div class="line">## 选择不同的kernel启动</div><div class="line">#sudo grep &quot;menuentry &quot; /boot/grub2/grub.cfg | grep -n menu</div><div class="line">##grub认的index从0开始数的</div><div class="line">#sudo grub2-reboot 0; sudo reboot</div><div class="line"></div><div class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</div><div class="line">always [madvise] never</div></pre></td></tr></table></figure>
+<h2 id="制作启动盘"><a href="#制作启动盘" class="headerlink" title="制作启动盘"></a>制作启动盘</h2><p>Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line">$ diskutil list</div><div class="line">/dev/disk6 (external, physical):</div><div class="line">   #:                       TYPE NAME                    SIZE       IDENTIFIER</div><div class="line">   0:                                                   *31.5 GB    disk6</div><div class="line">                        </div><div class="line"># 找到 U 盘的那个设备，umount</div><div class="line">$ diskutil unmountDisk /dev/disk3</div><div class="line"></div><div class="line"># 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)</div><div class="line"># 代表了 raw device，会快很多</div><div class="line">$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m</div><div class="line"></div><div class="line"># 弹出 U 盘</div><div class="line">$ sudo diskutil eject /dev/disk3</div></pre></td></tr></table></figure>
+<p><a href="https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/" target="_blank" rel="external">Linux 下制作步骤</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">umount /dev/sdn1</div><div class="line">sudo mkfs.vfat /dev/sdn1</div><div class="line">dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress</div></pre></td></tr></table></figure>
+<h2 id="性能"><a href="#性能" class="headerlink" title="性能"></a>性能</h2><p>为保证服务性能应选用 performance 模式，将 CPU 频率固定工作在其支持的最高运行频率上，不进行动态调节，操作命令为 <code>cpupower frequency-set --governor performance</code>。</p>
+<h3 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h3><ul>
+<li>dmesg | tail</li>
+<li>vmstat 1</li>
+<li>mpstat -P ALL 1</li>
+<li>pidstat 1</li>
+<li>iostat -xz 1</li>
+<li>free -m</li>
+<li>sar -n DEV 1</li>
+<li>sar -n TCP,ETCP 1</li>
+</ul>
+<h4 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div></pre></td><td class="code"><pre><div class="line">//检查sda磁盘中哪个应用程序占用的io比较高</div><div class="line">pidstat -d  1</div><div class="line"></div><div class="line">//分析应用程序中哪一个线程占用的io比较高</div><div class="line">pidstat -dt -p 73739 1  执行两三秒即可,得到74770线程io高</div><div class="line"></div><div class="line">//分析74770这个线程在干什么</div><div class="line">perf trace -t 74770 -o /tmp/tmp_aa.pstrace</div><div class="line">cat /tmp/tmp_aa.pstrace</div><div class="line">  2850.656 ( 1.915 ms): futex(uaddr: 0x653ae9c4, op: WAIT|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.572 ( 0.001 ms): futex(uaddr: 0x653ae990, op: WAKE|PRIVATE_FLAG, val: 1)               = 0</div><div class="line">  2852.601 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.690 ( 0.040 ms): write(fd: 159, buf: 0xd7a30020, count: 65536)                         = 65536</div><div class="line">  2852.796 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.798 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2852.939 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div><div class="line">  2852.950 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2852.977 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.029 ( 0.035 ms): write(fd: 64, buf: 0xcd51e020, count: 65536)                          = 65536</div><div class="line">  2853.164 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0</div><div class="line">  2853.167 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0</div><div class="line">  2853.302 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0</div></pre></td></tr></table></figure>
+<h3 id="内存——虚拟内存参数"><a href="#内存——虚拟内存参数" class="headerlink" title="内存——虚拟内存参数"></a>内存——虚拟内存参数</h3><ul>
+<li><code>dirty_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统将开始使用 pdflush 操作将脏的 page cache 写入磁盘。默认值为 20％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，降低其值有利于提高内存回收时的效率。</li>
+<li><code>dirty_background_ratio</code> 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统开始在后台将脏的 page cache 写入磁盘。默认值为 10％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，设置较低的值有利于提高内存回收时的效率。</li>
+</ul>
+<h3 id="I-O-调度器"><a href="#I-O-调度器" class="headerlink" title="I/O 调度器"></a>I/O 调度器</h3><p>I/O 调度程序确定 I/O 操作何时在存储设备上运行以及持续多长时间。也称为 I/O 升降机。对于 SSD 设备，宜设置为 noop。</p>
+<figure class="highlight sh"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="built_in">echo</span> noop &gt; /sys/block/<span class="variable">$&#123;SSD_DEV_NAME&#125;</span>/queue/scheduler</div></pre></td></tr></table></figure>
+<h3 id="磁盘挂载参数"><a href="#磁盘挂载参数" class="headerlink" title="磁盘挂载参数"></a>磁盘挂载参数</h3><p><code>noatime</code> 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新。</p>
+<h2 id="Unix-Linux关系"><a href="#Unix-Linux关系" class="headerlink" title="Unix Linux关系"></a>Unix Linux关系</h2><p><img src="/images/951413iMgBlog/image-20211210085124387.png" alt="image-20211210085124387"></p>
+<p><img src="/images/951413iMgBlog/G2Xri.png" alt="img"></p>
+<h3 id="linux-发行版关系"><a href="#linux-发行版关系" class="headerlink" title="linux 发行版关系"></a><a href="https://blog.51cto.com/wangyafei/1881605" target="_blank" rel="external">linux 发行版关系</a></h3><p><img src="/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg" alt="细数各家linux之间的区别_软件应用_什么值得买"></p>
+<p>Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。</p>
+<p>不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)</p>
+<p>69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网</p>
+<p>Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提供的WEB服务被大家大规模采用</p>
+<p>rpm:  centos/fedora/suse</p>
+<p>deb:  debian/ubuntu/uos(早期基于ubuntu定制，后来基于debian定制，再到最近开始直接基于kernel定制)</p>
+<p>ARPANET：<strong>高等研究計劃署網路</strong>（英語：Advanced Research Projects Agency Network），通称<strong>阿帕网</strong>（英語：ARPANET）是美國<a href="https://zh.m.wikipedia.org/wiki/國防高等研究計劃署" target="_blank" rel="external">國防高等研究計劃署</a>开发的世界上第一个运营的<a href="https://zh.m.wikipedia.org/wiki/封包交換" target="_blank" rel="external">封包交换</a>网络，是全球<a href="https://zh.m.wikipedia.org/wiki/互联网" target="_blank" rel="external">互联网</a>的鼻祖。</p>
+<p>TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。</p>
+<p>在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。</p>
+<h3 id="Deepin-UOS"><a href="#Deepin-UOS" class="headerlink" title="Deepin UOS"></a>Deepin UOS</h3><p><strong><em>\</em>Deepin 与统信 UOS 类似于红帽的 Fedora 与 RHEL 的上下游关系，Deepin 依然保持着原来的社区运营模式，而统信 UOS 则是基于社区版 Deepin 构建的商业发行版，为 Deepin 挖掘更多的商业机会和更大的商业价值，进而反哺社区，形成良性循环**</strong>。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.cnblogs.com/kevingrace/p/8671964.html" target="_blank" rel="external">https://www.cnblogs.com/kevingrace/p/8671964.html</a></p>
+<p><a href="https://www.jianshu.com/p/ac3e7009a764" target="_blank" rel="external">https://www.jianshu.com/p/ac3e7009a764</a></p>
+<p>B 站哈工大操作系统视频地址：<a href="https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1d4411v7u7?from=search&amp;seid=2361361014547524697</a></p>
+<p>B 站清华大学操作系统视频地址：<a href="https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697" target="_blank" rel="external">https://www.bilibili.com/video/BV1js411b7vg?from=search&amp;seid=2361361014547524697</a></p>
+<p><a href="https://linux.cn/article-10465-1.html" target="_blank" rel="external">Linux 工具：点的含义</a> <a href="https://www.linux.com/training-tutorials/linux-tools-meaning-dot/" target="_blank" rel="external">英文版</a></p>
+<p><a href="http://coolnull.com/4432.html" target="_blank" rel="external">linux cp实现强制覆盖</a></p>
+<p><a href="https://wangdoc.com/bash/startup.html" target="_blank" rel="external">https://wangdoc.com/bash/startup.html</a></p>
+<p><a href="https://cjting.me/2020/12/10/tiny-x64-helloworld/" target="_blank" rel="external">编写一个最小的 64 位 Hello World</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/01/ipmitool修改BIOS/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5992,622 +6573,11 @@ avg: 0.005937
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/21/就是要你懂TCP--性能优化大全/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
-                2019-06-21
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
-<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
-</blockquote>
-<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
-<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
-<p>粗一看没啥问题，把这个图形放大看看</p>
-<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
-<p>换个角度，看看窗口尺寸图形：</p>
-<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
-<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
-<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
-<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
-</code></pre><p>来看一下tcp包发送流程：</p>
-<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
-<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="external">https://www.atatech.org/articles/9032）</a></p>
-<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
-<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
-<pre><code>#!/usr/bin/stap
-# Simple probe to detect when a process is waiting for more socket send
-# buffer memory. Usually means the process is doing writes larger than the
-# socket send buffer size or there is a slow receiver at the other side.
-# Increasing the socket&apos;s send buffer size might help decrease application
-# latencies, but it might also make it worse, so buyer beware.
-#
-# Typical output: timestamp in microseconds: procname(pid) event
-#
-# 1218230114875167: python(17631) blocked on full send buffer
-# 1218230114876196: python(17631) recovered from full send buffer
-# 1218230114876271: python(17631) blocked on full send buffer
-# 1218230114876479: python(17631) recovered from full send buffer
-
-probe kernel.function(&quot;sk_stream_wait_memory&quot;)
-{
-    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
-        gettimeofday_us(), execname(), pid())
-}
-
-probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
-{
-    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
-        gettimeofday_us(), execname(), pid())
-}
-</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">这篇文章</a></p>
-<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
-<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
-<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
-net.core.wmem_max = 1048576
-net.core.wmem_default = 124928
-net.ipv4.tcp_wmem = 4096        16384   4194304
-net.ipv4.udp_wmem_min = 4096
-</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
-<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
-<pre><code>net.ipv4.tcp_moderate_rcvbuf
-</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
-<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
-<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
-<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
-<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
-<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
-<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
-sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
-</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
-<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
-<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">问题 Case</a></strong></p>
-<p>发送和接收Buffer对性能的完整影响参考<a href="/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">这篇</a></p>
-<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
-<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
-<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
-<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
-<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
-<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
-</ul>
-<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
-<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
-<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
-<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
-<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
-<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
-</ul>
-<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
-<ul>
-<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
-<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
-<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
-<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
-<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
-<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
-</ul>
-<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
-<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
-<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
-<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
-<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
-</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
-
-ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
-ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
-ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
-ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
-ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
-</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
-100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
-</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
-<pre><code>清除 tcp_metrics 
-sudo ip tcp_metrics flush all 
-
-关闭 tcp_metrics 功能
-net.ipv4.tcp_no_metrics_save = 1
-sudo ip tcp_metrics delete 100.118.58.7
-</code></pre><blockquote>
-<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
-</blockquote>
-<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
-<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
-<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
-<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
-<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
-<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
-<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
-<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
-<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
-<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
-<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">tcp metrics 在长肥网络下引发性能问题</a></p>
-<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
-<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
-<hr>
-<p>就是要你懂TCP相关文章：</p>
-<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
-<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">MSS和MTU导致的悲剧</a> </p>
-<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">双11通过网络优化提升10倍性能</a></p>
-<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">就是要你懂TCP的握手和挥手</a></p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="external">https://access.redhat.com/solutions/407743</a></p>
-<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="external">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
-<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="external">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
-<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="external">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
-<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="external">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
-<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">https://www.atatech.org/articles/109721</a></p>
-<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
-<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">https://www.atatech.org/articles/27189</a> </p>
-<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="external">https://www.atatech.org/articles/45084</a></p>
-<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">https://www.atatech.org/articles/9032</a></p>
-<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">tcp_rmem case</a></p>
-<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
-                2019-06-20
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/LVS/" itemprop="url" rel="index">
-                    <span itemprop="name">LVS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
-<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
-</blockquote>
-<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
-<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
-<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
-<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
-vip：Virtual IP，LVS实例IP
-rip：Real IP，后端RS地址
-RS: Real Server 后端真正提供服务的机器
-LB： Load Balance 负载均衡器
-LVS： Linux Virtual Server
-sip： source ip
-dip： destination
-</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
-<li>DR模型 – (Director Routing-直接路由)</li>
-<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
-<li>fullNAT – (full NAT)</li>
-<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
-<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
-</ul>
-<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
-<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
-<ol>
-<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
-<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
-<li>然后丢给Director，Director将这个包丢给选中的RS</li>
-<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
-<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
-<li>经过交换机直接回复给client了(不再走LVS)</li>
-</ol>
-<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
-<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
-<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
-<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
-<li>RS需要配置vip同时特殊处理arp；</li>
-<li>配置比较复杂；</li>
-<li>不支持端口映射。</li>
-</ul>
-<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
-<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
-<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
-<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
-<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
-<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
-<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
-<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
-<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
-<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
-<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
-<p>优点：</p>
-<ul>
-<li>配置简单</li>
-<li>支持端口映射(看名字就知道)</li>
-<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>LVS和所有RS必须在同一个vlan</li>
-<li>进出流量都要走LVS转发</li>
-<li>LVS容易成为瓶颈</li>
-<li>一般而言需要将VIP配置成RS的网关</li>
-</ul>
-<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
-<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
-<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
-<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
-<ol>
-<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
-<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
-<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
-<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
-<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS看不到cip(NAT模式下可以看到)</li>
-<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
-</ul>
-<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
-<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
-<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
-<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
-<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
-<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
-<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
-<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
-<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
-<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
-<p>优点：</p>
-<ul>
-<li>不要求LVS和RS在同一个vlan</li>
-<li>出去的流量不需要走LVS，性能好</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
-</ul>
-<p>基本流程：</p>
-<ol>
-<li>client发出请求(cip，vip)</li>
-<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
-<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
-<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
-<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
-</ol>
-<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
-<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
-<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
-<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
-<p>最后说一下不太常用的 TUN模型</p>
-<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
-<ol>
-<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
-<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
-<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
-<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
-</ol>
-<p>优点：</p>
-<ul>
-<li>集群节点可以跨vlan</li>
-<li>跟DR一样，响应报文直接发给client</li>
-</ul>
-<p>缺点：</p>
-<ul>
-<li>RS上必须安装运行IPIP模块</li>
-<li>多增加了一个IP头</li>
-<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
-</ul>
-<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
-<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
-<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
-<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
-<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
-<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
-<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
-<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
-<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
-<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
-<p>所以推出NGLB来解决这个问题</p>
-<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
-<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
-<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
-<li>toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/<code>uname -r</code>/kernel/net/toa/toa.ko）。</li>
-<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
-<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
-<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
-</ol>
-<p>!！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:</p>
-<blockquote>
-<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。</p>
-<p>当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。</p>
-<p>如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。</p>
-</blockquote>
-<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
-<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
-<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
-<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
-<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
-<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
-<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
-<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
-<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
-<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="external">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="external">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
-<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="external">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
-<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
-<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
-<p>2.结合性能测试数据，调整session的prefecth</p>
-<p>3.消除false sharing。</p>
-<p>目前LVS 40G机型，单机4块 40G网卡。</p>
-<p>平均包长1k的情况下能跑满4个网口(160G)</p>
-<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
-<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
-<p>lvs的优化方案为大小桶算法：</p>
-<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
-<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
-<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
-<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
-<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
-<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="external">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
-<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="external">https://yizhi.ren/2019/05/03/lvs/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/page/9/">9</a><a class="extend next" rel="next" href="/page/7/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/page/10/">10</a><a class="extend next" rel="next" href="/page/7/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -6652,7 +6622,7 @@ dip： destination
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">179</span>
+                <span class="site-state-item-count">181</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6663,7 +6633,7 @@ dip： destination
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">18</span>
+                <span class="site-state-item-count">19</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -6674,7 +6644,7 @@ dip： destination
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">268</span>
+                <span class="site-state-item-count">271</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

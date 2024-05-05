@@ -291,6 +291,617 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/21/就是要你懂TCP--性能优化大全/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/21/就是要你懂TCP--性能优化大全/" itemprop="url">就是要你懂TCP--性能优化大全</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-21T12:30:03+08:00">
+                2019-06-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="TCP性能优化大全"><a href="#TCP性能优化大全" class="headerlink" title="TCP性能优化大全"></a>TCP性能优化大全</h1><blockquote>
+<p>先从一个问题看起，客户通过专线访问云上的DRDS，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这慢得不太正常，如果通过云上client访问云上DRDS那么1-2秒就返回了。如果通过http或者scp传输这22M的数据大概两秒钟也传送完毕了，所以这里问题的原因基本上是DRDS在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包-tcpdump-wireshark"><a href="#抓包-tcpdump-wireshark" class="headerlink" title="抓包 tcpdump+wireshark"></a>抓包 tcpdump+wireshark</h2><p>这个查询结果22M的需要25秒，如下图（wireshark 时序图），横轴是时间纵轴是sequence number：</p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，把这个图形放大看看</p>
+<p><img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p>换个角度，看看窗口尺寸图形：</p>
+<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输时间 16K*1000/20=800Kb/秒</p>
+<p>DRDS会默认设置 socketSendBuffer 为16K:</p>
+<pre><code>socket.setSendBufferSize(16*1024) //16K send buffer
+</code></pre><p>来看一下tcp包发送流程：</p>
+<p><img src="http://img.blog.csdn.net/20130718162926640?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>（图片来自：<a href="https://www.atatech.org/articles/9032）" target="_blank" rel="external">https://www.atatech.org/articles/9032）</a></p>
+<p><img src="http://img.blog.csdn.net/20130718163121484?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcnVzc2VsbF90YW8=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt=""></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code>#!/usr/bin/stap
+# Simple probe to detect when a process is waiting for more socket send
+# buffer memory. Usually means the process is doing writes larger than the
+# socket send buffer size or there is a slow receiver at the other side.
+# Increasing the socket&apos;s send buffer size might help decrease application
+# latencies, but it might also make it worse, so buyer beware.
+#
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffer\n&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+</code></pre><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如第二个图中的大概20ms的等待平台。这块请参考<a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">这篇文章</a></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立马腾出来发新的货物，而是要等发走的获取对方确认收到了(ack)才能腾出来发新的货物, 仓库足够大了之后接下来的瓶颈就是高速公路了（带宽、拥塞窗口）</strong></p>
+<p>如果是UDP，就没有send buffer的概念，有数据统统发出去，根本不关心对方是否收到。</p>
+<h2 id="几个发送buf相关的内核参数"><a href="#几个发送buf相关的内核参数" class="headerlink" title="几个发送buf相关的内核参数"></a>几个发送buf相关的内核参数</h2><pre><code>vm.lowmem_reserve_ratio = 256   256     32
+net.core.wmem_max = 1048576
+net.core.wmem_default = 124928
+net.ipv4.tcp_wmem = 4096        16384   4194304
+net.ipv4.udp_wmem_min = 4096
+</code></pre><p>net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过我们代码中这块的参数是很多年前从Corba中继承过来的，一直没有修改。代码中设置了这个参数后就关闭了内核的动态调整功能，所以能看到http或者scp都很快。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<pre><code>net.ipv4.tcp_moderate_rcvbuf
+</code></pre><h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="BDP-带宽时延积"><a href="#BDP-带宽时延积" class="headerlink" title="BDP 带宽时延积"></a>BDP 带宽时延积</h2><p>这个buf调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
+<p>因为BDP是250K，也就是拥塞窗口即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre><h2 id="这个案例的结论"><a href="#这个案例的结论" class="headerlink" title="这个案例的结论"></a>这个案例的结论</h2><p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>平时看到的一些理论在实践中用起来比较难，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践的鸿沟</p>
+<p><strong>需要调整tcp_rmem 的<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">问题 Case</a></strong></p>
+<p>发送和接收Buffer对性能的完整影响参考<a href="/2019/05/28/TCP%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">这篇</a></p>
+<h2 id="总结下TCP跟速度相关的几个概念"><a href="#总结下TCP跟速度相关的几个概念" class="headerlink" title="总结下TCP跟速度相关的几个概念"></a>总结下TCP跟速度相关的几个概念</h2><ul>
+<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
+<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
+<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
+<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
+<li>SO_SNDBUF、SO_RCVBUF 发送、接收buffer</li>
+</ul>
+<p><img src="/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
+<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
+<p><img src="/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<h2 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h2><ul>
+<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
+<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP/“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP/“ 的，其实是一种作弊行为。</li>
+</ul>
+<p><img src="/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<ul>
+<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
+<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
+<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
+<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
+<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
+<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
+</ul>
+<p><img src="/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p>这些经验都来自CDN @辟拾 的 <a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">网络优化 - TCP 是如何做到提速 20 倍的</a></p>
+<h2 id="重要参数"><a href="#重要参数" class="headerlink" title="重要参数"></a>重要参数</h2><h3 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h3><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
+<p>这种友善的保护机制，但是对于目前的网络坏境没必要这么谨慎和彬彬有礼，建议将此功能关闭，以提高长连接环境下的用户体验感。</p>
+<pre><code>sysctl net.ipv4.tcp_slow_start_after_idle=0
+</code></pre><h3 id="确认运行中每个连接-CWND-ssthresh-slow-start-threshold"><a href="#确认运行中每个连接-CWND-ssthresh-slow-start-threshold" class="headerlink" title="确认运行中每个连接 CWND/ssthresh(slow start threshold)"></a>确认运行中每个连接 CWND/ssthresh(slow start threshold)</h3><pre><code>ss -itn dst  11.163.187.32 |grep -v &quot;Address:Port&quot; | xargs -L 1 | grep ssthresh
+
+ESTAB 0 0 11.163.187.33:33833 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.16/0.186 ato:40 mss:1448 cwnd:10 ssthresh:7 send 724.0Mbps lastsnd:2813 lastrcv:2813 lastack:2813 pacing_rate 1445.7Mbps rcv_rtt:52081.5 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46793 cubic wscale:7,7 rto:201 rtt:0.169/0.137 ato:40 mss:1448 cwnd:59 ssthresh:48 send 4044.1Mbps lastsnd:334 lastrcv:409 lastack:334 pacing_rate 8052.5Mbps retrans:0/759 reordering:34 rcv_rtt:50178 rcv_space:137603
+ESTAB 0 0 11.163.187.33:33829 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.065/0.002 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1782.2Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3550.7Mbps rcv_rtt:51495.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:33828 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.113/0.061 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1025.1Mbps lastsnd:2826 lastrcv:2826 lastack:2826 pacing_rate 2043.5Mbps rcv_rtt:54801.8 rcv_space:29344
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:47047 cubic wscale:7,7 rto:206 rtt:5.977/9.1 ato:40 mss:1448 cwnd:10 ssthresh:51 send 19.4Mbps lastsnd:522150903 lastrcv:522150906 lastack:522150903 pacing_rate 38.8Mbps retrans:0/44 reordering:31 rcv_rtt:86067 rcv_space:321882
+ESTAB 0 0 11.163.187.33:2376 11.163.187.32:46789 cubic wscale:7,7 rto:201 rtt:0.045/0.003 ato:40 mss:1448 cwnd:10 ssthresh:9 send 2574.2Mbps lastsnd:522035639 lastrcv:1589957951 lastack:522035639 pacing_rate 5077.9Mbps retrans:0/12 reordering:20 rcv_space:28960
+ESTAB 0 0 11.163.187.33:33831 11.163.187.32:2181 cubic wscale:7,7 rto:201 rtt:0.071/0.01 ato:40 mss:1448 cwnd:10 ssthresh:7 send 1631.5Mbps lastsnd:2825 lastrcv:2825 lastack:2825 pacing_rate 3263.1Mbps rcv_rtt:54805.8 rcv_space:29344
+</code></pre><h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre><p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
+<pre><code>清除 tcp_metrics 
+sudo ip tcp_metrics flush all 
+
+关闭 tcp_metrics 功能
+net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre><blockquote>
+<p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
+</blockquote>
+<h3 id="ssthresh-是如何降低的"><a href="#ssthresh-是如何降低的" class="headerlink" title="ssthresh 是如何降低的"></a>ssthresh 是如何降低的</h3><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，<br>如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
+<h3 id="ssthresh-降低后为何长时间不恢复正常"><a href="#ssthresh-降低后为何长时间不恢复正常" class="headerlink" title="ssthresh 降低后为何长时间不恢复正常"></a>ssthresh 降低后为何长时间不恢复正常</h3><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。<br>此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较<br>大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个<br>较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
+<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
+<h3 id="tcp-windows-scale"><a href="#tcp-windows-scale" class="headerlink" title="tcp windows scale"></a>tcp windows scale</h3><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
+<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
+<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
+<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND<em>1500(MTU)</em>1000(ms)/rt</p>
+<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
+<h3 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h3><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
+<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
+<p>以上经验来自 @俞青 同学的 <a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">tcp metrics 在长肥网络下引发性能问题</a></p>
+<h2 id="经典的-nagle-和-dalay-ack对性能的影响"><a href="#经典的-nagle-和-dalay-ack对性能的影响" class="headerlink" title="经典的 nagle 和 dalay ack对性能的影响"></a>经典的 nagle 和 dalay ack对性能的影响</h2><p>请参考这篇文章：<a href="https://www.atatech.org/articles/80292" target="_blank" rel="external">就是要你懂 TCP– 最经典的TCP性能问题</a></p>
+<h2 id="最后的经验"><a href="#最后的经验" class="headerlink" title="最后的经验"></a>最后的经验</h2><p><strong>抓包解千愁</strong></p>
+<hr>
+<p>就是要你懂TCP相关文章：</p>
+<p> <a href="https://www.atatech.org/articles/78858" target="_blank" rel="external">关于TCP 半连接队列和全连接队列</a></p>
+<p> <a href="https://www.atatech.org/articles/60633" target="_blank" rel="external">MSS和MTU导致的悲剧</a> </p>
+<p> <a href="https://www.atatech.org/articles/73174" target="_blank" rel="external">双11通过网络优化提升10倍性能</a></p>
+<p> <a href="https://www.atatech.org/articles/79660" target="_blank" rel="external">就是要你懂TCP的握手和挥手</a></p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章:"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="external">https://access.redhat.com/solutions/407743</a></p>
+<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="external">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
+<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="external">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
+<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="external">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
+<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="external">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
+<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="external">https://www.atatech.org/articles/109721</a></p>
+<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="external">https://www.atatech.org/articles/109967</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="external">https://www.atatech.org/articles/27189</a> </p>
+<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="external">https://www.atatech.org/articles/45084</a></p>
+<p><a href="https://www.atatech.org/articles/9032" target="_blank" rel="external">https://www.atatech.org/articles/9032</a></p>
+<p><a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/" target="_blank" rel="external">tcp_rmem case</a></p>
+<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="external">高性能网络编程7–tcp连接的内存使用</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/就是要你懂负载均衡--lvs和转发模式/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/06/20/就是要你懂负载均衡--lvs和转发模式/" itemprop="url">就是要你懂负载均衡--lvs和转发模式</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">
+                2019-06-20
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/LVS/" itemprop="url" rel="index">
+                    <span itemprop="name">LVS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
+<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
+</blockquote>
+<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
+<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
+<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
+<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
+vip：Virtual IP，LVS实例IP
+rip：Real IP，后端RS地址
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+sip： source ip
+dip： destination
+</code></pre><h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
+<li>DR模型 – (Director Routing-直接路由)</li>
+<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
+<li>fullNAT – (full NAT)</li>
+<li>ENAT – (enhence NAT 或者叫三角模式/DNAT，阿里云提供)</li>
+<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
+</ul>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
+<ol>
+<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
+<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
+<li>然后丢给Director，Director将这个包丢给选中的RS</li>
+<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
+<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
+<li>经过交换机直接回复给client了(不再走LVS)</li>
+</ol>
+<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
+<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
+<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
+<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
+<li>RS需要配置vip同时特殊处理arp；</li>
+<li>配置比较复杂；</li>
+<li>不支持端口映射。</li>
+</ul>
+<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
+<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
+<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
+<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
+<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
+<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
+<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
+<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
+<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>配置简单</li>
+<li>支持端口映射(看名字就知道)</li>
+<li>RIP一般是私有地址，主要用户LVS和RS之间通信 </li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>LVS和所有RS必须在同一个vlan</li>
+<li>进出流量都要走LVS转发</li>
+<li>LVS容易成为瓶颈</li>
+<li>一般而言需要将VIP配置成RS的网关</li>
+</ul>
+<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
+<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
+<li>请求包到达lvs，lvs修改请求包为<strong>(sip 200.200.200.1， dip rip)</strong> 注意这里sip/dip都被修改了</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS看不到cip(NAT模式下可以看到)</li>
+<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
+</ul>
+<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
+<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的 toa(Tcp Option as Address)模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
+<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
+<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
+<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
+<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
+<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
+<p>优点：</p>
+<ul>
+<li>不要求LVS和RS在同一个vlan</li>
+<li>出去的流量不需要走LVS，性能好</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
+</ul>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(cip，vip)</li>
+<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
+<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
+<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
+<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
+</ol>
+<p>ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式</p>
+<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
+<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<p>最后说一下不太常用的 TUN模型</p>
+<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
+<ol>
+<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
+<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
+<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
+<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>集群节点可以跨vlan</li>
+<li>跟DR一样，响应报文直接发给client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS上必须安装运行IPIP模块</li>
+<li>多增加了一个IP头</li>
+<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
+</ul>
+<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
+<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
+<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
+<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
+<h2 id="阿里云slb的fnat"><a href="#阿里云slb的fnat" class="headerlink" title="阿里云slb的fnat"></a>阿里云slb的fnat</h2><p>本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
+<p>这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
+<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
+<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
+<p>所以推出NGLB来解决这个问题</p>
+<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
+<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
+<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
+<li>toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/<code>uname -r</code>/kernel/net/toa/toa.ko）。</li>
+<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
+<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
+<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
+</ol>
+<p>!！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:</p>
+<blockquote>
+<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。</p>
+<p>当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。</p>
+<p>如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。</p>
+</blockquote>
+<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
+<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
+<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
+<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
+<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/" target="_blank" rel="external">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html" target="_blank" rel="external">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
+<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383" target="_blank" rel="external">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
+<p>1.session/svc 数据结构调整 热点字段聚集到同个cache line</p>
+<p>2.结合性能测试数据，调整session的prefecth</p>
+<p>3.消除false sharing。</p>
+<p>目前LVS 40G机型，单机4块 40G网卡。</p>
+<p>平均包长1k的情况下能跑满4个网口(160G)</p>
+<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
+<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
+<p>lvs的优化方案为大小桶算法：</p>
+<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
+<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
+<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
+<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
+<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
+<p><a href="https://yq.aliyun.com/articles/52752" target="_blank" rel="external">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
+<p><a href="https://yizhi.ren/2019/05/03/lvs/" target="_blank" rel="external">https://yizhi.ren/2019/05/03/lvs/</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/09/一文搞懂域名解析相关问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4820,298 +5431,11 @@ $ cat  kernel_log.0915
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/26/优酷一台应用服务器无法访问部分drds-server/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/26/优酷一台应用服务器无法访问部分drds-server/" itemprop="url">部分机器网络不通</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-26T16:30:03+08:00">
-                2018-08-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
-                    <span itemprop="name">troubleshooting</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="部分机器网络不通"><a href="#部分机器网络不通" class="headerlink" title="部分机器网络不通"></a>部分机器网络不通</h1><h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
-<p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
-<p><strong>上图是不通的IP，下图是正常IP</strong></p>
-<p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
-<h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
-8c:dc:d4:b3:af:14 10.100.10.201
-</code></pre>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/08/26/关于TCP连接的KeepAlive和reset/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/08/26/关于TCP连接的KeepAlive和reset/" itemprop="url">关于TCP连接的Keepalive和reset</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-08-26T16:30:03+08:00">
-                2018-08-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="关于TCP连接的Keepalive和reset"><a href="#关于TCP连接的Keepalive和reset" class="headerlink" title="关于TCP连接的Keepalive和reset"></a>关于TCP连接的Keepalive和reset</h1><p>先来看一个现象，下面是测试代码：</p>
-<pre><code>Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
-Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
-
-Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
-</code></pre><p>server监听在2000端口，支持keepalive， client连接上server后每隔10秒发送一个keepalive包，一旦keepalive包得不对对方的响应，每隔1秒继续发送keepalive, 重试两次，如果一直得不到对方的响应那么这个时候client主动发送一个reset包，那么在client这边这个socket就断开了。server上会一直傻傻的等，直到真正要发送数据了才抛异常。</p>
-<p><img src="/images/oss/90d1c4919d86764242ab726b4c69f006.png" alt="image.png"></p>
-<p>假如client连接层是一个Java应用的连接池，那么这个socket断开后Java能感知吗？</p>
-<p><a href="https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed" target="_blank" rel="external">https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed</a></p>
-<p>Java对Socket的控制比较弱，比如只能指定是否keepalive，不能用特定的keepalive参数(intvl/cnt等），除非走JNI，不推荐。</p>
-<p>如下图（dup ack其实都是keepalive包，这是因为没有抓到握手包导致wireshark识别错误而已）<br><img src="/images/oss/c2893e5ad89ee450c61a370ec7bf6f06.png" alt="image.png"></p>
-<p>如上图，client 21512在多次keepalive server都不响应后，发送了reset断开这个连接（server没收到），server以为还连着，这个时候当server正常发数据给client，如果防火墙还在就丢掉，server不停地重传，如果防火墙不在，那么对方os收到这个包后知道21512这个端口对应的连接已经关闭了，再次发送reset给server，这时候server抛异常，中断这个连接。</p>
-<p><img src="/images/oss/78427c329e72d526aa8908942409f092.png" alt="image.png"></p>
-<p>os层面目前看起来除了用socket去读数据感知到内核已经reset了连接外也没什么好办法检测到。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/6/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><span class="page-number current">7</span><a class="page-number" href="/page/8/">8</a><a class="page-number" href="/page/9/">9</a><a class="extend next" rel="next" href="/page/8/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" href="/page/6/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><span class="page-number current">7</span><a class="page-number" href="/page/8/">8</a><span class="space">&hellip;</span><a class="page-number" href="/page/10/">10</a><a class="extend next" rel="next" href="/page/8/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -5156,7 +5480,7 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">179</span>
+                <span class="site-state-item-count">181</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5167,7 +5491,7 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">18</span>
+                <span class="site-state-item-count">19</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -5178,7 +5502,7 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">268</span>
+                <span class="site-state-item-count">271</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
