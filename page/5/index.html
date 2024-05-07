@@ -2067,6 +2067,24 @@
 <li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
 <li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full， 诊断: dmesg |grep conntrack</li>
 </ul>
+<p>tcp connect 的流程是这样的：</p>
+<p>1、tcp发出SYN建链报文后，报文到ip层需要进行路由查询</p>
+<p>2、路由查询完成后，报文到arp层查询下一跳mac地址</p>
+<p>3、如果本地没有对应网关的arp缓存，就需要缓存住这个报文，发起arp请求</p>
+<p>4、arp层收到arp回应报文之后，从缓存中取出SYN报文，完成mac头填写并发送给驱动。</p>
+<p>问题在于，arp层报文缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
+<p>TCP层发现SYN报文发出去3s（1s+2s）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
+<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3</p>
+<h2 id="PAWS"><a href="#PAWS" class="headerlink" title="PAWS"></a>PAWS</h2><p><a href="https://perthcharles.github.io/2015/08/27/timestamp-intro/" target="_blank" rel="noopener">Linux 系统有PAWS机制</a>，全称Protect Againest Wrapped Sequence numbers，目的是为了解决在高带宽下，TCP序号可能被重复使用而带来的问题。<a href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/" target="_blank" rel="noopener">PAWS会检查syn网络包的timestamps</a> ，来判断这个syn包的发送时间是否早于上一个syn包，如果早就扔掉，这也是导致syn握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成per host粒度了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">timestamp为TCP/IP协议栈提供了两个功能：  </span><br><span class="line">    a. 更加准确的RTT测量数据，尤其是有丢包时  -- RTTM  </span><br><span class="line">    b. 保证了在极端情况下，TCP的可靠性        -- PAWS</span><br></pre></td></tr></table></figure>
+
+<p>不同 OS 内核PAWS 行为还不一样</p>
+<h3 id="2-6内核"><a href="#2-6内核" class="headerlink" title="2.6内核"></a>2.6内核</h3><p>服务端tw_recycle置1且客户端有timestamp，60s内同一客户端IP SYN包timestamp需要是递增，否则丢弃。</p>
+<h3 id="3-10内核"><a href="#3-10内核" class="headerlink" title="3.10内核"></a>3.10内核</h3><p>服务端tw_recycle置1，客户端有timestamp，60s内同一客户端IP SYN包timestamp需要是递增，否则丢弃。</p>
+<p>服务端tw_recycle置1，客户端先有带timestamp SYN请求，60s内后续不带timestamp的SYN请求，将被丢弃。</p>
+<h3 id="4-18内核及以上"><a href="#4-18内核及以上" class="headerlink" title="4.18内核及以上"></a>4.18内核及以上</h3><p>4.12后内核取消tw_recycle，但是4.10后修改此前timestamps置位为1时的行为，这也成为很多混部场景异常的导火索。</p>
+<p>当tcp_timestamps置1，将针对每个连接的timestamps使用一个随机数，而非沿用此前使用系统时间作为timestamps TsVL。</p>
+<p>当tcp_timestamps置2，沿用此前使用系统时间作为timestamps TsVL</p>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>一定要会用tcpdump和wireshark（纯工具，没有任何门槛，用不好只有一个原因: 懒）</li>
 <li>多实践（因为网络知识离我们有点远、有点抽象）,用好各种工具，工具能帮我们看到、摸到</li>
@@ -2432,8 +2450,8 @@ LISTEN    0     511              *:8085           *:*
               
               
                 <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/其它/" itemprop="url" rel="index">
-                    <span itemprop="name">其它</span>
+                  <a href="/categories/others/" itemprop="url" rel="index">
+                    <span itemprop="name">others</span>
                   </a>
                 </span>
 
@@ -2658,6 +2676,20 @@ LISTEN    0     511              *:8085           *:*
 <p>SWIFT 是 Society for Worldwide Interbank Financial Telecommunications 的缩写，翻译成中文叫做「环球银行金融电讯协会」。看名字就知道，他是个搞通讯的，还冠冕堂皇的是一个非盈利性组织。</p>
 <p>另外，SWIFT 官网上是这么用中文介绍自己的：SWIFT 为社群提供报文传送平台和通信标准，并在连接、集成、身份识别、数据分析和合规等领域的产品和服务（我一字未改，这多语言做的……语句都不通顺，好在不影响理解）；用英文则是这么介绍的：SWIFT is a global member-owned cooperative and the world’s leading provider of secure financial messaging services。</p>
 </blockquote>
+<p>2022 <a href="https://weibo.com/1687445053/MgRSVCTy5" target="_blank" rel="noopener">黄奇帆谈贫富差距和共同富裕</a>：</p>
+<p>差距的三个原因：</p>
+<ol>
+<li>地域差异，胡焕庸线导致东西部差距，西部地理天气条件不如东部；2000年收入是3.5比1，2010年是3比1,2020年是2 比1</li>
+<li>城乡差距，农民没有财产性收入(比如房屋、宅基地升值；比如贷款通货膨胀后变相升值)；</li>
+<li>行业差距，金融业息差大躺着赚钱，互联网、房地产法律法规不完善赚钱快</li>
+</ol>
+<p>解决办法：</p>
+<ol>
+<li>地域：通过大资本大投入在西部搞能源、资源开发，从西气东送到西电东送，比如青海700平方公里的太阳能基地年产生2万亿度电，2毛钱一度就是4000亿人民币，有可能能成为中国的阿拉伯能源基地；发展生产力</li>
+<li>2020年土地法，可以直接拍卖宅基地？获得土地收入以及增值。落户城市享受城市工作机会尤其是社保体系；要素生产</li>
+<li>更多地开放金融牌照，降低息差；完善相关法律法规，让竞争尽可能在公平公正的环境下良性发生；行业边际效应、结构性均衡、资源优化配置</li>
+</ol>
+<p>目前间接税过高，过高的间接税虽然有一部分用来转移支付但是效果不是最优，以后希望降低来改善营商环境藏富于民。以后可能会收取房产税、遗产税(都有免征门槛)等</p>
 
           
         
