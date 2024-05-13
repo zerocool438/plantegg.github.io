@@ -292,6 +292,250 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/01/01/通过tcpdump对Unix Socket 进行抓包解析/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/01/01/通过tcpdump对Unix Socket 进行抓包解析/" itemprop="url">通过tcpdump对Unix Domain Socket 进行抓包解析</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-01-01T16:30:03+08:00">
+                2018-01-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/tcpdump/" itemprop="url" rel="index">
+                    <span itemprop="name">tcpdump</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="通过tcpdump对Unix-domain-Socket-进行抓包解析"><a href="#通过tcpdump对Unix-domain-Socket-进行抓包解析" class="headerlink" title="通过tcpdump对Unix domain Socket 进行抓包解析"></a>通过tcpdump对Unix domain Socket 进行抓包解析</h1><h2 id="背景介绍"><a href="#背景介绍" class="headerlink" title="背景介绍"></a>背景介绍</h2><p>大多时候我们可以通过tcpdump对网络抓包分析请求、响应数据来排查问题。但是如果程序是通过Unix Domain Socket方式来访问的那么tcpdump就看不到Unix Domain Socket里面具体流淌的内容了，本文希望找到一种方法达到如同抓包查看网卡内容一样来抓包查看Unix Domain Socket上具体的请求、响应数据。</p>
+<h2 id="socat工具"><a href="#socat工具" class="headerlink" title="socat工具"></a>socat工具</h2><p>类似nc，但是是个超级增强版的nc，<a href="https://payloads.online/tools/socat" target="_blank" rel="noopener">主要用作两个独立数据通道之间的双向数据传输的继电器（或者说代理）</a></p>
+<p>基本原理，通过socat在Unix-Socket和TCP&#x2F;UDP port之间建立一个代理，然后对代理上的端口进行抓包。</p>
+<p>以下案例通过对 docker.sock 抓包来分析方案。大多时候我们都可以通过curl 来将http post请求发送到docker deamon所监听的端口，这些请求和响应都可以通过tcpdump抓包分析得到。但是我们通过 docker ps &#x2F; docker run 将命令发给本地 docker-deamon的时候就是将请求翻译成 http请求发给了 docker.sock, 这个时候如果需要排查问题就没法用tcpdump来分析http内容了。</p>
+<h2 id="通过socat-启动一个tcp端口来代理Unix-Domain-Socket"><a href="#通过socat-启动一个tcp端口来代理Unix-Domain-Socket" class="headerlink" title="通过socat 启动一个tcp端口来代理Unix Domain Socket"></a>通过socat 启动一个tcp端口来代理Unix Domain Socket</h2><p>启动本地8080端口，将docker.sock映射到8080端口,8080收到的东西都会转给docker.sock，docker.sock收到的东西都通过抓8080的包看到,但是要求应用访问8080而不是docker.sock。</p>
+<pre><code>socat -d -d TCP-LISTEN:8080,fork,bind=127.0.0.1 UNIX:/var/run/docker.sock
+</code></pre>
+<p><strong>缺点：需要修改客户端的访问方式</strong></p>
+<pre><code>sudo curl --unix-socket /var/run/docker.sock http://localhost/images/json
+</code></pre>
+<p>上面的访问方式对8080抓包还是抓不到，因为绕过了我们的代理。</p>
+<p>只能通过如下方式访问8080端口，然后请求通过socat代理转发给docker.sock，整个结果跟访问–unix-socket是一样的，这个时候通过8080端口抓包能看到–unix-socket的工作数据</p>
+<pre><code>sudo curl http://localhost:8080/images/json
+</code></pre>
+<h2 id="通过socat启动另外一个Unix-Domain-Socket代理，但是不是tcpdump抓包"><a href="#通过socat启动另外一个Unix-Domain-Socket代理，但是不是tcpdump抓包" class="headerlink" title="通过socat启动另外一个Unix Domain Socket代理，但是不是tcpdump抓包"></a>通过socat启动另外一个Unix Domain Socket代理，但是不是tcpdump抓包</h2><pre><code>sudo mv /var/run/docker.sock /var/run/docker.sock.original
+sudo socat -t100 -d -x -v UNIX-LISTEN:/var/run/docker.sock,mode=777,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock.original
+</code></pre>
+<p>优点：客户端访问方式不变，还是直接访问–unix-socket<br>缺点：输出的数据不如tcpdump方便，也就不能用wireshark来分析了</p>
+<p>本质也还是socat代理，只是不是用的一个tcp端口来代理了，而是通过一个unix-socet代理了另外一个unix-socket，直接在代理上输出所有收发的数据</p>
+<h2 id="完美的办法，客户端不用改访问方式，tcpdump也能抓到数据"><a href="#完美的办法，客户端不用改访问方式，tcpdump也能抓到数据" class="headerlink" title="完美的办法，客户端不用改访问方式，tcpdump也能抓到数据"></a>完美的办法，客户端不用改访问方式，tcpdump也能抓到数据</h2><pre><code>sudo mv /var/run/docker.sock /var/run/docker.sock.original
+sudo socat TCP-LISTEN:8089,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock.original
+sudo socat UNIX-LISTEN:/var/run/docker.sock,fork TCP-CONNECT:127.0.0.1:8089
+</code></pre>
+<p>然后客户端还是直接访问–unix-socket	<br>    sudo curl –unix-socket &#x2F;var&#x2F;run&#x2F;docker.sock <a href="http://localhost/images/json" target="_blank" rel="noopener">http://localhost/images/json</a></p>
+<p>这个时候通过tcpdump在8089端口上就能抓到数据了</p>
+<pre><code>sudo tcpdump -i lo -netvv port 8089
+</code></pre>
+<p>实际是结合前面两种方法，做了两次代理，先将socket映射到8089端口上，然后再将8089端口映射到一个新的socket上，最后client访问这个新的socket。</p>
+<p>实际流程如下： client -&gt; 新socket -&gt; 8089 -&gt; 原来的socket  这个时候对8089可以任意抓包了</p>
+<p>参考来源：<a href="https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/" target="_blank" rel="noopener">https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/</a>	</p>
+<h2 id="一些socat的其它用法"><a href="#一些socat的其它用法" class="headerlink" title="一些socat的其它用法"></a>一些socat的其它用法</h2><p> 把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的&#x2F;var&#x2F;run&#x2F;mysqld.temp.sock, 这样就可以用mysql -S &#x2F;var&#x2F;run&#x2F;mysqld&#x2F;mysqld.sock来访问远程主机的mysql服务了。</p>
+<pre><code>socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;
+</code></pre>
+<p> 还可以用下面的命令把12.34.56.78上的mysql映射到本地的5500端口，然后使用mysql -p 5500命令访问。</p>
+<pre><code>socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
+</code></pre>
+<p> 把12.34.56.78的udp 161端口映射到本地的1611端口</p>
+<pre><code>socat udp-listen:1611 system:&#39;ssh root@12.34.56.78 &quot;socat stdio udp-connect:remotetarget:161&quot;&#39;	
+</code></pre>
+<p> 通过socat启动server，带有各种参数，比nc更灵活</p>
+<pre><code>Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
+Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
+
+Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
+</code></pre>
+<p>启动本地8080端口，将docker.sock映射到8080端口(docker.sock收到的东西都通过抓8080的包看到)。 8080收到的东西都会转给docker.sock</p>
+<pre><code>socat -d -d TCP-LISTEN:8080,fork,bind=99.13.252.208 UNIX:/var/run/docker.sock
+</code></pre>
+<h3 id="用socat远程Unix-Domain-Socket映射"><a href="#用socat远程Unix-Domain-Socket映射" class="headerlink" title="用socat远程Unix Domain Socket映射"></a>用socat远程Unix Domain Socket映射</h3><p>除了将我们本地服务通过端口映射提供给其它人访问，我们还可以通过端口转发玩一些更high的。比如下面这条命令，它把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的&#x2F;var&#x2F;run&#x2F;mysqld.temp.sock，这样，小明就可以用mysql -S &#x2F;var&#x2F;run&#x2F;mysqld&#x2F;mysqld.temp.sock来访问远程主机的mysql服务了。</p>
+<pre><code>socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT\:/var/run/mysqld/mysqld.sock&quot;
+</code></pre>
+<p>当然，小明如果不喜欢本地Unix Domain Socket，他还可以用下面的命令把12.34.56.78上的mysql映射到本地的5500端口，然后使用mysql -p 5500命令访问。</p>
+<pre><code>socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
+
+# 把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的/var/run/mysqld.temp.sock, 这样就可以用mysql -S /var/run/mysqld/mysqld.sock来访问远程主机的mysql服务了。
+socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;
+# 还可以用下面的命令把12.34.56.78上的mysql映射到本地
+# 的5500端口，然后使用mysql -p 5500命令访问。
+socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
+# 把12.34.56.78的udp 161端口映射到本地的1611端口：
+socat udp-listen:1611 system:&#39;ssh root@12.34.56.78 &quot;socat stdio udp-connect:remotetarget:161&quot;&#39;
+</code></pre>
+<h2 id="socat启动网络服务"><a href="#socat启动网络服务" class="headerlink" title="socat启动网络服务"></a>socat启动网络服务</h2><p>在一个窗口中启动 <code>socat</code> 作为服务端，监听在 1000 端口：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> start a TCP listener at port 1000, and <span class="built_in">echo</span> back the received data</span></span><br><span class="line"><span class="meta">$</span><span class="bash"> sudo socat TCP4-LISTEN:1000,fork <span class="built_in">exec</span>:cat</span></span><br></pre></td></tr></table></figure>
+
+<p>另一个窗口用 <code>nc</code> 作为客户端来访问服务端，建立 socket：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> connect to the <span class="built_in">local</span> TCP listener at port 1000</span></span><br><span class="line"><span class="meta">$</span><span class="bash"> nc localhost 1000</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="curl-7-57版本可以直接访问-–unix-socket"><a href="#curl-7-57版本可以直接访问-–unix-socket" class="headerlink" title="curl 7.57版本可以直接访问 –unix-socket"></a>curl 7.57版本可以直接访问 –unix-socket</h2><p>7.57之后的版本才支持curl –unix-socket，大大方便了我们的测试</p>
+<pre><code>//Leave 测试断开一个网络
+curl -H &quot;Content-Type: application/json&quot; -X POST -d &#39;{&quot;NetworkID&quot;:&quot;47866b0071e3df7e8053b9c8e499986dfe5c9c4947012db2d963c66ca971ed4b&quot;,&quot;EndpointID&quot;:&quot;3d716436e629701d3ce8650e7a85c133b0ff536aed173c624e4f62a381656862&quot;}&#39; --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.Leave
+
+//取镜像列表
+sudo curl --unix-socket /var/run/docker.sock http://localhost/images/json
+
+curl 11.239.155.97:2376/debug/pprof/goroutine?debug=2
+echo -e &quot;GET /debug/pprof/goroutine?debug=2 HTTP/1.1\r\n&quot; | sudo nc -U /run/docker/plugins/vlan.sock
+echo -e &quot;GET /debug/pprof/goroutine?debug=2 HTTP/1.1\r\n&quot; | sudo nc -U /var/run/docker.sock
+//升级curl到7.57后支持 --unix-socket
+sudo curl --unix-socket /var/run/docker.sock http://localh卡路里ost/images/json
+sudo curl --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.GetCapabilities
+//Leave
+curl -H &quot;Content-Type: application/json&quot; -X POST -d &#39;{&quot;NetworkID&quot;:&quot;47866b0071e3df7e8053b9c8e499986dfe5c9c4947012db2d963c66ca971ed4b&quot;,&quot;EndpointID&quot;:&quot;3d716436e629701d3ce8650e7a85c133b0ff536aed173c624e4f62a381656862&quot;}&#39; --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.Leave
+
+sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/events
+</code></pre>
+<h2 id="Unix-Domain-Socket工作原理"><a href="#Unix-Domain-Socket工作原理" class="headerlink" title="Unix Domain Socket工作原理"></a><a href="https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A" target="_blank" rel="noopener">Unix Domain Socket工作原理</a></h2><p>接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。</p>
+<p><img src="/images/951413iMgBlog/640-0054201." alt="Image"></p>
+<p>主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。</p>
+<p>直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) &#x3D; sk 和 unix_peer(sk) &#x3D; newsk 这两句。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">int</span> <span class="title">unix_stream_connect</span><span class="params">(struct socket *sock, struct sockaddr *uaddr,</span></span></span><br><span class="line"><span class="function"><span class="params">          <span class="keyword">int</span> addr_len, <span class="keyword">int</span> flags)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line"> <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_un</span> *<span class="title">sunaddr</span> = (<span class="title">struct</span> <span class="title">sockaddr_un</span> *)<span class="title">uaddr</span>;</span></span><br><span class="line"></span><br><span class="line"> <span class="comment">// 1. 为服务器侧申请一个新的 socket 对象</span></span><br><span class="line"> newsk = unix_create1(sock_net(sk), <span class="literal">NULL</span>);</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 2. 申请一个 skb，并关联上 newsk</span></span><br><span class="line"> skb = sock_wmalloc(newsk, <span class="number">1</span>, <span class="number">0</span>, GFP_KERNEL);</span><br><span class="line"> ...</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 3. 建立两个 sock 对象之间的连接</span></span><br><span class="line"> unix_peer(newsk) = sk;</span><br><span class="line"> newsk-&gt;sk_state  = TCP_ESTABLISHED;</span><br><span class="line"> newsk-&gt;sk_type  = sk-&gt;sk_type;</span><br><span class="line"> ...</span><br><span class="line"> sk-&gt;sk_state = TCP_ESTABLISHED;</span><br><span class="line"> unix_peer(sk) = newsk;</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 4. 把连接中的一头（新 socket）放到服务器接收队列中</span></span><br><span class="line"> __skb_queue_tail(&amp;other-&gt;sk_receive_queue, skb);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> unix_peer(sk) (unix_sk(sk)-&gt;peer)</span></span><br></pre></td></tr></table></figure>
+
+<p>收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，<strong>直接把 skb 给放到对端的接收队列里了</strong></p>
+<p><img src="/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
+<p>Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。</p>
+<h2 id="tcpdump原理"><a href="#tcpdump原理" class="headerlink" title="tcpdump原理"></a>tcpdump原理</h2><p><img src="/images/oss/0923eefc85c1bf87f47591222532f1f2.png" alt="image.png"></p>
+<p>tcpdump 抓包使用的是 libpcap 这种机制。它的大致原理是：在收发包时，如果该包符合 tcpdump 设置的规则（BPF filter），那么该网络包就会被拷贝一份到 tcpdump 的内核缓冲区，然后以 PACKET_MMAP 的方式将这部分内存映射到 tcpdump 用户空间，解析后就会把这些内容给输出了。</p>
+<p>通过上图你也可以看到，在收包的时候，如果网络包已经被网卡丢弃了，那么 tcpdump 是抓不到它的；在发包的时候，如果网络包在协议栈里被丢弃了，比如因为发送缓冲区满而被丢弃，tcpdump 同样抓不到它。我们可以将 tcpdump 的能力范围简单地总结为：网卡以内的问题可以交给 tcpdump 来处理；对于网卡以外（包括网卡上）的问题，tcpdump 可能就捉襟见肘了。这个时候，你需要在对端也使用 tcpdump 来抓包。</p>
+<h3 id="tcpdump-技巧"><a href="#tcpdump-技巧" class="headerlink" title="tcpdump 技巧"></a>tcpdump 技巧</h3><blockquote>
+<p>tcpdump -B&#x2F;**–buffer-size&#x3D;<strong>*buffer_size:*Set the operating system capture buffer size to <em>buffer_size</em>, in units of KiB (1024 bytes). tcpdump 丢包，造成这种丢包的原因是由于libcap抓到包后，tcpdump上层没有及时的取出，导致libcap缓冲区溢出，从而覆盖了未处理包，此处即显示为**dropped by kernel</strong>，注意，这里的kernel并不是说是被linux内核抛弃的，而是被tcpdump的内核，即libcap抛弃掉的</p>
+</blockquote>
+<h3 id="获取接口设备列表"><a href="#获取接口设备列表" class="headerlink" title="获取接口设备列表"></a>获取接口设备列表</h3><p>tcpdump的<code>-D</code>获取接口设备列表。看到此列表后，可以决定要在哪个接口上捕获流量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">#tcpdump -D</span><br><span class="line">1.eth0</span><br><span class="line">2.bond0</span><br><span class="line">3.docker0</span><br><span class="line">4.nflog (Linux netfilter log (NFLOG) interface)</span><br><span class="line">5.nfqueue (Linux netfilter queue (NFQUEUE) interface)</span><br><span class="line">6.eth1</span><br><span class="line">7.usbmon1 (USB bus number 1)</span><br><span class="line">8.usbmon2 (USB bus number 2)</span><br><span class="line">9.veth6f2ee76</span><br><span class="line">10.veth8cb61c2</span><br><span class="line">11.veth9d9d363</span><br><span class="line">12.veth16c25ac</span><br><span class="line">13.veth190f0fc</span><br><span class="line">14.veth07103d7</span><br><span class="line">15.veth09119c0</span><br><span class="line">16.veth9770e1a</span><br><span class="line">17.any (Pseudo-device that captures on all interfaces)</span><br><span class="line">18.lo [Loopback]</span><br><span class="line"></span><br><span class="line"># tcpdump -X //解析内容</span><br></pre></td></tr></table></figure>
+
+<h2 id="TCP-疑难问题的轻量级分析手段：TCP-Tracepoints"><a href="#TCP-疑难问题的轻量级分析手段：TCP-Tracepoints" class="headerlink" title="TCP 疑难问题的轻量级分析手段：TCP Tracepoints"></a>TCP 疑难问题的轻量级分析手段：TCP Tracepoints</h2><p>Tracepoint 是我分析问题常用的手段之一，在遇到一些疑难问题时，我通常都会把一些相关的 Tracepoint 打开，把 Tracepoint 输出的内容保存起来，然后再在线下环境中分析。通常，我会写一些 Python 脚本来分析这些内容，毕竟 Python 在数据分析上还是很方便的。</p>
+<p>对于 TCP 的相关问题，我也习惯使用这些 TCP Tracepoints 来分析问题。要想使用这些 Tracepoints，你的内核版本需要为 <strong>4.16</strong> 及以上。这些常用的 TCP Tracepoints 路径位于 &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;tcp&#x2F; 和 &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;sock&#x2F;，它们的作用如下表所示：</p>
+<p><img src="/images/oss/32f29686127beb5a3279e630259903ae.png" alt="image.png"></p>
+<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/" target="_blank" rel="noopener">https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/</a>	</p>
+<p><a href="https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump" target="_blank" rel="noopener">https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump</a></p>
+<p><a href="https://payloads.online/tools/socat" target="_blank" rel="noopener">https://payloads.online/tools/socat</a></p>
+<p><a href="https://gaia.cs.umass.edu/kurose_ross/wireshark.php" target="_blank" rel="noopener">计算机网络</a>（Computer Networking: A Top-Down Approach）</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/12/15/从知识到能力，你到底欠缺了什么/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5125,179 +5369,11 @@ ok =&gt; 10.125.12.174 =&gt; {
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2014/06/02/tcp会偶尔3秒timeout/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2014/06/02/tcp会偶尔3秒timeout/" itemprop="url">tcp会偶尔3秒timeout的分析以及如何用php规避这个问题</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2014-06-02T17:30:03+08:00">
-                2014-06-02
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/TCP/" itemprop="url" rel="index">
-                    <span itemprop="name">TCP</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="tcp会偶尔3秒timeout的分析以及如何用php规避这个问题"><a href="#tcp会偶尔3秒timeout的分析以及如何用php规避这个问题" class="headerlink" title="tcp会偶尔3秒timeout的分析以及如何用php规避这个问题"></a><a href="https://web.archive.org/web/20170317084941/http://mogu.io/tcp-three-second-timeout-with-php-3" target="_blank" rel="noopener">tcp会偶尔3秒timeout的分析以及如何用php规避这个问题</a></h1><blockquote>
-<p>这是一篇好文章，随着蘑菇街的完蛋，蘑菇街技术博客也没了，所以特意备份一下这篇</p>
-</blockquote>
-<ul>
-<li><p>作者：蚩尤 </p>
-</li>
-<li><p>时间：May 27, 2014</p>
-</li>
-</ul>
-<p>2年前做一个cache中间件调用的时候，发现很多通过php的curl调用一个的服务会出现偶尔的connect_time超时, 表现为get_curlinfo的connect_time在3秒左右, 本来没怎么注意, 因为客户端的curl_timeout设置的就是3秒, 某天, 我把这个timeout改到了5秒后, 发现了一个奇怪的现象, 很多慢请求依旧表现为connect_time在3秒左右..看来这个3秒并不是因为客户端设置的timeout引起的.于是开始查找这个原因.</p>
-<hr>
-<p>首先, 凭借经验调整了linux内核关于tcp的几个参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">net.core.netdev_max_backlog = 862144</span><br><span class="line">net.core.somaxconn = 262144</span><br></pre></td></tr></table></figure>
-
-<p>经过观察发现依旧会有3秒超时, 而且数量并没有减少.</p>
-<p>第二步, 排除是大并发导致的问题, 在一台空闲机器上也部署同样的服务, 仅让线上一台机器跑空闲机器的服务, 结果发现依旧会有报错.排除并发导致的问题.</p>
-<p>最后, 通过查了大量的资料才发现并不是我们才遇到过这个问题, 而且这个问题并不是curl的问题, 它影响到所有tcp的调用, 网上各种说法, 但结论都指向linux内核对于tcp的实现.(某些版本会出现这些问题), 有兴趣的可以看下下面这两个资料.<br><a href="https://web.archive.org/web/20170317084941/http://www.spinics.net/lists/linux-net/msg17545.html" target="_blank" rel="noopener">资料1</a><br><a href="https://web.archive.org/web/20170317084941/http://marc.info/?t=120655182600018&r=1&w=2" target="_blank" rel="noopener">资料2</a></p>
-<p>一看深入到linux内核..不管怎样修改的成本一定很大..于是乎, 发挥我们手中的php来规避这个问题的时间到了.</p>
-<p>原本的代码, 简单实现，常规curl调用:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">function curl_call($p1, $p2 ...) &#123;</span><br><span class="line">   $ch = curl_init();</span><br><span class="line">   curl_setopt($ch, CURLOPT_TIMEOUT, 5);</span><br><span class="line">   curl_setopt($ch, CURLOPT_URL, &apos;http://demon.at&apos;);</span><br><span class="line">   $res = curl_exec($ch);</span><br><span class="line">   if (false === $res) &#123;</span><br><span class="line">      //失败..抛异常..</span><br><span class="line">   &#125;</span><br><span class="line">   return $res;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>可以看出, 如果用上面的代码, 无法避免3秒connect_time的问题..这种实现对curl版本会有要求(CURLOPT_CONNECTTIMEOUT_MS)，主要的思路是，通过对链接时间进行毫秒级的控制(因为超时往往发生在connect的时候)，加上失败重试机制，来最大限度保证调用的正确性。所以,下面的代码就诞生了:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">function curl_call($p1, $p2, $times = 1) &#123;</span><br><span class="line">   $ch = curl_init();</span><br><span class="line">   curl_setopt($ch, CURLOPT_TIMEOUT, 5);</span><br><span class="line">   curl_setopt($ch, CURLOPT_URL, &apos;http://demon.at&apos;);</span><br><span class="line">   $curl_version = curl_version();</span><br><span class="line">   if ($curl_version[&apos;version_number&apos;] &gt;= 462850) &#123;</span><br><span class="line">      curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 20);</span><br><span class="line">      curl_setopt($ch, CURLOPT_NOSIGNAL, 1);</span><br><span class="line">   &#125; else &#123;</span><br><span class="line">      throw new Exception(&apos;this curl version is too low, version_num : &apos; </span><br><span class="line">                         . $curl_version[&apos;version&apos;]);</span><br><span class="line">   &#125;</span><br><span class="line">   $res = curl_exec($ch);</span><br><span class="line">   curl_close($ch);</span><br><span class="line">   if (false === $res) &#123;</span><br><span class="line">      if (curl_errno($ch) == CURLE_OPERATION_TIMEOUTED</span><br><span class="line">             and $times != 最大重试阀值 ) &#123;</span><br><span class="line">         $times += 1;</span><br><span class="line">         return curl_call($p1, $p2, $times);</span><br><span class="line">      &#125;</span><br><span class="line">   &#125;</span><br><span class="line"></span><br><span class="line">   return $res;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面这段代码只是一个规避的简单实例, 一些小细节并没有可以完善..比如抛出异常常以后curl资源的手动释放等等..这里不做讨论..当然还漏了一点要说的是，对重试次数最好加上限制 :)</p>
-<p>说明一下上面几个数字值的含义:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">462850 //因为php的CURLOPT_CONNECTTIMEOUT_MS需要 curl_version 7.16.2,这个值就是这个版本的数字版本号，还需要注意的是, php版本要大于5.2.3</span><br><span class="line">20 //连接超时的时间, 单位:ms</span><br></pre></td></tr></table></figure>
-
-<hr>
-<p>这样这个问题就这样通过php的代码来规避开了.<br>如果有对这个问题有更好的解决方法，欢迎指教.</p>
-<hr>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p><a href="https://mp.weixin.qq.com/s/-pRA12sLJktbXa-srWn02w" target="_blank" rel="noopener">tcp connect 的流程是这样的</a>：<br>1、tcp发出SYN建链报文后，报文到ip层需要进行路由查询<br>2、路由查询完成后，报文到arp层查询下一跳mac地址<br>3、如果本地没有对应网关的arp缓存，就需要缓存住这个报文，发起arp请求<br>4、arp层收到arp回应报文之后，从缓存中取出SYN报文，完成mac头填写并发送给驱动。</p>
-<p>问题在于，arp层缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
-<p>TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
-<p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/8/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/8/">8</a><span class="page-number current">9</span>
+    <a class="extend prev" rel="prev" href="/page/8/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/8/">8</a><span class="page-number current">9</span><a class="page-number" href="/page/10/">10</a><a class="extend next" rel="next" href="/page/10/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 
@@ -5340,7 +5416,7 @@ ok =&gt; 10.125.12.174 =&gt; {
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">180</span>
+                <span class="site-state-item-count">181</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>

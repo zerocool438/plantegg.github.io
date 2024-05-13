@@ -134,7 +134,7 @@
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image10-5.png">
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/lQLPJwQZZ7TDbHrNBTTNBdCwIxliw-QP0oQEMVPcZwCyAA_1488_1332.png">
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231007152649201.png">
-<meta property="og:updated_time" content="2024-05-07T09:59:58.825Z">
+<meta property="og:updated_time" content="2024-05-13T14:12:14.240Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="TCP性能和发送接收窗口、Buffer的关系">
 <meta name="twitter:description" content="前言本文希望解析清楚，当我们在代码中写下 socket.setSendBufferSize 和 sysctl 看到的rmem&amp;#x2F;wmem系统参数以及最终我们在TCP常常谈到的接收发送窗口的关系，以及他们怎样影响TCP传输的性能，同时如何通过图形来展示哪里是传输瓶颈。 拥塞窗口相关文章比较多，他们跟带宽紧密相关，所以大家比较好判断，反而是接收、发送窗口一旦出现瓶颈，就没这么好判断了。 先明确">
@@ -748,7 +748,9 @@ probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
 </ul>
 <p><strong>总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF</strong></p>
 <p>关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满</p>
-<h1 id="相关和参考文章"><a href="#相关和参考文章" class="headerlink" title="相关和参考文章"></a>相关和参考文章</h1><p><a href="https://blog.csdn.net/dog250/article/details/113020804" target="_blank" rel="noopener">用stap从内核角度来分析buffer、rt和速度</a></p>
+<h1 id="相关和参考文章"><a href="#相关和参考文章" class="headerlink" title="相关和参考文章"></a>相关和参考文章</h1><p>2024 Netflix： <a href="https://netflixtechblog.medium.com/investigation-of-a-cross-regional-network-performance-issue-422d6218fdf1" target="_blank" rel="noopener">Investigation of a Cross-regional Network Performance Issue</a>  因为内核升级去掉了内核参数 sysctl_tcp_adv_win_scale，换了一个新的计算方式，导致原来30秒 内能传输完毕的请求在新内核机制下传输不完，从而导致了业务端的请求超时  <a href="https://lore.kernel.org/netdev/20230717152917.751987-1-edumazet@google.com/T/" target="_blank" rel="noopener">This commit</a> obsoleted <em>sysctl_tcp_adv_win_scale</em> and introduced a <em>scaling_ratio</em> that can more accurately calculate the overhead or window size, which is the right thing to do. With the change, the window size is now <em>rcvbuf * scaling_ratio</em>. 简而言之，内核升级后，接收缓存大小减半。因此，吞吐量也减半，导致数据传输时间翻倍。</p>
+<p>Netflix 这次业务问题是Kafka， 其代码里不应该设置TCP 接收buffer 大小，而是要让kernel来自动调节</p>
+<p><a href="https://blog.csdn.net/dog250/article/details/113020804" target="_blank" rel="noopener">用stap从内核角度来分析buffer、rt和速度</a></p>
 <p>[The story of one latency spike][<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/]" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/]</a> : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点</p>
 <blockquote>
 <p>Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is <code>tcp_collapse</code> and it will merge adjacent TCP packets into one larger <code>sk_buff</code>. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.</p>
@@ -896,7 +898,7 @@ probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">180</span>
+                <span class="site-state-item-count">181</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
